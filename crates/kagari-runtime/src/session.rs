@@ -8,7 +8,7 @@ use crate::{
         types::arguments::TypeArgument,
         waiting::{PendingWait, QueuedFuture},
     },
-    gc::leases::LeaseScope,
+    gc::{GcHeap, leases::LeaseScope},
     host::HostFrameId,
     module::{LoadedModule, retention::ProgramLease},
     resource::{ResourceCounters, ResourceState},
@@ -84,14 +84,14 @@ pub enum TraceValue {
 }
 
 impl TraceValue {
-    fn capture(value: &Value, depth: usize, remaining: &mut usize) -> Self {
+    fn capture(heap: &GcHeap, value: &Value, depth: usize, remaining: &mut usize) -> Self {
         if *remaining == 0 {
             return Self::Opaque("trace value budget".into());
         }
         *remaining -= 1;
 
         match value {
-            Value::Range(value) => Self::Opaque(format!("{value:?}")),
+            Value::Range(value) => Self::Opaque(format!("{:?}", heap.range(*value))),
             Value::Unit => Self::Unit,
             Value::Bool(value) => Self::Bool(*value),
             Value::I32(value) => Self::I32(*value),
@@ -99,17 +99,23 @@ impl TraceValue {
             Value::U64(value) => Self::U64(*value),
             Value::F32(value) => Self::F32Bits(value.to_bits()),
             Value::F64(value) => Self::F64Bits(value.to_bits()),
-            Value::Str(value) => Self::Str {
-                prefix: value.chars().take(256).collect(),
-                truncated: value.chars().nth(256).is_some(),
+            Value::Str(id) => match heap.string(*id) {
+                Some(value) => Self::Str {
+                    prefix: value.chars().take(256).collect(),
+                    truncated: value.chars().nth(256).is_some(),
+                },
+                None => Self::Opaque("invalid string".into()),
             },
-            Value::Tuple(values) if depth < 4 => Self::Tuple {
-                elements: values
-                    .iter()
-                    .take(16)
-                    .map(|value| Self::capture(value, depth + 1, remaining))
-                    .collect(),
-                truncated: values.len() > 16,
+            Value::Tuple(id) if depth < 4 => match heap.tuple(*id) {
+                Some(values) => Self::Tuple {
+                    elements: values
+                        .iter()
+                        .take(16)
+                        .map(|value| Self::capture(heap, value, depth + 1, remaining))
+                        .collect(),
+                    truncated: values.len() > 16,
+                },
+                None => Self::Opaque("invalid tuple".into()),
             },
             Value::Tuple(_) => Self::Opaque("tuple depth limit".into()),
             Value::Array(id) => Self::Opaque(format!("array:{id:?}")),
@@ -123,7 +129,7 @@ impl TraceValue {
             Value::Cell(id) => Self::Opaque(format!("cell:{id:?}")),
             Value::HostRoot(_) => Self::Opaque("host root".into()),
             Value::HostPathView(_) => Self::Opaque("host path".into()),
-            Value::Ephemeral(_) => Self::Opaque("ephemeral".into()),
+            Value::Ephemeral(_) | Value::RuntimeEphemeral(_) => Self::Opaque("ephemeral".into()),
         }
     }
 }
@@ -249,7 +255,12 @@ impl SessionState {
         value ^ (value >> 31)
     }
 
-    pub(crate) fn begin_host_call(&self, symbol: &str, args: &[Value]) -> Option<usize> {
+    pub(crate) fn begin_host_call(
+        &self,
+        heap: &GcHeap,
+        symbol: &str,
+        args: &[Value],
+    ) -> Option<usize> {
         if !self.options.record_host_calls {
             return None;
         }
@@ -267,7 +278,7 @@ impl SessionState {
             arguments: args
                 .iter()
                 .take(32)
-                .map(|value| TraceValue::capture(value, 0, &mut remaining))
+                .map(|value| TraceValue::capture(heap, value, 0, &mut remaining))
                 .collect(),
             omitted_arguments: args.len().saturating_sub(32),
             outcome: None,
@@ -275,10 +286,15 @@ impl SessionState {
         Some(index)
     }
 
-    pub(crate) fn finish_host_call(&self, index: usize, result: &Result<Value, RuntimeError>) {
+    pub(crate) fn finish_host_call(
+        &self,
+        heap: &GcHeap,
+        index: usize,
+        result: &Result<Value, RuntimeError>,
+    ) {
         if let Some(call) = self.host_calls.borrow_mut().get_mut(index) {
             call.outcome = Some(match result {
-                Ok(value) => Ok(TraceValue::capture(value, 0, &mut 128)),
+                Ok(value) => Ok(TraceValue::capture(heap, value, 0, &mut 128)),
                 Err(error) => Err(error.kind()),
             });
         }
@@ -462,16 +478,28 @@ mod tests {
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {
+        let runtime = Runtime::default();
+        let heap = runtime.gc();
         let mut budget = 128;
         assert_eq!(
-            TraceValue::capture(&Value::Str("x".repeat(300)), 0, &mut budget),
+            TraceValue::capture(
+                heap,
+                &heap.alloc_string("x".repeat(300)).unwrap(),
+                0,
+                &mut budget
+            ),
             TraceValue::Str {
                 prefix: "x".repeat(256),
                 truncated: true,
             }
         );
         let mut budget = 3;
-        let captured = TraceValue::capture(&Value::Tuple(vec![Value::I32(1); 20]), 0, &mut budget);
+        let captured = TraceValue::capture(
+            heap,
+            &heap.alloc_tuple(vec![Value::I32(1); 20]).unwrap(),
+            0,
+            &mut budget,
+        );
         let TraceValue::Tuple {
             elements,
             truncated,
@@ -503,7 +531,7 @@ mod tests {
         options.record_host_calls = true;
         let session = runtime.begin_execution(&module, options).unwrap();
         for _ in 0..10_001 {
-            session.state().begin_host_call("ping", &[]);
+            session.state().begin_host_call(runtime.gc(), "ping", &[]);
         }
         let trace = session.trace().unwrap();
         assert_eq!(trace.host_calls.len(), 10_000);

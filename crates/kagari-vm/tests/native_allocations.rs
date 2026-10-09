@@ -182,7 +182,7 @@ fn sample(
         stack
             .current_mut()
             .unwrap()
-            .write_register(runtime, *register, value.clone())
+            .write_register(runtime, *register, *value)
             .unwrap();
     }
     let invoke = || {
@@ -361,7 +361,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                 stack
                     .current_mut()
                     .unwrap()
-                    .write_register(&runtime, *register, value.clone())
+                    .write_register(&runtime, *register, *value)
                     .unwrap();
             }
             stack

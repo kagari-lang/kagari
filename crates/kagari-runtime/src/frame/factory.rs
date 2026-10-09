@@ -65,7 +65,7 @@ impl Runtime {
                 },
             },
             owner: closure.implementation.clone(),
-            value: self.root_value(value.clone()).ok_or_else(invalid)?,
+            value: self.root_value(*value).ok_or_else(invalid)?,
             future: signature.result.clone(),
         })
     }

@@ -161,10 +161,10 @@ impl GcHeap {
                     .try_reserve(1)
                     .map_err(|_| self.resource_limit("allocation capacity"))?;
                 entries
-                    .insert(key.clone(), value.clone())
+                    .insert(key.clone(), value)
                     .map_err(|_| self.resource_limit("allocation capacity"))?;
             } else {
-                *entries.get_mut(&key).ok_or_else(invalid)? = value.clone();
+                *entries.get_mut(&key).ok_or_else(invalid)? = value;
             }
             Ok(())
         };

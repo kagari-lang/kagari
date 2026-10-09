@@ -80,26 +80,39 @@ impl<'a> HostResourceScope<'a> {
     }
 
     fn validate_borrows(&self, values: &[Value]) -> Result<(), RuntimeError> {
-        let mut pending = values.iter().collect::<Vec<_>>();
+        let heap = self.runtime.gc();
+        let invalid = || RuntimeError::host_call_failure("invalid scoped host value");
+        let mut pending = values.to_vec();
         while let Some(value) = pending.pop() {
             match value {
-                Value::Tuple(elements) => pending.extend(elements),
-                Value::HostRoot(root) if !self.runtime.host().matches_root(**root) => {
-                    return Err(RuntimeError::host_call_failure(
-                        "host root belongs to another registry or is not registered",
-                    ));
+                Value::Tuple(id) => {
+                    pending.extend(heap.tuple(id).ok_or_else(invalid)?.iter().copied())
                 }
-                Value::HostPathView(view) if !self.runtime.host().matches_root(view.root()) => {
-                    return Err(RuntimeError::host_call_failure(
-                        "host path view belongs to another registry or has an unregistered root",
-                    ));
+                Value::HostRoot(id) => {
+                    let root = heap.host_root(id).ok_or_else(invalid)?;
+                    if !self.runtime.host().matches_root(root) {
+                        return Err(RuntimeError::host_call_failure(
+                            "host root belongs to another registry or is not registered",
+                        ));
+                    }
                 }
-                Value::Ephemeral(EphemeralValue::HostRef(token)) => self
-                    .runtime
-                    .validate_host_borrow(**token, HostBorrowKind::Shared)?,
-                Value::Ephemeral(EphemeralValue::HostMut(token)) => self
-                    .runtime
-                    .validate_host_borrow(**token, HostBorrowKind::Unique)?,
+                Value::HostPathView(id) => {
+                    let view = heap.host_path(id).ok_or_else(invalid)?;
+                    if !self.runtime.host().matches_root(view.root()) {
+                        return Err(RuntimeError::host_call_failure(
+                            "host path view belongs to another registry or has an unregistered root",
+                        ));
+                    }
+                }
+                Value::Ephemeral(id) => match heap.ephemeral(id).ok_or_else(invalid)? {
+                    EphemeralValue::HostRef(token) => self
+                        .runtime
+                        .validate_host_borrow(token, HostBorrowKind::Shared)?,
+                    EphemeralValue::HostMut(token) => self
+                        .runtime
+                        .validate_host_borrow(token, HostBorrowKind::Unique)?,
+                    EphemeralValue::Runtime(_) => {}
+                },
                 _ => {}
             }
         }

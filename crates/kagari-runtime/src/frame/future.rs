@@ -79,14 +79,14 @@ impl ExecutionStack<'_> {
             let underlying = if let Value::Cell(id) = value {
                 runtime.gc().captured_cell_value(*id).ok_or_else(invalid)?
             } else {
-                value.clone()
+                *value
             };
             if !ty.matches(runtime, &underlying, owner) {
                 return Err(invalid());
             }
         }
         let closure = runtime.make_closure(owner, function, values, environment)?;
-        let _root = runtime.root_value(closure.clone()).ok_or_else(invalid)?;
+        let _root = runtime.root_value(closure).ok_or_else(invalid)?;
         let Ty::NativeObject(nominal) = future.ty() else {
             return Err(invalid());
         };

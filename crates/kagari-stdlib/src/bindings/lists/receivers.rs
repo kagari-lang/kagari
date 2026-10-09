@@ -35,12 +35,12 @@ impl<'call> ReceiverCalls<'call> {
     pub(super) fn snapshot(&self, cx: &mut CallContext<'_>) -> NativeResult<HeapObjectId> {
         let item = cx.selected_result_parameter(self.next, 0)?;
         let result = cx.allocate_sequence(item, vec![])?;
-        let _result = cx.heap().root_value(result.clone()).ok_or_else(invalid)?;
+        let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
         let Value::Array(id) = result else {
             return Err(invalid());
         };
         let cursor = cx.call_values(self.iter, &[cx.argument(0)?])?;
-        let _cursor = cx.heap().root_value(cursor.clone()).ok_or_else(invalid)?;
+        let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
         loop {
             cx.poll()?;
             let value = cx.call_values(self.next, slice::from_ref(&cursor))?;
@@ -51,8 +51,8 @@ impl<'call> ReceiverCalls<'call> {
                     let [value] = fields.as_slice() else {
                         return Err(invalid());
                     };
-                    let _item = cx.heap().root_value(value.clone()).ok_or_else(invalid)?;
-                    cx.heap().array_push(id, value.clone())?;
+                    let _item = cx.heap().root_value(*value).ok_or_else(invalid)?;
+                    cx.heap().array_push(id, *value)?;
                 }
                 _ => return Err(invalid()),
             }

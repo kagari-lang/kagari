@@ -45,7 +45,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
         runtime
             .register_host_function(kagari_runtime::host::HostFunction::new(
                 declaration.clone(),
-                |_, args| Ok(args[0].clone()),
+                |_, args| Ok(args[0]),
             ))
             .unwrap();
         let loaded_program =
@@ -121,8 +121,8 @@ fn dependency_bindings_are_checked_before_execution() {
         .register_host_function(kagari_runtime::host::HostFunction::new(
             declaration,
             move |_, args| {
-                recorded.lock().unwrap().push(args[0].clone());
-                Ok(args[0].clone())
+                recorded.lock().unwrap().push(args[0]);
+                Ok(args[0])
             },
         ))
         .unwrap();

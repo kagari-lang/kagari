@@ -65,12 +65,12 @@ impl<A: KagariArguments, R: KagariType> FromKagari for PinnedFunction<A, R> {
     ) -> NativeResult<Self> {
         cx.check_type::<Self>(expected)?;
         cx.check_value(expected, value)?;
-        let prepared = PreparedClosure::from_value(cx.runtime(), value.clone())?;
+        let prepared = PreparedClosure::from_value(cx.runtime(), *value)?;
         let owner = prepared.snapshot(cx.runtime())?.implementation.clone();
         let signature = signature(cx, expected)?;
         let root = cx
             .runtime()
-            .root_value(value.clone())
+            .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("closure handle retention"))?;
         let program = cx
             .runtime()

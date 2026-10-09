@@ -217,7 +217,7 @@ impl ExecutionValues {
             }
         } else {
             for (index, value) in arguments.iter().enumerate() {
-                self.set(slots, argument_offset + index, value.clone())
+                self.set(slots, argument_offset + index, *value)
                     .expect("admitted argument");
             }
         }

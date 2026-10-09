@@ -47,9 +47,13 @@ impl From<RuntimeError> for ReflectionError {
     }
 }
 
-pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
+pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
     let type_name = match value {
-        Value::Range(value) => value.kind.name(),
+        Value::Range(value) => gc
+            .range(*value)
+            .ok_or_else(|| ReflectionError::new("invalid range"))?
+            .kind
+            .name(),
         Value::Unit => "()",
         Value::Bool(_) => "bool",
         Value::I32(_) => "i32",
@@ -63,17 +67,21 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         Value::Map(_) => "map",
         Value::Set(_) => "set",
         Value::Enum(handle) => {
-            return Value::Str(
-                gc.enum_snapshot(*handle)
-                    .map(|snapshot| snapshot.tag.type_name().to_owned())
-                    .unwrap_or_else(|| "enum".to_owned()),
-            );
+            return gc
+                .alloc_string(
+                    gc.enum_snapshot(*handle)
+                        .map(|snapshot| snapshot.tag.type_name().to_owned())
+                        .unwrap_or_else(|| "enum".to_owned()),
+                )
+                .map_err(Into::into);
         }
         Value::Struct(handle) => {
-            return Value::Str(
-                gc.struct_name(*handle)
-                    .unwrap_or_else(|| "struct".to_owned()),
-            );
+            return gc
+                .alloc_string(
+                    gc.struct_name(*handle)
+                        .unwrap_or_else(|| "struct".to_owned()),
+                )
+                .map_err(Into::into);
         }
         Value::GcHandle(_) => "gc_handle",
         Value::Interface(_) => "interface",
@@ -81,10 +89,10 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         Value::Cell(_) => "cell",
         Value::HostRoot(_) => "host_root",
         Value::HostPathView(_) => "host_path_view",
-        Value::Ephemeral(_) => "ephemeral",
+        Value::Ephemeral(_) | Value::RuntimeEphemeral(_) => "ephemeral",
     };
 
-    Value::Str(type_name.to_owned())
+    gc.alloc_string(type_name.to_owned()).map_err(Into::into)
 }
 
 pub fn get_field(gc: &GcHeap, value: &Value, field_name: &str) -> Result<Value, ReflectionError> {
@@ -106,7 +114,7 @@ pub fn set_field(
     field_name: &str,
     next_value: Value,
 ) -> Result<Value, ReflectionError> {
-    if !next_value.is_default_heap_payload() {
+    if !next_value.is_default_heap_payload(gc) {
         return Err(ReflectionError::new(
             "reflect_set_field expects default-storable value",
         ));
@@ -131,7 +139,7 @@ pub fn set_index(
     index: &Value,
     next_value: Value,
 ) -> Result<Value, ReflectionError> {
-    if !next_value.is_default_heap_payload() {
+    if !next_value.is_default_heap_payload(gc) {
         return Err(ReflectionError::new(
             "reflect_set_index expects default-storable value",
         ));
@@ -155,12 +163,15 @@ pub fn set_index(
             Ok(Value::Array(*handle))
         }
         Value::Tuple(elements) => {
-            let mut updated = elements.clone();
+            let mut updated = gc
+                .tuple(*elements)
+                .ok_or_else(|| ReflectionError::new("invalid tuple"))?
+                .to_vec();
             let Some(slot) = updated.get_mut(index) else {
                 return Err(ReflectionError::new(format!("invalid index `{index}`")));
             };
             *slot = next_value;
-            Ok(Value::Tuple(updated))
+            gc.alloc_tuple(updated).map_err(Into::into)
         }
         _ => Err(ReflectionError::new(
             "reflect_set_index expects array or tuple value",
@@ -202,20 +213,18 @@ mod tests {
         value_type::HostValueType,
     };
 
-    fn host_root_value(object_id: u64) -> Value {
-        Value::HostRoot(
-            HostRootHandle::new(
-                Default::default(),
-                HostObjectId(object_id),
-                TypeId::new(0),
-                HostSchemaEpoch::new(0),
-                AbiFingerprint(1),
-            )
-            .into(),
-        )
+    fn host_root_value(gc: &GcHeap, object_id: u64) -> Value {
+        gc.alloc_host_root(HostRootHandle::new(
+            Default::default(),
+            HostObjectId(object_id),
+            TypeId::new(0),
+            HostSchemaEpoch::new(0),
+            AbiFingerprint(1),
+        ))
+        .unwrap()
     }
 
-    fn path_view_value(object_id: u64) -> Value {
+    fn path_view_value(gc: &GcHeap, object_id: u64) -> Value {
         let result_type = TypeId::new(1);
         let mut runtime = crate::Runtime::default();
         let mut declaration = HostTypeDeclaration::new("Player");
@@ -252,23 +261,29 @@ mod tests {
                 schema_epoch: HostSchemaEpoch::new(0),
             })
             .unwrap();
-        Value::HostPathView(
+        gc.alloc_host_path(
             runtime
                 .host()
-                .make_path_view(root, descriptor, DynamicPathArguments::empty())
-                .unwrap()
-                .into(),
+                .make_path_view(
+                    runtime.gc(),
+                    root,
+                    descriptor,
+                    DynamicPathArguments::empty(),
+                )
+                .unwrap(),
         )
+        .unwrap()
     }
 
-    fn shared_borrow_value(object_id: u64) -> Value {
+    fn shared_borrow_value(gc: &GcHeap, object_id: u64) -> Value {
         let table = HostBorrowTable::default();
         let guard = table.enter_frame().unwrap();
-        Value::host_ref(
+        gc.alloc_host_ref(
             guard
                 .borrow_shared(HostObjectId(object_id), TypeId::new(0))
                 .unwrap(),
         )
+        .unwrap()
     }
 
     #[test]
@@ -276,18 +291,16 @@ mod tests {
         let mut runtime = crate::Runtime::default();
         let interface = crate::layout_fixtures::interface_value(&mut runtime);
         let gc = runtime.gc();
-        assert_eq!(type_of(gc, &interface), Value::Str("interface".to_owned()));
-        assert_eq!(
-            type_of(gc, &host_root_value(2)),
-            Value::Str("host_root".to_owned())
-        );
-        assert_eq!(
-            type_of(gc, &path_view_value(3)),
-            Value::Str("host_path_view".to_owned())
-        );
-        assert_eq!(
-            type_of(gc, &shared_borrow_value(4)),
-            Value::Str("ephemeral".to_owned())
-        );
+        for (value, expected) in [
+            (interface, "interface"),
+            (host_root_value(gc, 2), "host_root"),
+            (path_view_value(gc, 3), "host_path_view"),
+            (shared_borrow_value(gc, 4), "ephemeral"),
+        ] {
+            let Value::Str(id) = type_of(gc, &value).unwrap() else {
+                panic!("type name");
+            };
+            assert_eq!(&*gc.string(id).unwrap(), expected);
+        }
     }
 }

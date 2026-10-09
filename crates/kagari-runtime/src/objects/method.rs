@@ -65,7 +65,7 @@ impl RootedInterfaceMethod {
             root,
             MethodSelection::Interface { snapshot, slot },
             BoundReceiver {
-                receiver: view.data.clone(),
+                receiver: view.data,
                 concrete_type: view.concrete_type.clone(),
                 interface: view.interface_type.clone(),
                 interface_expression: view.interface_expression.clone(),

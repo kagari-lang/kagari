@@ -116,8 +116,7 @@ impl GcHeap {
                     copy.try_reserve(kept).map_err(|_| allocation())?;
                     for (index, (key, value)) in values.iter().enumerate() {
                         if matches!(input.get(index), Some(Value::Bool(true))) {
-                            copy.insert(key.clone(), value.clone())
-                                .map_err(|_| allocation())?;
+                            copy.insert(key.clone(), *value).map_err(|_| allocation())?;
                         }
                     }
                     HeapObject::Native(original.replaced_payload(MapPayload {
@@ -176,7 +175,7 @@ impl GcHeap {
             }
         };
         self.ensure_callback_mutable(id)?;
-        let root = self.root_value(value.clone()).ok_or_else(|| {
+        let root = self.root_value(*value).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid mutation root")
         })?;
         let lease = self

@@ -803,9 +803,7 @@ mod tests {
         let graph = store.collection_graph().unwrap();
         let mut values = Vec::new();
         for key in graph.roots() {
-            graph
-                .trace(key, &mut |value| values.push(value.clone()))
-                .unwrap();
+            graph.trace(key, &mut |value| values.push(*value)).unwrap();
         }
         values
     }

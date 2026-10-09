@@ -48,9 +48,7 @@ pub fn invoke(
                 })
                 .transpose()?;
             if intrinsic == RuntimePrimitive::ValuePartialCmp {
-                let _root = value
-                    .as_ref()
-                    .and_then(|value| gc.root_value(value.clone()));
+                let _root = value.as_ref().and_then(|value| gc.root_value(*value));
                 let option =
                     runtime.portable_type_argument(owner, &binding::option(binding::ordering()))?;
                 runtime
@@ -89,11 +87,11 @@ pub fn invoke(
                 return Err(BuiltinError::new("format expects one operand"));
             };
             value_semantics::format_value(gc, value, intrinsic == RuntimePrimitive::ValueDebug)
-                .map(Value::Str)
+                .and_then(|text| gc.alloc_string(text))
                 .map_err(BuiltinError::from)
         }
         RuntimePrimitive::StringPartsJoin => array_join(gc, args),
-        RuntimePrimitive::Assert => debug_assert(args),
+        RuntimePrimitive::Assert => debug_assert(gc, args),
     }
 }
 
@@ -103,38 +101,50 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
             "array.join expects a string array and separator",
         ));
     };
-    gc.with_array(*handle, |values| {
-        let SequenceStorage::Traced(values) = values else {
-            return Err(BuiltinError::new("array.join expects string elements"));
-        };
-        let overflow = || BuiltinError::from(RuntimeError::resource_limit("joined string size"));
-        let mut length = separator
-            .len()
-            .checked_mul(values.len().saturating_sub(1))
-            .ok_or_else(overflow)?;
-        for value in values {
-            let Value::Str(value) = value else {
+    let output = gc
+        .with_array(*handle, |values| {
+            let SequenceStorage::Traced(values) = values else {
                 return Err(BuiltinError::new("array.join expects string elements"));
             };
-            length = length.checked_add(value.len()).ok_or_else(overflow)?;
-        }
-        let mut output = String::new();
-        output.try_reserve_exact(length).map_err(|_| overflow())?;
-        for (index, value) in values.iter().enumerate() {
-            if index != 0 {
-                output.push_str(separator);
+            let overflow =
+                || BuiltinError::from(RuntimeError::resource_limit("joined string size"));
+            let separator = gc
+                .string(*separator)
+                .ok_or_else(|| BuiltinError::new("invalid string separator"))?;
+            let mut length = separator
+                .len()
+                .checked_mul(values.len().saturating_sub(1))
+                .ok_or_else(overflow)?;
+            for value in values {
+                let Value::Str(value) = value else {
+                    return Err(BuiltinError::new("array.join expects string elements"));
+                };
+                let value = gc
+                    .string(*value)
+                    .ok_or_else(|| BuiltinError::new("invalid string element"))?;
+                length = length.checked_add(value.len()).ok_or_else(overflow)?;
             }
-            let Value::Str(value) = value else {
-                unreachable!("validated string element");
-            };
-            output.push_str(value);
-        }
-        Ok(Value::Str(output))
-    })
-    .ok_or_else(|| BuiltinError::new("array.join expects a valid array handle"))?
+            let mut output = String::new();
+            output.try_reserve_exact(length).map_err(|_| overflow())?;
+            for (index, value) in values.iter().enumerate() {
+                if index != 0 {
+                    output.push_str(&separator);
+                }
+                let Value::Str(value) = value else {
+                    unreachable!("validated string element");
+                };
+                let value = gc
+                    .string(*value)
+                    .ok_or_else(|| BuiltinError::new("invalid string element"))?;
+                output.push_str(&value);
+            }
+            Ok(output)
+        })
+        .ok_or_else(|| BuiltinError::new("array.join expects a valid array handle"))??;
+    gc.alloc_string(output).map_err(Into::into)
 }
 
-fn debug_assert(args: &[Value]) -> Result<Value, BuiltinError> {
+fn debug_assert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Bool(condition), Value::Str(message)] = args else {
         return Err(BuiltinError::new(
             "debug.assert expects bool and string message",
@@ -143,6 +153,12 @@ fn debug_assert(args: &[Value]) -> Result<Value, BuiltinError> {
     if *condition {
         Ok(Value::Unit)
     } else {
-        Err(BuiltinError::new(format!("debug.assert failed: {message}")))
+        let message = gc
+            .string(*message)
+            .ok_or_else(|| BuiltinError::new("invalid assertion message"))?;
+        Err(BuiltinError::new(format!(
+            "debug.assert failed: {}",
+            &*message
+        )))
     }
 }

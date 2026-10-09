@@ -96,7 +96,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
             .register_host_function(HostFunction::new(echo.clone(), move |context, args| {
                 calls.lock().unwrap().push("echo");
                 context.runtime().collect_garbage().unwrap();
-                Ok(args[0].clone())
+                Ok(args[0])
             }))
             .unwrap();
         let loaded_program =
@@ -127,6 +127,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         let Value::Tuple(values) = retained.value(runtime.runtime().gc()).unwrap() else {
             panic!("composite return")
         };
+        let values = runtime.runtime().gc().tuple(values).unwrap().to_vec();
         let [
             Value::Array(array),
             Value::Map(map),
@@ -139,14 +140,16 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         };
         let heap = runtime.runtime().gc();
         assert_eq!(heap.array_snapshot(*array).unwrap(), [Value::I32(7)]);
-        assert_eq!(
-            heap.map_snapshot(*map).unwrap(),
-            [(Value::Str("yes".into()), Value::Bool(true))]
-        );
-        assert_eq!(
-            heap.set_snapshot(*set).unwrap(),
-            [Value::Str("name".into())]
-        );
+        let entries = heap.map_snapshot(*map).unwrap();
+        let [(Value::Str(key), Value::Bool(true))] = entries.as_slice() else {
+            panic!("map contents")
+        };
+        assert_eq!(&*heap.string(*key).unwrap(), "yes");
+        let entries = heap.set_snapshot(*set).unwrap();
+        let [Value::Str(key)] = entries.as_slice() else {
+            panic!("set contents")
+        };
+        assert_eq!(&*heap.string(*key).unwrap(), "name");
         assert_eq!(heap.enum_snapshot(*option).unwrap().fields, [Value::I32(8)]);
         assert_eq!(heap.enum_snapshot(*result).unwrap().fields, [Value::I32(9)]);
         assert_eq!(*trace.lock().unwrap(), ["make", "echo"]);

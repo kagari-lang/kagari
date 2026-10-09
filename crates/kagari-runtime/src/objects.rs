@@ -418,7 +418,7 @@ impl Runtime {
             return Ok(*prepared);
         }
         let binding = parent.binding.clone();
-        let data = snapshot.data.clone();
+        let data = snapshot.data;
         let use_view = parent.view;
         drop(snapshot);
         let prepared = self.prepare_interface_snapshot(
@@ -647,7 +647,7 @@ impl Runtime {
         let method = method
             .resolve(snapshot.receiver_table.owner.definitions())
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let root = self.root_value(value.clone()).ok_or_else(|| {
+        let root = self.root_value(*value).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
         })?;
         let slot = snapshot.methods.iter().position(|binding| {
@@ -713,13 +713,13 @@ impl Runtime {
         let Value::Interface(id) = value else {
             return Err(invalid());
         };
-        let _root = self.root_value(value.clone()).ok_or_else(invalid)?;
+        let _root = self.root_value(*value).ok_or_else(invalid)?;
         let snapshot = self.gc.interface_snapshot(*id).ok_or_else(invalid)?;
         if snapshot.interface_type != *source {
             return Err(invalid());
         }
         if source == target {
-            return Ok(value.clone());
+            return Ok(*value);
         }
         drop(snapshot);
         let snapshot = self.gc.interface_snapshot_id(*id).ok_or_else(invalid)?;
@@ -783,7 +783,7 @@ impl Runtime {
                 "expected interface value",
             ));
         };
-        let root = self.root_value(value.clone()).ok_or_else(invalid)?;
+        let root = self.root_value(*value).ok_or_else(invalid)?;
         let snapshot = self.gc.interface_snapshot_id(*id).ok_or_else(invalid)?;
         Ok((root, snapshot))
     }
@@ -828,7 +828,7 @@ impl Runtime {
         if let Some(adapter) = adapter {
             // Keep the raw return alive until its interface wrapper is published.
             let _root = self
-                .root_value(result.clone())
+                .root_value(result)
                 .ok_or_else(|| RuntimeError::module_validation("invalid interface result root"))?;
             let arguments = self.type_arguments(
                 &adapter.owner,
@@ -880,16 +880,16 @@ impl Runtime {
             return false;
         }
         match (value, ty) {
-            (Value::Tuple(values), Ty::Tuple(types)) => {
+            (Value::Tuple(id), Ty::Tuple(types)) => self.gc.tuple(*id).is_some_and(|values| {
                 values.len() == types.len()
                     && values.iter().zip(types).all(|(value, ty)| {
                         self.matches_interface_method_abi(value, ty, implementation)
                     })
-            }
-            (Value::HostRoot(root), Ty::Host(id)) => {
-                self.host.matches_root(**root)
+            }),
+            (Value::HostRoot(root), Ty::Host(id)) => self.gc.host_root(*root).is_some_and(|root| {
+                self.host.matches_root(root)
                     && implementation.host_type(*id) == Some(root.type_id())
-            }
+            }),
             _ => matches_type(&self.gc, value, ty, implementation),
         }
     }

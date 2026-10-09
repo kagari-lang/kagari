@@ -29,12 +29,10 @@ fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionPath) ->
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
-    let value = Value::HostRoot(
-        runtime
-            .register_host_root(HostObjectId(ty.index() as u64), ty, HostSchemaEpoch::new(0))
-            .unwrap()
-            .into(),
-    );
+    let root = runtime
+        .register_host_root(HostObjectId(ty.index() as u64), ty, HostSchemaEpoch::new(0))
+        .unwrap();
+    let value = runtime.gc().alloc_host_root(root).unwrap();
     (ty, value)
 }
 
@@ -167,11 +165,11 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
         .borrow_shared(HostObjectId(b_ty.index() as u64), b_ty)
         .unwrap();
     runtime
-        .invoke_bound_host(id, &[Value::host_ref(a_token)])
+        .invoke_bound_host(id, &[runtime.gc().alloc_host_ref(a_token).unwrap()])
         .unwrap();
     assert!(
         runtime
-            .invoke_bound_host(id, &[Value::host_ref(b_token)])
+            .invoke_bound_host(id, &[runtime.gc().alloc_host_ref(b_token).unwrap()])
             .is_err()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -185,9 +183,9 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
                 vec![],
                 HostValueType::Tuple(vec![HostValueType::Opaque(a)]),
             ),
-            move |_, _| {
+            move |cx, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
-                Ok(Value::Tuple(vec![b_value.clone()]))
+                Ok(cx.runtime().gc().alloc_tuple(vec![b_value]).unwrap())
             },
         ))
         .unwrap();
@@ -210,6 +208,8 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let (Value::HostRoot(a), Value::HostRoot(b)) = (&local_value, &foreign_value) else {
         unreachable!()
     };
+    let a = local.gc().host_root(*a).unwrap();
+    let b = foreign.gc().host_root(*b).unwrap();
     assert_eq!(a.object_id(), b.object_id());
     assert_eq!(a.type_id(), b.type_id());
     assert_eq!(a.schema_epoch(), b.schema_epoch());
@@ -230,11 +230,14 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
         ))
         .unwrap();
     local
-        .invoke_bound_host(id, &[Value::Tuple(vec![local_value])])
+        .invoke_bound_host(id, &[local.gc().alloc_tuple(vec![local_value]).unwrap()])
         .unwrap();
     assert!(
         local
-            .invoke_bound_host(id, &[Value::Tuple(vec![foreign_value.clone()])])
+            .invoke_bound_host(
+                id,
+                &[foreign.gc().alloc_tuple(vec![foreign_value]).unwrap()]
+            )
             .is_err()
     );
     assert!(
@@ -253,7 +256,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
             ),
             move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
-                Ok(foreign_value.clone())
+                Ok(foreign_value)
             },
         ))
         .unwrap();
@@ -294,25 +297,30 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
             .unwrap();
         let view = runtime
             .host()
-            .make_path_view(*root, descriptor, DynamicPathArguments::empty())
+            .make_path_view(
+                runtime.gc(),
+                runtime.gc().host_root(root).unwrap(),
+                descriptor,
+                DynamicPathArguments::empty(),
+            )
             .unwrap();
         views.push(view);
     }
     assert_eq!(views[0].descriptor_id(), views[1].descriptor_id());
     assert_eq!(views[0].result_type(), views[1].result_type());
     let id = views[0].descriptor_id();
-    let local_view = Value::HostPathView(views[0].clone().into());
-    let foreign_view = Value::HostPathView(views[1].clone().into());
+    let local_view = local.gc().alloc_host_path(views[0].clone()).unwrap();
+    let foreign_view = foreign.gc().alloc_host_path(views[1].clone()).unwrap();
     assert!(
         local
             .host()
-            .make_path_view_from_value(&local_view, id, vec![])
+            .make_path_view_from_value(local.gc(), &local_view, id, vec![])
             .is_ok()
     );
     assert!(
         local
             .host()
-            .make_path_view_from_value(&foreign_view, id, vec![])
+            .make_path_view_from_value(local.gc(), &foreign_view, id, vec![])
             .is_err()
     );
     assert!(local.host_scope(&[local_view]).is_ok());

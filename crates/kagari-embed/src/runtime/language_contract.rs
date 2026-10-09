@@ -12,12 +12,14 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
+    gc::GcHeap,
     host::{HostError, HostFunction},
     module::LoadedModule,
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
+    value_semantics::script_equal,
 };
 use kagari_types::{
     collection::CollectionAccess, host_interface::value_type::HostValueType, scalar::BuiltinType,
@@ -71,7 +73,7 @@ impl Route {
 
 #[derive(Debug)]
 enum Expected {
-    Value(Value),
+    Value(fn(&GcHeap) -> Value),
     Diagnostic(&'static str),
     IndexTrap,
     HostFailure,
@@ -82,7 +84,7 @@ enum Expected {
 #[derive(Debug, PartialEq)]
 struct HostCall {
     symbol: &'static str,
-    args: Vec<Value>,
+    args: Vec<String>,
 }
 
 /// The test host's append-only log has explicit commit records. Calls and
@@ -309,15 +311,17 @@ fn assert_outcome(
     outcome: Result<ExecutionReport, VmError>,
 ) {
     match (&case.expected, outcome.as_ref().map_err(VmError::cause)) {
-        (Expected::Value(expected), Ok(report)) => assert_eq!(
-            &report
+        (Expected::Value(expected), Ok(report)) => {
+            let actual = report
                 .return_value
                 .value(runtime.gc())
-                .expect("retained execution result"),
-            expected,
-            "{} ({route:?}, attempt {attempt})",
-            case.name
-        ),
+                .expect("retained execution result");
+            assert!(
+                script_equal(runtime.gc(), &actual, &expected(runtime.gc())).unwrap(),
+                "{} ({route:?}, attempt {attempt})",
+                case.name
+            );
+        }
         (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
         (Expected::IndexTrap, Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::IndexOutOfBounds => {}
@@ -403,18 +407,19 @@ fn run(
     runtime
         .register_host_function(HostFunction::new(
             kagari_types::host_interface::standard_log(),
-            move |_, args| {
+            move |cx, args| {
+                let [Value::Str(id)] = args else {
+                    return Err(HostError::new("log requires one string"));
+                };
+                let message = cx.runtime().gc().string(*id).unwrap().to_owned();
                 let mut state = capture.lock().unwrap();
                 state.calls.push(HostCall {
                     symbol: "host.log",
-                    args: args.to_vec(),
+                    args: vec![message.clone()],
                 });
                 if reject_call == Some(state.calls.len()) {
                     return Err(HostError::new("test host rejected append"));
                 }
-                let [Value::Str(message)] = args else {
-                    return Err(HostError::new("log requires one string"));
-                };
                 let previous_len = state.log.len();
                 state.log.push(message.clone());
                 state.mutations.push(Mutation {
@@ -439,10 +444,7 @@ fn run(
                     symbol: "observe.array",
                     args: vec![],
                 });
-                capture_array
-                    .lock()
-                    .unwrap()
-                    .clone()
+                (*capture_array.lock().unwrap())
                     .ok_or_else(|| HostError::new("array fixture is not initialized"))
             }))
             .unwrap();
@@ -597,7 +599,7 @@ fn run(
         .iter()
         .map(|message| HostCall {
             symbol: "host.log",
-            args: vec![Value::Str((*message).into())],
+            args: vec![(*message).into()],
         })
         .collect::<Vec<_>>();
     if case.array.is_some() {
@@ -641,23 +643,28 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     let generic_aggregates = Case::new(
         "generic-aggregate-layout-instances",
         "pub struct Cell<T> { var value: T } pub enum Packet<T> { Data(T) } pub enum Unused<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool, bool) { val a = Cell { value: 7 }; val b = Cell { value: true }; a.value = 8; (get(a), get(b), Packet::Data(7) == Packet::Data(7)) }",
-        Expected::Value(Value::Tuple(vec![
-            Value::I32(8),
-            Value::Bool(true),
-            Value::Bool(true),
-        ])),
+        Expected::Value(|heap| {
+            heap.alloc_tuple(vec![Value::I32(8), Value::Bool(true), Value::Bool(true)])
+                .unwrap()
+        }),
     );
     run_routes(&generic_aggregates);
     let checked_where_bounds = Case::new(
         "checked-where-bounds-through-forwarding",
         "use std::hash::{Hash};\ntrait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: Eq + Hash { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",
-        Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(7)])),
+        Expected::Value(|heap| {
+            heap.alloc_tuple(vec![Value::I32(42), Value::I32(7)])
+                .unwrap()
+        }),
     );
     run_routes(&checked_where_bounds);
     let distinct_trait_methods = Case::new(
         "nominal-trait-methods-on-one-receiver",
         "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } struct Point {} impl Left for Point { fn get(self) -> i32 { 11 } } impl Right for Point { fn get(self) -> i32 { 22 } } fn left<T: Left>(x: T) -> i32 { x.get() } fn right<T: Right>(x: T) -> i32 { x.get() } fn main() -> (i32, i32) { val p = Point {}; (left(p), right(p)) }",
-        Expected::Value(Value::Tuple(vec![Value::I32(11), Value::I32(22)])),
+        Expected::Value(|heap| {
+            heap.alloc_tuple(vec![Value::I32(11), Value::I32(22)])
+                .unwrap()
+        }),
     );
     run_routes(&distinct_trait_methods);
     for case in [
@@ -694,7 +701,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new(
             "applied-impl-trait-preserves-arguments",
             "trait View<T> {} struct Point {} impl View<i32> for Point {} fn main() {}",
-            Expected::Value(Value::Unit),
+            Expected::Value(|_| Value::Unit),
         ),
         Case::new(
             "generic-binder-shadows-trait",
@@ -710,8 +717,8 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         run_routes(&case);
     }
     for case in [
-        Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(Value::I32(5))).effects(&["i32"], &["i32"]).reflection(),
-        Case::new("shadowed-print-has-no-host-effect", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(6) }", Expected::Value(Value::I32(7))),
+        Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(|_| Value::I32(5))).effects(&["i32"], &["i32"]).reflection(),
+        Case::new("shadowed-print-has-no-host-effect", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(6) }", Expected::Value(|_| Value::I32(7))),
         Case::new("bare-function-is-not-return-value", "fn answer() -> i32 { 42 } fn main() -> i32 { answer }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
         Case::new("bare-helper-is-not-a-value", "fn main() { val f = print; }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
     ] {
@@ -731,21 +738,21 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new(
             "standard-namespace-independent-of-value-parameter",
             "use core::option as api; fn pick(api: i32) -> i32 { val n = match api::Option::Some(1) { Some(x) => x, None => 0 }; n + api } fn main() -> i32 { pick(2) }",
-            Expected::Value(Value::I32(3)),
+            Expected::Value(|_| Value::I32(3)),
         ),
         Case::new(
             "resolved-language-constructor",
             "use core::option as api; fn main() -> i32 { match api::Option::Some(5) { Some(x) => x, None => 0 } }",
-            Expected::Value(Value::I32(5)),
+            Expected::Value(|_| Value::I32(5)),
         ),
     ] {
         run_routes(&case);
     }
     for case in [
         Case::new("enum-unit-call-rejected", "enum Event { Empty } fn main() -> Event { Event::Empty() }", Expected::Diagnostic("KG_TYPE_INVALID_CALL_TARGET")),
-        Case::new("enum-value-members", "enum Event { Empty, Data(i32, String) } fn main() -> bool { Event::Empty == Event::Empty && Event::Data(7, \"x\") == Event::Data(7, \"x\") && Event::Data(7, \"x\") != Event::Data(8, \"x\") }", Expected::Value(Value::Bool(true))),
-        Case::new("enum-alias-members", "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a.push(2); x == Event::Data(a) && x != Event::Data([1, 2]) }", Expected::Value(Value::Bool(true))),
-        Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(Value::Bool(true))).effects(&["first", "second"], &["first", "second"]),
+        Case::new("enum-value-members", "enum Event { Empty, Data(i32, String) } fn main() -> bool { Event::Empty == Event::Empty && Event::Data(7, \"x\") == Event::Data(7, \"x\") && Event::Data(7, \"x\") != Event::Data(8, \"x\") }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum-alias-members", "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a.push(2); x == Event::Data(a) && x != Event::Data([1, 2]) }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(|_| Value::Bool(true))).effects(&["first", "second"], &["first", "second"]),
     ] {
         run_routes(&case);
     }
@@ -760,7 +767,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("heap-overflow-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[1] = 42; a[0] += 1; }", Expected::ScriptTrap("integer overflow")).array(&[2147483647, 0], &[2147483647, 42]),
         Case::new("heap-removed-target-not-recreated", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a.clear(); print(\"removed\"); 2 } else { 0 }; }", Expected::IndexTrap).array(&[1], &[]).effects(&["removed"], &["removed"]),
         Case::new("heap-out-of-bounds-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[0] = 42; a[9] = 2; }", Expected::IndexTrap).array(&[1], &[42]),
-        Case::new("heap-compound-reads-rhs-write", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a[0] = 10; 2 } else { 0 }; }", Expected::Value(Value::Unit)).array(&[1], &[12]),
+        Case::new("heap-compound-reads-rhs-write", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a[0] = 10; 2 } else { 0 }; }", Expected::Value(|_| Value::Unit)).array(&[1], &[12]),
     ] {
         run_routes(&case);
     }
@@ -808,7 +815,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     let mut diamond = Case::new(
         "diamond-calls-shared-dependency",
         "use contract::left::left; use contract::right::right; fn main() -> i32 { left() + right() }",
-        Expected::Value(Value::I32(42)),
+        Expected::Value(|_| Value::I32(42)),
     ).modules(&[
         ("leaf", "pub fn leaf() -> i32 { 21 }"),
         ("left", "use contract::leaf::leaf; pub fn left() -> i32 { leaf() }"),
@@ -818,7 +825,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     let cycle = Case::new(
         "cyclic-imports-allow-nonrecursive-calls",
         "use contract::dependency::answer; pub fn main() -> i32 { answer() }",
-        Expected::Value(Value::I32(42)),
+        Expected::Value(|_| Value::I32(42)),
     )
     .modules(&[(
         "dependency",
@@ -830,13 +837,13 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     let candidate = Case::new(
         "published-dependency-version",
         "use contract::dependency::answer; fn main() -> i32 { answer() }",
-        Expected::Value(Value::I32(99)),
+        Expected::Value(|_| Value::I32(99)),
     )
     .modules(&[("dependency", "pub fn answer() -> i32 { 99 }")]);
     let mut versioned = Case::new(
         "publication-pins-old-dependencies-and-rejects-stale-candidate",
         "use contract::dependency::answer; fn main() -> i32 { answer() }",
-        Expected::Value(Value::I32(42)),
+        Expected::Value(|_| Value::I32(42)),
     )
     .modules(&[("dependency", "pub fn answer() -> i32 { 42 }")]);
     versioned.published_reload = Some(&candidate);
@@ -845,20 +852,20 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
         Case::new("unknown-where-target", "fn bad<T>(value: T) where Missing: PartialEq {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_BOUND_TARGET")),
         Case::new("shadowed-generic-return", "impl<T> [T] { fn wrong<T>(self, value: T) -> T { self[0] } } fn main() {}", Expected::Diagnostic("KG_TYPE_RETURN_TYPE_MISMATCH")),
-        Case::new("generic-values", "fn echo<T>(x: T) -> T { x } fn pass<U>(x: U) -> U { echo(x) } fn main() -> (i32, bool, String) { (pass(7), pass(true), echo(\"ok\")) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::Str("ok".into())]))),
-        Case::new("generic-recursion", "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }", Expected::Value(Value::I32(7))),
-        Case::new("generic-array-elements", "fn first<T>(xs: Vec<T>) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Str("ok".into())]))),
-        Case::new("generic-equality", "fn same<T: PartialEq>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }", Expected::Value(Value::Tuple(vec![Value::Bool(true), Value::Bool(false)]))),
-        Case::new("generic-static-trait", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } fn read<T: Get>(value: T) -> i32 { value.get() } fn wrap<U: Get>(value: U) -> i32 { read(value) } fn main() -> i32 { wrap(P { n: 42 }) }", Expected::Value(Value::I32(42))),
-        Case::new("interface-dynamic-call", "trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } } fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(Value::I32(42))),
-        Case::new("interface-dynamic-argument", "trait Add { fn add(self, value: i32) -> i32; } impl Add for i32 { fn add(self, value: i32) -> i32 { self + value } } fn read(value: Add) -> i32 { value.add(2) } fn main() -> i32 { read(40) }", Expected::Value(Value::I32(42))),
-        Case::new("applied-interface-dynamic-call", "trait Echo<T> { fn get(self) -> T; } impl Echo<i32> for i32 { fn get(self) -> i32 { self } } fn read(value: Echo<i32>) -> i32 { value.get() } fn main() -> i32 { read(42) }", Expected::Value(Value::I32(42))),
-        Case::new("interface-method-declaration-order", "trait Get { fn one(self) -> i32; fn two(self) -> i32; } impl Get for i32 { fn two(self) -> i32 { 2 } fn one(self) -> i32 { 40 } } fn read(value: Get) -> i32 { value.one() + value.two() } fn main() -> i32 { read(0) }", Expected::Value(Value::I32(42))),
-        Case::new("imported-interface-dynamic-call", "use contract::dependency::Get; fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(Value::I32(42))).modules(&[("dependency", "pub trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } }")]),
-        Case::new("generic-impl-specialization", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }", Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(42)]))),
-        Case::new("generic-impl-bound", "use std::hash::{Hash};\ntrait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1 }) }", Expected::Value(Value::I32(42))),
+        Case::new("generic-values", "fn echo<T>(x: T) -> T { x } fn pass<U>(x: U) -> U { echo(x) } fn main() -> (i32, bool, String) { (pass(7), pass(true), echo(\"ok\")) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), heap.alloc_string("ok".into()).unwrap()]).unwrap())),
+        Case::new("generic-recursion", "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }", Expected::Value(|_| Value::I32(7))),
+        Case::new("generic-array-elements", "fn first<T>(xs: Vec<T>) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), heap.alloc_string("ok".into()).unwrap()]).unwrap())),
+        Case::new("generic-equality", "fn same<T: PartialEq>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::Bool(true), Value::Bool(false)]).unwrap())),
+        Case::new("generic-static-trait", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } fn read<T: Get>(value: T) -> i32 { value.get() } fn wrap<U: Get>(value: U) -> i32 { read(value) } fn main() -> i32 { wrap(P { n: 42 }) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("interface-dynamic-call", "trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } } fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("interface-dynamic-argument", "trait Add { fn add(self, value: i32) -> i32; } impl Add for i32 { fn add(self, value: i32) -> i32 { self + value } } fn read(value: Add) -> i32 { value.add(2) } fn main() -> i32 { read(40) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("applied-interface-dynamic-call", "trait Echo<T> { fn get(self) -> T; } impl Echo<i32> for i32 { fn get(self) -> i32 { self } } fn read(value: Echo<i32>) -> i32 { value.get() } fn main() -> i32 { read(42) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("interface-method-declaration-order", "trait Get { fn one(self) -> i32; fn two(self) -> i32; } impl Get for i32 { fn two(self) -> i32 { 2 } fn one(self) -> i32 { 40 } } fn read(value: Get) -> i32 { value.one() + value.two() } fn main() -> i32 { read(0) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("imported-interface-dynamic-call", "use contract::dependency::Get; fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(|_| Value::I32(42))).modules(&[("dependency", "pub trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } }")]),
+        Case::new("generic-impl-specialization", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(42), Value::I32(42)]).unwrap())),
+        Case::new("generic-impl-bound", "use std::hash::{Hash};\ntrait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1 }) }", Expected::Value(|_| Value::I32(42))),
         Case::new("generic-impl-bound-rejected", "use std::hash::{Hash};\ntrait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1.5 }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
-        Case::new("generic-impl-trait-bound", "trait Key {} impl Key for i32 {} trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Key> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1 }) }", Expected::Value(Value::I32(42))),
+        Case::new("generic-impl-trait-bound", "trait Key {} impl Key for i32 {} trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Key> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 1 }) }", Expected::Value(|_| Value::I32(42))),
         Case::new("generic-impl-trait-bound-rejected", "trait Key {} impl Key for i32 {} trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T: Key> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: \"a\" }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("generic-impl-repeated-binder-rejected", "trait Get { fn get(self) -> i32; } struct Pair<T, U> { val left: T, val right: U } impl<T> Get for Pair<T, T> { fn get(self) -> i32 { 1 } } fn read<V: Get>(x: V) -> i32 { x.get() } fn main() -> i32 { read(Pair { left: 1, right: true }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("generic-impl-overlap-rejected", "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 1 } } impl Get for Holder<i32> { fn get(self) -> i32 { 2 } } fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_IMPL")),
@@ -866,85 +873,85 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("applied-trait-impl-arity-rejected", "trait Echo<T> {} struct Pair {} impl Echo<i32, bool> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_REFERENCE")),
         Case::new("applied-trait-impl-unknown-argument", "trait Echo<T> {} struct Pair {} impl Echo<Missing> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
         Case::new("applied-trait-impl-bound-rejected", "use std::hash::{Hash};\ntrait Echo<T: Eq + Hash> {} struct Pair {} impl Echo<f32> for Pair {} fn main() {}", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
-        Case::new("applied-trait-impl-bound-accepted", "use std::hash::{Hash};\ntrait Echo<T: Eq + Hash> {} struct Pair {} impl Echo<i32> for Pair {} fn main() {}", Expected::Value(Value::Unit)),
-        Case::new("applied-trait-bound-dispatch", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { n: 42 }) }", Expected::Value(Value::I32(42))),
-        Case::new("applied-trait-where-bound-dispatch", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U>(x: U) -> i32 where U: Echo<i32> { x.get() } fn main() -> i32 { read(Holder { n: 42 }) }", Expected::Value(Value::I32(42))),
+        Case::new("applied-trait-impl-bound-accepted", "use std::hash::{Hash};\ntrait Echo<T: Eq + Hash> {} struct Pair {} impl Echo<i32> for Pair {} fn main() {}", Expected::Value(|_| Value::Unit)),
+        Case::new("applied-trait-bound-dispatch", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { n: 42 }) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("applied-trait-where-bound-dispatch", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U>(x: U) -> i32 where U: Echo<i32> { x.get() } fn main() -> i32 { read(Holder { n: 42 }) }", Expected::Value(|_| Value::I32(42))),
         Case::new("applied-trait-bound-distinguishes-arguments", "trait Echo<T> { fn get(self) -> T; } struct Holder { val n: i32 } impl Echo<i32> for Holder { fn get(self) -> i32 { self.n } } fn read<U: Echo<String>>(x: U) -> String { x.get() } fn main() -> String { read(Holder { n: 42 }) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
-        Case::new("applied-trait-impls-share-receiver", "trait Echo<T> { fn get(self) -> T; } struct Holder {} impl Echo<i32> for Holder { fn get(self) -> i32 { 42 } } impl Echo<String> for Holder { fn get(self) -> String { \"ok\" } } fn read_int<U: Echo<i32>>(x: U) -> i32 { x.get() } fn read_string<U: Echo<String>>(x: U) -> String { x.get() } fn main() -> (i32, String) { (read_int(Holder {}), read_string(Holder {})) }", Expected::Value(Value::Tuple(vec![Value::I32(42), Value::Str("ok".into())]))),
-        Case::new("applied-trait-template-specialization", "trait Echo<T> { fn get(self) -> T; } struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 42 }) }", Expected::Value(Value::I32(42))),
-        Case::new("applied-trait-caller-binder", "trait Echo<T> { fn get(self) -> T; } struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read<T, U: Echo<T>>(x: U, fallback: T) -> T { x.get() } fn main() -> i32 { read(Holder { value: 42 }, 0) }", Expected::Value(Value::I32(42))),
+        Case::new("applied-trait-impls-share-receiver", "trait Echo<T> { fn get(self) -> T; } struct Holder {} impl Echo<i32> for Holder { fn get(self) -> i32 { 42 } } impl Echo<String> for Holder { fn get(self) -> String { \"ok\" } } fn read_int<U: Echo<i32>>(x: U) -> i32 { x.get() } fn read_string<U: Echo<String>>(x: U) -> String { x.get() } fn main() -> (i32, String) { (read_int(Holder {}), read_string(Holder {})) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(42), heap.alloc_string("ok".into()).unwrap()]).unwrap())),
+        Case::new("applied-trait-template-specialization", "trait Echo<T> { fn get(self) -> T; } struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 42 }) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("applied-trait-caller-binder", "trait Echo<T> { fn get(self) -> T; } struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read<T, U: Echo<T>>(x: U, fallback: T) -> T { x.get() } fn main() -> i32 { read(Holder { value: 42 }, 0) }", Expected::Value(|_| Value::I32(42))),
         Case::new("applied-trait-template-overlap-rejected", "trait Echo<T> { fn get(self) -> T; } struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } impl Echo<i32> for Holder<i32> { fn get(self) -> i32 { 1 } } fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_IMPL")),
         Case::new("generic-conflicting-arguments", "fn choose<T>(a: T, b: T) -> T { a } fn main() -> i32 { choose(1, true) }", Expected::Diagnostic("KG_TYPE_ARGUMENT_TYPE_MISMATCH")),
         Case::new("generic-missing-argument", "fn unused<T>() {} fn main() { unused(); }", Expected::Diagnostic("KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT")),
         Case::new("generic-public-entry", "pub fn echo<T>(value: T) -> T { value } fn main() {}", Expected::Diagnostic("KG_TYPE_PUBLIC_GENERIC_FUNCTION")),
-        Case::new("generic-parameter-order", "fn reverse<T, U>(first: U, second: T) -> (T, U) { (second, first) } fn main() -> (i32, bool) { reverse(true, 7) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true)]))),
-        Case::new("return-discards-following-effects", "fn main() -> i32 { return 7; print(\"unreachable\"); 42 }", Expected::Value(Value::I32(7))),
-        Case::new("generic-numeric-instances", "fn add<T: OrderedNumber>(a: T, b: T) -> T { a + b } fn main() -> (i32, f32) { (add(1, 2), add(1.5, 2.5)) }", Expected::Value(Value::Tuple(vec![Value::I32(3), Value::F32(4.0)]))),
-        Case::new("generic-same-storage-distinct-types", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } struct Q { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } impl Get for Q { fn get(self) -> i32 { self.n + 1 } } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> (i32, i32) { (read(P { n: 42 }), read(Q { n: 42 })) }", Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(43)]))),
+        Case::new("generic-parameter-order", "fn reverse<T, U>(first: U, second: T) -> (T, U) { (second, first) } fn main() -> (i32, bool) { reverse(true, 7) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true)]).unwrap())),
+        Case::new("return-discards-following-effects", "fn main() -> i32 { return 7; print(\"unreachable\"); 42 }", Expected::Value(|_| Value::I32(7))),
+        Case::new("generic-numeric-instances", "fn add<T: OrderedNumber>(a: T, b: T) -> T { a + b } fn main() -> (i32, f32) { (add(1, 2), add(1.5, 2.5)) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(3), Value::F32(4.0)]).unwrap())),
+        Case::new("generic-same-storage-distinct-types", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } struct Q { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } impl Get for Q { fn get(self) -> i32 { self.n + 1 } } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> (i32, i32) { (read(P { n: 42 }), read(Q { n: 42 })) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(42), Value::I32(43)]).unwrap())),
         Case::new("generic-numeric-overflow", "fn add<T: OrderedNumber>(a: T, b: T) -> T { a + b } fn main() -> i32 { print(\"before\"); add(2147483647, 1) }", Expected::ScriptTrap("integer overflow")).effects(&["before"], &["before"]),
         Case::new("generic-missing-bound", "trait Get { fn get(self) -> i32; } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> i32 { read(1) }", Expected::Diagnostic("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")),
         Case::new("duplicate-field-declarations", "struct P { val x: i32, var x: i32 } fn main() {}", Expected::Diagnostic("KG_RESOLVE_DUPLICATE_FIELD")),
-        Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
-        Case::new("string-len-counts-utf8-bytes", "fn main() -> usize { \"aé文\".len() }", Expected::Value(Value::U64(6))),
-        Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }", Expected::Value(Value::Tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)]))),
-        Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = [7]; val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }", Expected::Value(Value::Tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)]))),
-        Case::new("user-print-is-direct-call", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }", Expected::Value(Value::I32(42))),
-        Case::new("user-type-of-is-direct-call", "fn type_of(n: i32) -> i32 { n + 2 } fn main() -> i32 { type_of(40) }", Expected::Value(Value::I32(42))),
+        Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(|_| Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
+        Case::new("string-len-counts-utf8-bytes", "fn main() -> usize { \"aé文\".len() }", Expected::Value(|_| Value::U64(6))),
+        Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)]).unwrap())),
+        Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = [7]; val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)]).unwrap())),
+        Case::new("user-print-is-direct-call", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }", Expected::Value(|_| Value::I32(42))),
+        Case::new("user-type-of-is-direct-call", "fn type_of(n: i32) -> i32 { n + 2 } fn main() -> i32 { type_of(40) }", Expected::Value(|_| Value::I32(42))),
         Case::new("local-print-is-not-a-helper", "fn main() { val print = 1; print(2); }", Expected::Diagnostic("KG_TYPE_INVALID_CALL_TARGET")),
-        Case::new("method-receiver-before-argument", "fn receiver() -> Vec<i32> { print(\"receiver\"); [1] } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(Value::Unit)).effects(&["receiver", "argument"], &["receiver", "argument"]),
-        Case::new("compound-reads-current-local", "fn main() -> i32 { var n = 1; n += if true { n = 10; 2 } else { 0 }; n }", Expected::Value(Value::I32(12))),
-        Case::new("compound-captures-index", "fn main() -> i32 { val a = [1, 2]; var i = 0; a[i] += if true { i = 1; 2 } else { 0 }; a[0] * 10 + a[1] }", Expected::Value(Value::I32(32))),
-        Case::new("compound-keeps-root-identity", "fn main() -> i32 { var a = [1]; val old = a; a[0] += if true { a = [100]; 2 } else { 0 }; old[0] * 1000 + a[0] }", Expected::Value(Value::I32(3100))),
-        Case::new("compound-reads-current-tuple", "fn main() -> i32 { var t = (1, 2); t[0] += if true { t = (10, 20); 2 } else { 0 }; t[0] + t[1] }", Expected::Value(Value::I32(32))),
+        Case::new("method-receiver-before-argument", "fn receiver() -> Vec<i32> { print(\"receiver\"); [1] } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(|_| Value::Unit)).effects(&["receiver", "argument"], &["receiver", "argument"]),
+        Case::new("compound-reads-current-local", "fn main() -> i32 { var n = 1; n += if true { n = 10; 2 } else { 0 }; n }", Expected::Value(|_| Value::I32(12))),
+        Case::new("compound-captures-index", "fn main() -> i32 { val a = [1, 2]; var i = 0; a[i] += if true { i = 1; 2 } else { 0 }; a[0] * 10 + a[1] }", Expected::Value(|_| Value::I32(32))),
+        Case::new("compound-keeps-root-identity", "fn main() -> i32 { var a = [1]; val old = a; a[0] += if true { a = [100]; 2 } else { 0 }; old[0] * 1000 + a[0] }", Expected::Value(|_| Value::I32(3100))),
+        Case::new("compound-reads-current-tuple", "fn main() -> i32 { var t = (1, 2); t[0] += if true { t = (10, 20); 2 } else { 0 }; t[0] + t[1] }", Expected::Value(|_| Value::I32(32))),
         Case::new("local-compound-overflow", "fn main() -> i32 { var n = 2147483647; n += 1; n }", Expected::ScriptTrap("integer overflow")),
         Case::new("reject-assignment-index-type", "fn main() -> i32 { val a = [1]; a[true] += 1; a[0] }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
-        Case::new("compound-scalars", "fn main() -> i32 { var n = 10; n += 5; n -= 3; n *= 2; n /= 4; n }", Expected::Value(Value::I32(6))),
+        Case::new("compound-scalars", "fn main() -> i32 { var n = 10; n += 5; n -= 3; n *= 2; n /= 4; n }", Expected::Value(|_| Value::I32(6))),
         Case::new("assignment-evaluates-target-first", r#"
             fn root(a: Vec<i32>) -> Vec<i32> { print("root"); a }
             fn index() -> i32 { print("index"); 0 }
             fn rhs(a: Vec<i32>) -> i32 { print("rhs"); a[0] = 20; 2 }
             fn main() -> i32 { val a = [1]; root(a)[index()] += rhs(a); a[0] }
-        "#, Expected::Value(Value::I32(22))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
+        "#, Expected::Value(|_| Value::I32(22))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
         Case::new("plain-assignment-evaluates-target-first", r#"
             fn root(a: Vec<i32>) -> Vec<i32> { print("root"); a }
             fn index() -> i32 { print("index"); 0 }
             fn rhs() -> i32 { print("rhs"); 42 }
             fn main() -> i32 { val a = [1]; root(a)[index()] = rhs(); a[0] }
-        "#, Expected::Value(Value::I32(42))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
+        "#, Expected::Value(|_| Value::I32(42))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
         Case::new("nested-location-evaluated-once", r#"
             struct Point { var x: i32 }
             fn index() -> i32 { print("index"); 0 }
             fn rhs(a: Vec<Point>) -> i32 { print("rhs"); a[0] = Point { x: 20 }; 2 }
             fn main() -> i32 { val a = [Point { x: 1 }]; a[index()].x += rhs(a); a[0].x }
-        "#, Expected::Value(Value::I32(22))).effects(&["index", "rhs"], &["index", "rhs"]),
+        "#, Expected::Value(|_| Value::I32(22))).effects(&["index", "rhs"], &["index", "rhs"]),
         Case::new("rhs-removes-compound-target", r#"
             fn rhs(a: Vec<i32>) -> i32 { a.pop(); print("removed"); 2 }
             fn main() -> i32 { val a = [1]; a[0] += rhs(a); print("written"); 0 }
         "#, Expected::IndexTrap).effects(&["removed"], &["removed"]),
-        Case::new("rhs-repairs-missing-target", "fn rhs(a: Vec<i32>) -> i32 { a.push(20); 2 } fn main() -> i32 { val a = [1]; a[1] += rhs(a); a[1] }", Expected::Value(Value::I32(22))),
+        Case::new("rhs-repairs-missing-target", "fn rhs(a: Vec<i32>) -> i32 { a.push(20); 2 } fn main() -> i32 { val a = [1]; a[1] += rhs(a); a[1] }", Expected::Value(|_| Value::I32(22))),
         Case::new("compound-overflow", "fn main() -> i32 { val a = [2147483647]; a[0] += 1; a[0] }", Expected::ScriptTrap("integer overflow")),
-        Case::new("tuple-copy-commit", "fn main() -> i32 { var t = ((1, 2), 3); val old = t; t[0][1] += 40; t[0][1] + old[0][1] }", Expected::Value(Value::I32(44))),
-        Case::new("tuple-in-array-commit", "fn main() -> i32 { val a = [(1, 2)]; a[0][1] += 40; a[0][1] }", Expected::Value(Value::I32(42))),
-        Case::new("rebind-array-slot", "fn main() -> i32 { var a = [1]; val old = a; a = [42]; a[0] + old[0] }", Expected::Value(Value::I32(43))),
+        Case::new("tuple-copy-commit", "fn main() -> i32 { var t = ((1, 2), 3); val old = t; t[0][1] += 40; t[0][1] + old[0][1] }", Expected::Value(|_| Value::I32(44))),
+        Case::new("tuple-in-array-commit", "fn main() -> i32 { val a = [(1, 2)]; a[0][1] += 40; a[0][1] }", Expected::Value(|_| Value::I32(42))),
+        Case::new("rebind-array-slot", "fn main() -> i32 { var a = [1]; val old = a; a = [42]; a[0] + old[0] }", Expected::Value(|_| Value::I32(43))),
         Case::new("reject-compound-val", "fn main() -> i32 { val n = 1; n += 1; n }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("reject-val-tuple-write", "fn main() -> i32 { val t = (1, 2); t[0] += 1; t[0] }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("reject-compound-bool", "fn main() -> bool { var n = true; n += false; n }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
-        Case::new("native-scalar-arithmetic", "fn main() -> i32 { -(6 * 7) }", Expected::Value(Value::I32(-42))).native(),
-        Case::new("native-scalar-comparison", "fn main() -> bool { !!(40 + 2 == 42) }", Expected::Value(Value::Bool(true))).native(),
-        Case::new("min-literal", "fn main() -> i32 { -2147483648 }", Expected::Value(Value::I32(i32::MIN))).native(),
-        Case::new("const-min-literal", "const MIN: i32 = -2147483648; fn main() -> i32 { MIN }", Expected::Value(Value::I32(i32::MIN))).native(),
+        Case::new("native-scalar-arithmetic", "fn main() -> i32 { -(6 * 7) }", Expected::Value(|_| Value::I32(-42))).native(),
+        Case::new("native-scalar-comparison", "fn main() -> bool { !!(40 + 2 == 42) }", Expected::Value(|_| Value::Bool(true))).native(),
+        Case::new("min-literal", "fn main() -> i32 { -2147483648 }", Expected::Value(|_| Value::I32(i32::MIN))).native(),
+        Case::new("const-min-literal", "const MIN: i32 = -2147483648; fn main() -> i32 { MIN }", Expected::Value(|_| Value::I32(i32::MIN))).native(),
         Case::new("negate-min-literal", "fn main() -> i32 { -(-2147483648) }", Expected::ScriptTrap("integer overflow")).native(),
         Case::new("invalid-positive-literal", "fn main() -> i32 { 2147483648 }", Expected::Diagnostic("KG_TYPE_INVALID_LITERAL")),
         Case::new("invalid-negative-literal", "fn main() -> i32 { -2147483649 }", Expected::Diagnostic("KG_TYPE_INVALID_LITERAL")),
         Case::new("invalid-pattern-literal", "fn main() -> i32 { match 1 { 2147483648 => 10, _ => 20 } }", Expected::Diagnostic("KG_TYPE_INVALID_LITERAL")),
         Case::new("mismatched-pattern", "fn main() -> i32 { match true { 1 => 10, _ => 20 } }", Expected::Diagnostic("KG_TYPE_PATTERN_MISMATCH")),
-        Case::new("checked-pattern-literal", "fn main() -> i32 { match 2147483647 { 2147483647 => 42, _ => 0 } }", Expected::Value(Value::I32(42))),
+        Case::new("checked-pattern-literal", "fn main() -> i32 { match 2147483647 { 2147483647 => 42, _ => 0 } }", Expected::Value(|_| Value::I32(42))),
         Case::new("const-short-circuit",
             "const A: bool = false && (1 / 0 == 0); const B: bool = true || (2147483647 + 1 == 0); fn main() -> bool { !A && B }",
-            Expected::Value(Value::Bool(true))),
+            Expected::Value(|_| Value::Bool(true))),
         Case::new("const-dependency",
             "const BASE: i32 = 6 * 7; const NEXT: i32 = BASE + 1; fn main() -> i32 { NEXT }",
-            Expected::Value(Value::I32(43))).native(),
+            Expected::Value(|_| Value::I32(43))).native(),
         Case::new("const-overflow", "const BAD: i32 = 2147483647 + 1; fn main() -> i32 { BAD }",
             Expected::Diagnostic("KG_TYPE_INVALID_CONST_INITIALIZER")),
         Case::new("const-divide-zero", "const BAD: i32 = 1 / 0; fn main() -> i32 { BAD }",
@@ -960,21 +967,21 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("div_overflow", "fn main() -> i32 { (-2147483647 - 1) / -1 }", Expected::ScriptTrap("integer overflow")),
         Case::new("division_by_zero", "fn main() -> i32 { 1 / 0 }", Expected::ScriptTrap("integer division by zero")),
         Case::new("overflow_effects", "fn left() -> i32 { print(\"left\"); 2147483647 } fn right() -> i32 { print(\"right\"); 1 } fn main() -> i32 { left() + right() }", Expected::ScriptTrap("integer overflow")).effects(&["left", "right"], &["left", "right"]),
-        Case::new("scalar", "fn main() -> i32 { (2 + 3) * 4 }", Expected::Value(Value::I32(20))),
-        Case::new("alias", "struct P { var n: i32 } fn main() -> i32 { val a = P { n: 1 }; val b = a; b.n = 7; a.n }", Expected::Value(Value::I32(7))),
-        Case::new("object_identity", "struct P { var n: i32 } fn main() -> bool { val a = P { n: 1 }; val b = P { n: 1 }; a == b }", Expected::Value(Value::Bool(false))),
-        Case::new("tuple_value", "fn main() -> bool { (1, \"a\") == (1, \"a\") }", Expected::Value(Value::Bool(true))),
-        Case::new("short_circuit", "fn fail() -> bool { print(\"unreachable\"); val a = [1]; a[2] == 0 } fn main() -> bool { false && fail() }", Expected::Value(Value::Bool(false))),
-        Case::new("left_to_right", "fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { left() + right() }", Expected::Value(Value::I32(3))).effects(&["left", "right"], &["left", "right"]),
+        Case::new("scalar", "fn main() -> i32 { (2 + 3) * 4 }", Expected::Value(|_| Value::I32(20))),
+        Case::new("alias", "struct P { var n: i32 } fn main() -> i32 { val a = P { n: 1 }; val b = a; b.n = 7; a.n }", Expected::Value(|_| Value::I32(7))),
+        Case::new("object_identity", "struct P { var n: i32 } fn main() -> bool { val a = P { n: 1 }; val b = P { n: 1 }; a == b }", Expected::Value(|_| Value::Bool(false))),
+        Case::new("tuple_value", "fn main() -> bool { (1, \"a\") == (1, \"a\") }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("short_circuit", "fn fail() -> bool { print(\"unreachable\"); val a = [1]; a[2] == 0 } fn main() -> bool { false && fail() }", Expected::Value(|_| Value::Bool(false))),
+        Case::new("left_to_right", "fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { left() + right() }", Expected::Value(|_| Value::I32(3))).effects(&["left", "right"], &["left", "right"]),
         Case::new("completed_effect_survives_trap", "fn main() { print(\"committed\"); val a = [1]; a[9] = 2; print(\"unreachable\"); }", Expected::IndexTrap).effects(&["committed"], &["committed"]),
         Case::new("const_rebind", "const N: i32 = 1; fn main() { N = 2; }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("missing_name", "fn main() { missing; }", Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME")),
-        Case::new("enum_value", "fn main() -> bool { val a = [1]; val b = [1]; a.pop() == b.pop() }", Expected::Value(Value::Bool(true))),
-        Case::new("enum_different_members", "fn main() -> bool { val a = [1, 2]; a.pop() != a.pop() }", Expected::Value(Value::Bool(true))),
-        Case::new("enum_object_identity", "fn main() -> bool { val a = [[1]]; val b = [[1]]; a.pop() != b.pop() }", Expected::Value(Value::Bool(true))),
-        Case::new("map_alias_through_call", "use std::collections::{HashMap};\nfn change(value: HashMap<String, i32>) -> HashMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b = change(a); val fresh: HashMap<String, i32> = HashMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(Value::Bool(true))),
-        Case::new("set_alias_through_call", "use std::collections::{HashSet};\nfn change(value: HashSet<String>) -> HashSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: HashSet<String> = HashSet::new(); val b = change(a); val fresh: HashSet<String> = HashSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(Value::Bool(true))),
-        Case::new("enum_tuple_members_keep_map_identity", "use std::collections::{HashMap};\nenum Packet { Data((HashMap<String, i32>, i32)) } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b: HashMap<String, i32> = HashMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }", Expected::Value(Value::Bool(true))),
+        Case::new("enum_value", "fn main() -> bool { val a = [1]; val b = [1]; a.pop() == b.pop() }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum_different_members", "fn main() -> bool { val a = [1, 2]; a.pop() != a.pop() }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum_object_identity", "fn main() -> bool { val a = [[1]]; val b = [[1]]; a.pop() != b.pop() }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("map_alias_through_call", "use std::collections::{HashMap};\nfn change(value: HashMap<String, i32>) -> HashMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b = change(a); val fresh: HashMap<String, i32> = HashMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("set_alias_through_call", "use std::collections::{HashSet};\nfn change(value: HashSet<String>) -> HashSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: HashSet<String> = HashSet::new(); val b = change(a); val fresh: HashSet<String> = HashSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum_tuple_members_keep_map_identity", "use std::collections::{HashMap};\nenum Packet { Data((HashMap<String, i32>, i32)) } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b: HashMap<String, i32> = HashMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }", Expected::Value(|_| Value::Bool(true))),
         Case::new("interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { a == b }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         Case::new("tuple_interface_equality_rejected", "trait Marker {} fn same(a: Marker, b: Marker) -> bool { (1, a) == (1, b) }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
         reject,

@@ -58,7 +58,7 @@ impl KagariType for String {
 impl IntoKagari for String {
     fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
         cx.charge_string(self.len())?;
-        Ok(Value::Str(self))
+        cx.runtime().gc().alloc_string(self)
     }
 }
 
@@ -73,12 +73,17 @@ impl FromKagari for String {
                 "String conversion requires a string",
             ));
         };
+        let runtime = cx.runtime();
+        let value = runtime
+            .gc()
+            .string(*value)
+            .ok_or_else(|| RuntimeError::module_validation("invalid string"))?;
         cx.charge_string(value.len())?;
         let mut result = String::new();
         result
             .try_reserve_exact(value.len())
             .map_err(|_| RuntimeError::resource_limit("String conversion capacity"))?;
-        result.push_str(value);
+        result.push_str(&value);
         Ok(result)
     }
 }

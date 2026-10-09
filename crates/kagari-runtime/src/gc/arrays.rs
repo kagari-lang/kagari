@@ -90,7 +90,7 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("allocation capacity"))?;
         for start in (0..count).step_by(1024) {
             self.ensure_execution_allowed()?;
-            values.append_repeated(value.clone(), (count - start).min(1024))?;
+            values.append_repeated(value, (count - start).min(1024))?;
         }
         let ty = Ty::Array(Box::new(element.clone()), CollectionAccess::Mutable);
         let object = self.sequence_storage.prepare_payload(
@@ -287,7 +287,7 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("array fill capacity"))?;
         for start in (0..length).step_by(1024) {
             self.ensure_execution_allowed()?;
-            prepared.append_repeated(value.clone(), (length - start).min(1024))?;
+            prepared.append_repeated(value, (length - start).min(1024))?;
         }
         self.ensure_execution_allowed()?;
         self.with_array_mut(id, |values| *values = prepared)

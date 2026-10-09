@@ -94,7 +94,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
         Value::U64(17),
         Value::F64(-0.0),
         Value::I32(-7),
-        Value::Str("kept".into()),
+        _runtime.gc().alloc_string("kept".into()).unwrap(),
     ];
     let mut previous = values
         .allocate(
@@ -239,10 +239,11 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
     assert!(values.set(slots, 2, Value::I32(128)).is_none());
     assert!(values.set(slots, 2, Value::I64(1)).is_none());
     values.set(slots, 2, Value::I32(-128)).unwrap();
-    values.set(slots, 3, Value::Str("root".into())).unwrap();
+    let string = _runtime.gc().alloc_string("root".into()).unwrap();
+    values.set(slots, 3, string).unwrap();
     let mut roots = Vec::new();
     values.append_values(&mut roots);
-    assert_eq!(roots, [Value::Str("root".into())]);
+    assert_eq!(roots, [string]);
     values.release(slots).unwrap();
     assert!(values.payloads.is_empty());
     assert!(values.initialized.is_empty());

@@ -619,7 +619,7 @@ pub(super) fn generic_identity_module() -> NativeModule {
             singleton,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
                 let result = cx.allocate_result()?;
-                let root = cx.heap().root_value(result.clone()).unwrap();
+                let root = cx.heap().root_value(result).unwrap();
                 let Value::Array(id) = result else {
                     panic!("declared array result");
                 };
@@ -664,7 +664,7 @@ fn runner() -> Run { 7 }
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(receiver.clone()).unwrap();
+    let root = vm.runtime().root_value(receiver).unwrap();
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");

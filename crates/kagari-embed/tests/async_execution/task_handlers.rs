@@ -96,10 +96,7 @@ fn scoped_task_handler_contract() {
     let capability = f.value(scope.capability());
     let events = f.invoke("events", &[]);
     let items = f.invoke("items", &[]);
-    let result = f.invoke(
-        "handler",
-        &[capability.clone(), f.value(&items), f.value(&events)],
-    );
+    let result = f.invoke("handler", &[capability, f.value(&items), f.value(&events)]);
     let (id, handle) = task(&f, &result);
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     assert_eq!(
@@ -119,10 +116,10 @@ fn scoped_task_handler_contract() {
     assert!(f.call("append", &[f.value(&items)]).is_err());
     let _ = f.invoke("replace", &[f.value(&items)]);
     // A separate synchronous handler captures the running Task and submits a waiter.
-    let observer = f.invoke("observer", &[capability.clone(), f.value(&handle)]);
+    let observer = f.invoke("observer", &[capability, f.value(&handle)]);
     let (waiter, waiter_handle) = task(&f, &observer);
     assert_eq!(drive(&f, &scope, waiter), TaskDriveResult::Waiting);
-    let excess = f.invoke("object", &[capability.clone(), f.value(&events)]);
+    let excess = f.invoke("object", &[capability, f.value(&events)]);
     assert_eq!(
         f.value(&f.invoke("status", &[f.value(&excess)])),
         Value::I32(2)
@@ -157,7 +154,7 @@ fn scoped_task_handler_contract() {
     let report = runtime.take_task_report(&scope, id).unwrap().unwrap();
     assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(11));
     let _ = f.invoke("append", &[f.value(&items)]);
-    let object = f.invoke("object", &[capability.clone(), f.value(&events)]);
+    let object = f.invoke("object", &[capability, f.value(&events)]);
     let (object_id, _) = task(&f, &object);
     assert_eq!(
         f.value(&f.invoke("len", &[f.value(&events)])),
@@ -200,7 +197,7 @@ fn scoped_task_handler_contract() {
         Value::I32(7)
     );
     assert!(
-        f.call("after_spawn_trap", &[capability.clone(), f.value(&events)])
+        f.call("after_spawn_trap", &[capability, f.value(&events)])
             .is_err()
     );
     let admitted = runtime.ready_tasks(&scope).unwrap();

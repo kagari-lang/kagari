@@ -56,6 +56,7 @@ pub mod roots;
 mod sequence_edit;
 mod storage;
 mod string_iter;
+mod values;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GcHeapConfig {
@@ -155,6 +156,12 @@ struct ObjectSlot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcObjectKind {
+    String,
+    Tuple,
+    Range,
+    HostRoot,
+    HostPath,
+    Ephemeral,
     Native,
     Iter,
     Array,
@@ -422,7 +429,7 @@ impl GcHeap {
                     .zip(&layout.layout().fields)
                     .map(|(value, field)| StructValueField {
                         name: field.name.clone(),
-                        value: value.clone(),
+                        value: *value,
                     })
                     .collect(),
             )
@@ -490,8 +497,14 @@ impl GcHeap {
     }
 
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
-        let objects = self.objects.borrow();
+        let objects = self.objects.try_borrow().ok()?;
         match self.object_ref(&objects, id)? {
+            HeapObject::String(_) => Some(GcObjectKind::String),
+            HeapObject::Tuple(_) => Some(GcObjectKind::Tuple),
+            HeapObject::Range(_) => Some(GcObjectKind::Range),
+            HeapObject::HostRoot(_) => Some(GcObjectKind::HostRoot),
+            HeapObject::HostPath(_) => Some(GcObjectKind::HostPath),
+            HeapObject::Ephemeral(_) => Some(GcObjectKind::Ephemeral),
             HeapObject::Native(object) => Some(match object.ty {
                 Ty::Array(..) => GcObjectKind::Array,
                 Ty::Map { .. } => GcObjectKind::Map,
@@ -571,7 +584,7 @@ impl GcHeap {
     pub(crate) fn cell_get(&self, id: HeapObjectId, ty: ValueType) -> Result<Value, RuntimeError> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id) {
-            Some(HeapObject::Cell { ty: actual, value }) if *actual == ty => Ok(value.clone()),
+            Some(HeapObject::Cell { ty: actual, value }) if *actual == ty => Ok(*value),
             _ => Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "invalid capture cell",
@@ -582,7 +595,7 @@ impl GcHeap {
     pub(crate) fn captured_cell_value(&self, id: HeapObjectId) -> Option<Value> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
-            HeapObject::Cell { ty, value } if value.has_representation(*ty) => Some(value.clone()),
+            HeapObject::Cell { ty, value } if value.has_representation(*ty) => Some(*value),
             _ => None,
         }
     }
@@ -673,51 +686,33 @@ impl GcHeap {
     }
 
     pub fn validate_value(&self, value: &Value) -> bool {
-        if matches!(
-            value,
+        let (id, expected) = match value {
             Value::Unit
-                | Value::Bool(_)
-                | Value::I32(_)
-                | Value::I64(_)
-                | Value::U64(_)
-                | Value::F32(_)
-                | Value::F64(_)
-                | Value::Str(_)
-                | Value::HostRoot(_)
-                | Value::Ephemeral(_)
-        ) {
-            return true;
-        }
-        let mut pending = vec![value];
-        while let Some(value) = pending.pop() {
-            let expected = match value {
-                Value::HostPathView(view) => {
-                    pending.extend(view.dynamic_args().as_slice().iter().map(|arg| &arg.value));
-                    continue;
-                }
-                Value::Tuple(elements) => {
-                    pending.extend(elements);
-                    continue;
-                }
-                Value::Array(id) => (*id, Some(GcObjectKind::Array)),
-                Value::Map(id) => (*id, Some(GcObjectKind::Map)),
-                Value::Set(id) => (*id, Some(GcObjectKind::Set)),
-                Value::Enum(id) => (*id, Some(GcObjectKind::Enum)),
-                Value::Struct(id) => (*id, Some(GcObjectKind::Struct)),
-                Value::Interface(id) => (id.0, Some(GcObjectKind::Interface)),
-                Value::Closure(id) => (*id, Some(GcObjectKind::Closure)),
-                Value::Cell(id) => (*id, Some(GcObjectKind::Cell)),
-                Value::GcHandle(id) => (*id, None),
-                _ => continue,
-            };
-            let Some(actual) = self.object_kind(expected.0) else {
-                return false;
-            };
-            if expected.1.is_some_and(|kind| actual != kind) {
-                return false;
-            }
-        }
-        true
+            | Value::Bool(_)
+            | Value::I32(_)
+            | Value::I64(_)
+            | Value::U64(_)
+            | Value::F32(_)
+            | Value::F64(_)
+            | Value::RuntimeEphemeral(_) => return true,
+            Value::Str(id) => (*id, Some(GcObjectKind::String)),
+            Value::Tuple(id) => (*id, Some(GcObjectKind::Tuple)),
+            Value::Range(id) => (*id, Some(GcObjectKind::Range)),
+            Value::HostRoot(id) => (*id, Some(GcObjectKind::HostRoot)),
+            Value::HostPathView(id) => (*id, Some(GcObjectKind::HostPath)),
+            Value::Ephemeral(id) => (*id, Some(GcObjectKind::Ephemeral)),
+            Value::Array(id) => (*id, Some(GcObjectKind::Array)),
+            Value::Map(id) => (*id, Some(GcObjectKind::Map)),
+            Value::Set(id) => (*id, Some(GcObjectKind::Set)),
+            Value::Enum(id) => (*id, Some(GcObjectKind::Enum)),
+            Value::Struct(id) => (*id, Some(GcObjectKind::Struct)),
+            Value::Interface(id) => (id.0, Some(GcObjectKind::Interface)),
+            Value::Closure(id) => (*id, Some(GcObjectKind::Closure)),
+            Value::Cell(id) => (*id, Some(GcObjectKind::Cell)),
+            Value::GcHandle(id) => (*id, None),
+        };
+        self.object_kind(id)
+            .is_some_and(|actual| expected.is_none_or(|kind| actual == kind))
     }
 
     pub(crate) fn validate_candidate_value(&self, value: &Value) -> bool {
@@ -732,7 +727,7 @@ impl GcHeap {
     }
 
     pub(crate) fn validate_candidate_value_for(&self, owner: ModuleKey, value: &Value) -> bool {
-        if !value.is_default_heap_payload() {
+        if !value.is_default_heap_payload(self) {
             return false;
         }
         let Some(references) = self.trace_value(value) else {
@@ -743,13 +738,18 @@ impl GcHeap {
             let Some(object) = self.object_ref(&objects, id) else {
                 return false;
             };
-            matches!(object, HeapObject::Enum(..))
-                || objects[id.index()].initialization_owner == Some(owner)
+            matches!(
+                object,
+                HeapObject::Enum(..)
+                    | HeapObject::String(_)
+                    | HeapObject::Tuple(_)
+                    | HeapObject::Range(_)
+            ) || objects[id.index()].initialization_owner == Some(owner)
         })
     }
 
     fn valid_payload(&self, value: &Value) -> bool {
-        value.is_default_heap_payload() && self.validate_value(value)
+        value.is_default_heap_payload(self) && self.validate_value(value)
     }
 
     // Scoped metadata views can borrow slots. Reject a conflicting write before
@@ -860,7 +860,13 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
             HeapObject::Enum(snapshot, _) => Some(f(snapshot)),
-            HeapObject::Native(_)
+            HeapObject::String(_)
+            | HeapObject::Tuple(_)
+            | HeapObject::Range(_)
+            | HeapObject::HostRoot(_)
+            | HeapObject::HostPath(_)
+            | HeapObject::Ephemeral(_)
+            | HeapObject::Native(_)
             | HeapObject::Struct { .. }
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -876,7 +882,13 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
             HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
-            HeapObject::Native(_)
+            HeapObject::String(_)
+            | HeapObject::Tuple(_)
+            | HeapObject::Range(_)
+            | HeapObject::HostRoot(_)
+            | HeapObject::HostPath(_)
+            | HeapObject::Ephemeral(_)
+            | HeapObject::Native(_)
             | HeapObject::Enum(..)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
@@ -892,7 +904,13 @@ impl GcHeap {
         let mut objects = self.objects_mut().ok()?;
         match self.object_mut(&mut objects, id)? {
             HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
-            HeapObject::Native(_)
+            HeapObject::String(_)
+            | HeapObject::Tuple(_)
+            | HeapObject::Range(_)
+            | HeapObject::HostRoot(_)
+            | HeapObject::HostPath(_)
+            | HeapObject::Ephemeral(_)
+            | HeapObject::Native(_)
             | HeapObject::Enum(..)
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }

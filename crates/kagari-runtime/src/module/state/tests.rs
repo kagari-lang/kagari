@@ -131,16 +131,17 @@ fn replacement_and_removal_update_gc_edges_and_reject_foreign_or_stale_values() 
         .unwrap();
     let slot = ModuleSlot::new(0);
     let first = array(&runtime, &module, 7);
-    runtime
-        .write_module_slot(&module, slot, first.clone())
-        .unwrap();
+    runtime.write_module_slot(&module, slot, first).unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().validate_value(&first));
     let mut other = Runtime::default();
     let other_module = other
         .load_program("state", program(ValueType::HeapObject, true))
         .unwrap();
-    let foreign = Value::Tuple(vec![array(&other, &other_module, 9)]);
+    let foreign = other
+        .gc()
+        .alloc_tuple(vec![array(&other, &other_module, 9)])
+        .unwrap();
     assert_eq!(
         runtime
             .write_module_slot(&module, slot, foreign)
@@ -150,9 +151,7 @@ fn replacement_and_removal_update_gc_edges_and_reject_foreign_or_stale_values() 
     );
     assert_eq!(runtime.read_module_slot(&module, slot).unwrap(), first);
     let second = array(&runtime, &module, 42);
-    runtime
-        .write_module_slot(&module, slot, second.clone())
-        .unwrap();
+    runtime.write_module_slot(&module, slot, second).unwrap();
     runtime.collect_garbage().unwrap();
     assert!(!runtime.gc().validate_value(&first));
     assert!(runtime.gc().validate_value(&second));
@@ -165,11 +164,12 @@ fn replacement_and_removal_update_gc_edges_and_reject_foreign_or_stale_values() 
     );
     assert_eq!(runtime.read_module_slot(&module, slot).unwrap(), second);
     runtime
-        .write_module_slot(&module, slot, Value::Tuple(vec![]))
+        .write_module_slot(&module, slot, runtime.gc().alloc_tuple(vec![]).unwrap())
         .unwrap();
     runtime.collect_garbage().unwrap();
     assert!(!runtime.gc().validate_value(&second));
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    // The installed slot retains the immutable empty tuple itself.
+    assert_eq!(runtime.gc().allocated_objects(), 1);
     assert!(!runtime.is_quarantined());
 }
 
@@ -186,12 +186,12 @@ fn candidate_slot_writes_validate_objects_before_and_after_initialization() {
     let slot = ModuleSlot::new(0);
     let local = array(&runtime, candidate.module(), 42);
     runtime
-        .write_module_slot(candidate.module(), slot, local.clone())
+        .write_module_slot(candidate.module(), slot, local)
         .unwrap();
     for target in [&baseline, candidate.module()] {
         assert_eq!(
             runtime
-                .write_module_slot(target, slot, external.clone())
+                .write_module_slot(target, slot, external)
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ExecutionPhaseViolation

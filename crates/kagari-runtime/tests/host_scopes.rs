@@ -44,12 +44,10 @@ fn root(runtime: &mut Runtime) -> Value {
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
-    Value::HostRoot(
-        runtime
-            .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
-            .unwrap()
-            .into(),
-    )
+    let root = runtime
+        .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
+        .unwrap();
+    runtime.gc().alloc_host_root(root).unwrap()
 }
 
 fn declaration(name: &str, passing: HostPassingStyle) -> HostFunctionDeclaration {
@@ -97,7 +95,10 @@ fn same_frame_numbers_in_different_runtimes_do_not_authorize_foreign_borrows() {
     );
     assert!(
         first
-            .host_scope(&[Value::Tuple(vec![Value::host_ref(bt)])])
+            .host_scope(&[first
+                .gc()
+                .alloc_tuple(vec![first.gc().alloc_host_ref(bt).unwrap()])
+                .unwrap()])
             .is_err()
     );
     a.borrows().validate(at, HostBorrowKind::Shared).unwrap();
@@ -302,18 +303,18 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         .unwrap();
     assert_eq!(
         runtime
-            .invoke_host("game.write", &[Value::host_ref(token)])
+            .invoke_host("game.write", &[runtime.gc().alloc_host_ref(token).unwrap()])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowConflict
     );
     runtime
-        .invoke_host("game.read", &[Value::host_ref(token)])
+        .invoke_host("game.read", &[runtime.gc().alloc_host_ref(token).unwrap()])
         .unwrap();
     drop(scope);
     assert_eq!(
         runtime
-            .invoke_host("game.read", &[Value::host_ref(token)])
+            .invoke_host("game.read", &[runtime.gc().alloc_host_ref(token).unwrap()])
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ExpiredHostBorrow

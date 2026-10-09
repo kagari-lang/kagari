@@ -73,7 +73,7 @@ impl<T: NativeData> ManagedBuilder<T> {
         }
         let schema = self.native_type.schema()?.clone();
         for (field, value) in schema.fields.iter().zip(&values) {
-            if !value.is_default_heap_payload()
+            if !value.is_default_heap_payload(cx.runtime().gc())
                 || !field.contract.accepts_value(cx.runtime().gc(), value)
             {
                 return Err(invalid());

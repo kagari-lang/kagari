@@ -110,7 +110,7 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
                 apply,
                 |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
                     let (value, callback) = receiver.with_payload::<Handler, _>(|handler| {
-                        Ok((handler.value.clone(), handler.callback.clone()))
+                        Ok((handler.value, handler.callback.clone()))
                     })?;
                     cx.collect_garbage()?;
                     callback.call_values(cx, &[value])

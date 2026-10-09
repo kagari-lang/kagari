@@ -4,6 +4,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
+    gc::GcHeap,
     host_scope::HostResourceScope,
     metadata::{AbiFingerprint, FieldMetadataId, TypeId},
     numeric,
@@ -22,7 +23,7 @@ use kagari_types::ty::Ty;
 use std::{
     cell::RefCell,
     collections::HashMap,
-    fmt,
+    fmt, iter,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -389,6 +390,12 @@ impl HostPathViewHandle {
     pub fn dynamic_args(&self) -> &DynamicPathArguments {
         &self.dynamic_args
     }
+
+    pub(crate) fn retained_values(&self) -> impl Iterator<Item = &Value> {
+        iter::successors(Some(self), |view| view.base())
+            .flat_map(|view| view.dynamic_args().as_slice())
+            .map(|arg| &arg.value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -549,6 +556,7 @@ fn collect_dynamic_parameters(
 }
 
 fn validate_dynamic_arguments(
+    heap: &GcHeap,
     descriptor: &HostPathDescriptor,
     args: &DynamicPathArguments,
 ) -> Result<(), RuntimeError> {
@@ -566,7 +574,7 @@ fn validate_dynamic_arguments(
                 parameter.slot.index()
             )));
         }
-        if !arg.value.is_storable() {
+        if !arg.value.is_storable(heap) {
             return Err(RuntimeError::typed_path_validation(
                 "dynamic path arguments must be storable script values",
             ));
@@ -840,8 +848,8 @@ impl HostCallGuard<'_> {
         self.table.validate(token, required_kind)
     }
 
-    pub fn validate_no_escape(value: &Value) -> Result<(), RuntimeError> {
-        HostBorrowTable::validate_no_escape(value)
+    pub fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
+        HostBorrowTable::validate_no_escape(heap, value)
     }
 }
 
@@ -1044,30 +1052,33 @@ impl HostFunction {
         }
         for (value, parameter) in args.iter().zip(&self.declaration.params) {
             if parameter.passing == HostPassingStyle::Owned {
-                HostBorrowTable::validate_no_escape(value)?;
+                HostBorrowTable::validate_no_escape(context.runtime().gc(), value)?;
             }
             if !host_value_matches(context.runtime(), value, &parameter.ty)? {
                 return Err(invalid_arguments());
             }
         }
+        let heap = context.runtime().gc();
         for (value, parameter) in args.iter().zip(&self.declaration.params) {
             match (value, parameter.passing) {
-                (Value::HostRoot(root), HostPassingStyle::SharedBorrow) => {
+                (Value::HostRoot(id), HostPassingStyle::SharedBorrow) => {
+                    let root = heap.host_root(*id).ok_or_else(invalid_arguments)?;
                     context
                         .borrows()
                         .borrow_shared(root.object_id(), root.type_id())?;
                 }
-                (Value::HostRoot(root), HostPassingStyle::UniqueBorrow) => {
+                (Value::HostRoot(id), HostPassingStyle::UniqueBorrow) => {
+                    let root = heap.host_root(*id).ok_or_else(invalid_arguments)?;
                     context
                         .borrows()
                         .borrow_unique(root.object_id(), root.type_id())?;
                 }
-                (
-                    Value::Ephemeral(
-                        EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token),
-                    ),
-                    passing,
-                ) => {
+                (Value::Ephemeral(id), passing) => {
+                    let Some(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)) =
+                        heap.ephemeral(*id)
+                    else {
+                        return Err(invalid_arguments());
+                    };
                     let required = match passing {
                         HostPassingStyle::SharedBorrow => HostBorrowKind::Shared,
                         HostPassingStyle::UniqueBorrow => HostBorrowKind::Unique,
@@ -1077,7 +1088,7 @@ impl HostFunction {
                             ));
                         }
                     };
-                    context.runtime().validate_host_borrow(**token, required)?;
+                    context.runtime().validate_host_borrow(token, required)?;
                 }
                 _ => {}
             }
@@ -1113,9 +1124,12 @@ fn host_value_matches(
     ty: &HostValueType,
 ) -> Result<bool, RuntimeError> {
     let heap = runtime.gc();
-    let mut pending = vec![(value.clone(), ty)];
+    let mut pending = vec![(*value, ty)];
     while let Some((value, ty)) = pending.pop() {
         runtime.resources().poll_execution()?;
+        if !heap.validate_value(&value) {
+            return Ok(false);
+        }
         match (value, ty) {
             (Value::Unit, HostValueType::Unit)
             | (Value::Bool(_), HostValueType::Bool)
@@ -1124,23 +1138,34 @@ fn host_value_matches(
             | (Value::F32(_), HostValueType::F32)
             | (Value::F64(_), HostValueType::F64)
             | (Value::Str(_), HostValueType::String) => {}
-            (Value::HostRoot(root), HostValueType::Opaque(declaration)) => {
-                if !runtime.host().matches_root(*root)
+            (Value::HostRoot(id), HostValueType::Opaque(declaration)) => {
+                let Some(root) = heap.host_root(id) else {
+                    return Ok(false);
+                };
+                if !runtime.host().matches_root(root)
                     || !runtime.host().matches_type(root.type_id(), declaration)
                 {
                     return Ok(false);
                 }
             }
-            (
-                Value::Ephemeral(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)),
-                HostValueType::Opaque(declaration),
-            ) => {
+            (Value::Ephemeral(id), HostValueType::Opaque(declaration)) => {
+                let Some(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)) =
+                    heap.ephemeral(id)
+                else {
+                    return Ok(false);
+                };
                 if !runtime.host().matches_type(token.type_id(), declaration) {
                     return Ok(false);
                 }
             }
-            (Value::Tuple(values), HostValueType::Tuple(types)) if values.len() == types.len() => {
-                pending.extend(values.into_iter().zip(types))
+            (Value::Tuple(id), HostValueType::Tuple(types)) => {
+                let Some(values) = heap.tuple(id) else {
+                    return Ok(false);
+                };
+                if values.len() != types.len() {
+                    return Ok(false);
+                }
+                pending.extend(values.iter().copied().zip(types))
             }
             (Value::Array(id), HostValueType::Array(element, _)) => {
                 let Some(values) = heap.array_snapshot(id) else {

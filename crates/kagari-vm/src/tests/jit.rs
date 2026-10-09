@@ -12,6 +12,7 @@ use kagari_bytecode::{
 };
 use kagari_common::span::Span;
 use kagari_contract::ids::{DebugPointId, FunctionRef};
+use kagari_runtime::value_semantics::script_equal;
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 
 #[test]
@@ -51,8 +52,14 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             let calls = Arc::new(Mutex::new(Vec::new()));
             let called = calls.clone();
             let binding = runtime
-                .register_host_function(HostFunction::new(standard_log(), move |_, args| {
-                    called.lock().unwrap().push(args.to_vec());
+                .register_host_function(HostFunction::new(standard_log(), move |cx, args| {
+                    let [Value::Str(id)] = args else {
+                        panic!("log string")
+                    };
+                    called
+                        .lock()
+                        .unwrap()
+                        .push(cx.runtime().gc().string(*id).unwrap().to_owned());
                     Ok(Value::Unit)
                 }))
                 .unwrap();
@@ -73,10 +80,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                     .expect("retained execution result"),
                 Value::I32(7)
             );
-            assert_eq!(
-                *calls.lock().unwrap(),
-                vec![vec![Value::Str("linked".into())]]
-            );
+            assert_eq!(*calls.lock().unwrap(), vec!["linked".to_owned()]);
         }
     }
 }
@@ -141,12 +145,19 @@ fn main() -> (usize, usize, i32) {
         .execute_prepared(&loaded, "main", &prepared)
         .expect("unsupported JIT compilation should fall back");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Tuple(vec![Value::U64(3), Value::U64(2), Value::I32(7)])
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(report
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime()
+                .gc()
+                .alloc_tuple(vec![Value::U64(3), Value::U64(2), Value::I32(7)])
+                .unwrap())
+        )
+        .unwrap()
     );
     let jit = report.jit.expect("JIT attempt should be reported");
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);

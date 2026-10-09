@@ -4,7 +4,6 @@ use crate::{
     error::RuntimeError,
     frame::{ExecutionStack, NativeEntryState},
     session::ExecutionSession,
-    value::Value,
 };
 
 impl<'runtime> ExecutionStack<'runtime> {
@@ -48,7 +47,7 @@ impl<'runtime> ExecutionStack<'runtime> {
                     .quarantine("invalid parked frame window")
             })?;
             let retained = &values.values[ranges.managed];
-            if !retained.iter().all(Value::is_storable) {
+            if !retained.iter().all(|value| value.is_storable(runtime.gc())) {
                 return Ok(false);
             }
             runtime.gc().validate_async_values(retained)?;

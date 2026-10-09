@@ -316,7 +316,7 @@ fn main() -> i32 { boxed().read() }
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let root = vm.runtime().root_value(value).unwrap();
     use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
     let method = DefinitionPath {
         module: loaded.bytecode.identity.clone(),

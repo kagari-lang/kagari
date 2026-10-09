@@ -71,7 +71,7 @@ impl<S: KagariType> FromKagari for Object<S> {
         let object_type = cx.runtime().retain_object_type(layout.clone())?;
         let root = cx
             .runtime()
-            .root_value(value.clone())
+            .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("object result retention"))?;
         Ok(Self {
             root,

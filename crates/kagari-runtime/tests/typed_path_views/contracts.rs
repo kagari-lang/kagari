@@ -197,9 +197,10 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
                     Ok(Value::Array(value))
                 })
                 .with_prepare_write(move |cx, _, record| {
-                    let value = record.new_value.clone();
+                    let value = record.new_value;
                     let runtime = cx.runtime();
-                    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+                    // The scoped host descriptor and both script arrays are roots.
+                    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
                     assert_eq!(
                         runtime
                             .gc()
@@ -223,7 +224,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
         .unwrap();
     runtime
         .set_host_path(
-            &Value::HostRoot(root.into()),
+            &runtime.gc().alloc_host_root(root).unwrap(),
             descriptor,
             vec![],
             Value::Array(next),
@@ -241,7 +242,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     assert!(
         runtime
             .set_host_path(
-                &Value::HostRoot(root.into()),
+                &runtime.gc().alloc_host_root(root).unwrap(),
                 descriptor,
                 vec![],
                 Value::Array(other)
@@ -249,7 +250,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
             .is_err()
     );
     assert!(runtime.host_dirty_paths().is_empty());
-    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
@@ -356,8 +357,20 @@ fn registers_typed_host_roots_and_simple_path_views() {
     assert_eq!(view.result_type(), i32_id);
     assert_eq!(view.access(), PathAccess::ReadWrite);
     assert!(view.dynamic_args().is_empty());
-    assert!(!Value::HostRoot(root.into()).is_storable());
-    assert!(!Value::HostPathView(view.into()).is_storable());
+    assert!(
+        !runtime
+            .gc()
+            .alloc_host_root(root)
+            .unwrap()
+            .is_storable(runtime.gc())
+    );
+    assert!(
+        !runtime
+            .gc()
+            .alloc_host_path(view)
+            .unwrap()
+            .is_storable(runtime.gc())
+    );
 }
 
 #[test]
@@ -432,11 +445,14 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
 
     let borrow_table = HostBorrowTable::default();
     let frame = borrow_table.enter_frame().unwrap();
-    let borrow = Value::host_ref(
-        frame
-            .borrow_shared(HostObjectId(99), i32_id)
-            .expect("borrow should be created"),
-    );
+    let borrow = runtime
+        .gc()
+        .alloc_host_ref(
+            frame
+                .borrow_shared(HostObjectId(99), i32_id)
+                .expect("borrow should be created"),
+        )
+        .unwrap();
     assert_eq!(
         runtime
             .make_host_path_view(
@@ -474,7 +490,11 @@ fn installed_host_paths_are_available() {
 
     assert_eq!(
         runtime
-            .read_host_path(&Value::HostRoot(root.into()), descriptor_id, Vec::new())
+            .read_host_path(
+                &runtime.gc().alloc_host_root(root).unwrap(),
+                descriptor_id,
+                Vec::new()
+            )
             .unwrap(),
         Value::I32(7)
     );
@@ -522,7 +542,7 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
     assert_eq!(
         runtime
             .read_host_path(
-                &Value::HostRoot(root.into()),
+                &runtime.gc().alloc_host_root(root).unwrap(),
                 descriptor_id,
                 vec![Value::I32(4)]
             )
@@ -531,7 +551,11 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
     );
     assert_eq!(
         runtime
-            .read_host_path(&Value::HostRoot(root.into()), descriptor_id, Vec::new())
+            .read_host_path(
+                &runtime.gc().alloc_host_root(root).unwrap(),
+                descriptor_id,
+                Vec::new()
+            )
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::TypedPathValidation
@@ -543,7 +567,7 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
     assert_eq!(
         runtime
             .read_host_path(
-                &Value::HostRoot(stale.into()),
+                &runtime.gc().alloc_host_root(stale).unwrap(),
                 descriptor_id,
                 vec![Value::I32(1)]
             )

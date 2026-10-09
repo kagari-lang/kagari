@@ -67,7 +67,7 @@ impl<T: KagariType> FromKagari for ScriptVec<T> {
         let element = cx.parameter(expected, 0)?;
         let root = cx
             .runtime()
-            .root_value(value.clone())
+            .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("array handle retention"))?;
         Ok(Self {
             root,

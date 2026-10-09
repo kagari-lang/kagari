@@ -50,9 +50,9 @@ impl GcHeap {
             })
             .ok_or_else(invalid)??;
         let removed = Value::Array(self.alloc_array_from(target, removed)?);
-        let _root = self.root_value(removed.clone()).ok_or_else(invalid)?;
+        let _root = self.root_value(removed).ok_or_else(invalid)?;
         let remaining = Value::Array(self.alloc_array_from(target, remaining)?);
-        Ok(Value::Tuple(vec![remaining, removed]))
+        self.alloc_tuple(vec![remaining, removed])
     }
 
     pub fn array_swap(&self, id: HeapObjectId, a: usize, b: usize) -> Result<(), RuntimeError> {

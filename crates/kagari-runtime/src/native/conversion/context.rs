@@ -11,7 +11,7 @@ use crate::{
         conversion::{FromKagari, IntoKagari, KagariType},
         types::Type,
     },
-    value::{Value, ValueCategory},
+    value::Value,
 };
 use std::{
     collections::HashSet,
@@ -317,14 +317,11 @@ impl<'runtime> ConversionContext<'runtime> {
     }
 
     fn protect(&self, value: &Value) -> NativeResult<Option<RootedValue>> {
-        if matches!(
-            value.category(),
-            ValueCategory::Unit | ValueCategory::Primitive
-        ) {
+        if value.object_id().is_none() {
             return Ok(None);
         }
         self.runtime
-            .root_value(value.clone())
+            .root_value(*value)
             .map(Some)
             .ok_or_else(|| RuntimeError::module_validation("conversion temporary root"))
     }

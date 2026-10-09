@@ -376,11 +376,16 @@ fn read_source(path: &Path) -> Result<SourceFile, CliError> {
 fn register_default_host_functions(runtime: &mut KagariRuntime) -> Result<(), RuntimeError> {
     runtime.register_host_function(HostFunction::new(
         host_interface::standard_log(),
-        |_, args| {
+        |cx, args| {
             let Some(Value::Str(message)) = args.first() else {
                 return Err(HostError::new("host.log expects one string argument"));
             };
-            println!("{message}");
+            let message = cx
+                .runtime()
+                .gc()
+                .string(*message)
+                .ok_or_else(|| HostError::new("invalid host.log string"))?;
+            println!("{}", &*message);
             Ok(Value::Unit)
         },
     ))?;

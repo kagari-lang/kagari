@@ -15,20 +15,39 @@ fn join_validates_native_arguments_and_leaves_the_array_unchanged() {
         .alloc_array(
             &owner,
             Ty::Builtin(BuiltinType::String),
-            vec![Value::Str("é".into()), Value::Str("😀".into())],
+            vec![
+                heap.alloc_string("é".into()).unwrap(),
+                heap.alloc_string("😀".into()).unwrap(),
+            ],
         )
         .unwrap();
     let before = heap.array_snapshot(handle).unwrap();
-    assert_eq!(
-        array_join(heap, &[Value::Array(handle), Value::Str("/".into())]).unwrap(),
-        Value::Str("é/😀".into())
-    );
+    let Value::Str(joined) = array_join(
+        heap,
+        &[Value::Array(handle), heap.alloc_string("/".into()).unwrap()],
+    )
+    .unwrap() else {
+        panic!("joined string");
+    };
+    assert_eq!(&*heap.string(joined).unwrap(), "é/😀");
     assert_eq!(heap.array_snapshot(handle).unwrap(), before);
-    assert!(array_join(heap, &[Value::I32(1), Value::Str("".into())]).is_err());
+    assert!(
+        array_join(
+            heap,
+            &[Value::I32(1), heap.alloc_string("".into()).unwrap()]
+        )
+        .is_err()
+    );
     let invalid = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
-    assert!(array_join(heap, &[Value::Array(invalid), Value::Str("".into())]).is_err());
+    assert!(
+        array_join(
+            heap,
+            &[Value::Array(invalid), heap.alloc_string("".into()).unwrap()]
+        )
+        .is_err()
+    );
     assert_eq!(heap.array_snapshot(invalid).unwrap(), vec![Value::I32(1)]);
     assert!(
         array_join(
@@ -36,7 +55,7 @@ fn join_validates_native_arguments_and_leaves_the_array_unchanged() {
                 GcHeapConfig::default(),
                 crate::resource::ResourceState::default()
             ),
-            &[Value::Array(handle), Value::Str("".into())]
+            &[Value::Array(handle), heap.alloc_string("".into()).unwrap()]
         )
         .is_err()
     );

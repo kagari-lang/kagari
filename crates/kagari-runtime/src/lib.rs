@@ -480,7 +480,8 @@ impl Runtime {
                 "invalid heap reference in path arguments",
             ));
         }
-        self.host.make_path_view(root, descriptor_id, dynamic_args)
+        self.host
+            .make_path_view(&self.gc, root, descriptor_id, dynamic_args)
     }
 
     pub fn make_host_path_view_from_value(
@@ -499,7 +500,7 @@ impl Runtime {
             ));
         }
         self.host
-            .make_path_view_from_value(root_or_view, descriptor_id, dynamic_args)
+            .make_path_view_from_value(&self.gc, root_or_view, descriptor_id, dynamic_args)
     }
 
     pub fn read_host_path(
@@ -599,7 +600,7 @@ impl Runtime {
         self.resources().ensure_execution_allowed()?;
         if !values
             .iter()
-            .all(|value| value.is_default_heap_payload() && self.gc.validate_value(value))
+            .all(|value| value.is_default_heap_payload(&self.gc) && self.gc.validate_value(value))
         {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -666,14 +667,14 @@ impl Runtime {
         let session = self.resources().active_session();
         let trace_index = session
             .as_ref()
-            .and_then(|session| session.begin_host_call(function.symbol(), args));
+            .and_then(|session| session.begin_host_call(&self.gc, function.symbol(), args));
         let session = session.map(|session| session.id);
         let result = (|| {
             let context = HostCallContext::new(self, args)?;
             let result = function.invoke(&context, args);
             self.resources().poll_execution()?;
             let value = result?;
-            HostBorrowTable::validate_no_escape(&value)?;
+            HostBorrowTable::validate_no_escape(&self.gc, &value)?;
             if !self.gc.validate_value(&value) {
                 return Err(RuntimeError::host_call_failure(
                     "invalid heap reference in host result",
@@ -684,14 +685,14 @@ impl Runtime {
         if let (Some(id), Some(index)) = (session, trace_index)
             && let Some(session) = self.resources().sessions.get(id)
         {
-            session.finish_host_call(index, &result);
+            session.finish_host_call(&self.gc, index, &result);
         }
         result
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
         self.resources().poll_execution()?;
-        Ok(reflection::type_of(&self.gc, value))
+        reflection::type_of(&self.gc, value).map_err(|error| error.into_runtime_error())
     }
 
     pub fn reflect_get_field(

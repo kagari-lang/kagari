@@ -172,9 +172,9 @@ fn assert_source_index_path(field_prefix: bool) {
         let state = Arc::new(AtomicI32::new(10));
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |_, _| {
+            .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
                 calls.lock().unwrap().push("make");
-                Ok(Value::HostRoot(root.into()))
+                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
             }))
             .unwrap();
         let calls = trace.clone();

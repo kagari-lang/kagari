@@ -6,16 +6,24 @@ use crate::{
         MetadataEdge,
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
-    gc::HeapObjectId,
+    gc::{HeapObjectId, values::TupleData},
+    host::{HostPathViewHandle, HostRootHandle},
     module::StructLayoutRef,
     native::storage::NativeObject,
-    value::{EnumValueSnapshot, Value},
+    range::RangeValue,
+    value::{EnumValueSnapshot, EphemeralValue, Value},
 };
 use kagari_abi::representation::ValueType;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub(super) enum HeapObject {
+    String(String),
+    Tuple(TupleData),
+    Range(RangeValue),
+    HostRoot(HostRootHandle),
+    HostPath(Arc<HostPathViewHandle>),
+    Ephemeral(EphemeralValue),
     Native(NativeObject),
     Enum(EnumValueSnapshot, Option<Arc<ErrorTrace>>),
     Struct {
@@ -38,6 +46,10 @@ pub(super) enum HeapObject {
 impl HeapObject {
     pub(super) fn units(&self) -> usize {
         1 + match self {
+            Self::String(text) => text.len(),
+            Self::Tuple(tuple) => tuple.members.len(),
+            Self::HostPath(path) => path.retained_values().count(),
+            Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => 0,
             Self::Native(object) => object.units(),
             Self::Enum(value, _) => value.fields.len(),
             Self::Struct { fields, .. } => fields.len(),
@@ -69,6 +81,9 @@ impl HeapObject {
         visit: &mut dyn FnMut(&'a Value),
     ) -> Option<()> {
         match self {
+            Self::String(_) | Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => {}
+            Self::Tuple(tuple) => tuple.members.iter().rev().for_each(visit),
+            Self::HostPath(path) => path.retained_values().for_each(visit),
             Self::Native(object) => object.trace(visit),
             Self::Enum(snapshot, _) => snapshot.fields.iter().rev().for_each(visit),
             Self::Struct { fields, .. } => fields.iter().rev().for_each(visit),
@@ -80,21 +95,19 @@ impl HeapObject {
     }
 }
 
-/// Flatten inline values into checked object identities without exposing value
-/// kinds to the graph marker. Preserve the caller's pending-stack traversal order.
+/// Append checked identities without exposing value kinds to the graph marker.
+/// Immutable aggregates own their edges in heap storage like other objects.
 pub(super) fn append_value_edges(values: &mut Vec<&Value>, pending: &mut Vec<HeapObjectId>) {
     let start = pending.len();
     while let Some(value) = values.pop() {
         match value {
-            Value::HostPathView(view) => values.extend(
-                view.dynamic_args()
-                    .as_slice()
-                    .iter()
-                    .rev()
-                    .map(|arg| &arg.value),
-            ),
-            Value::Tuple(elements) => values.extend(elements.iter().rev()),
-            Value::Array(id)
+            Value::Str(id)
+            | Value::Tuple(id)
+            | Value::Range(id)
+            | Value::HostRoot(id)
+            | Value::HostPathView(id)
+            | Value::Ephemeral(id)
+            | Value::Array(id)
             | Value::Map(id)
             | Value::Set(id)
             | Value::Enum(id)
@@ -110,10 +123,7 @@ pub(super) fn append_value_edges(values: &mut Vec<&Value>, pending: &mut Vec<Hea
             | Value::U64(_)
             | Value::F32(_)
             | Value::F64(_)
-            | Value::Str(_)
-            | Value::Range(_)
-            | Value::HostRoot(_)
-            | Value::Ephemeral(_) => {}
+            | Value::RuntimeEphemeral(_) => {}
         }
     }
     pending[start..].reverse();

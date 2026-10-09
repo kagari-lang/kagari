@@ -64,7 +64,14 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     assert!(
         first
             .gc()
-            .array_set(own, 0, Value::Tuple(vec![Value::Array(foreign)]))
+            .array_set(
+                own,
+                0,
+                second
+                    .gc()
+                    .alloc_tuple(vec![Value::Array(foreign)])
+                    .unwrap()
+            )
             .is_err()
     );
     assert!(
@@ -114,7 +121,7 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
         )
         .unwrap();
     let naked_copy = Value::Array(object);
-    let root = runtime.root_value(naked_copy.clone()).unwrap();
+    let root = runtime.root_value(naked_copy).unwrap();
     let retained = root.clone();
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
@@ -137,6 +144,36 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
     assert!(runtime.gc().array_push(object, Value::I32(7)).is_err());
     assert_eq!(runtime.gc().stats(), before);
     assert!(script_equal(runtime.gc(), &Value::Array(object), &Value::Array(object)).is_err());
+
+    runtime.collect_garbage().unwrap();
+    for nested in [false, true] {
+        let text = runtime.gc().alloc_string("shared".into()).unwrap();
+        let Value::Str(text_id) = text else {
+            unreachable!()
+        };
+        let value = if nested {
+            runtime
+                .gc()
+                .alloc_tuple(vec![text, Value::I32(42)])
+                .unwrap()
+        } else {
+            text
+        };
+        let raw_copy = value;
+        let root = runtime.root_value(value).unwrap();
+        let retained = root.clone();
+        drop(root);
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
+        assert_eq!(retained.value(runtime.gc()), Some(raw_copy));
+        assert_eq!(&*runtime.gc().string(text_id).unwrap(), "shared");
+        drop(retained);
+        let collected = runtime.collect_garbage().unwrap();
+        assert_eq!(collected.reclaimed_objects, if nested { 2 } else { 1 });
+        assert_eq!(collected.reclaimed_units, if nested { 10 } else { 7 });
+        assert!(runtime.gc().string(text_id).is_none());
+        assert!(runtime.root_value(raw_copy).is_none());
+        assert!(script_equal(runtime.gc(), &raw_copy, &raw_copy).is_err());
+    }
 }
 
 #[test]

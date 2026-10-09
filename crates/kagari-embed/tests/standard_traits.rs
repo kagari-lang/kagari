@@ -553,10 +553,11 @@ fn make()->(Test,HashSet<Key>) {
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result");
-        let root = vm.runtime().root_value(value.clone()).unwrap();
+        let root = vm.runtime().root_value(value).unwrap();
         let Value::Tuple(values) = value else {
             panic!("tuple")
         };
+        let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
         vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(mode)])
             .unwrap();
         let error = vm
@@ -599,10 +600,11 @@ fn make()->(Test,HashSet<Key>) {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let root = vm.runtime().root_value(value).unwrap();
     let Value::Tuple(values) = value else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(5)])
         .unwrap();
     vm.invoke_interface_method(&values[0], &method("attempt"), &[])
@@ -621,10 +623,11 @@ fn make()->(Test,HashSet<Key>) {
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result");
-        let root = vm.runtime().root_value(value.clone()).unwrap();
+        let root = vm.runtime().root_value(value).unwrap();
         let Value::Tuple(values) = value else {
             panic!("tuple")
         };
+        let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
         let Value::Set(id) = values[1] else {
             panic!("set")
         };

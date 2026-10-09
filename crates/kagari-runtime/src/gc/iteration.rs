@@ -22,11 +22,11 @@ impl GcHeap {
                 _children: Vec::new(),
                 loop_leases: Vec::new(),
                 _lease: None,
-                _root: self.root_value(value.clone()).ok_or_else(|| {
+                _root: self.root_value(*value).ok_or_else(|| {
                     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid iterator")
                 })?,
             };
-            let mut pending = vec![value.clone()];
+            let mut pending = vec![*value];
             let mut visited = HashSet::new();
             while let Some(value) = pending.pop() {
                 self.ensure_execution_allowed()?;
@@ -43,12 +43,11 @@ impl GcHeap {
                             {
                                 let iter = object.payload_mut::<NativeIter>()?;
                                 iter.guard = None;
-                                (true, vec![iter.source.clone()])
+                                (true, vec![iter.source])
                             }
                             Some(HeapObject::Native(object)) => {
                                 let mut sources = Vec::new();
-                                object
-                                    .iteration_sources(&mut |source| sources.push(source.clone()));
+                                object.iteration_sources(&mut |source| sources.push(*source));
                                 (false, sources)
                             }
                             _ => return Err(invalid()),
@@ -71,7 +70,7 @@ impl GcHeap {
                             continue;
                         }
                         let snapshot = self.interface_snapshot(id).ok_or_else(invalid)?;
-                        pending.push(snapshot.data.clone());
+                        pending.push(snapshot.data);
                     }
                     source => guard
                         ._children
@@ -88,7 +87,7 @@ impl GcHeap {
                 _children: Vec::new(),
                 loop_leases: Vec::new(),
                 _lease: None,
-                _root: self.root_value(value.clone()).ok_or_else(invalid)?,
+                _root: self.root_value(*value).ok_or_else(invalid)?,
             });
         }
         let id = match value {
@@ -111,7 +110,7 @@ impl GcHeap {
                 "invalid collection handle",
             ));
         }
-        let root = self.root_value(value.clone()).ok_or_else(|| {
+        let root = self.root_value(*value).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid collection handle")
         })?;
         let lease = self

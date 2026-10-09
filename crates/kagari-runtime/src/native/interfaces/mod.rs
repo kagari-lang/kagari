@@ -108,7 +108,7 @@ impl<S: KagariType> FromKagari for Interface<S> {
         }
         let root = cx
             .runtime()
-            .root_value(value.clone())
+            .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("interface handle retention"))?;
         // The dispatch snapshot retains its implementation. The declared view
         // can have a different lexical owner; retain that scope independently.

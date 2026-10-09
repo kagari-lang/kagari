@@ -254,10 +254,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         visits, 3,
         "completed effects on referenced payloads survive failure"
     );
-    vm.runtime()
-        .gc()
-        .array_push(array, values[0].clone())
-        .unwrap();
+    vm.runtime().gc().array_push(array, values[0]).unwrap();
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);

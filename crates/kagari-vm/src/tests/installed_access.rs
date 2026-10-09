@@ -11,6 +11,7 @@ use kagari_bytecode::{
     },
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_runtime::value_semantics::script_equal;
 use kagari_runtime::{RuntimeConfig, host::HostFunction, value::Value};
 use kagari_types::host_interface::value_type::HostValueType;
 
@@ -95,14 +96,22 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
         )
         .expect("module should load");
     let reflection_vm = Vm::new(reflection_runtime);
-    assert_eq!(
-        reflection_vm
-            .execute(&reflection_module, "main")
-            .unwrap()
-            .return_value
-            .value(reflection_vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Str("i32".into())
+    assert!(
+        script_equal(
+            reflection_vm.runtime().gc(),
+            &(reflection_vm
+                .execute(&reflection_module, "main")
+                .unwrap()
+                .return_value
+                .value(reflection_vm.runtime().gc())
+                .expect("retained execution result")),
+            &(reflection_vm
+                .runtime()
+                .gc()
+                .alloc_string("i32".into())
+                .unwrap())
+        )
+        .unwrap()
     );
     DebugSession::new(&standard_runtime(Default::default())).unwrap();
 }

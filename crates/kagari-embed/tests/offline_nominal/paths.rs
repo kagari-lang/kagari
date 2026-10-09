@@ -75,9 +75,9 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         runtime
             .register_host_function(HostFunction::new(
                 declarations.functions[0].clone(),
-                move |_, _| {
+                move |cx, _| {
                     calls.lock().unwrap().push("root");
-                    Ok(Value::HostRoot(root.into()))
+                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
                 },
             ))
             .unwrap();
@@ -255,9 +255,9 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         let state = Arc::new(AtomicI32::new(10));
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |_, _| {
+            .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
                 calls.lock().unwrap().push("make");
-                Ok(Value::HostRoot(root.into()))
+                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
             }))
             .unwrap();
         for (declaration, label, result) in [
@@ -286,7 +286,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                             .dynamic_args
                             .as_slice()
                             .iter()
-                            .map(|arg| arg.value.clone())
+                            .map(|arg| arg.value)
                             .collect::<Vec<_>>();
                         if values != [Value::I32(2), Value::I32(1)] {
                             return Err(HostError::new("unexpected indexes"));
@@ -438,14 +438,14 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                 runtime
                     .register_host_function(HostFunction::new(
                         declarations.functions[0].clone(),
-                        move |_, _| {
+                        move |cx, _| {
                             calls.lock().unwrap().push("root");
                             let first = root_calls.fetch_add(1, Ordering::SeqCst) == 0;
-                            Ok(Value::HostRoot(if first {
-                                root.into()
-                            } else {
-                                replacement.into()
-                            }))
+                            Ok(cx
+                                .runtime()
+                                .gc()
+                                .alloc_host_root(if first { root } else { replacement })
+                                .unwrap())
                         },
                     ))
                     .unwrap();

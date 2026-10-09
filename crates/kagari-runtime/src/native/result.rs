@@ -66,7 +66,7 @@ impl LinkedResultAdapter {
         value: Value,
     ) -> NativeResult<Value> {
         let _root = runtime
-            .root_value(value.clone())
+            .root_value(value)
             .ok_or_else(|| RuntimeError::module_validation("native result root"))?;
         let resolved;
         let arguments = match &self.applied {

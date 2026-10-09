@@ -70,7 +70,7 @@ fn identity(runtime: &Runtime, value: &Value) -> InterfaceSnapshotId {
 fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
     let (runtime, loaded, table, value) = fixture();
     let id = identity(&runtime, &value);
-    let root = runtime.root_value(value.clone()).unwrap();
+    let root = runtime.root_value(value).unwrap();
     let stale_value = runtime
         .make_interface(&loaded, table, Value::I32(8))
         .unwrap();
@@ -354,7 +354,7 @@ fn invalid_cached_parent_aborts_before_any_storage_is_detached() {
             ..id
         });
     drop(view);
-    let _root = runtime.root_value(value.clone()).unwrap();
+    let _root = runtime.root_value(value).unwrap();
     let before = runtime.gc.stats();
     assert_eq!(
         runtime.collect_garbage().unwrap_err().kind(),
@@ -446,9 +446,7 @@ fn metadata_only_root_retains_the_heap_receiver_without_retaining_the_wrapper() 
                 .any(|method| loaded.definition_name(method.method) == Some("read"))
         })
         .unwrap();
-    let wrapper = runtime
-        .make_interface(&loaded, table, receiver.clone())
-        .unwrap();
+    let wrapper = runtime.make_interface(&loaded, table, receiver).unwrap();
     let id = identity(&runtime, &wrapper);
     let root = runtime
         .root_metadata(vec![MetadataRoot::Interface(id)])

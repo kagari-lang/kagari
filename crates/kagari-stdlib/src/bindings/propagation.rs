@@ -28,13 +28,13 @@ fn branch(
     }
     let residual_type = cx.type_parameter(&result, 0)?;
     let residual = enums::allocate(cx, &residual_type, name, failure, fields)?;
-    let _constructed = cx.heap().root_value(residual.clone()).ok_or_else(invalid)?;
+    let _constructed = cx.heap().root_value(residual).ok_or_else(invalid)?;
     let residual = if name == "Result" {
         cx.forward_enum_origin(&original, &residual)?
     } else {
         residual
     };
-    let _residual = cx.heap().root_value(residual.clone()).ok_or_else(invalid)?;
+    let _residual = cx.heap().root_value(residual).ok_or_else(invalid)?;
     enums::allocate(cx, &result, "ControlFlow", "Break", vec![residual])
 }
 
@@ -60,13 +60,13 @@ fn from_residual(cx: &mut CallContext<'_>, name: &str, failure: &str) -> NativeR
     }
     let _payload = fields
         .first()
-        .map(|value| cx.heap().root_value(value.clone()).ok_or_else(invalid))
+        .map(|value| cx.heap().root_value(*value).ok_or_else(invalid))
         .transpose()?;
     let result = enums::allocate(cx, &cx.result_type_argument()?, name, failure, fields)?;
     if name != "Result" {
         return Ok(result);
     }
-    let _result = cx.heap().root_value(result.clone()).ok_or_else(invalid)?;
+    let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
     cx.forward_enum_origin(&original, &result)
 }
 

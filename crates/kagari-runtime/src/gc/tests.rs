@@ -88,7 +88,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
             .is_err()
     );
     assert_eq!(runtime.modules().retention_counts(old).runtime_values, 0);
-    let root = runtime.root_value(interface.clone()).unwrap();
+    let root = runtime.root_value(interface).unwrap();
     assert!(runtime.gc().interface_snapshot(id).is_some());
     assert!(!crate::Runtime::default().gc().validate_value(&interface));
 
@@ -123,20 +123,18 @@ fn layout(name: &str, field: &str, ty: Ty) -> crate::module::StructLayoutRef {
     crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
 }
 
-fn host_root_value(object_id: u64) -> Value {
-    Value::HostRoot(
-        HostRootHandle::new(
-            Default::default(),
-            HostObjectId(object_id),
-            TypeId::new(0),
-            HostSchemaEpoch::new(0),
-            AbiFingerprint(1),
-        )
-        .into(),
-    )
+fn host_root_value(heap: &GcHeap, object_id: u64) -> Value {
+    heap.alloc_host_root(HostRootHandle::new(
+        Default::default(),
+        HostObjectId(object_id),
+        TypeId::new(0),
+        HostSchemaEpoch::new(0),
+        AbiFingerprint(1),
+    ))
+    .unwrap()
 }
 
-fn path_view_value(object_id: u64) -> Value {
+fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
     let result_type = TypeId::new(1);
     let mut runtime = crate::Runtime::default();
     let mut declaration = HostTypeDeclaration::new("Player");
@@ -173,33 +171,40 @@ fn path_view_value(object_id: u64) -> Value {
             schema_epoch: HostSchemaEpoch::new(0),
         })
         .unwrap();
-    Value::HostPathView(
+    heap.alloc_host_path(
         runtime
             .host()
-            .make_path_view(root, descriptor, DynamicPathArguments::empty())
-            .unwrap()
-            .into(),
+            .make_path_view(
+                runtime.gc(),
+                root,
+                descriptor,
+                DynamicPathArguments::empty(),
+            )
+            .unwrap(),
     )
+    .unwrap()
 }
 
-fn shared_borrow_value(object_id: u64) -> Value {
+fn shared_borrow_value(heap: &GcHeap, object_id: u64) -> Value {
     let table = HostBorrowTable::default();
     let guard = table.enter_frame().unwrap();
-    Value::host_ref(
+    heap.alloc_host_ref(
         guard
             .borrow_shared(HostObjectId(object_id), TypeId::new(0))
             .unwrap(),
     )
+    .unwrap()
 }
 
-fn unique_borrow_value(object_id: u64) -> Value {
+fn unique_borrow_value(heap: &GcHeap, object_id: u64) -> Value {
     let table = HostBorrowTable::default();
     let guard = table.enter_frame().unwrap();
-    Value::host_mut(
+    heap.alloc_host_mut(
         guard
             .borrow_unique(HostObjectId(object_id), TypeId::new(0))
             .unwrap(),
     )
+    .unwrap()
 }
 
 #[test]
@@ -208,25 +213,19 @@ fn rejects_ephemeral_values_as_heap_payloads() {
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
 
+    let rejected = [shared_borrow_value(heap, 1), unique_borrow_value(heap, 2)];
+    let before = heap.stats();
     assert!(
         runtime
-            .alloc_array(
-                &owner,
-                Ty::Builtin(BuiltinType::I32),
-                vec![shared_borrow_value(1)]
-            )
+            .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![rejected[0]])
             .is_err()
     );
     assert!(
         runtime
-            .alloc_array(
-                &owner,
-                Ty::Builtin(BuiltinType::I32),
-                vec![unique_borrow_value(2)]
-            )
+            .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![rejected[1]])
             .is_err()
     );
-    assert_eq!(heap.allocated_objects(), 0);
+    assert_eq!(heap.stats(), before);
 }
 
 #[test]
@@ -235,13 +234,11 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
 
+    let rejected = [host_root_value(heap, 1), path_view_value(heap, 3)];
+    let before = heap.stats();
     assert!(
         runtime
-            .alloc_array(
-                &owner,
-                Ty::Builtin(BuiltinType::I32),
-                vec![host_root_value(1)]
-            )
+            .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![rejected[0]])
             .is_err()
     );
     assert!(
@@ -254,11 +251,11 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
                     CollectionAccess::Mutable
                 )
             ),
-            vec![path_view_value(3)],
+            vec![rejected[1]],
         )
         .is_err()
     );
-    assert_eq!(heap.allocated_objects(), 0);
+    assert_eq!(heap.stats(), before);
 }
 
 #[test]
@@ -280,14 +277,17 @@ fn rejects_non_storable_heap_mutations() {
         )
         .unwrap();
 
-    assert!(heap.array_push(array, shared_borrow_value(1)).is_err());
-    assert!(heap.array_set(array, 0, path_view_value(4)).is_err());
+    assert!(
+        heap.array_push(array, shared_borrow_value(heap, 1))
+            .is_err()
+    );
+    assert!(heap.array_set(array, 0, path_view_value(heap, 4)).is_err());
     assert!(
         heap.struct_set_slot(
             record,
             &heap.struct_layout(record).unwrap(),
             0,
-            host_root_value(5)
+            host_root_value(heap, 5)
         )
         .is_err()
     );
@@ -346,11 +346,14 @@ fn roots_are_explicit_storable_slots() {
     assert_eq!(heap.active_roots(), 1);
     assert_eq!(heap.trace_roots().unwrap(), vec![object]);
 
-    assert!(heap.root_value(host_root_value(1)).is_none());
-    assert!(heap.root_value(path_view_value(1)).is_none());
+    assert!(heap.root_value(host_root_value(heap, 1)).is_none());
+    assert!(heap.root_value(path_view_value(heap, 1)).is_none());
     assert!(
-        heap.root_value(Value::Tuple(vec![shared_borrow_value(2)]))
-            .is_none()
+        heap.root_value(
+            heap.alloc_tuple(vec![shared_borrow_value(heap, 2)])
+                .unwrap()
+        )
+        .is_none()
     );
     assert_eq!(heap.active_roots(), 1);
 

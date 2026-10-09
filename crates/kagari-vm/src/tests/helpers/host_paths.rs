@@ -280,7 +280,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                     move |call, _| {
                         call.runtime()
                             .set_host_path(
-                                &Value::HostRoot(root.into()),
+                                &call.runtime().gc().alloc_host_root(root).unwrap(),
                                 descriptor,
                                 vec![],
                                 Value::I32(20),

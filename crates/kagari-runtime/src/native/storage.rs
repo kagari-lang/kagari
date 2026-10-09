@@ -296,10 +296,10 @@ impl NativeStorage {
     ) -> NativeResult<NativeObject> {
         let mut valid = true;
         (self.entries.trace)(payload.as_ref(), &mut |value| {
-            valid &= value.is_default_heap_payload() && heap.validate_value(value);
+            valid &= value.is_default_heap_payload(heap) && heap.validate_value(value);
         });
         (self.entries.iteration_sources)(payload.as_ref(), &mut |value| {
-            valid &= value.is_default_heap_payload() && heap.validate_value(value);
+            valid &= value.is_default_heap_payload(heap) && heap.validate_value(value);
         });
         if !valid {
             return Err(RuntimeError::module_validation(

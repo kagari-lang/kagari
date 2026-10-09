@@ -5,6 +5,7 @@ use kagari_bytecode::{
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
+    gc::GcHeap,
     host::{
         DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
         HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
@@ -30,14 +31,15 @@ use kagari_types::{
 #[path = "support/layouts.rs"]
 mod layouts;
 
-fn host_root_value(object_id: u64) -> Value {
-    let Value::HostPathView(view) = path_view_value(object_id) else {
+fn host_root_value(heap: &GcHeap, object_id: u64) -> Value {
+    let Value::HostPathView(view) = path_view_value(heap, object_id) else {
         unreachable!()
     };
-    Value::HostRoot(view.root().into())
+    heap.alloc_host_root(heap.host_path(view).unwrap().root())
+        .unwrap()
 }
 
-fn path_view_value(object_id: u64) -> Value {
+fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
     let result_type = TypeId::new(1);
     let mut runtime = kagari_runtime::Runtime::default();
     let mut declaration = HostTypeDeclaration::new("Player");
@@ -74,48 +76,56 @@ fn path_view_value(object_id: u64) -> Value {
             schema_epoch: HostSchemaEpoch::new(0),
         })
         .unwrap();
-    Value::HostPathView(
+    heap.alloc_host_path(
         runtime
             .host()
-            .make_path_view(root, descriptor, DynamicPathArguments::empty())
-            .unwrap()
-            .into(),
+            .make_path_view(heap, root, descriptor, DynamicPathArguments::empty())
+            .unwrap(),
     )
+    .unwrap()
 }
 
-fn shared_borrow_value(object_id: u64) -> Value {
+fn shared_borrow_value(heap: &GcHeap, object_id: u64) -> Value {
     let table = HostBorrowTable::default();
     let guard = table.enter_frame().unwrap();
-    Value::host_ref(
+    heap.alloc_host_ref(
         guard
             .borrow_shared(HostObjectId(object_id), TypeId::new(0))
             .unwrap(),
     )
+    .unwrap()
 }
 
 #[test]
 fn value_categories_and_storage_boundaries_match_runtime_spec() {
-    let host_root = host_root_value(1);
-    let host_path_view = path_view_value(2);
-    let host_borrow = shared_borrow_value(3);
+    let runtime = Runtime::default();
+    let heap = runtime.gc();
+    let host_root = host_root_value(runtime.gc(), 1);
+    let host_path_view = path_view_value(runtime.gc(), 2);
+    let host_borrow = shared_borrow_value(runtime.gc(), 3);
 
     assert_eq!(Value::Unit.category(), ValueCategory::Unit);
     assert_eq!(Value::I32(7).category(), ValueCategory::Primitive);
     assert_eq!(
-        Value::Tuple(vec![Value::I32(7)]).category(),
+        heap.alloc_tuple(vec![Value::I32(7)]).unwrap().category(),
         ValueCategory::ScriptOwned
     );
     assert_eq!(host_root.category(), ValueCategory::HostHandle);
     assert_eq!(host_path_view.category(), ValueCategory::HostPathView);
     assert_eq!(host_borrow.category(), ValueCategory::Ephemeral);
 
-    assert!(!host_root.is_storable());
-    assert!(!host_path_view.is_storable());
-    assert!(!host_borrow.is_storable());
-    assert!(!Value::Tuple(vec![host_borrow]).is_storable());
+    assert!(!host_root.is_storable(heap));
+    assert!(!host_path_view.is_storable(heap));
+    assert!(!host_borrow.is_storable(heap));
+    assert!(
+        !heap
+            .alloc_tuple(vec![host_borrow])
+            .unwrap()
+            .is_storable(heap)
+    );
 
-    assert!(!host_root.is_default_heap_payload());
-    assert!(!host_path_view.is_default_heap_payload());
+    assert!(!host_root.is_default_heap_payload(heap));
+    assert!(!host_path_view.is_default_heap_payload(heap));
 }
 
 #[test]
@@ -145,10 +155,18 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         .unwrap();
 
     let root = runtime
-        .root_value(Value::Tuple(vec![Value::Struct(record), Value::Unit]))
+        .root_value(
+            runtime
+                .gc()
+                .alloc_tuple(vec![Value::Struct(record), Value::Unit])
+                .unwrap(),
+        )
         .unwrap();
 
-    assert_eq!(runtime.trace_roots().unwrap(), vec![record, leaf]);
+    let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(runtime.trace_roots().unwrap(), vec![tuple, record, leaf]);
     root.set(runtime.gc(), Value::GcHandle(leaf)).unwrap();
     assert_eq!(runtime.trace_roots().unwrap(), vec![leaf]);
     assert_eq!(root.value(runtime.gc()).unwrap(), Value::GcHandle(leaf));
@@ -282,7 +300,7 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
             .alloc_array(
                 record_layout.module(),
                 Ty::Builtin(BuiltinType::I32),
-                vec![host_root_value(1)]
+                vec![host_root_value(runtime.gc(), 1)]
             )
             .is_err()
     );
@@ -295,14 +313,30 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
         .unwrap();
     assert!(
         runtime
-            .alloc_struct(record_layout, vec![path_view_value(2)])
+            .alloc_struct(record_layout, vec![path_view_value(runtime.gc(), 2)])
             .is_err()
     );
-    assert!(runtime.root_value(host_root_value(3)).is_none());
-    assert!(runtime.root_value(path_view_value(4)).is_none());
-    let _root = runtime
-        .root_value(Value::Tuple(vec![Value::Array(script), Value::Unit]))
+    assert!(
+        runtime
+            .root_value(host_root_value(runtime.gc(), 3))
+            .is_none()
+    );
+    assert!(
+        runtime
+            .root_value(path_view_value(runtime.gc(), 4))
+            .is_none()
+    );
+    let root = runtime
+        .root_value(
+            runtime
+                .gc()
+                .alloc_tuple(vec![Value::Array(script), Value::Unit])
+                .unwrap(),
+        )
         .unwrap();
 
-    assert_eq!(runtime.trace_roots().unwrap(), vec![script]);
+    let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(runtime.trace_roots().unwrap(), vec![tuple, script]);
 }

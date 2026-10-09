@@ -35,7 +35,7 @@ pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
             )
             .is_some_and(|contract| contract.storage_access.is_some())
         })
-        .then(|| snapshot.data.clone())
+        .then(|| snapshot.data)
 }
 
 /// Identity is available only for script object categories, never allocation
@@ -84,12 +84,20 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
     }
     Ok(match (lhs, rhs) {
         (
-            Value::Interface(_) | Value::HostRoot(_) | Value::HostPathView(_) | Value::Ephemeral(_),
+            Value::Interface(_)
+            | Value::HostRoot(_)
+            | Value::HostPathView(_)
+            | Value::Ephemeral(_)
+            | Value::RuntimeEphemeral(_),
             _,
         )
         | (
             _,
-            Value::Interface(_) | Value::HostRoot(_) | Value::HostPathView(_) | Value::Ephemeral(_),
+            Value::Interface(_)
+            | Value::HostRoot(_)
+            | Value::HostPathView(_)
+            | Value::Ephemeral(_)
+            | Value::RuntimeEphemeral(_),
         ) => {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -103,8 +111,14 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
         (Value::U64(a), Value::U64(b)) => a == b,
         (Value::F32(a), Value::F32(b)) => a == b,
         (Value::F64(a), Value::F64(b)) => a == b,
-        (Value::Str(a), Value::Str(b)) => a == b,
-        (Value::Tuple(a), Value::Tuple(b)) => members_equal(gc, a, b)?,
+        (Value::Str(a), Value::Str(b)) => {
+            *gc.string(*a).ok_or_else(invalid)? == *gc.string(*b).ok_or_else(invalid)?
+        }
+        (Value::Tuple(a), Value::Tuple(b)) => members_equal(
+            gc,
+            &gc.tuple(*a).ok_or_else(invalid)?,
+            &gc.tuple(*b).ok_or_else(invalid)?,
+        )?,
         (Value::Enum(a), Value::Enum(b)) => {
             let a = gc.enum_snapshot(*a).ok_or_else(invalid)?;
             let b = gc.enum_snapshot(*b).ok_or_else(invalid)?;
@@ -206,9 +220,10 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
             Value::U64(v) => write!(out, "{v}").ok()?,
             Value::F32(v) => write!(out, "{v}").ok()?,
             Value::F64(v) => write!(out, "{v}").ok()?,
-            Value::Str(v) if debug => write!(out, "{v:?}").ok()?,
-            Value::Str(v) => out.push_str(v),
-            Value::Tuple(values) if debug => {
+            Value::Str(v) if debug => write!(out, "{:?}", &*gc.string(*v)?).ok()?,
+            Value::Str(v) => out.push_str(&gc.string(*v)?),
+            Value::Tuple(id) if debug => {
+                let values = gc.tuple(*id)?;
                 out.push('(');
                 for (i, value) in values.iter().enumerate() {
                     if i > 0 {
@@ -258,7 +273,7 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
             Value::Interface(_) if debug => out.push_str("<interface>"),
             Value::Closure(_) if debug => out.push_str("<function>"),
             Value::HostPathView(_) if debug => out.push_str("<host path>"),
-            Value::Ephemeral(_) if debug => out.push_str("<borrow>"),
+            Value::Ephemeral(_) | Value::RuntimeEphemeral(_) if debug => out.push_str("<borrow>"),
             _ => return None,
         }
         (!out.failed).then_some(())
@@ -292,7 +307,11 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
         (Value::U64(a), Value::U64(b)) => a.partial_cmp(b),
         (Value::F32(a), Value::F32(b)) => a.partial_cmp(b),
         (Value::F64(a), Value::F64(b)) => a.partial_cmp(b),
-        (Value::Str(a), Value::Str(b)) => a.partial_cmp(b),
+        (Value::Str(a), Value::Str(b)) => Some(
+            gc.string(*a)
+                .ok_or_else(invalid)?
+                .cmp(&gc.string(*b).ok_or_else(invalid)?),
+        ),
         (Value::Enum(a), Value::Enum(b)) => {
             let rank = |id| {
                 let snapshot = gc.enum_snapshot(id)?;
@@ -476,7 +495,7 @@ mod tests {
                 .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
                 .unwrap(),
         );
-        assert!(script_equal(gc, &make(array.clone()), &make(array)).unwrap());
+        assert!(script_equal(gc, &make(array), &make(array)).unwrap());
         let first = make(Value::Array(
             runtime
                 .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])

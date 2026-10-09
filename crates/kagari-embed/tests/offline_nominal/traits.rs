@@ -331,9 +331,9 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let trace = calls.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |_, _| {
+            .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
                 trace.lock().unwrap().push("make");
-                Ok(Value::HostRoot(root.into()))
+                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
             }))
             .unwrap();
         let trace = calls.clone();

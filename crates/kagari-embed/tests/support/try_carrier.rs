@@ -81,7 +81,7 @@ pub fn module() -> NativeResult<NativeModule> {
                     let residual = cx.allocate_enum(&applied_residual, &none, vec![])?;
                     let _root = cx
                         .heap()
-                        .root_value(residual.clone())
+                        .root_value(residual)
                         .ok_or_else(|| RuntimeError::module_validation("residual root"))?;
                     cx.allocate_enum(&result, &stopped, vec![residual])
                 }),

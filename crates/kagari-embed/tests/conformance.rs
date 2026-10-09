@@ -8,6 +8,7 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{LoadOptions, ReloadOptions},
 };
+use kagari_runtime::value_semantics::script_equal;
 
 use {
     kagari_common::identity::{ModuleIdentity, PackageId},
@@ -192,18 +193,26 @@ fn main() -> (usize, usize, usize, bool, i32) {
         .execute(&loaded, "main", &[], &context)
         .expect("builtin surface should execute through embedding API");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::Tuple(vec![
-            Value::U64(3),
-            Value::U64(2),
-            Value::U64(1),
-            Value::Bool(true),
-            Value::I32(7),
-        ])
+    assert!(
+        script_equal(
+            runtime.runtime().gc(),
+            &(report
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result")),
+            &(runtime
+                .runtime()
+                .gc()
+                .alloc_tuple(vec![
+                    Value::U64(3),
+                    Value::U64(2),
+                    Value::U64(1),
+                    Value::Bool(true),
+                    Value::I32(7),
+                ])
+                .unwrap())
+        )
+        .unwrap()
     );
 }
 

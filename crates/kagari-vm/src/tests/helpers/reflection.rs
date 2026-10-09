@@ -1,6 +1,7 @@
 use super::*;
 use crate::tests::{common, common::standard_runtime};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_runtime::value_semantics::script_equal;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -29,12 +30,16 @@ fn executes_runtime_reflect_type_of_helper() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Str("i32".to_owned())
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(report
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime().gc().alloc_string("i32".to_owned()).unwrap())
+        )
+        .unwrap()
     );
 }
 
@@ -62,13 +67,17 @@ fn runtime_reflection_helpers_use_declared_metadata() {
     );
 
     let vm = Vm::new(runtime);
-    assert_eq!(
-        vm.execute(&loaded, "main")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Str("i32".into())
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(vm.execute(&loaded, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime().gc().alloc_string("i32".into()).unwrap())
+        )
+        .unwrap()
     );
 }
 
@@ -296,12 +305,16 @@ fn executes_source_lowered_type_of_helper() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Str("i32".to_owned())
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(report
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime().gc().alloc_string("i32".to_owned()).unwrap())
+        )
+        .unwrap()
     );
 }
 
@@ -400,14 +413,21 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Tuple(vec![
-            Value::Str("map".to_owned()),
-            Value::Str("set".to_owned())
-        ])
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(report
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime()
+                .gc()
+                .alloc_tuple(vec![
+                    vm.runtime().gc().alloc_string("map".to_owned()).unwrap(),
+                    vm.runtime().gc().alloc_string("set".to_owned()).unwrap()
+                ])
+                .unwrap())
+        )
+        .unwrap()
     );
 }

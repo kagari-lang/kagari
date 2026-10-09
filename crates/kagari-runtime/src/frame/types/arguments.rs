@@ -371,7 +371,10 @@ impl Runtime {
                 .and_then(|environment| environment.argument(binder, *position))
                 .is_some_and(|argument| argument.matches(self, value, owner));
         }
-        if let (Value::Tuple(values), Ty::Tuple(types)) = (value, ty) {
+        if let (Value::Tuple(id), Ty::Tuple(types)) = (value, ty) {
+            let Some(values) = self.gc.tuple(*id) else {
+                return false;
+            };
             return values.len() == types.len()
                 && values
                     .iter()

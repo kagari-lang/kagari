@@ -78,7 +78,7 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result");
-        let root = vm.runtime().root_value(receiver.clone()).unwrap();
+        let root = vm.runtime().root_value(receiver).unwrap();
         for _ in 0..5 {
             assert_eq!(
                 vm.invoke_interface_method(&receiver, &method, &[]).unwrap(),
@@ -147,7 +147,7 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result");
-        let root = vm.runtime().root_value(receiver.clone()).unwrap();
+        let root = vm.runtime().root_value(receiver).unwrap();
         for _ in 0..5 {
             assert_eq!(
                 vm.invoke_interface_method(&receiver, &method, &[Value::I32(42)])
@@ -252,12 +252,12 @@ fn make() -> List<i32> { Sequence { items: [3, 1, 2] } }
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(receiver.clone()).unwrap();
+    let root = vm.runtime().root_value(receiver).unwrap();
     for _ in 0..3 {
         let reversed = vm
             .invoke_interface_method(&receiver, &methods[0], &[])
             .unwrap();
-        let result_root = vm.runtime().root_value(reversed.clone()).unwrap();
+        let result_root = vm.runtime().root_value(reversed).unwrap();
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
             vm.invoke_interface_method(&reversed, &methods[1], &[])

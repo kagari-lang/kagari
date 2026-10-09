@@ -63,7 +63,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             runtime
                 .register_host_function(HostFunction::new(standard_log(), move |context, args| {
                     let runtime = context.runtime();
-                    if args == [Value::Str("outer".into())] {
+                    if matches!(args, [Value::Str(id)] if &*runtime.gc().string(*id).unwrap() == "outer") {
                         let token = context
                             .borrows()
                             .borrow_unique(HostObjectId(1), TypeId::new(0))
@@ -192,7 +192,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
                     context.runtime().collect_garbage().unwrap();
                     assert!(context.runtime().gc().validate_value(&temporary));
-                    if args == [Value::Str("inner".into())] {
+                    if matches!(args, [Value::Str(id)] if &*context.runtime().gc().string(*id).unwrap() == "inner") {
                         cancellation.cancel();
                     } else {
                         let error = reenter(context, &context.runtime().execution_root().unwrap(), nested, &[]).expect_err("nested termination");
@@ -282,7 +282,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
             .unwrap(),
     );
     assert!(foreign.gc().validate_value(&foreign_value));
-    let retained_foreign_value = foreign_value.clone();
+    let retained_foreign_value = foreign_value;
     let mut runtime = runtime();
     runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
         called.fetch_add(1, Ordering::SeqCst);
@@ -298,7 +298,10 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     })).unwrap();
     // A direct host call supplies a context, but cannot create a script root implicitly.
     runtime
-        .invoke_host("host.log", &[Value::Str("enter".into())])
+        .invoke_host(
+            "host.log",
+            &[runtime.gc().alloc_string("enter".into()).unwrap()],
+        )
         .unwrap();
     let loaded = runtime.load_program("inputs.kgr", module).unwrap();
     let vm = Vm::new(runtime);
@@ -379,13 +382,15 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         .unwrap()
         .id;
     let mut runtime = runtime();
-    runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
+    runtime.register_host_function(HostFunction::new(standard_log(), move |context, args| {
         let root = context.runtime().execution_root().unwrap();
         let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
         assert!(matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
         assert_eq!(context.runtime().resources().counters().current_call_depth, 1);
         context.runtime().collect_garbage().unwrap();
-        assert_eq!(context.runtime().gc().allocated_objects(), 0);
+        assert_eq!(context.runtime().gc().allocated_objects(), 1);
+        let [Value::Str(text)] = args else { panic!("outer argument") };
+        assert_eq!(&*context.runtime().gc().string(*text).unwrap(), "enter");
         Ok(Value::Unit)
     })).unwrap();
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
@@ -399,6 +404,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         Value::I32(42)
     );
     assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
 
@@ -562,7 +568,13 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                         &owner,
                         &applied,
                         "Err",
-                        vec![Value::Str("host failure".into())],
+                        vec![
+                            context
+                                .runtime()
+                                .gc()
+                                .alloc_string("host failure".into())
+                                .unwrap(),
+                        ],
                     )
                     .unwrap();
                 *saved.lock().unwrap() = context.runtime().result_failure(&value);

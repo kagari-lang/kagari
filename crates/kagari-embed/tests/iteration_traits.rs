@@ -203,7 +203,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
             IterOp::New,
         )
         .unwrap();
-    let iter = rt.root_value(value.clone()).unwrap();
+    let iter = rt.root_value(value).unwrap();
     assert!(rt.gc().array_push(array, Value::I32(1)).is_err());
     cancellation.cancel();
     assert!(rt.gc_safepoint().is_err());

@@ -2,7 +2,7 @@
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
 VE00-VE08 in order, following the debug-only diagnostic refinement. VE00 baseline
-and VE01 storage/reference ownership are complete; VE02 value migration is next.
+and VE01 storage/reference ownership are complete; VE02 value migration is in progress.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation and queue placement. This plan owns phase order, implementation scope,
@@ -528,7 +528,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 
 - [x] VE00: Current baseline, consumer inventory and selected representation.
 - [x] VE01: Storage, internal reference ownership and roots.
-- [ ] VE02: Compact Copy values and complete consumer migration.
+- [x] VE02: Compact Copy values and complete consumer migration.
 - [ ] VE03: Runtime string constants and shared string access.
 - [ ] VE04: Value/reference integration and measurement gate.
 - [ ] VE05: Prepared object and collection operations.
@@ -748,3 +748,113 @@ the probe's fixed entry aliases are string_constants=tuple and string_calls=rang
 Use the same source with the candidate allocator probe at VE04. Temporary drafts
 using unsupported Rust-style tuple access/destructuring were corrected to Kagari's
 `pair[1]` before measurement; they were never benchmark or production changes.
+
+### 2026-10-09: VE02 consumer migration in progress
+
+Value now derives Copy and stores compact IDs for strings, tuples, ranges and host
+descriptors. New immutable payload accessors require the owning heap. Tuple storage
+caches no-escape properties computed from validated immutable members; these facts
+do not retain roots and never permit publishing scoped members. Host borrow token
+records store the Copy token directly rather than another Arc allocation. Path
+descriptor tracing includes dynamic arguments from the complete base-view chain.
+
+Native conversion now protects strings as GC values. Iterator preview keeps owned
+construction data until all storage views are released, then materializes and roots
+the item before the result callback. Canonical constants still allocate strings on
+load at this intermediate phase; VE03 owns indexed runtime materialization.
+
+The runtime library check passes. Consumer and fixture migration is still in
+progress, so VE02 has not passed its build or correctness gate. `cargo check -p
+kagari-runtime --tests` currently exposes old owned-value constructors, host path
+constructor arguments and heap-free borrow predicates in fixtures; VE02 owns all
+of those errors. Logs are under `target/ve02/`. No intermediate API checkpoint will
+be committed with these errors, and no production performance claim is made.
+
+
+### 2026-10-10: VE02 compact values and consumer integration
+
+All Value payloads now satisfy Copy. Strings, immutable tuples, ranges and scoped
+host descriptors use checked 12-byte object IDs. Runtime-only ephemerals keep a
+separate inline ID tag, preserving their rejection by the HostHandle/Generic
+representation checks; they cannot be mistaken for frame-scoped host borrows.
+Rust PartialEq is transport identity, while language equality/hash/order continue
+through content-aware runtime operations. Tuple updates allocate immutable
+membership and share unchanged member values. Scalar banks and typed collection
+buffers remain in place. No unsafe code or unchecked reference API was introduced.
+
+All affected runtime, stdlib, VM, embedding, CLI and benchmark targets compile.
+Constructors, native conversion, reflection, diagnostic snapshots, host callback
+fixtures and examples now use the owning heap. Diagnostic host logs copy text
+explicitly instead of retaining an unrooted raw Value. Redundant Value clones were
+removed across consumers. Public RootedValue remains a non-Copy root lease.
+
+The existing layout contract moved to the immutable-storage test owner so it also
+reports backing costs. Both debug and release builds report Value=16 bytes,
+HeapObjectId=12, HeapObject=128, ObjectSlot=168, TupleData=32, String control=24,
+RangeValue=24, EphemeralValue descriptor=56, RootedValue=32, HostRootHandle=40,
+HostPathViewHandle=104 and FrameHostBorrowToken=48. Tuple backing uses 16 bytes per
+member; string bytes and path Arc storage are additional allocations. Heap units
+are logical accounting, not these physical byte sizes. Copy is checked in both
+configurations; the <=16-byte budget applies to release and permits future
+correctness-only debug instrumentation.
+
+Allocation diagnostics reuse the preserved VE00 source/allocator probe, with the
+same M1 Max/macOS/Rust environment and ordinary release profile, default Cargo
+parallelism and target directory. Dependencies were warm; the latest runtime
+layout test build took 44.79 seconds and the following embedding library build
+4.00 seconds. Measurement ran after builds/tests finished, in fresh processes,
+with three execution warmups, one counted execution per entry, 5,000 iterations
+and checksum 325,000. Compilation/loading are outside the allocation window.
+
+| Workload | VE00 allocation/realloc calls | VE02 calls | VE00 requested bytes | VE02 requested bytes | VE00 -> VE02 GC objects / collections |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Tuple construction/member read | 35,007 | 5,315 | 1,680,179 | 1,175,451 | 0 / 0 -> 5,000 / 14 |
+| One-element range traversal | 1,540,708 | 1,480,704 | 107,233,227 | 106,005,195 | 15,000 / 25 -> 20,000 / 29 |
+| Repeated string constant | 480,007 | 471,433 | 50,155,179 | 49,845,351 | 0 / 0 -> 5,000 / 357 |
+| String through script calls | 500,007 | 471,451 | 51,455,175 | 49,860,487 | 0 / 0 -> 5,000 / 358 |
+
+These are allocation counts, not execution-speed claims. Tuple copying no longer
+allocates member vectors, but constructing each tuple/range adds a GC object.
+String constants still allocate on each load and now contribute to GC pressure;
+VE03 must remove this repeated materialization before VE04 accepts performance.
+The 168-byte general object slot remains a material physical storage cost to
+include in VE04 measurements. The collector and general enum boxing remain out
+of scope for this phase.
+
+Reproduction: build `kagari-embed --release --lib`, compile the unchanged
+`target/ve00/measure_source.rs` against the resulting release rlibs into a separate
+`target/ve02/measure_source` binary (`target/ve02/build_probe.py` and
+`probe-build.log` record the exact rustc command), then run it with
+`target/ve00/tuple-range.kgr` and `target/ve00/strings.kgr`. Results and layout logs
+are under `target/ve02/`; the baseline executables were not overwritten.
+
+Focused validation (DEVELOPER_DIR=/Library/Developer/CommandLineTools):
+
+- Runtime host scopes: 8 pass; substrate/storage boundaries: 5 pass.
+- Runtime GC unit contracts: 22 pass. GC ownership: 6 pass, then the extended
+  existing string/tuple root/reclamation case passes individually. Borrow/no-escape:
+  5 pass; nominal host boundaries: 8 pass; native conversion: 10 pass.
+- Typed path contracts: 20 pass after adjusting descriptor accounting and reusing
+  preallocated inputs when testing quarantined runtime rejection. Collection during
+  host write preparation retains the descriptor plus both arrays; dirty-ledger
+  cleanup still reclaims the arrays.
+- Value category/key contracts: 3 pass; layout/Copy contract: 1 pass in each debug
+  and release. Async retention graph: 1 pass. String joining: 1 pass. Reflection:
+  1 pass. Bounded trace snapshots: 2 pass.
+- VM GC/native payload contracts: 15 pass. Collection/storage contracts: 12 pass.
+  Exact tracing/accounting assertions now include tuple nodes and string edges;
+  invalid mutation assertions still measure counters after input construction.
+- Embedding host interfaces: 8 pass. String methods/Unicode/slicing: 5 pass.
+  VM session/reentry contracts: 8 initially pass; the remaining reentry trap case
+  passes after asserting the still-active outer string argument survives and is
+  reclaimed after return. No root-cleanup assertion was removed.
+- Affected runtime, stdlib, VM, embedding, CLI and Lua benchmark all-target Clippy
+  passes with `-D warnings`. Formatting, structure (982 files, zero violations),
+  imports/visibility/module ownership review and `git diff --check` pass. No full-workspace test suite or GitHub CI matrix ran.
+
+The initial constructor/type errors and stale inline-value allocation assumptions
+are resolved. The implementation review also caught and corrected runtime-only
+Ephemeral accepting HostHandle after compaction; the existing category test now
+checks that distinction. No production semantic fallback or disabled validation
+was used. VE03 owns indexed constant bindings; VE04 still owns the combined
+reference/string performance and lifecycle gate.

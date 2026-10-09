@@ -326,15 +326,21 @@ fn healthy() -> i32 { 42 }
         let captured = effects.clone();
         runtime
             .runtime_mut()
-            .register_host_function(HostFunction::new(standard_log(), move |_, args| {
-                captured.lock().unwrap().extend_from_slice(args);
+            .register_host_function(HostFunction::new(standard_log(), move |cx, args| {
+                let [Value::Str(id)] = args else {
+                    panic!("log string")
+                };
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(cx.runtime().gc().string(*id).unwrap().to_owned());
                 Ok(Value::Unit)
             }))
             .unwrap();
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
-        assert_eq!(*effects.lock().unwrap(), vec![Value::Str("before".into())]);
+        assert_eq!(*effects.lock().unwrap(), vec!["before"]);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert!(runtime.runtime().execution_root().is_none());
         let limited = context.clone();

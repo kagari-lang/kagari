@@ -75,7 +75,7 @@ impl<'call> Comparison<'call> {
         let (a, b, _root) = if matches!(self.algorithm, Algorithm::SortByKey) {
             let selector = self.callback.as_ref().ok_or_else(invalid)?;
             let a = selector.call_values(cx, &[a])?;
-            let root = cx.heap().root_value(a.clone()).ok_or_else(invalid)?;
+            let root = cx.heap().root_value(a).ok_or_else(invalid)?;
             let b = selector.call_values(cx, &[b])?;
             (a, b, Some(root))
         } else {

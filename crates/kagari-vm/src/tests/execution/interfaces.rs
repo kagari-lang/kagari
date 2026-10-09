@@ -214,7 +214,7 @@ fn interface_method_keeps_its_implementation_across_reload() {
     let old = runtime.load_program("interface-reload", first).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let old_root = runtime.root_value(old_value.clone()).unwrap();
+    let old_root = runtime.root_value(old_value).unwrap();
     let candidate = runtime
         .stage_reload_program(&old, "interface-reload", second)
         .unwrap();
@@ -247,7 +247,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     let old = runtime.load_program("interface-frames", old_code).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let _root = runtime.root_value(boxed.clone()).unwrap();
+    let _root = runtime.root_value(boxed).unwrap();
     let candidate = runtime
         .stage_reload_program(&old, "interface-frames", new_code)
         .unwrap();
@@ -301,7 +301,7 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
         .load_program("interface-dispatch-reload", old_code)
         .unwrap();
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let old_root = runtime.root_value(old_value.clone()).unwrap();
+    let old_root = runtime.root_value(old_value).unwrap();
     let candidate = runtime
         .stage_reload_program(&old, "interface-dispatch-reload", new_code)
         .unwrap();
@@ -360,7 +360,7 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         .load_program("shared-reload", compile_test_bytecode(source))
         .unwrap();
     let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let interface_root = runtime.root_value(interface.clone()).unwrap();
+    let interface_root = runtime.root_value(interface).unwrap();
     let make = old
         .bytecode
         .functions
@@ -372,7 +372,7 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         let mut execution = Executor::new(&runtime, &old, make, &[]).unwrap();
         execution.run().unwrap()
     };
-    let closure_root = runtime.root_value(closure.clone()).unwrap();
+    let closure_root = runtime.root_value(closure).unwrap();
     let candidate = runtime
         .stage_reload_program(
             &old,
@@ -615,7 +615,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         .load_program("constraint-reload", compile_test_bytecode(source))
         .unwrap();
     let receiver = execute(&runtime, &first, "source", &[]);
-    let receiver_root = runtime.root_value(receiver.clone()).unwrap();
+    let receiver_root = runtime.root_value(receiver).unwrap();
     let candidate = runtime
         .stage_reload_program(
             &first,
@@ -625,7 +625,7 @@ fn a_retained_generic_closure_pins_the_callers_constraint_generation() {
         .unwrap();
     let second = runtime.publish_staged_reload(candidate).unwrap();
     let closure = execute(&runtime, &second, "make", &[receiver]);
-    let closure_root = runtime.root_value(closure.clone()).unwrap();
+    let closure_root = runtime.root_value(closure).unwrap();
     drop(receiver_root);
     let candidate = runtime
         .stage_reload_program(
@@ -711,7 +711,7 @@ fn check_type_provenance_reload(source: &str) {
         .load_program("type-provenance", compile_test_bytecode(source))
         .unwrap();
     let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let interface_root = runtime.root_value(interface.clone()).unwrap();
+    let interface_root = runtime.root_value(interface).unwrap();
     let second_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 1 }", "value: 1, extra: true }")
@@ -749,7 +749,7 @@ fn check_type_provenance_reload(source: &str) {
                 .alloc_struct(item_layout(&old), vec![Value::I32(1)])
                 .unwrap(),
         );
-        let old_root = runtime.root_value(old_item.clone()).unwrap();
+        let old_root = runtime.root_value(old_item).unwrap();
         let current_layout = item_layout(&second);
         let item_type = Ty::Struct(NominalTy {
             declaration: current_layout.layout().declaration,
@@ -761,7 +761,7 @@ fn check_type_provenance_reload(source: &str) {
                 .alloc_struct(current_layout, vec![Value::I32(1), Value::Bool(true)])
                 .unwrap(),
         );
-        let current_root = runtime.root_value(current_item.clone()).unwrap();
+        let current_root = runtime.root_value(current_item).unwrap();
         let trait_type = old
             .bytecode
             .public_items
@@ -801,7 +801,7 @@ fn check_type_provenance_reload(source: &str) {
         .unwrap()
         .run()
         .unwrap();
-    let root = runtime.root_value(closure.clone()).unwrap();
+    let root = runtime.root_value(closure).unwrap();
     let third_source = second_source
         .replace("val extra: bool", "val extra: bool, val later: i32")
         .replace("extra: true }", "extra: true, later: 3 }")
@@ -899,7 +899,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .load_program("closure-scope", compile_test_bytecode(source))
         .unwrap();
     let receiver = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let receiver_root = runtime.root_value(receiver.clone()).unwrap();
+    let receiver_root = runtime.root_value(receiver).unwrap();
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 1 }", "value: 1, extra: true }");
@@ -918,7 +918,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .unwrap()
         .run()
         .unwrap();
-    let closure_root = runtime.root_value(closure.clone()).unwrap();
+    let closure_root = runtime.root_value(closure).unwrap();
     let item = current
         .bytecode
         .structures

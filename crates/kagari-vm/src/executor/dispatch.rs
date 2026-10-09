@@ -9,7 +9,7 @@ use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
 use kagari_types::ty::Ty;
-use std::{iter, ops::Bound, slice, sync::Arc};
+use std::{iter, ops::Bound, slice};
 
 impl<'a> Executor<'a> {
     fn dispatch_iterator(
@@ -40,6 +40,11 @@ impl<'a> Executor<'a> {
         let Value::Range(value) = value else {
             return Err(VmError::Trap("invalid range value"));
         };
+        let value = self
+            .runtime
+            .gc()
+            .range(value)
+            .ok_or(VmError::Trap("invalid range value"))?;
         let owner = self.current_frame()?.loaded().clone();
         let (member, fields) = match value.bound(owner.definitions(), range, bound, upper)? {
             Bound::Included(value) => ("Included", vec![value]),
@@ -175,7 +180,7 @@ impl<'a> Executor<'a> {
                     ConstantOperand::U64(v) => Value::U64(v),
                     ConstantOperand::F32(v) => Value::F32(v),
                     ConstantOperand::F64(v) => Value::F64(v),
-                    ConstantOperand::Str(ref v) => Value::Str(v.clone()),
+                    ConstantOperand::Str(ref v) => self.runtime.gc().alloc_string(v.clone())?,
                 };
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
@@ -232,8 +237,9 @@ impl<'a> Executor<'a> {
                 drop(frame);
                 let value = RangeValue::new(ty, start.as_ref(), end.as_ref())
                     .map_err(VmError::RuntimeError)?;
+                let value = self.runtime.gc().alloc_range(value)?;
                 self.current_frame_mut()?
-                    .write_register(self.runtime, dst, Value::Range(value))?;
+                    .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::RepeatArray {
                 dst,
@@ -497,11 +503,9 @@ impl<'a> Executor<'a> {
                         dynamic_args,
                     )
                     .map_err(VmError::RuntimeError)?;
-                self.current_frame_mut()?.write_register(
-                    self.runtime,
-                    dst,
-                    Value::HostPathView(Arc::new(view)),
-                )?;
+                let value = self.runtime.gc().alloc_host_path(view)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::Await { .. }
             | BytecodeInstruction::Return(_)
@@ -568,7 +572,7 @@ impl<'a> Executor<'a> {
                 let arguments = if contract.receiver.is_some() {
                     arg_values
                 } else {
-                    iter::once(resolved.receiver().clone())
+                    iter::once(*resolved.receiver())
                         .chain(arg_values.into_iter().skip(1))
                         .collect::<Vec<_>>()
                 };
@@ -680,7 +684,7 @@ impl<'a> Executor<'a> {
                 };
                 let reflected = self
                     .runtime
-                    .reflect_set_field(base, field_name, next_value.clone())
+                    .reflect_set_field(base, field_name, *next_value)
                     .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?
@@ -696,7 +700,7 @@ impl<'a> Executor<'a> {
                 };
                 let reflected = self
                     .runtime
-                    .reflect_set_index(base, index, next_value.clone())
+                    .reflect_set_index(base, index, *next_value)
                     .map_err(VmError::RuntimeError)?;
                 if let Some(dst) = dst {
                     self.current_frame_mut()?

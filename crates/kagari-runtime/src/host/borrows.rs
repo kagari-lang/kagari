@@ -1,5 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
+    gc::GcHeap,
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
         HostBorrowTable, HostCallGuard, HostFrameId, HostObjectId,
@@ -96,8 +97,8 @@ impl HostBorrowTable {
         Ok(())
     }
 
-    pub fn validate_no_escape(value: &Value) -> Result<(), RuntimeError> {
-        if value.contains_host_borrow() {
+    pub fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
+        if value.contains_host_borrow(heap) {
             Err(RuntimeError::host_borrow_escape(
                 "frame-scoped host borrow cannot outlive its call frame",
             ))

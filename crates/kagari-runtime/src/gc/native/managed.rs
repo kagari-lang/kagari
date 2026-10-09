@@ -63,7 +63,7 @@ impl GcHeap {
         self.ensure_no_native_borrow()?;
         self.ensure_execution_allowed()?;
         let field = schema.fields.get(slot).ok_or_else(invalid)?;
-        if !value.is_default_heap_payload() || !field.contract.accepts_value(self, &value) {
+        if !value.is_default_heap_payload(self) || !field.contract.accepts_value(self, &value) {
             return Err(invalid());
         }
         self.with_native::<Managed<T>, _>(id, |payload| {
@@ -92,7 +92,7 @@ impl GcHeap {
             return Err(invalid());
         }
         for (field, value) in replacement.schema.fields.iter().zip(&replacement.values) {
-            if !value.is_default_heap_payload() || !field.contract.accepts_value(self, value) {
+            if !value.is_default_heap_payload(self) || !field.contract.accepts_value(self, value) {
                 return Err(invalid());
             }
         }

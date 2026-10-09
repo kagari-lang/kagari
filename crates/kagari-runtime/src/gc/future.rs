@@ -25,7 +25,7 @@ impl GcHeap {
             let valid_edges = |edges: &[&Value]| {
                 edges
                     .iter()
-                    .all(|value| value.is_storable() && self.validate_value(value))
+                    .all(|value| value.is_storable(self) && self.validate_value(value))
             };
             let mut edges = values.iter().rev().collect::<Vec<_>>();
             if !valid_edges(&edges) {
@@ -126,11 +126,15 @@ mod tests {
         };
         // Model a cyclic graph and a later invalid hidden edge without weakening
         // ordinary mutation admission, which already rejects scoped values.
-        replace(Value::Tuple(vec![root.clone()]));
+        replace(heap.alloc_tuple(vec![root]).unwrap());
         heap.validate_async_values(slice::from_ref(&root)).unwrap();
-        replace(Value::Tuple(vec![Value::Ephemeral(
-            EphemeralValue::Runtime(EphemeralValueId(1)),
-        )]));
+        replace(
+            heap.alloc_tuple(vec![
+                heap.alloc_ephemeral(EphemeralValue::Runtime(EphemeralValueId(1)))
+                    .unwrap(),
+            ])
+            .unwrap(),
+        );
         assert!(heap.validate_async_values(slice::from_ref(&root)).is_err());
         replace(Value::Unit);
         heap.validate_async_values(slice::from_ref(&root)).unwrap();

@@ -335,9 +335,13 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         let mut runtime = runtime(Default::default());
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |context, args| {
-                sink.lock().unwrap().push(args[0].clone());
+                let [Value::Str(id)] = args else {
+                    panic!("log string")
+                };
+                let text = context.runtime().gc().string(*id).unwrap().to_owned();
+                sink.lock().unwrap().push(text.clone());
                 let root = context.runtime().execution_root().unwrap();
-                if args == [Value::Str("outer".into())] {
+                if text == "outer" {
                     assert_eq!(
                         reenter(context, &root, inner, &[])
                             .unwrap()
@@ -372,10 +376,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
                 .expect("retained execution result"),
             Value::I32(42)
         );
-        assert_eq!(
-            *effects.lock().unwrap(),
-            [Value::Str("outer".into()), Value::Str("inner".into())]
-        );
+        assert_eq!(*effects.lock().unwrap(), ["outer", "inner"]);
         assert_clean(&vm);
     }
 }
@@ -407,7 +408,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let mut runtime = runtime(Default::default());
         runtime
             .register_host_function(HostFunction::new(standard_log(), move |context, _| {
-                let value = callback.lock().unwrap().as_ref().unwrap().clone();
+                let value = *callback.lock().unwrap().as_ref().unwrap();
                 let root = context.runtime().execution_root().unwrap();
                 let result = reenter(context, &root, consume, &[value]).unwrap();
                 sink.lock()
@@ -428,7 +429,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result");
-        let rooted = vm.runtime().root_value(closure.clone()).unwrap();
+        let rooted = vm.runtime().root_value(closure).unwrap();
         *retained.lock().unwrap() = Some(closure);
         let new = vm
             .reload_program(&old, "native-control", route(&new_program, encoded))

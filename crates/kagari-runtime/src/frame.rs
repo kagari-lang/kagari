@@ -767,7 +767,7 @@ impl ExecutionFrame {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "mutation guard allocation")
         })?;
         self.mutations
-            .push((value.clone(), runtime.gc.begin_collection_mutation(value)?));
+            .push((*value, runtime.gc.begin_collection_mutation(value)?));
         Ok(())
     }
 

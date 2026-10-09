@@ -129,7 +129,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(iterator.clone()).unwrap();
+    let root = vm.runtime().root_value(iterator).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
     assert!(vm.invoke_interface_method(&iterator, &next, &[]).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
@@ -171,7 +171,7 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(iterator.clone()).unwrap();
+    let root = vm.runtime().root_value(iterator).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
     let before = vm.runtime().gc().stats();
     let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
@@ -252,7 +252,7 @@ fn retained_map_uses_its_original_callback_after_reload() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(iterator.clone()).unwrap();
+    let root = vm.runtime().root_value(iterator).unwrap();
     let replacement = vm
         .reload_program(
             &old,

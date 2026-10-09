@@ -193,9 +193,12 @@ fn outer_argument_tuples_cover_zero_through_twelve_and_preserve_nested_tuple_val
     );
     let tuple = cx.type_for::<(i32, i32)>().unwrap();
     let arguments = ((1, 2),).into_arguments(&mut cx, &[tuple]).unwrap();
+    let Some(Value::Tuple(id)) = arguments.get(runtime.gc(), 0) else {
+        panic!("tuple argument")
+    };
     assert_eq!(
-        arguments.get(runtime.gc(), 0),
-        Some(Value::Tuple(vec![Value::I32(1), Value::I32(2)]))
+        &*runtime.gc().tuple(id).unwrap(),
+        &[Value::I32(1), Value::I32(2)]
     );
     assert_eq!(arguments.get(runtime.gc(), 1), None);
     drop(arguments);
@@ -267,7 +270,10 @@ fn argument_signature_errors_precede_any_user_conversion_effects() {
         <(Decoded, bool)>::from_arguments(
             &mut cx,
             &signature,
-            &[Value::I32(7), Value::Str("wrong".into())]
+            &[
+                Value::I32(7),
+                runtime.gc().alloc_string("wrong".into()).unwrap()
+            ]
         )
         .is_err()
     );
@@ -435,7 +441,7 @@ impl FromKagari for RetainedNode {
         value: &Value,
     ) -> NativeResult<Self> {
         cx.runtime()
-            .root_value(value.clone())
+            .root_value(*value)
             .map(Self)
             .ok_or_else(|| RuntimeError::module_validation("retained Node"))
     }

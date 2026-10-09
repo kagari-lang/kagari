@@ -28,7 +28,7 @@ pub(super) fn spawn(cx: &mut CallContext<'_>) -> NativeResult<Value> {
             let value = enums::allocate(cx, &ty, "SpawnError", member, vec![])?;
             let _error = cx
                 .heap()
-                .root_value(value.clone())
+                .root_value(value)
                 .ok_or_else(|| RuntimeError::module_validation("SpawnError root"))?;
             enums::allocate(cx, &result, "Result", "Err", vec![value])
         }

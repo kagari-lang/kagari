@@ -145,9 +145,9 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
         let trace = Arc::new(Mutex::new(Vec::new()));
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |_, _| {
+            .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
                 calls.lock().unwrap().push(0);
-                Ok(Value::HostRoot(root.into()))
+                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
             }))
             .unwrap();
         let calls = trace.clone();
@@ -238,14 +238,13 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     runtime
-        .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root.into()))
+        .register_host_function(HostFunction::new(make, move |cx, _| {
+            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
         }))
         .unwrap();
     runtime
         .register_host_function(
-            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1].clone()))
-                .unwrap(),
+            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1])).unwrap(),
         )
         .unwrap();
     let loaded_program =
@@ -382,8 +381,8 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     vm.runtime_mut()
-        .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root.into()))
+        .register_host_function(HostFunction::new(make, move |cx, _| {
+            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
         }))
         .unwrap();
     vm.runtime_mut()
@@ -428,7 +427,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let rooted = vm.runtime().root_value(value.clone()).unwrap();
+    let rooted = vm.runtime().root_value(value).unwrap();
     vm.runtime().collect_garbage().unwrap();
     let method = host.trait_implementations[0].methods[0]
         .trait_method
@@ -443,7 +442,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     {
         let scope = vm
             .runtime()
-            .host_scope(&[Value::HostRoot(root.into())])
+            .host_scope(&[vm.runtime().gc().alloc_host_root(root).unwrap()])
             .unwrap();
         assert!(
             scope
@@ -472,7 +471,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let new_root = vm.runtime().root_value(new_value.clone()).unwrap();
+    let new_root = vm.runtime().root_value(new_value).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
             .unwrap(),
@@ -500,13 +499,17 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .unwrap();
     assert!(
         vm.runtime()
-            .make_interface(&loaded, 0, Value::HostRoot(foreign_root.into()))
+            .make_interface(
+                &loaded,
+                0,
+                vm.runtime().gc().alloc_host_root(foreign_root).unwrap()
+            )
             .is_err()
     );
     {
         let scope = vm
             .runtime()
-            .host_scope(&[Value::HostRoot(root.into())])
+            .host_scope(&[vm.runtime().gc().alloc_host_root(root).unwrap()])
             .unwrap();
         let token = scope
             .borrows()
@@ -514,7 +517,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
             .unwrap();
         assert!(
             vm.runtime()
-                .make_interface(&loaded, 0, Value::host_ref(token))
+                .make_interface(&loaded, 0, vm.runtime().gc().alloc_host_ref(token).unwrap())
                 .is_err()
         );
     }
@@ -621,14 +624,13 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     runtime
-        .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(value.into()))
+        .register_host_function(HostFunction::new(make, move |cx, _| {
+            Ok(cx.runtime().gc().alloc_host_root(value).unwrap())
         }))
         .unwrap();
     runtime
         .register_host_function(
-            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1].clone()))
-                .unwrap(),
+            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1])).unwrap(),
         )
         .unwrap();
     let loaded_program =
@@ -673,8 +675,8 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     vm.runtime_mut()
-        .register_host_function(HostFunction::new(make.clone(), move |_, _| {
-            Ok(Value::HostRoot(root.into()))
+        .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
+            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
         }))
         .unwrap();
     let calls = Arc::new(Mutex::new(0));
@@ -683,7 +685,7 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         .register_host_function(
             HostFunction::method(&host, &host.methods[0].id, move |_, args| {
                 *recorded.lock().unwrap() += 1;
-                Ok(args[1].clone())
+                Ok(args[1])
             })
             .unwrap(),
         )
@@ -736,9 +738,11 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
             .unwrap();
         runtime
             .register_host_function(
-                HostFunction::method(&registered, &registered.methods[0].id, |_, args| {
-                    Ok(args[1].clone())
-                })
+                HostFunction::method(
+                    &registered,
+                    &registered.methods[0].id,
+                    |_, args| Ok(args[1]),
+                )
                 .unwrap(),
             )
             .unwrap();
@@ -792,17 +796,21 @@ fn interface_method_results_validate_nested_host_roots() {
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     runtime
-        .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root.into()))
+        .register_host_function(HostFunction::new(make, move |cx, _| {
+            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
         }))
         .unwrap();
     runtime
         .register_host_function(
-            HostFunction::method(&host, &host.methods[0].id, move |_, args| {
-                Ok(Value::Tuple(vec![
-                    Value::HostRoot(root.into()),
-                    args[1].clone(),
-                ]))
+            HostFunction::method(&host, &host.methods[0].id, move |cx, args| {
+                Ok(cx
+                    .runtime()
+                    .gc()
+                    .alloc_tuple(vec![
+                        cx.runtime().gc().alloc_host_root(root).unwrap(),
+                        args[1],
+                    ])
+                    .unwrap())
             })
             .unwrap(),
         )
@@ -838,7 +846,14 @@ fn interface_method_results_validate_nested_host_roots() {
         .runtime()
         .validate_interface_method_result(
             &method,
-            &Value::Tuple(vec![Value::HostRoot(root.into()), Value::I32(42)]),
+            &runtime
+                .runtime()
+                .gc()
+                .alloc_tuple(vec![
+                    runtime.runtime().gc().alloc_host_root(root).unwrap(),
+                    Value::I32(42),
+                ])
+                .unwrap(),
         )
         .unwrap();
     let mut foreign = {
@@ -861,7 +876,14 @@ fn interface_method_results_validate_nested_host_roots() {
             .runtime()
             .validate_interface_method_result(
                 &method,
-                &Value::Tuple(vec![Value::HostRoot(invalid.into()), Value::I32(42)])
+                &runtime
+                    .runtime()
+                    .gc()
+                    .alloc_tuple(vec![
+                        runtime.runtime().gc().alloc_host_root(invalid).unwrap(),
+                        Value::I32(42)
+                    ])
+                    .unwrap()
             )
             .is_err()
     );

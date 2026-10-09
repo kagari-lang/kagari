@@ -90,7 +90,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     outer
         .current_mut()
         .unwrap()
-        .write_register(&runtime, Register::new(0), first.clone())
+        .write_register(&runtime, Register::new(0), first)
         .unwrap();
     let nested = runtime.enter_execution_stack(&module).unwrap();
     nested
@@ -104,7 +104,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     nested
         .current_mut()
         .unwrap()
-        .write_register(&runtime, Register::new(0), second.clone())
+        .write_register(&runtime, Register::new(0), second)
         .unwrap();
     assert_eq!(outer.frames().unwrap().len(), 2);
     assert_eq!(nested.frames().unwrap()[0].loaded().key(), module.key());
@@ -523,7 +523,7 @@ fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point
     );
     let mut frame = stack.current_mut().unwrap();
     frame
-        .write_register(&runtime, Register::new(0), original.clone())
+        .write_register(&runtime, Register::new(0), original)
         .unwrap();
     for error in [
         frame.read_register(&foreign, Register::new(0)).unwrap_err(),

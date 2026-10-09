@@ -19,6 +19,7 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions, ReloadOptions},
 };
+use kagari_runtime::value_semantics::script_equal;
 use kagari_runtime::{
     host::{
         HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptor,
@@ -78,7 +79,7 @@ fn register_embedding_host_path_runtime(
                 vec![],
                 HostValueType::opaque("game.Player"),
             ),
-            move |_, _| Ok(Value::HostRoot(root.into())),
+            move |cx, _| Ok(cx.runtime().gc().alloc_host_root(root).unwrap()),
         ))
         .unwrap();
 
@@ -697,14 +698,18 @@ fn installed_host_and_reflection_helpers_are_available() {
             .expect("retained execution result"),
         Value::Unit
     );
-    assert_eq!(
-        runtime
-            .execute(&type_of_module, "main", &[], &ExecutionContext::default())
-            .unwrap()
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::Str("i32".into())
+    assert!(
+        script_equal(
+            runtime.runtime().gc(),
+            &(runtime
+                .execute(&type_of_module, "main", &[], &ExecutionContext::default())
+                .unwrap()
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result")),
+            &(runtime.runtime().gc().alloc_string("i32".into()).unwrap())
+        )
+        .unwrap()
     );
 }
 

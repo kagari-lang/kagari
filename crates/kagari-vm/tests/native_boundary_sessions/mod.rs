@@ -26,6 +26,7 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
     else {
         panic!("container tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("container handles")
     };
@@ -35,11 +36,12 @@ fn candidate_heap_mutations_cannot_modify_preexisting_containers() {
         .stage_reload_program(&baseline, "main", program)
         .unwrap();
     let retained = runtime
-        .root_value(Value::Tuple(vec![
-            Value::Array(array),
-            Value::Map(map),
-            Value::Set(set),
-        ]))
+        .root_value(
+            runtime
+                .gc()
+                .alloc_tuple(vec![Value::Array(array), Value::Map(map), Value::Set(set)])
+                .unwrap(),
+        )
         .unwrap();
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     let before = runtime.resources().counters();

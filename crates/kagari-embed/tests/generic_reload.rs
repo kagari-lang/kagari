@@ -81,7 +81,7 @@ fn make() -> Run {{
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result");
-        let root = vm.runtime().root_value(saved.clone()).unwrap();
+        let root = vm.runtime().root_value(saved).unwrap();
         let current = vm
             .reload_program(&old, "generic-reload", replacement)
             .unwrap();
@@ -94,7 +94,7 @@ fn make() -> Run {{
             .return_value
             .value(vm.runtime().gc())
             .expect("retained execution result");
-        let fresh_root = vm.runtime().root_value(fresh.clone()).unwrap();
+        let fresh_root = vm.runtime().root_value(fresh).unwrap();
         assert_eq!(
             vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
             Value::Bool(true)
@@ -182,14 +182,14 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(saved.clone()).unwrap();
+    let root = vm.runtime().root_value(saved).unwrap();
     let stopped = vm
         .execute(&old, "make_stopped")
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let stopped_root = vm.runtime().root_value(stopped.clone()).unwrap();
+    let stopped_root = vm.runtime().root_value(stopped).unwrap();
     let current = vm.reload_program(&old, "try-reload", replacement).unwrap();
     drop(old);
     vm.runtime().collect_garbage().unwrap();
@@ -200,14 +200,14 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let fresh_root = vm.runtime().root_value(fresh.clone()).unwrap();
+    let fresh_root = vm.runtime().root_value(fresh).unwrap();
     let fresh_stopped = vm
         .execute(&current, "make_stopped")
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let fresh_stopped_root = vm.runtime().root_value(fresh_stopped.clone()).unwrap();
+    let fresh_stopped_root = vm.runtime().root_value(fresh_stopped).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
         Value::I32(42)

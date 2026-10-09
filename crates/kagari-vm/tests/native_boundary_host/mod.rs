@@ -82,6 +82,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     else {
         panic!("fixtures")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [array, wrong_array, map, wrong_map, set, wrong_set] = values.as_slice() else {
         panic!("six fixtures")
     };
@@ -127,13 +128,25 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
                 Type::String,
             ]),
-            Value::Tuple(vec![array.clone(), Value::Str("ok".into())]),
-            Value::Tuple(vec![wrong_array.clone(), Value::Str("ok".into())]),
+            runtime
+                .gc()
+                .alloc_tuple(vec![
+                    *array,
+                    runtime.gc().alloc_string("ok".into()).unwrap(),
+                ])
+                .unwrap(),
+            runtime
+                .gc()
+                .alloc_tuple(vec![
+                    *wrong_array,
+                    runtime.gc().alloc_string("ok".into()).unwrap(),
+                ])
+                .unwrap(),
         ),
         (
             Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
-            array.clone(),
-            wrong_array.clone(),
+            *array,
+            *wrong_array,
         ),
         (
             Type::Map {
@@ -141,13 +154,13 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 key: Box::new(Type::String),
                 value: Box::new(Type::Array(Box::new(Type::I32), CollectionAccess::Mutable)),
             },
-            map.clone(),
-            wrong_map.clone(),
+            *map,
+            *wrong_map,
         ),
         (
             Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
-            set.clone(),
-            wrong_set.clone(),
+            *set,
+            *wrong_set,
         ),
         (
             Type::Option(
@@ -200,7 +213,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 ok: Box::new(Type::I32),
                 error: Box::new(Type::String),
             },
-            result("Err", Value::Str("error".into())),
+            result("Err", runtime.gc().alloc_string("error".into()).unwrap()),
             some(Value::I32(7)),
         ),
     ];
@@ -212,7 +225,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 echo(&format!("host.echo{index}"), ty.clone()),
                 move |_, args| {
                     called.fetch_add(1, Ordering::SeqCst);
-                    Ok(args[0].clone())
+                    Ok(args[0])
                 },
             ))
             .unwrap();
@@ -234,7 +247,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 HostFunctionDeclaration::new(format!("host.bad{index}"), vec![], ty),
                 move |_, _| {
                     called.fetch_add(1, Ordering::SeqCst);
-                    Ok(bad.clone())
+                    Ok(bad)
                 },
             ))
             .unwrap();
@@ -261,14 +274,14 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
             move |context, args| {
                 called.fetch_add(1, Ordering::SeqCst);
                 context.runtime().collect_garbage().unwrap();
-                Ok(args[0].clone())
+                Ok(args[0])
             },
         ))
         .unwrap();
     let array = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
-    let value = Value::Tuple(vec![Value::Array(array)]);
+    let value = runtime.gc().alloc_tuple(vec![Value::Array(array)]).unwrap();
     assert_eq!(
         runtime
             .invoke_bound_host(id, std::slice::from_ref(&value))
@@ -283,15 +296,18 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     )
     .unwrap();
     let other_owner = allocation_owner(&mut other);
-    let foreign = Value::Tuple(vec![Value::Array(
-        other
-            .alloc_array(
-                &other_owner,
-                Ty::Builtin(BuiltinType::I32),
-                vec![Value::I32(7)],
-            )
-            .unwrap(),
-    )]);
+    let foreign = other
+        .gc()
+        .alloc_tuple(vec![Value::Array(
+            other
+                .alloc_array(
+                    &other_owner,
+                    Ty::Builtin(BuiltinType::I32),
+                    vec![Value::I32(7)],
+                )
+                .unwrap(),
+        )])
+        .unwrap();
     assert!(runtime.invoke_bound_host(id, &[foreign]).is_err());
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().array_snapshot(array).is_none());
@@ -321,21 +337,30 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
     for unique in [false, true] {
         let scope = runtime.host_scope(&[]).unwrap();
         let value = if unique {
-            Value::host_mut(
-                scope
-                    .borrows()
-                    .borrow_unique(HostObjectId(1), TypeId::new(0))
-                    .unwrap(),
-            )
+            runtime
+                .gc()
+                .alloc_host_mut(
+                    scope
+                        .borrows()
+                        .borrow_unique(HostObjectId(1), TypeId::new(0))
+                        .unwrap(),
+                )
+                .unwrap()
         } else {
-            Value::host_ref(
-                scope
-                    .borrows()
-                    .borrow_shared(HostObjectId(1), TypeId::new(0))
-                    .unwrap(),
-            )
+            runtime
+                .gc()
+                .alloc_host_ref(
+                    scope
+                        .borrows()
+                        .borrow_shared(HostObjectId(1), TypeId::new(0))
+                        .unwrap(),
+                )
+                .unwrap()
         };
-        let value = Value::Tuple(vec![Value::Tuple(vec![value])]);
+        let value = runtime
+            .gc()
+            .alloc_tuple(vec![runtime.gc().alloc_tuple(vec![value]).unwrap()])
+            .unwrap();
         assert_eq!(
             runtime
                 .invoke_bound_host(id, std::slice::from_ref(&value))
@@ -345,7 +370,7 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
         );
         assert!(
             runtime
-                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![value.clone()])
+                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![value])
                 .is_err()
         );
         drop(scope);
@@ -376,6 +401,7 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     else {
         panic!("containers")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
@@ -390,18 +416,16 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let scope = runtime.host_scope(&[]).unwrap();
-    let borrowed = Value::host_ref(scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap());
+    let borrowed = runtime
+        .gc()
+        .alloc_host_ref(scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap())
+        .unwrap();
     let heap = runtime.gc();
+    let invalid_values = [heap.alloc_host_root(host).unwrap(), borrowed];
     let before = heap.stats();
-    for invalid in [Value::HostRoot(host.into()), borrowed] {
-        assert!(
-            heap.map_insert(*map, Value::I32(1), invalid.clone())
-                .is_err()
-        );
-        assert!(
-            heap.map_insert(*map, invalid.clone(), Value::I32(1))
-                .is_err()
-        );
+    for invalid in invalid_values {
+        assert!(heap.map_insert(*map, Value::I32(1), invalid).is_err());
+        assert!(heap.map_insert(*map, invalid, Value::I32(1)).is_err());
         assert!(heap.set_insert(*set, invalid).is_err());
         assert_eq!(heap.stats(), before);
         assert_eq!(heap.map_len(*map), Some(0));

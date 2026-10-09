@@ -118,9 +118,9 @@ impl Runtime {
                 .ok_or_else(invalid)?;
             let method = RootedInterfaceMethod::from_operation(
                 self,
-                self.root_value(receiver.clone()).ok_or_else(invalid)?,
+                self.root_value(*receiver).ok_or_else(invalid)?,
                 operation,
-                receiver.clone(),
+                *receiver,
                 receiver_type.into_owned(),
                 interface,
             )?;

@@ -83,7 +83,7 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let root = vm.runtime().root_value(value).unwrap();
     vm.reload_program(&loaded, "boundary", compile_program(source, Some(&native)))
         .unwrap();
     let before = vm.runtime().gc().stats();

@@ -1,7 +1,7 @@
 use super::compile;
 use kagari_runtime::{
     error::RuntimeErrorKind,
-    gc::{GcObjectKind, HeapObjectId},
+    gc::{GcHeap, GcObjectKind, HeapObjectId},
     range::index_bound,
     reflection,
     value::{Value, ValueCategory},
@@ -69,6 +69,7 @@ fn assigns_stable_object_identity_and_kind() {
     else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [
         Value::Array(first),
         Value::Map(second),
@@ -80,17 +81,15 @@ fn assigns_stable_object_identity_and_kind() {
     };
     let (first, second, third, fourth) = (*first, *second, *third, *fourth);
     let heap = vm.runtime().gc();
-    assert_eq!(
-        reflection::type_of(heap, &Value::Map(second)),
-        Value::Str("map".into())
-    );
-    assert_eq!(
-        reflection::type_of(heap, &Value::Set(third)),
-        Value::Str("set".into())
-    );
+    for (value, expected) in [(Value::Map(second), "map"), (Value::Set(third), "set")] {
+        let Value::Str(id) = reflection::type_of(heap, &value).unwrap() else {
+            panic!("type name")
+        };
+        assert_eq!(&*heap.string(id).unwrap(), expected);
+    }
     for value in [Value::Map(second), Value::Set(third)] {
         assert_eq!(value.category(), ValueCategory::ScriptOwned);
-        assert!(value.is_default_heap_payload());
+        assert!(value.is_default_heap_payload(heap));
     }
     assert_ne!(first, second);
     assert_ne!(second, third);
@@ -118,7 +117,7 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let root = vm.runtime().root_value(value).unwrap();
     let Value::Map(map) = value else {
         panic!("container")
     };
@@ -126,41 +125,33 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
     let heap = vm.runtime().gc();
     assert_eq!(heap.map_len(map), Some(2));
     assert_eq!(
-        sorted_map(heap.map_snapshot(map).unwrap()),
+        sorted_map(heap, heap.map_snapshot(map).unwrap()),
+        vec![("a".into(), Value::I32(1)), ("b".into(), Value::I32(3))]
+    );
+    let a = heap.alloc_string("a".into()).unwrap();
+    let b = heap.alloc_string("b".into()).unwrap();
+    let c = heap.alloc_string("c".into()).unwrap();
+    let before = heap.stats().current_heap_units;
+    heap.map_insert(map, c, Value::I32(4)).unwrap();
+    assert_eq!(heap.stats().current_heap_units, before + 1);
+    assert_eq!(heap.map_get(map, &c), Some(Value::I32(4)));
+    heap.map_insert(map, a, Value::I32(9)).unwrap();
+    assert_eq!(heap.stats().current_heap_units, before + 1);
+    assert_eq!(
+        sorted_map(heap, heap.map_snapshot(map).unwrap()),
         vec![
-            (Value::Str("a".to_owned()), Value::I32(1)),
-            (Value::Str("b".to_owned()), Value::I32(3)),
+            ("a".into(), Value::I32(9)),
+            ("b".into(), Value::I32(3)),
+            ("c".into(), Value::I32(4))
         ]
     );
-    assert_eq!(heap.stats().current_heap_units, 3);
-
-    heap.map_insert(map, Value::Str("c".to_owned()), Value::I32(4))
-        .unwrap();
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(
-        heap.map_get(map, &Value::Str("c".to_owned())),
-        Some(Value::I32(4))
-    );
-
-    heap.map_insert(map, Value::Str("a".to_owned()), Value::I32(9))
-        .unwrap();
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(
-        sorted_map(heap.map_snapshot(map).unwrap()),
-        vec![
-            (Value::Str("a".to_owned()), Value::I32(9)),
-            (Value::Str("b".to_owned()), Value::I32(3)),
-            (Value::Str("c".to_owned()), Value::I32(4)),
-        ]
-    );
-
-    assert_eq!(
-        heap.map_remove(map, &Value::Str("b".to_owned())).unwrap(),
-        Some(Value::I32(3))
-    );
-    assert_eq!(heap.stats().current_heap_units, 3);
+    assert_eq!(heap.map_remove(map, &b).unwrap(), Some(Value::I32(3)));
+    assert_eq!(heap.stats().current_heap_units, before);
     heap.map_clear(map).unwrap();
-    assert_eq!(sorted_map(heap.map_snapshot(map).unwrap()), vec![]);
+    assert!(heap.map_snapshot(map).unwrap().is_empty());
+    assert_eq!(heap.stats().current_heap_units, before - 2);
+    // Clearing removes the map's ownership of its strings; sweeping reclaims them.
+    vm.runtime().collect_garbage().unwrap();
     assert_eq!(heap.stats().current_heap_units, 1);
     drop(root);
 }
@@ -178,7 +169,7 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let root = vm.runtime().root_value(value).unwrap();
     let Value::Set(set) = value else {
         panic!("container")
     };
@@ -186,23 +177,24 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
     let heap = vm.runtime().gc();
     assert_eq!(heap.set_len(set), Some(2));
     assert_eq!(
-        sorted_set(heap.set_snapshot(set).unwrap()),
-        vec![Value::Str("a".to_owned()), Value::Str("b".to_owned())]
+        sorted_set(heap, heap.set_snapshot(set).unwrap()),
+        vec!["a", "b"]
     );
-    assert_eq!(heap.stats().current_heap_units, 3);
-    assert_eq!(
-        heap.set_contains(set, &Value::Str("a".to_owned())),
-        Some(true)
-    );
-
-    assert_eq!(heap.set_insert(set, Value::Str("c".to_owned())), Ok(true));
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(heap.set_insert(set, Value::Str("a".to_owned())), Ok(false));
-    assert_eq!(heap.stats().current_heap_units, 4);
-    assert_eq!(heap.set_remove(set, &Value::Str("b".to_owned())), Ok(true));
-    assert_eq!(heap.stats().current_heap_units, 3);
+    let a = heap.alloc_string("a".into()).unwrap();
+    let b = heap.alloc_string("b".into()).unwrap();
+    let c = heap.alloc_string("c".into()).unwrap();
+    let before = heap.stats().current_heap_units;
+    assert_eq!(heap.set_contains(set, &a), Some(true));
+    assert_eq!(heap.set_insert(set, c), Ok(true));
+    assert_eq!(heap.stats().current_heap_units, before + 1);
+    assert_eq!(heap.set_insert(set, a), Ok(false));
+    assert_eq!(heap.stats().current_heap_units, before + 1);
+    assert_eq!(heap.set_remove(set, &b), Ok(true));
+    assert_eq!(heap.stats().current_heap_units, before);
     heap.set_clear(set).unwrap();
-    assert_eq!(sorted_set(heap.set_snapshot(set).unwrap()), vec![]);
+    assert!(heap.set_snapshot(set).unwrap().is_empty());
+    assert_eq!(heap.stats().current_heap_units, before - 2);
+    vm.runtime().collect_garbage().unwrap();
     assert_eq!(heap.stats().current_heap_units, 1);
     drop(root);
 }
@@ -230,6 +222,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Struct(record), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
@@ -239,18 +232,32 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     let Value::Map(map) = heap.struct_get_slot(record, &schema, 0).unwrap() else {
         panic!("map")
     };
-    let Value::Array(leaf) = heap.map_get(map, &Value::Str("leaf".into())).unwrap() else {
+    let Value::Array(leaf) = heap
+        .map_get(map, &heap.alloc_string("leaf".into()).unwrap())
+        .unwrap()
+    else {
         panic!("leaf")
     };
     let root = heap
-        .root_value(Value::Tuple(vec![
-            Value::Struct(record),
-            Value::Set(set),
-            Value::Unit,
-        ]))
+        .root_value(
+            heap.alloc_tuple(vec![Value::Struct(record), Value::Set(set), Value::Unit])
+                .unwrap(),
+        )
         .unwrap();
 
-    assert_eq!(heap.trace_roots().unwrap(), vec![record, map, leaf, set]);
+    let Value::Tuple(tuple) = root.value(heap).unwrap() else {
+        panic!("root tuple")
+    };
+    let Value::Str(map_key) = heap.map_snapshot(map).unwrap()[0].0 else {
+        panic!("map key")
+    };
+    let Value::Str(set_key) = heap.set_snapshot(set).unwrap()[0] else {
+        panic!("set key")
+    };
+    assert_eq!(
+        heap.trace_roots().unwrap(),
+        vec![tuple, record, map, leaf, map_key, set, set_key]
+    );
 
     root.set(heap, Value::GcHandle(leaf)).unwrap();
     assert_eq!(heap.trace_roots().unwrap(), vec![leaf]);
@@ -305,6 +312,7 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
     else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
@@ -347,19 +355,31 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
     assert!(heap.set_clear(set).is_err());
 }
 
-fn sorted_map(mut entries: Vec<(Value, Value)>) -> Vec<(Value, Value)> {
-    entries.sort_by(|(a, _), (b, _)| match (a, b) {
-        (Value::Str(a), Value::Str(b)) => a.cmp(b),
-        _ => panic!("string keys"),
-    });
+fn sorted_map(heap: &GcHeap, entries: Vec<(Value, Value)>) -> Vec<(String, Value)> {
+    let mut entries: Vec<_> = entries
+        .into_iter()
+        .map(|(key, value)| {
+            let Value::Str(id) = key else {
+                panic!("string key")
+            };
+            (heap.string(id).unwrap().to_owned(), value)
+        })
+        .collect();
+    entries.sort_by(|(a, _), (b, _)| a.cmp(b));
     entries
 }
 
-fn sorted_set(mut entries: Vec<Value>) -> Vec<Value> {
-    entries.sort_by(|a, b| match (a, b) {
-        (Value::Str(a), Value::Str(b)) => a.cmp(b),
-        _ => panic!("string keys"),
-    });
+fn sorted_set(heap: &GcHeap, entries: Vec<Value>) -> Vec<String> {
+    let mut entries: Vec<_> = entries
+        .into_iter()
+        .map(|key| {
+            let Value::Str(id) = key else {
+                panic!("string key")
+            };
+            heap.string(id).unwrap().to_owned()
+        })
+        .collect();
+    entries.sort();
     entries
 }
 
@@ -385,6 +405,7 @@ fn native_array_helpers_mutate_and_return_options() {
     else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [
         Value::Array(array),
         Value::Enum(removed),
@@ -432,6 +453,7 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
     else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [
         Value::Map(map),
         Value::Enum(removed),
@@ -451,14 +473,12 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
         "None"
     );
     assert_eq!(
-        heap.map_snapshot(*map).unwrap(),
-        vec![(Value::Str("mp".into()), Value::I32(20))]
+        sorted_map(heap, heap.map_snapshot(*map).unwrap()),
+        vec![("mp".into(), Value::I32(20))]
     );
+    let key = heap.alloc_string("mp".into()).unwrap();
     let before = heap.stats();
-    assert!(
-        heap.map_insert(*map, Value::Str("mp".into()), Value::I64(20))
-            .is_err()
-    );
+    assert!(heap.map_insert(*map, key, Value::I64(20)).is_err());
     assert_eq!(heap.stats(), before);
 }
 
@@ -484,6 +504,7 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
     else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
@@ -548,10 +569,11 @@ fn native_map_and_set_allocations_update_resource_counters() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let root = vm.runtime().root_value(value).unwrap();
     let Value::Tuple(values) = value else {
         panic!("tuple")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
@@ -560,10 +582,10 @@ fn native_map_and_set_allocations_update_resource_counters() {
     assert_eq!(runtime.gc().set_len(*set), Some(2));
     let counters = runtime.resources().counters();
 
-    assert_eq!(counters.current_heap_units, 6);
-    assert_eq!(counters.peak_heap_units, 6);
+    assert_eq!(counters.current_heap_units, 29);
+    assert_eq!(counters.peak_heap_units, 29);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
-    assert_eq!(runtime.resources().counters().current_heap_units, 6);
+    assert_eq!(runtime.resources().counters().current_heap_units, 29);
 
     drop(root);
 }

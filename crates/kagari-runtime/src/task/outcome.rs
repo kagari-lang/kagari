@@ -80,7 +80,7 @@ impl Runtime {
         // consumption then remains a transfer after an unrelated quarantine.
         let report = match &result {
             Ok(value) => Ok(self
-                .root_value(value.clone())
+                .root_value(*value)
                 .ok_or_else(|| RuntimeError::module_validation("Task report result root"))?),
             Err(error) => Err(error.clone()),
         };

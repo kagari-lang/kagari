@@ -1,6 +1,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::values::scalar,
+    gc::GcHeap,
     value::Value,
 };
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
@@ -128,6 +129,7 @@ pub fn fixed_integer(
 }
 
 pub fn integer_method(
+    heap: &GcHeap,
     operation: IntegerMethod,
     ty: BuiltinType,
     args: &[Value],
@@ -165,7 +167,7 @@ pub fn integer_method(
         return Ok(None);
     }
     Ok(Some(if operation.overflowing() {
-        Value::Tuple(vec![value, Value::Bool(overflow)])
+        heap.alloc_tuple(vec![value, Value::Bool(overflow)])?
     } else {
         value
     }))
@@ -248,6 +250,7 @@ mod boundary_tests {
         let gc = runtime.gc();
         assert_eq!(
             integer_method(
+                gc,
                 IntegerMethod::WrappingAddSigned,
                 BuiltinType::USize,
                 &[Value::U64(0), Value::I64(-1)]
@@ -257,6 +260,7 @@ mod boundary_tests {
         );
         assert_eq!(
             integer_method(
+                gc,
                 IntegerMethod::RotateLeft,
                 BuiltinType::U8,
                 &[Value::I64(128), Value::I64(1)]
@@ -264,17 +268,23 @@ mod boundary_tests {
             .unwrap(),
             Some(Value::I64(1))
         );
+        let Value::Tuple(pair) = integer_method(
+            gc,
+            IntegerMethod::OverflowingAdd,
+            BuiltinType::U8,
+            &[Value::I64(255), Value::I64(1)],
+        )
+        .unwrap()
+        .unwrap() else {
+            panic!("overflow pair");
+        };
         assert_eq!(
-            integer_method(
-                IntegerMethod::OverflowingAdd,
-                BuiltinType::U8,
-                &[Value::I64(255), Value::I64(1)]
-            )
-            .unwrap(),
-            Some(Value::Tuple(vec![Value::I64(0), Value::Bool(true)]))
+            &*gc.tuple(pair).unwrap(),
+            &[Value::I64(0), Value::Bool(true)]
         );
         assert_eq!(
             integer_method(
+                gc,
                 IntegerMethod::CheckedAdd,
                 BuiltinType::U8,
                 &[Value::I64(255), Value::I64(1)]
@@ -287,7 +297,7 @@ mod boundary_tests {
             (IntegerMethod::RotateRight, BuiltinType::U32),
             (IntegerMethod::WrappingAddSigned, BuiltinType::USize),
         ] {
-            let error = integer_method(method, receiver, &[]).unwrap_err();
+            let error = integer_method(gc, method, receiver, &[]).unwrap_err();
             assert_eq!(error.message(), "integer method requires two arguments");
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
         }
@@ -299,6 +309,7 @@ mod boundary_tests {
         use kagari_types::integer::IntegerMethod as M;
         use kagari_types::scalar::BuiltinType as B;
         let runtime = crate::Runtime::default();
+        let gc = runtime.gc();
         for (method, ty, args) in [
             (M::RotateLeft, B::U8, [Value::I64(1), Value::I64(-1)]),
             (
@@ -309,7 +320,7 @@ mod boundary_tests {
             (M::WrappingAdd, B::U8, [Value::I64(256), Value::I64(0)]),
             (M::WrappingAddSigned, B::I8, [Value::I32(1), Value::I32(1)]),
         ] {
-            assert!(integer_method(method, ty, &args).is_err());
+            assert!(integer_method(gc, method, ty, &args).is_err());
         }
         assert_eq!(runtime.gc().active_roots(), 0);
     }

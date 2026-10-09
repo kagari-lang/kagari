@@ -171,7 +171,7 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::module_validation("invalid owned execution entry"))?;
         if args.len() != usize::from(function.parameter_count)
             || args.iter().enumerate().any(|(index, value)| {
-                !value.is_storable()
+                !value.is_storable(self.gc())
                     || function
                         .metadata
                         .semantic
@@ -218,7 +218,7 @@ impl Runtime {
         let queued = QueuedFuture {
             output: future.parameter(self, &owner, 0)?,
             value: self
-                .root_value(value.clone())
+                .root_value(*value)
                 .ok_or_else(|| RuntimeError::module_validation("Future entry root"))?,
         };
         self.create_owned_execution(&owner, options, OwnedStart::Future(queued))

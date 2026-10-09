@@ -134,7 +134,7 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
         panic!("closure result")
     };
     assert!(foreign_runtime.resolve_closure(&value).is_err());
-    let rooted = vm.runtime().root_value(value.clone()).unwrap();
+    let rooted = vm.runtime().root_value(value).unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().resolve_closure(&value).is_ok());
     drop(rooted);
@@ -175,7 +175,7 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let rooted = vm.runtime().root_value(closure.clone()).unwrap();
+    let rooted = vm.runtime().root_value(closure).unwrap();
     let replacement = vm
         .runtime_mut()
         .load_program("closure_epoch.kgr", new)

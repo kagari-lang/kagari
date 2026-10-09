@@ -291,12 +291,17 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
             .alloc_array(
                 &module,
                 element.clone(),
-                vec![Value::Tuple(vec![valid.clone(), Value::Bool(true)])],
+                vec![
+                    runtime
+                        .gc()
+                        .alloc_tuple(vec![valid, Value::Bool(true)])
+                        .unwrap(),
+                ],
             )
             .unwrap(),
     );
     let target = runtime
-        .alloc_struct(wrapper.clone(), vec![initial.clone()])
+        .alloc_struct(wrapper.clone(), vec![initial])
         .unwrap();
     let Ty::Tuple(mut wrong_member_type) = element.clone() else {
         panic!("tuple element")
@@ -306,12 +311,22 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         (
             &wrong_owner,
             Ty::Tuple(vec![wrong_type, Ty::Builtin(BuiltinType::Bool)]),
-            vec![Value::Tuple(vec![wrong_value, Value::Bool(true)])],
+            vec![
+                runtime
+                    .gc()
+                    .alloc_tuple(vec![wrong_value, Value::Bool(true)])
+                    .unwrap(),
+            ],
         ),
         (
             &module,
             Ty::Tuple(wrong_member_type.clone()),
-            vec![Value::Tuple(vec![valid, Value::I32(1)])],
+            vec![
+                runtime
+                    .gc()
+                    .alloc_tuple(vec![valid, Value::I32(1)])
+                    .unwrap(),
+            ],
         ),
         (&module, Ty::Tuple(wrong_member_type), vec![]),
     ] {
@@ -320,7 +335,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         let objects = runtime.gc().allocated_objects();
         assert_eq!(
             runtime
-                .alloc_struct(wrapper.clone(), vec![invalid.clone()])
+                .alloc_struct(wrapper.clone(), vec![invalid])
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ScriptTrap
@@ -335,7 +350,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         );
         assert_eq!(
             runtime.gc().struct_get_slot(target, &wrapper, 0),
-            Some(initial.clone())
+            Some(initial)
         );
         assert_eq!(runtime.resources().counters(), before);
         assert_eq!(runtime.gc().allocated_objects(), objects);
@@ -343,7 +358,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let replacement = Value::Array(runtime.alloc_array(&module, element, vec![]).unwrap());
     runtime
         .gc()
-        .struct_set_slot(target, &wrapper, 0, replacement.clone())
+        .struct_set_slot(target, &wrapper, 0, replacement)
         .unwrap();
     assert_eq!(
         runtime.gc().struct_get_slot(target, &wrapper, 0),

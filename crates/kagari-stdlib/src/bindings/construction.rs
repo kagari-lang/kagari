@@ -33,7 +33,10 @@ pub(super) fn from_str(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let Value::Str(text) = cx.argument(0)? else {
         return Err(invalid());
     };
-    let parsed = parse(result_item(cx)?, &text)?;
+    let parsed = {
+        let text = cx.heap().string(text).ok_or_else(invalid)?;
+        parse(result_item(cx)?, &text)?
+    };
     result(
         cx,
         parsed.map_err(|error| {
@@ -67,7 +70,7 @@ fn result(
             )?,
         ),
     };
-    let _root = cx.heap().root_value(value.clone()).ok_or_else(invalid)?;
+    let _root = cx.heap().root_value(value).ok_or_else(invalid)?;
     enums::allocate(
         cx,
         &cx.result_type_argument()?,
@@ -114,7 +117,7 @@ pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         return Err(invalid());
     };
     let result = cx.allocate_result()?;
-    let _root = cx.heap().root_value(result.clone()).ok_or_else(invalid)?;
+    let _root = cx.heap().root_value(result).ok_or_else(invalid)?;
     let Value::Array(id) = result else {
         return Err(invalid());
     };
@@ -158,7 +161,7 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
                     input: kind,
                     rhs: Some(kind),
                 },
-                result.clone(),
+                result,
                 Some(item),
             )?
         } else {
@@ -168,7 +171,7 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
                 } else {
                     BinaryOp::Add
                 },
-                result.clone(),
+                result,
                 item,
             )?
         };
@@ -197,7 +200,7 @@ fn for_each(
     let iter = cx.selected_at(0)?;
     let next = cx.selected_at(1)?;
     let cursor = cx.call_values(iter, &[source])?;
-    let _root = cx.heap().root_value(cursor.clone()).ok_or_else(invalid)?;
+    let _root = cx.heap().root_value(cursor).ok_or_else(invalid)?;
     loop {
         cx.poll()?;
         let value = cx.call_values(next, slice::from_ref(&cursor))?;
@@ -208,8 +211,8 @@ fn for_each(
                 let [item] = fields.as_slice() else {
                     return Err(invalid());
                 };
-                let _item = cx.heap().root_value(item.clone()).ok_or_else(invalid)?;
-                visit(cx, item.clone())?;
+                let _item = cx.heap().root_value(*item).ok_or_else(invalid)?;
+                visit(cx, *item)?;
             }
             _ => return Err(invalid()),
         }

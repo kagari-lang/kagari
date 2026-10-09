@@ -85,7 +85,7 @@ impl<S> Interface<S> {
         values
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
-        values.insert(0, method.receiver().clone());
+        values.insert(0, *method.receiver());
         let result = invoke(runtime, &owner, ScriptCall::Interface(&method), &values)?;
         conversion.decode_prepared(&binding.record.signature.result, &result)
     }

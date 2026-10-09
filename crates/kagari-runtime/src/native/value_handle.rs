@@ -64,7 +64,7 @@ impl FromKagari for ScriptValue {
         cx.check_value(expected, value)?;
         let root = cx
             .runtime()
-            .root_value(value.clone())
+            .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("script value retention"))?;
         let program = cx
             .runtime()

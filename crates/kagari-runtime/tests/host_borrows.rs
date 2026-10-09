@@ -7,7 +7,6 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::{HostBorrowKind, HostBorrowTable, HostCallGuard, HostObjectId},
     metadata::TypeId,
-    value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -120,19 +119,22 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
     let token = frame
         .borrow_shared(HostObjectId(1), TypeId::new(0))
         .unwrap();
-    let borrow_value = Value::host_ref(token);
+    let borrow_value = runtime.gc().alloc_host_ref(token).unwrap();
 
-    assert!(borrow_value.contains_host_borrow());
-    assert!(!borrow_value.is_storable());
-    assert!(!borrow_value.is_default_heap_payload());
+    assert!(borrow_value.contains_host_borrow(runtime.gc()));
+    assert!(!borrow_value.is_storable(runtime.gc()));
+    assert!(!borrow_value.is_default_heap_payload(runtime.gc()));
     assert_eq!(
-        HostBorrowTable::validate_no_escape(&Value::Tuple(vec![borrow_value.clone()]))
-            .unwrap_err()
-            .kind(),
+        HostBorrowTable::validate_no_escape(
+            runtime.gc(),
+            &runtime.gc().alloc_tuple(vec![borrow_value]).unwrap()
+        )
+        .unwrap_err()
+        .kind(),
         RuntimeErrorKind::HostBorrowEscape
     );
     assert_eq!(
-        HostCallGuard::validate_no_escape(&borrow_value)
+        HostCallGuard::validate_no_escape(runtime.gc(), &borrow_value)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowEscape
@@ -140,11 +142,7 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
 
     assert!(
         runtime
-            .alloc_array(
-                &module,
-                Ty::Builtin(BuiltinType::I32),
-                vec![borrow_value.clone()]
-            )
+            .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![borrow_value])
             .is_err()
     );
     assert!(runtime.root_value(borrow_value).is_none());

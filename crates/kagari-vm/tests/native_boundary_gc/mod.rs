@@ -34,22 +34,25 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(Value::Tuple(vec![value])).unwrap();
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 4);
+    let root = vm
+        .runtime()
+        .root_value(vm.runtime().gc().alloc_tuple(vec![value]).unwrap())
+        .unwrap();
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 6);
     let live_units = vm.runtime().gc().stats().current_heap_units;
-    assert_eq!(live_units, 8);
+    assert_eq!(live_units, 12);
     vm.execute(&loaded, "garbage").unwrap();
     let collection = vm.runtime().collect_garbage().unwrap();
     assert_eq!(
         (collection.reclaimed_objects, collection.live_objects),
-        (1, 4)
+        (1, 6)
     );
     assert_eq!(vm.runtime().gc().stats().current_heap_units, live_units);
     root.set(vm.runtime().gc(), Value::Unit).unwrap();
     let collection = vm.runtime().collect_garbage().unwrap();
     assert_eq!(
         (collection.reclaimed_objects, collection.live_objects),
-        (4, 0)
+        (6, 0)
     );
     assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
 }
@@ -111,6 +114,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     else {
         panic!("containers")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Map(map), Value::Set(set), Value::Bool(found)] = values.as_slice() else {
         panic!("container handles")
     };
@@ -120,7 +124,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     );
     let (map, set) = (*map, *set);
     let runtime = vm.runtime();
-    let key = runtime.gc().map_snapshot(map).unwrap()[0].0.clone();
+    let key = runtime.gc().map_snapshot(map).unwrap()[0].0;
     let Value::Enum(value) = key else {
         panic!("enum key")
     };
@@ -128,6 +132,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let [Value::Tuple(parts)] = fields.as_slice() else {
         panic!("tuple payload")
     };
+    let parts = runtime.gc().tuple(*parts).unwrap().to_vec();
     let [Value::Array(object), _] = parts.as_slice() else {
         panic!("identity payload")
     };
@@ -136,9 +141,14 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         .unwrap()
         .script_hash();
     let root = runtime
-        .root_value(Value::Tuple(vec![Value::Map(map), Value::Set(set)]))
+        .root_value(
+            vm.runtime()
+                .gc()
+                .alloc_tuple(vec![Value::Map(map), Value::Set(set)])
+                .unwrap(),
+        )
         .unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 7);
     runtime.gc().array_push(object, Value::I32(101)).unwrap();
     assert_eq!(
         hash,
@@ -156,18 +166,23 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
                 })
                 .unwrap()
                 .tag,
-            vec![Value::Tuple(vec![
-                Value::Array(object),
-                Value::Str("key".into()),
-            ])],
+            vec![
+                vm.runtime()
+                    .gc()
+                    .alloc_tuple(vec![
+                        Value::Array(object),
+                        vm.runtime().gc().alloc_string("key".into()).unwrap(),
+                    ])
+                    .unwrap(),
+            ],
         )
         .unwrap();
     assert!(script_equal(runtime.gc(), &key, &Value::Enum(equal)).unwrap());
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
     runtime.gc().map_clear(map).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 7);
     runtime.gc().set_clear(set).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 4);
     assert!(MapKey::from_value(runtime.gc(), &key).is_none());
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
@@ -194,6 +209,7 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
     else {
         panic!("containers")
     };
+    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("container handles")
     };
@@ -252,13 +268,28 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     let preview = format_value(runtime.gc(), &Value::Array(object), true).unwrap();
     assert!(preview.starts_with("Array@"));
     assert_eq!(
-        format_value(runtime.gc(), &Value::Str("a\nb".into()), true).unwrap(),
+        format_value(
+            runtime.gc(),
+            &vm.runtime().gc().alloc_string("a\nb".into()).unwrap(),
+            true
+        )
+        .unwrap(),
         "\"a\\nb\""
     );
-    assert!(format_value(runtime.gc(), &Value::Str("x".repeat(1_048_577)), false).is_err());
+    assert!(
+        format_value(
+            runtime.gc(),
+            &vm.runtime()
+                .gc()
+                .alloc_string("x".repeat(1_048_577))
+                .unwrap(),
+            false
+        )
+        .is_err()
+    );
     let mut value = Value::I32(42);
     for _ in 0..66 {
-        value = Value::Tuple(vec![value]);
+        value = vm.runtime().gc().alloc_tuple(vec![value]).unwrap();
     }
     assert!(format_value(runtime.gc(), &value, true).is_err());
     assert_eq!(runtime.gc().array_len(object), Some(1));
@@ -380,7 +411,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let old_root = vm.runtime().root_value(old_value.clone()).unwrap();
+    let old_root = vm.runtime().root_value(old_value).unwrap();
     let replacement = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");
@@ -393,7 +424,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let new_root = vm.runtime().root_value(new_value.clone()).unwrap();
+    let new_root = vm.runtime().root_value(new_value).unwrap();
     let (Value::Array(old_array), Value::Array(new_array)) = (old_value, new_value) else {
         panic!("typed arrays");
     };
@@ -404,18 +435,8 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
     );
     let old_node = vm.runtime().gc().array_get(old_array, 0).unwrap();
     let new_node = vm.runtime().gc().array_get(new_array, 0).unwrap();
-    assert!(
-        vm.runtime()
-            .gc()
-            .array_push(old_array, new_node.clone())
-            .is_err()
-    );
-    assert!(
-        vm.runtime()
-            .gc()
-            .array_push(new_array, old_node.clone())
-            .is_err()
-    );
+    assert!(vm.runtime().gc().array_push(old_array, new_node).is_err());
+    assert!(vm.runtime().gc().array_push(new_array, old_node).is_err());
     assert_eq!(vm.runtime().gc().array_len(old_array), Some(1));
     assert_eq!(vm.runtime().gc().array_len(new_array), Some(1));
     vm.runtime().gc().array_push(old_array, old_node).unwrap();

@@ -240,7 +240,11 @@ fn stored_key_protocol_keeps_old_code_and_collects_its_module_cycle() {
         panic!("tuple");
     };
     vm.runtime()
-        .write_module_slot(&old, ModuleSlot::new(0), items[0].clone())
+        .write_module_slot(
+            &old,
+            ModuleSlot::new(0),
+            vm.runtime().gc().tuple(*items).unwrap()[0],
+        )
         .unwrap();
     let new = vm.reload_program(&old, "hash-cycle", code(100)).unwrap();
     let collected = vm.runtime().collect_garbage().unwrap();

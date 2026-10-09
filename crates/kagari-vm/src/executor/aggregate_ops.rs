@@ -96,7 +96,7 @@ impl Executor<'_> {
                 )
             })
             .collect::<Result<Vec<_>, _>>()
-            .map(Value::Tuple)
+            .and_then(|values| self.runtime.gc().alloc_tuple(values).map_err(VmError::from))
     }
 
     pub(crate) fn make_array(
@@ -113,7 +113,10 @@ impl Executor<'_> {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if !elements.iter().all(Value::is_default_heap_payload) {
+        if !elements
+            .iter()
+            .all(|value| value.is_default_heap_payload(self.runtime.gc()))
+        {
             return Err(VmError::TypeMismatch(
                 "make_array expects default-storable elements",
             ));
@@ -185,9 +188,11 @@ impl Executor<'_> {
                 .gc()
                 .array_get(handle, index)
                 .ok_or(VmError::InvalidIndex(index)),
-            Value::Tuple(elements) => elements
-                .get(index)
-                .cloned()
+            Value::Tuple(elements) => self
+                .runtime
+                .gc()
+                .tuple(elements)
+                .and_then(|values| values.get(index).copied())
                 .ok_or(VmError::InvalidIndex(index)),
             _ => Err(VmError::TypeMismatch(
                 "read_index expects array or tuple value",
@@ -202,7 +207,7 @@ impl Executor<'_> {
         value: Register,
     ) -> Result<(), VmError> {
         let value = self.current_frame()?.read_register(self.runtime, value)?;
-        if !value.is_default_heap_payload() {
+        if !value.is_default_heap_payload(self.runtime.gc()) {
             return Err(VmError::TypeMismatch(
                 "write_field expects default-storable value",
             ));
@@ -242,7 +247,7 @@ impl Executor<'_> {
 
         match base_value {
             Value::Array(handle) => {
-                if !value.is_default_heap_payload() {
+                if !value.is_default_heap_payload(self.runtime.gc()) {
                     return Err(VmError::TypeMismatch(
                         "write_index expects default-storable value",
                     ));
@@ -258,16 +263,20 @@ impl Executor<'_> {
                         }
                     })
             }
-            Value::Tuple(mut elements) => {
+            Value::Tuple(id) => {
+                let mut elements = self
+                    .runtime
+                    .gc()
+                    .tuple(id)
+                    .ok_or(VmError::InvalidIndex(index))?
+                    .to_vec();
                 let Some(slot) = elements.get_mut(index) else {
                     return Err(VmError::InvalidIndex(index));
                 };
                 *slot = value;
-                self.current_frame_mut()?.write_register(
-                    self.runtime,
-                    base,
-                    Value::Tuple(elements),
-                )?;
+                let tuple = self.runtime.gc().alloc_tuple(elements)?;
+                self.current_frame_mut()?
+                    .write_register(self.runtime, base, tuple)?;
                 Ok(())
             }
             _ => Err(VmError::TypeMismatch(

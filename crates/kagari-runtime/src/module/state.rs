@@ -39,7 +39,7 @@ impl Runtime {
                 .quarantine("loaded module slot disappeared")
         })?;
         if !value.has_representation(declaration.ty)
-            || !value.is_storable()
+            || !value.is_storable(&self.gc)
             || !self.gc.validate_value(&value)
         {
             return Err(self.resources().quarantine("invalid value in module slot"));
@@ -75,15 +75,13 @@ impl Runtime {
                 "external object in candidate module state",
             ));
         }
-        // Detach the old edge only after all checks; dispose outside the store borrow.
-        let previous = self
-            .modules
+        // Publish the new edge only after all checks. The collector owns reclamation.
+        self.modules
             .replace_slot(module, slot, value)
             .ok_or_else(|| {
                 self.resources()
                     .quarantine("loaded module slot disappeared")
             })?;
-        drop(previous);
         Ok(())
     }
 }

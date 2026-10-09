@@ -174,7 +174,7 @@ impl Vm {
             .resolve_interface_method(interface, method)
             .map_err(VmError::RuntimeError)?;
         let loaded = resolved.implementation(&self.runtime)?;
-        let args = iter::once(resolved.receiver().clone())
+        let args = iter::once(*resolved.receiver())
             .chain(arguments.iter().cloned())
             .collect::<Vec<_>>();
         let _argument_roots = self

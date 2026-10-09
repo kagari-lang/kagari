@@ -21,7 +21,7 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::{
-    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
     value::Value,
 };
 
@@ -130,14 +130,16 @@ fn main() {
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     runtime
-        .register_host_function(HostFunction::new(make, move |_, _| {
-            Ok(Value::HostRoot(root.into()))
+        .register_host_function(HostFunction::new(make, move |cx, _| {
+            cx.runtime()
+                .gc()
+                .alloc_host_root(root)
+                .map_err(|error| HostError::new(error.to_string()))
         }))
         .unwrap();
     runtime
         .register_host_function(
-            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1].clone()))
-                .unwrap(),
+            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1])).unwrap(),
         )
         .unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();

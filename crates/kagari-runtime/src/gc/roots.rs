@@ -43,7 +43,7 @@ impl RootedValue {
     }
 
     pub fn set(&self, heap: &GcHeap, value: Value) -> Option<()> {
-        if !value.is_storable() {
+        if !value.is_storable(heap) {
             return None;
         }
         self.roots.set(heap, 0, value)
@@ -284,7 +284,7 @@ impl GcHeap {
     }
 
     pub fn root_value(&self, value: Value) -> Option<RootedValue> {
-        if !value.is_storable() {
+        if !value.is_storable(self) {
             return None;
         }
         Some(RootedValue {

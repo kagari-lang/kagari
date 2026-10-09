@@ -18,12 +18,10 @@ fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
-    Value::HostRoot(
-        runtime
-            .register_host_root(HostObjectId(object_id), ty, HostSchemaEpoch::new(0))
-            .unwrap()
-            .into(),
-    )
+    let root = runtime
+        .register_host_root(HostObjectId(object_id), ty, HostSchemaEpoch::new(0))
+        .unwrap();
+    runtime.gc().alloc_host_root(root).unwrap()
 }
 
 fn exposed_host_runtime() -> Runtime {
@@ -50,9 +48,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
                     .borrows()
                     .borrow_unique(HostObjectId(1), TypeId::new(0))
                     .unwrap();
-                Ok(Value::Ephemeral(
-                    kagari_runtime::value::EphemeralValue::HostMut(token.into()),
-                ))
+                Ok(context.runtime().gc().alloc_host_mut(token).unwrap())
             },
         ))
         .unwrap();

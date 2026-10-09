@@ -24,16 +24,18 @@ pub(crate) fn matches_type(
             value.has_representation(semantic_representation(ty))
         };
     }
-    let mut pending = vec![(value.clone(), ty)];
+    let mut pending = vec![(*value, ty)];
     while let Some((value, ty)) = pending.pop() {
         let matches = match (value, ty) {
             (value, Ty::Builtin(_)) => matches_type(heap, &value, ty, owner),
-            (Value::Range(value), Ty::Range(_, _)) => value.matches(ty),
+            (Value::Range(value), Ty::Range(_, _)) => heap.range(value).is_some_and(|range| range.matches(ty)),
             (Value::Closure(id), Ty::Function { params, result }) => heap
                 .closure_snapshot(id)
                 .is_some_and(|snapshot| snapshot.matches_function(params, result, owner, None)),
-            (Value::Tuple(values), Ty::Tuple(types)) if values.len() == types.len() => {
-                pending.extend(values.into_iter().zip(types));
+            (Value::Tuple(id), Ty::Tuple(types)) => {
+                let Some(values) = heap.tuple(id) else { return false; };
+                if values.len() != types.len() { return false; }
+                pending.extend(values.iter().copied().zip(types));
                 true
             }
             (Value::Struct(id), Ty::Struct(expected)) => heap.struct_layout(id).is_some_and(|layout| {
@@ -80,7 +82,10 @@ pub(crate) fn matches_type_in(
             .and_then(|environment| environment.argument(binder, *position))
             .is_some_and(|argument| argument.matches_heap(heap, value, owner));
     }
-    if let (Value::Tuple(values), Ty::Tuple(types)) = (value, ty) {
+    if let (Value::Tuple(id), Ty::Tuple(types)) = (value, ty) {
+        let Some(values) = heap.tuple(*id) else {
+            return false;
+        };
         return values.len() == types.len()
             && values
                 .iter()

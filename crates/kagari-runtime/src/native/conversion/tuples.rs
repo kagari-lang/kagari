@@ -28,15 +28,17 @@ macro_rules! tuple {
         impl<$($ty: IntoKagari),+> IntoKagari for ($($ty,)+) {
             fn into_kagari(self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<Value> {
                 cx.check_elements($count)?;
-                Ok(Value::Tuple(vec![$({
+                let values = vec![$({
                     let element = cx.parameter(expected, $slot)?;
                     cx.encode_value(&element, self.$slot)?
-                }),+]))
+                }),+];
+                cx.runtime().gc().alloc_tuple(values)
             }
         }
         impl<$($ty: FromKagari),+> FromKagari for ($($ty,)+) {
             fn from_kagari(cx: &mut ConversionContext<'_>, expected: &TypeArgument, value: &Value) -> NativeResult<Self> {
                 let Value::Tuple(elements) = value else { return Err(RuntimeError::module_validation("tuple conversion value")); };
+                let elements = cx.runtime().gc().tuple(*elements).ok_or_else(|| RuntimeError::module_validation("invalid tuple"))?.to_vec();
                 if elements.len() != $count { return Err(RuntimeError::module_validation("tuple conversion arity")); }
                 cx.check_elements($count)?;
                 Ok(($({

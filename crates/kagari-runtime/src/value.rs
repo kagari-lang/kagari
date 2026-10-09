@@ -1,8 +1,7 @@
 use crate::{
     gc::{GcHeap, GcObjectKind, HeapObjectId},
-    host::{FrameHostBorrowToken, HostPathViewHandle, HostRegistryId, HostRootHandle},
+    host::{FrameHostBorrowToken, HostRegistryId},
     module::EnumVariantRef,
-    range::RangeValue,
     value_semantics,
 };
 use kagari_abi::representation::ValueType;
@@ -13,7 +12,6 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     slice,
-    sync::Arc,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,10 +80,10 @@ pub enum ValueCategory {
     Ephemeral,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EphemeralValue {
-    HostRef(Arc<FrameHostBorrowToken>),
-    HostMut(Arc<FrameHostBorrowToken>),
+    HostRef(FrameHostBorrowToken),
+    HostMut(FrameHostBorrowToken),
     Runtime(EphemeralValueId),
 }
 
@@ -173,7 +171,7 @@ impl MapKey {
             Value::I32(value) => Some(KeyPart::I32(*value)),
             Value::I64(value) => Some(KeyPart::I64(*value)),
             Value::U64(value) => Some(KeyPart::U64(*value)),
-            Value::Str(value) => Some(KeyPart::Str(value.clone())),
+            Value::Str(value) => Some(KeyPart::Str(gc.string(*value)?.to_owned())),
             Value::Struct(id) => Some(KeyPart::Identity(0, *id)),
             Value::Array(id) => Some(KeyPart::Identity(1, *id)),
             Value::Map(id) => Some(KeyPart::Identity(2, *id)),
@@ -187,10 +185,10 @@ impl MapKey {
             return Some(Self {
                 parts: KeyParts::Single(part),
                 custom: None,
-                value: value.clone(),
+                value: *value,
             });
         }
-        let mut pending = vec![value.clone()];
+        let mut pending = vec![*value];
         let mut parts = Vec::new();
         while let Some(value) = pending.pop() {
             if parts.len() >= 65536 || !gc.validate_value(&value) {
@@ -203,10 +201,11 @@ impl MapKey {
                 Value::I32(v) => parts.push(KeyPart::I32(v)),
                 Value::I64(v) => parts.push(KeyPart::I64(v)),
                 Value::U64(v) => parts.push(KeyPart::U64(v)),
-                Value::Str(v) => parts.push(KeyPart::Str(v)),
-                Value::Tuple(values) => {
+                Value::Str(v) => parts.push(KeyPart::Str(gc.string(v)?.to_owned())),
+                Value::Tuple(id) => {
+                    let values = gc.tuple(id)?;
                     parts.push(KeyPart::Tuple(values.len()));
-                    pending.extend(values.into_iter().rev());
+                    pending.extend(values.iter().rev().copied());
                 }
                 Value::Enum(id) => {
                     let snapshot = gc.enum_snapshot(id)?;
@@ -234,12 +233,12 @@ impl MapKey {
         Some(Self {
             parts: KeyParts::Aggregate(parts.into_boxed_slice()),
             custom: None,
-            value: value.clone(),
+            value: *value,
         })
     }
 
     pub fn to_value(&self) -> Value {
-        self.value.clone()
+        self.value
     }
 
     pub(crate) fn value(&self) -> &Value {
@@ -253,9 +252,11 @@ impl MapKey {
     }
 }
 
-/// Tagged runtime values keep immutable host descriptors out of scalar slots.
-/// Sharing those descriptors never retains a Rust host resource or script heap.
-#[derive(Debug, Clone, PartialEq)]
+/// Compact unrooted transport. Heap-backed payloads are accessed only through
+/// their owning heap; copying a value never copies text or establishes a root.
+/// Rust equality compares transport tags and IDs. Use `value_semantics::script_equal`
+/// for language equality, including string contents and tuple members.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
     Unit,
     Bool(bool),
@@ -264,9 +265,9 @@ pub enum Value {
     U64(u64),
     F32(f32),
     F64(f64),
-    Str(String),
-    Tuple(Vec<Value>),
-    Range(RangeValue),
+    Str(HeapObjectId),
+    Tuple(HeapObjectId),
+    Range(HeapObjectId),
     Array(HeapObjectId),
     Map(HeapObjectId),
     Set(HeapObjectId),
@@ -276,15 +277,44 @@ pub enum Value {
     Interface(InterfaceObjectId),
     Closure(HeapObjectId),
     Cell(HeapObjectId),
-    HostRoot(Arc<HostRootHandle>),
-    HostPathView(Arc<HostPathViewHandle>),
-    Ephemeral(EphemeralValue),
+    HostRoot(HeapObjectId),
+    HostPathView(HeapObjectId),
+    Ephemeral(HeapObjectId),
+    RuntimeEphemeral(EphemeralValueId),
 }
 
 impl Value {
+    pub(crate) fn object_id(&self) -> Option<HeapObjectId> {
+        match self {
+            Self::Unit
+            | Self::Bool(_)
+            | Self::I32(_)
+            | Self::I64(_)
+            | Self::U64(_)
+            | Self::F32(_)
+            | Self::F64(_)
+            | Self::RuntimeEphemeral(_) => None,
+            Self::Interface(id) => Some(id.0),
+            Self::Str(id)
+            | Self::Tuple(id)
+            | Self::Range(id)
+            | Self::Array(id)
+            | Self::Map(id)
+            | Self::Set(id)
+            | Self::Enum(id)
+            | Self::Struct(id)
+            | Self::GcHandle(id)
+            | Self::Closure(id)
+            | Self::Cell(id)
+            | Self::HostRoot(id)
+            | Self::HostPathView(id)
+            | Self::Ephemeral(id) => Some(*id),
+        }
+    }
+
     pub fn has_representation(&self, ty: ValueType) -> bool {
         if ty == ValueType::Generic {
-            return !matches!(self, Self::Ephemeral(_));
+            return !matches!(self, Self::Ephemeral(_) | Self::RuntimeEphemeral(_));
         }
         matches!(
             (self, ty),
@@ -297,9 +327,7 @@ impl Value {
                 | (Self::F64(_), ValueType::F64)
                 | (Self::Str(_), ValueType::Str)
                 | (
-                    Self::HostRoot(_)
-                        | Self::HostPathView(_)
-                        | Self::Ephemeral(EphemeralValue::HostRef(_) | EphemeralValue::HostMut(_)),
+                    Self::HostRoot(_) | Self::HostPathView(_) | Self::Ephemeral(_),
                     ValueType::HostHandle
                 )
                 | (
@@ -342,69 +370,43 @@ impl Value {
             Self::Interface(_) => ValueCategory::Interface,
             Self::HostRoot(_) => ValueCategory::HostHandle,
             Self::HostPathView(_) => ValueCategory::HostPathView,
-            Self::Ephemeral(_) => ValueCategory::Ephemeral,
+            Self::Ephemeral(_) | Self::RuntimeEphemeral(_) => ValueCategory::Ephemeral,
         }
     }
 
-    pub fn is_storable(&self) -> bool {
+    pub fn is_storable(&self, heap: &GcHeap) -> bool {
         match self {
-            Self::Tuple(elements) => elements.iter().all(Self::is_storable),
-            Self::HostRoot(_) | Self::HostPathView(_) | Self::Ephemeral(_) => false,
-            _ => true,
+            Self::Tuple(id) => heap.tuple_properties(*id).is_some_and(|p| p.storable),
+            Self::HostRoot(_)
+            | Self::HostPathView(_)
+            | Self::Ephemeral(_)
+            | Self::RuntimeEphemeral(_) => false,
+            _ => heap.validate_value(self),
         }
     }
 
     pub fn is_ephemeral(&self) -> bool {
-        matches!(self, Self::Ephemeral(_))
+        matches!(self, Self::Ephemeral(_) | Self::RuntimeEphemeral(_))
     }
 
-    pub fn contains_ephemeral(&self) -> bool {
+    pub fn contains_ephemeral(&self, heap: &GcHeap) -> bool {
         match self {
-            Self::Tuple(elements) => elements.iter().any(Self::contains_ephemeral),
+            Self::Tuple(id) => heap.tuple_properties(*id).is_none_or(|p| p.ephemeral),
+            Self::Ephemeral(_) | Self::RuntimeEphemeral(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn contains_host_borrow(&self, heap: &GcHeap) -> bool {
+        match self {
+            Self::Tuple(id) => heap.tuple_properties(*id).is_none_or(|p| p.host_borrow),
             Self::Ephemeral(_) => true,
             _ => false,
         }
     }
 
-    pub fn contains_host_borrow(&self) -> bool {
-        match self {
-            Self::Tuple(elements) => elements.iter().any(Self::contains_host_borrow),
-            Self::Ephemeral(EphemeralValue::HostRef(_) | EphemeralValue::HostMut(_)) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_default_heap_payload(&self) -> bool {
-        match self {
-            Self::Unit
-            | Self::Bool(_)
-            | Self::I32(_)
-            | Self::I64(_)
-            | Self::U64(_)
-            | Self::F32(_)
-            | Self::F64(_)
-            | Self::Str(_)
-            | Self::Range(_) => true,
-            Self::Tuple(elements) => elements.iter().all(Self::is_default_heap_payload),
-            Self::Array(_)
-            | Self::Map(_)
-            | Self::Set(_)
-            | Self::Enum(_)
-            | Self::Struct(_)
-            | Self::GcHandle(_)
-            | Self::Interface(_) => true,
-            Self::Closure(_) => true,
-            Self::Cell(_) => true,
-            Self::HostRoot(_) | Self::HostPathView(_) | Self::Ephemeral(_) => false,
-        }
-    }
-
-    pub fn host_ref(token: FrameHostBorrowToken) -> Self {
-        Self::Ephemeral(EphemeralValue::HostRef(Arc::new(token)))
-    }
-
-    pub fn host_mut(token: FrameHostBorrowToken) -> Self {
-        Self::Ephemeral(EphemeralValue::HostMut(Arc::new(token)))
+    pub fn is_default_heap_payload(&self, heap: &GcHeap) -> bool {
+        self.is_storable(heap)
     }
 }
 
@@ -425,16 +427,6 @@ mod tests {
         value_type::HostValueType,
     };
 
-    use std::mem::size_of;
-
-    #[test]
-    #[cfg(target_pointer_width = "64")]
-    fn scalar_slot_layout_does_not_inline_host_descriptors() {
-        // An interpreter storage budget, not a serialized or external ABI.
-        assert!(size_of::<Value>() <= 32);
-        assert_eq!(size_of::<HeapObjectId>(), 12);
-    }
-
     fn host_root(object_id: u64) -> HostRootHandle {
         HostRootHandle::new(
             Default::default(),
@@ -445,7 +437,7 @@ mod tests {
         )
     }
 
-    fn path_view_value(object_id: u64) -> Value {
+    fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
         let result_type = TypeId::new(1);
         let mut runtime = crate::Runtime::default();
         let mut declaration = HostTypeDeclaration::new("Player");
@@ -482,42 +474,55 @@ mod tests {
                 schema_epoch: HostSchemaEpoch::new(0),
             })
             .unwrap();
-        Value::HostPathView(
+        heap.alloc_host_path(
             runtime
                 .host()
-                .make_path_view(root, descriptor, DynamicPathArguments::empty())
-                .unwrap()
-                .into(),
+                .make_path_view(
+                    runtime.gc(),
+                    root,
+                    descriptor,
+                    DynamicPathArguments::empty(),
+                )
+                .unwrap(),
         )
+        .unwrap()
     }
 
-    fn shared_borrow_value(object_id: u64) -> Value {
+    fn shared_borrow_value(heap: &GcHeap, object_id: u64) -> Value {
         let table = HostBorrowTable::default();
         let guard = table.enter_frame().unwrap();
-        Value::host_ref(
+        heap.alloc_host_ref(
             guard
                 .borrow_shared(HostObjectId(object_id), TypeId::new(0))
                 .unwrap(),
         )
+        .unwrap()
     }
 
-    fn unique_borrow_value(object_id: u64) -> Value {
+    fn unique_borrow_value(heap: &GcHeap, object_id: u64) -> Value {
         let table = HostBorrowTable::default();
         let guard = table.enter_frame().unwrap();
-        Value::host_mut(
+        heap.alloc_host_mut(
             guard
                 .borrow_unique(HostObjectId(object_id), TypeId::new(0))
                 .unwrap(),
         )
+        .unwrap()
     }
 
     #[test]
     fn classifies_storable_and_ephemeral_value_categories() {
+        let temporary = Value::RuntimeEphemeral(EphemeralValueId(1));
+        assert!(!temporary.has_representation(ValueType::HostHandle));
+        assert!(!temporary.has_representation(ValueType::Generic));
+
+        let runtime = crate::Runtime::default();
+        let heap = runtime.gc();
         let scalar = Value::I32(1);
-        let host_root = Value::HostRoot(host_root(7).into());
-        let path_view = path_view_value(3);
-        let host_ref = shared_borrow_value(9);
-        let host_mut = unique_borrow_value(10);
+        let host_root = heap.alloc_host_root(host_root(7)).unwrap();
+        let path_view = path_view_value(heap, 3);
+        let host_ref = shared_borrow_value(heap, 9);
+        let host_mut = unique_borrow_value(heap, 10);
 
         assert_eq!(Value::Unit.category(), ValueCategory::Unit);
         assert_eq!(scalar.category(), ValueCategory::Primitive);
@@ -526,25 +531,41 @@ mod tests {
         assert_eq!(host_ref.category(), ValueCategory::Ephemeral);
         assert_eq!(host_mut.category(), ValueCategory::Ephemeral);
 
-        assert!(scalar.is_storable());
-        assert!(!host_root.is_storable());
-        assert!(!path_view.is_storable());
-        assert!(!host_ref.is_storable());
-        assert!(!host_mut.is_storable());
-        assert!(host_ref.contains_ephemeral());
-        assert!(host_mut.contains_host_borrow());
-        assert!(!Value::Tuple(vec![host_ref]).is_storable());
+        assert!(scalar.is_storable(heap));
+        assert!(!host_root.is_storable(heap));
+        assert!(!path_view.is_storable(heap));
+        assert!(!host_ref.is_storable(heap));
+        assert!(!host_mut.is_storable(heap));
+        assert!(host_ref.contains_ephemeral(heap));
+        assert!(host_mut.contains_host_borrow(heap));
+        assert!(!heap.alloc_tuple(vec![host_ref]).unwrap().is_storable(heap));
     }
 
     #[test]
     fn keeps_host_handles_out_of_default_heap_payloads() {
-        assert!(Value::Tuple(vec![Value::Unit]).is_default_heap_payload());
         let mut runtime = crate::Runtime::default();
-        assert!(crate::layout_fixtures::interface_value(&mut runtime).is_default_heap_payload());
-        assert!(!Value::HostRoot(host_root(1).into()).is_default_heap_payload());
-        assert!(!path_view_value(1).is_default_heap_payload());
-        assert!(!shared_borrow_value(1).is_default_heap_payload());
-        assert!(!Value::Tuple(vec![unique_borrow_value(1)]).is_default_heap_payload());
+        let interface = crate::layout_fixtures::interface_value(&mut runtime);
+        let heap = runtime.gc();
+        assert!(
+            heap.alloc_tuple(vec![Value::Unit])
+                .unwrap()
+                .is_default_heap_payload(heap)
+        );
+        assert!(interface.is_default_heap_payload(heap));
+        assert!(
+            !heap
+                .alloc_host_root(host_root(1))
+                .unwrap()
+                .is_default_heap_payload(heap)
+        );
+        assert!(!path_view_value(heap, 1).is_default_heap_payload(heap));
+        assert!(!shared_borrow_value(heap, 1).is_default_heap_payload(heap));
+        assert!(
+            !heap
+                .alloc_tuple(vec![unique_borrow_value(heap, 1)])
+                .unwrap()
+                .is_default_heap_payload(heap)
+        );
     }
 
     #[test]
@@ -555,8 +576,8 @@ mod tests {
             Value::Bool(true),
             Value::I32(7),
             Value::I64(9),
-            Value::Str("hp".into()),
-            Value::Tuple(vec![Value::I32(1)]),
+            gc.alloc_string("hp".into()).unwrap(),
+            gc.alloc_tuple(vec![Value::I32(1)]).unwrap(),
         ] {
             let a = MapKey::from_value(&gc, &value).unwrap();
             let b = MapKey::from_value(&gc, &value).unwrap();

@@ -27,7 +27,7 @@ impl GcHeap {
         self.with_map(id, |entries| {
             entries
                 .iter()
-                .map(|(key, value)| (key.to_value(), value.clone()))
+                .map(|(key, value)| (key.to_value(), *value))
                 .collect()
         })
     }

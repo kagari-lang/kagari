@@ -111,7 +111,7 @@ impl DebugPause {
                     runtime
                         .validate_debug_value(&binding.value)
                         .map_err(VmError::RuntimeError)?;
-                    Ok::<_, VmError>(binding.value.clone())
+                    Ok::<_, VmError>(binding.value)
                 })
                 .transpose()?
                 .ok_or(VmError::MissingField(name.clone())),
@@ -475,12 +475,9 @@ impl DebugSession {
                     .validate_debug_value(&value)
                     .map_err(VmError::RuntimeError)?;
                 Ok(DebugBinding {
-                    roots: runtime
-                        .gc()
-                        .root_execution_values(vec![value.clone()])
-                        .ok_or(VmError::UnsupportedInstruction(
-                            "invalid heap reference in debug snapshot",
-                        ))?,
+                    roots: runtime.gc().root_execution_values(vec![value]).ok_or(
+                        VmError::UnsupportedInstruction("invalid heap reference in debug snapshot"),
+                    )?,
                     name: range.name.clone(),
                     local: range.local,
                     value,

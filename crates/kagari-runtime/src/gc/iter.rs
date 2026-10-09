@@ -21,6 +21,28 @@ struct IterTypeScope<'a> {
     item: StorageType,
 }
 
+/// Owned preview data, materialized only after releasing iterator storage views.
+pub(super) enum PendingItem {
+    Value(Value),
+    Text(String),
+    Pair(Value, Value),
+    CharIndex(u64, String),
+}
+
+impl PendingItem {
+    fn materialize(self, heap: &GcHeap) -> Result<Value, RuntimeError> {
+        match self {
+            Self::Value(value) => Ok(value),
+            Self::Text(text) => heap.alloc_string(text),
+            Self::Pair(a, b) => heap.alloc_tuple(vec![a, b]),
+            Self::CharIndex(index, text) => {
+                let text = heap.alloc_string(text)?;
+                heap.alloc_tuple(vec![Value::U64(index), text])
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct NativeIter {
     pub(super) source: Value,
@@ -37,6 +59,9 @@ pub(super) struct NativeIter {
 impl NativePayload for NativeIter {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         visit(&self.source);
+        if let Some(string) = &self.string {
+            string.trace(visit);
+        }
         for key in &self.keys {
             visit(key.value());
         }
@@ -91,7 +116,7 @@ impl GcHeap {
             };
             let iter = object.payload::<NativeIter>()?;
             (
-                iter.source.clone(),
+                iter.source,
                 iter.revision,
                 !iter.guard.as_ref().is_some_and(OwnedLease::is_active)
                     && !self.iterator_loops.is_active(*id),
@@ -197,7 +222,9 @@ impl GcHeap {
             }
             (Value::Set(id), Ty::Set(_, _)) => self.object_kind(*id) == Some(GcObjectKind::Set),
             (Value::Map(id), Ty::Map { .. }) => self.object_kind(*id) == Some(GcObjectKind::Map),
-            (Value::Range(range), Ty::Range(_, kind)) => kind.has_start() && range.matches(ty),
+            (Value::Range(range), Ty::Range(_, kind)) => {
+                kind.has_start() && self.range(*range).is_some_and(|range| range.matches(ty))
+            }
             (Value::Str(_), Ty::Builtin(BuiltinType::String)) => true,
             _ => false,
         };
@@ -247,7 +274,7 @@ impl GcHeap {
         }
         let cursor_type = Ty::Iter(Box::new(item_type.clone()));
         let payload = NativeIter {
-            source: source.clone(),
+            source: *source,
             item_type,
             item_contract,
             position: 0,
@@ -276,7 +303,8 @@ impl GcHeap {
         let Value::Tuple(fields) = source else {
             return Err(invalid());
         };
-        let traversal = StringTraversal::new(kind, fields)?;
+        let fields = self.tuple(*fields).ok_or_else(invalid)?.to_vec();
+        let traversal = StringTraversal::new(kind, &fields)?;
         self.new_iter_with(
             &fields[0],
             &Ty::Builtin(BuiltinType::String),
@@ -335,19 +363,30 @@ impl GcHeap {
                 let Value::Str(text) = &iter.source else {
                     return Err(invalid());
                 };
-                let (value, cursor) = traversal.preview(text)?;
+                let (value, cursor) =
+                    traversal.preview(self, &self.string(*text).ok_or_else(invalid)?)?;
                 string_cursor = Some(cursor);
                 (value, 0)
             } else {
                 match &iter.source {
-                    Value::Range(range) => (range.at(iter.position)?, 1),
-                    Value::Array(id) => (self.array_get(*id, iter.position as usize), 1),
+                    Value::Range(range) => (
+                        self.range(*range)
+                            .ok_or_else(invalid)?
+                            .at(iter.position)?
+                            .map(PendingItem::Value),
+                        1,
+                    ),
+                    Value::Array(id) => (
+                        self.array_get(*id, iter.position as usize)
+                            .map(PendingItem::Value),
+                        1,
+                    ),
                     Value::Set(id) => (
                         self.with_set(*id, |values| {
                             iter.keys
                                 .get(iter.position as usize)
                                 .and_then(|key| values.get(key))
-                                .map(MapKey::to_value)
+                                .map(|key| PendingItem::Value(key.to_value()))
                         })
                         .ok_or_else(invalid)?,
                         1,
@@ -357,18 +396,20 @@ impl GcHeap {
                             iter.keys.get(iter.position as usize).and_then(|key| {
                                 entries
                                     .get(key)
-                                    .map(|value| Value::Tuple(vec![key.to_value(), value.clone()]))
+                                    .map(|value| PendingItem::Pair(key.to_value(), *value))
                             })
                         })
                         .ok_or_else(invalid)?,
                         1,
                     ),
-                    Value::Str(text) => match text
+                    Value::Str(text) => match self
+                        .string(*text)
+                        .ok_or_else(invalid)?
                         .get(iter.position as usize..)
                         .and_then(|tail| tail.chars().next())
                     {
                         Some(character) => (
-                            Some(Value::Str(character.to_string())),
+                            Some(PendingItem::Text(character.to_string())),
                             character.len_utf8() as u128,
                         ),
                         None => (None, 0),
@@ -384,6 +425,12 @@ impl GcHeap {
                 string_cursor,
             )
         };
+        let payload = payload.map(|item| item.materialize(self)).transpose()?;
+        let _payload_root = payload
+            .as_ref()
+            .filter(|value| value.object_id().is_some())
+            .map(|value| self.root_value(*value).ok_or_else(invalid))
+            .transpose()?;
         let session = self.resources.active_session().ok_or_else(invalid)?;
         let new_guard = if needs_guard && payload.is_some() {
             let source = {
@@ -391,7 +438,7 @@ impl GcHeap {
                 let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
                     return Err(invalid());
                 };
-                object.payload::<NativeIter>()?.source.clone()
+                object.payload::<NativeIter>()?.source
             };
             Some(self.begin_iteration_lease(&source, &session.leases)?)
         } else {

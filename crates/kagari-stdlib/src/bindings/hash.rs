@@ -46,7 +46,7 @@ fn lookup(cx: &mut CallContext<'_>, key: &Value) -> NativeResult<(i64, i64)> {
     let mut index = 0;
     while let Some((token, stored)) = cx.heap().custom_candidate(&collection, hash, index)? {
         cx.poll()?;
-        let result = cx.call_values(equal, &[stored, key.clone()])?;
+        let result = cx.call_values(equal, &[stored, *key])?;
         let Value::Bool(result) = result else {
             return Err(invalid());
         };

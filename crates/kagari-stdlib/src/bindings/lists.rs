@@ -111,7 +111,7 @@ fn edit(
             let mut seen: Vec<Value> = Vec::new();
             values.retain(|value| {
                 for previous in &seen {
-                    if comparison.equal(cx, value.clone(), previous.clone())? {
+                    if comparison.equal(cx, value, *previous)? {
                         return Ok(false);
                     }
                 }
@@ -143,9 +143,9 @@ fn edit_custom(
             cx.poll()?;
             let value = cx.heap().array_get(target, index).ok_or_else(invalid)?;
             let keep = if matches!(algorithm, Algorithm::Retain) {
-                comparison.keep(cx, value.clone())?
+                comparison.keep(cx, value)?
             } else if let Some(previous) = &previous {
-                !comparison.equal(cx, previous.clone(), value.clone())?
+                !comparison.equal(cx, *previous, value)?
             } else {
                 true
             };

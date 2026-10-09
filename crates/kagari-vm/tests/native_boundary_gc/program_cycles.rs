@@ -67,9 +67,9 @@ fn generic_operation_environment_does_not_root_its_obsolete_program_cycle() {
             .is_some()
     );
     vm.runtime()
-        .write_module_slot(&old, ModuleSlot::new(0), closure.clone())
+        .write_module_slot(&old, ModuleSlot::new(0), closure)
         .unwrap();
-    let root = vm.runtime().root_value(closure.clone()).unwrap();
+    let root = vm.runtime().root_value(closure).unwrap();
     vm.reload_program(&old, "generic-cycle", code).unwrap();
     let retained = vm.runtime().collect_garbage().unwrap();
     assert!(retained.reclaimed_modules.is_empty());
@@ -107,7 +107,7 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let current_root = vm.runtime().root_value(value.clone()).unwrap();
+    let current_root = vm.runtime().root_value(value).unwrap();
     let snapshot = (*vm.runtime().resolve_closure(&value).unwrap()).clone();
     assert!(
         vm.runtime()
@@ -184,9 +184,9 @@ fn old_module_closure_cycle_is_retained_only_by_external_roots() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     vm.runtime()
-        .write_module_slot(&old, ModuleSlot::new(0), closure.clone())
+        .write_module_slot(&old, ModuleSlot::new(0), closure)
         .unwrap();
-    let root = vm.runtime().root_value(closure.clone()).unwrap();
+    let root = vm.runtime().root_value(closure).unwrap();
     let current = vm.reload_program(&old, "cycle", program(99)).unwrap();
     let first = vm.runtime().collect_garbage().unwrap();
     assert!(!first.reclaimed_modules.contains(&old.key()));

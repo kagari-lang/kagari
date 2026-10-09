@@ -5,6 +5,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef, verify_program},
 };
 use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::value_semantics::script_equal;
 
 #[test]
 fn foreign_loaded_module_is_rejected_before_execution() {
@@ -344,12 +345,19 @@ fn executes_tuple_literal_return() {
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Tuple(vec![Value::Bool(true), Value::Bool(false)])
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(report
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime()
+                .gc()
+                .alloc_tuple(vec![Value::Bool(true), Value::Bool(false)])
+                .unwrap())
+        )
+        .unwrap()
     );
 }
 

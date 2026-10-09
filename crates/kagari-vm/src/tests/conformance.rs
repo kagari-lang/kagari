@@ -250,15 +250,13 @@ fn main() -> i32 {
         .iter()
         .find(|binding| binding.name == "numbers")
         .expect("numbers binding should be inspectable")
-        .value
-        .clone();
+        .value;
     let point = callee
         .bindings
         .iter()
         .find(|binding| binding.name == "point")
         .expect("point binding should be inspectable")
-        .value
-        .clone();
+        .value;
     let Value::Array(numbers) = numbers else {
         panic!("expected array binding");
     };

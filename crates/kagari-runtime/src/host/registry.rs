@@ -32,15 +32,11 @@ impl HostRegistry {
         let mut roots = Vec::new();
         for record in self.dirty_paths.borrow().iter() {
             roots.extend(record.old_value.iter().cloned());
-            roots.push(record.new_value.clone());
-            roots.extend(
-                record
-                    .dynamic_args
-                    .as_slice()
-                    .iter()
-                    .map(|arg| arg.value.clone()),
-            );
-            roots.extend(record.base_view.iter().cloned().map(Value::HostPathView));
+            roots.push(record.new_value);
+            roots.extend(record.dynamic_args.as_slice().iter().map(|arg| arg.value));
+            if let Some(view) = &record.base_view {
+                roots.extend(view.retained_values().copied());
+            }
         }
         roots
     }
@@ -503,6 +499,7 @@ impl HostRegistry {
 
     pub fn make_path_view(
         &self,
+        gc: &GcHeap,
         root: HostRootHandle,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: DynamicPathArguments,
@@ -529,7 +526,7 @@ impl HostRegistry {
                 "path descriptor schema epoch does not match host root epoch",
             ));
         }
-        validate_dynamic_arguments(descriptor, &dynamic_args)?;
+        validate_dynamic_arguments(gc, descriptor, &dynamic_args)?;
         Ok(HostPathViewHandle::new(
             root,
             None,
@@ -540,11 +537,13 @@ impl HostRegistry {
 
     pub fn make_path_view_from_value(
         &self,
+        gc: &GcHeap,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
     ) -> Result<HostPathViewHandle, RuntimeError> {
         let context = self.resolve_path_context(
+            gc,
             root_or_view,
             descriptor_id,
             dynamic_args,
@@ -569,6 +568,7 @@ impl HostRegistry {
         gc.ensure_execution_allowed()?;
         let scope = Self::path_roots(runtime, root_or_view, &dynamic_args, None)?;
         let context = self.resolve_path_context(
+            gc,
             root_or_view,
             descriptor_id,
             dynamic_args,
@@ -588,7 +588,7 @@ impl HostRegistry {
                 error.message()
             ))
         })?;
-        HostBorrowTable::validate_no_escape(&value)?;
+        HostBorrowTable::validate_no_escape(gc, &value)?;
         if !gc.validate_value(&value) {
             return Err(RuntimeError::typed_path_validation(
                 "invalid heap reference in path result",
@@ -609,12 +609,13 @@ impl HostRegistry {
         gc.ensure_execution_allowed()?;
         let scope = Self::path_roots(runtime, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
+            gc,
             root_or_view,
             descriptor_id,
             dynamic_args,
             HostPathOperation::Set,
         )?;
-        if !value.is_default_heap_payload() {
+        if !value.is_default_heap_payload(gc) {
             return Err(RuntimeError::typed_path_validation(
                 "path set value must be a default heap payload",
             ));
@@ -674,12 +675,13 @@ impl HostRegistry {
         gc.ensure_execution_allowed()?;
         let scope = Self::path_roots(runtime, root_or_view, &dynamic_args, Some(&value))?;
         let context = self.resolve_path_context(
+            gc,
             root_or_view,
             descriptor_id,
             dynamic_args,
             HostPathOperation::Modify(op),
         )?;
-        if !value.is_default_heap_payload() {
+        if !value.is_default_heap_payload(gc) {
             return Err(RuntimeError::typed_path_validation(
                 "path modify value must be a default heap payload",
             ));
@@ -704,9 +706,9 @@ impl HostRegistry {
                 error.message()
             ))
         })?;
-        let new_value = apply_path_modify(op, old_value.clone(), value)?;
+        let new_value = apply_path_modify(op, old_value, value)?;
         scope
-            .retain_temporaries(&[old_value.clone(), new_value.clone()])
+            .retain_temporaries(&[old_value, new_value])
             .map_err(path_scope_error)?;
         self.commit_path_write(
             gc,
@@ -720,7 +722,7 @@ impl HostRegistry {
                 operation: HostPathOperation::Modify(op),
                 dynamic_args: context.dynamic_args.clone(),
                 old_value: Some(old_value),
-                new_value: new_value.clone(),
+                new_value,
             },
         )?;
         Ok(new_value)
@@ -753,6 +755,7 @@ impl HostRegistry {
 
     pub(super) fn resolve_path_context(
         &self,
+        gc: &GcHeap,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
@@ -771,13 +774,16 @@ impl HostRegistry {
             ));
         }
         let dynamic_args = dynamic_args_for_descriptor(&descriptor, dynamic_args)?;
-        validate_dynamic_arguments(&descriptor, &dynamic_args)?;
+        validate_dynamic_arguments(gc, &descriptor, &dynamic_args)?;
         let (root, base_view) = match root_or_view {
-            Value::HostRoot(root) => {
+            Value::HostRoot(id) => {
+                let root = gc.host_root(*id).ok_or_else(|| {
+                    RuntimeError::typed_path_validation("invalid host root descriptor")
+                })?;
                 let registered_root = self.roots.get(&root.object_id).ok_or_else(|| {
                     RuntimeError::typed_path_validation("host root is not registered")
                 })?;
-                if registered_root != root.as_ref() {
+                if registered_root != &root {
                     return Err(RuntimeError::typed_path_validation(
                         "host root handle does not match registered root metadata",
                     ));
@@ -792,9 +798,12 @@ impl HostRegistry {
                         "path descriptor schema epoch does not match host root epoch",
                     ));
                 }
-                (**root, None)
+                (root, None)
             }
-            Value::HostPathView(view) => {
+            Value::HostPathView(id) => {
+                let view = gc.host_path(*id).ok_or_else(|| {
+                    RuntimeError::typed_path_validation("invalid host path descriptor")
+                })?;
                 if !self.matches_root(view.root) {
                     return Err(RuntimeError::typed_path_validation(
                         "host path view belongs to another registry or has an unregistered root",
@@ -866,7 +875,7 @@ impl HostRegistry {
         if record
             .old_value
             .iter()
-            .any(|value| !value.is_default_heap_payload())
+            .any(|value| !value.is_default_heap_payload(gc))
         {
             return Err(RuntimeError::typed_path_validation(
                 "previous path value cannot escape into a dirty record",

@@ -173,7 +173,7 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
     assert_eq!(retained.ty(), &Ty::Tuple(vec![nominal.clone()]));
     assert!(retained.matches(
         &runtime,
-        &Value::Tuple(vec![record.clone()]),
+        &runtime.gc().alloc_tuple(vec![record]).unwrap(),
         layout.module()
     ));
     let element = retained.parameter(&runtime, layout.module(), 0).unwrap();

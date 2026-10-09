@@ -79,7 +79,7 @@ fn compare_rust_native_and_script_stable_sorting() {
     let compilation = Instant::now();
     let (vm, loaded, runner, methods) = setup();
     println!("compile_and_load_ns={}", compilation.elapsed().as_nanos());
-    let root = vm.runtime().root_value(runner.clone()).unwrap();
+    let root = vm.runtime().root_value(runner).unwrap();
     for length in [16usize, 4096] {
         let input: Vec<i32> = (0..length)
             .map(|index| ((index * 1543 + 71) % 997) as i32)
@@ -140,7 +140,7 @@ fn compare_rust_native_and_script_stable_sorting() {
                 } else {
                     Value::Array(array)
                 };
-                let values_root = vm.runtime().root_value(values.clone()).unwrap();
+                let values_root = vm.runtime().root_value(values).unwrap();
                 let before = vm.runtime().gc().stats();
                 let (allocations, duration) = measured(|| {
                     black_box(

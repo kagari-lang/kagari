@@ -39,7 +39,7 @@ impl HashHandle {
         };
         let root = cx
             .runtime()
-            .root_value(value.clone())
+            .root_value(*value)
             .ok_or_else(|| RuntimeError::module_validation("hash collection retention"))?;
         let selected = cx.runtime().gc().native_selections(id)?;
         let protocol = match selected.as_ref() {
@@ -130,7 +130,7 @@ impl HashHandle {
         };
         let heap = cx.runtime().gc();
         let roots = heap
-            .root_execution_values(vec![collection.clone(), key.clone()])
+            .root_execution_values(vec![*collection, *key])
             .ok_or_else(|| RuntimeError::module_validation("key lookup retention"))?;
         let _lookup = heap.begin_key_lookup(collection, KeyLookupRoots::Host(&roots))?;
         let hash = protocol.hash.call_values(cx, slice::from_ref(key))?;
@@ -140,7 +140,7 @@ impl HashHandle {
         let mut index = 0;
         while let Some((token, stored)) = heap.custom_candidate(collection, hash, index)? {
             cx.poll()?;
-            let equal = protocol.equal.call_values(cx, &[stored, key.clone()])?;
+            let equal = protocol.equal.call_values(cx, &[stored, *key])?;
             match equal.value(heap) {
                 Some(Value::Bool(true)) => return Ok(Some((hash, token))),
                 Some(Value::Bool(false)) => {}

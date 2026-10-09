@@ -1,6 +1,7 @@
 use super::*;
 use crate::tests::common::load_bytecode_program;
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_runtime::value_semantics::script_equal;
 
 #[test]
 fn executes_source_lowered_declared_host_log() {
@@ -11,13 +12,13 @@ fn executes_source_lowered_declared_host_log() {
     runtime
         .register_host_function(HostFunction::new(
             kagari_types::host_interface::standard_log(),
-            move |_, args| {
+            move |cx, args| {
                 let Some(Value::Str(message)) = args.first() else {
                     return Err(HostError::new("host.log expects one string argument"));
                 };
                 sink.lock()
                     .expect("message sink should lock")
-                    .push(message.clone());
+                    .push(cx.runtime().gc().string(*message).unwrap().to_owned());
                 Ok(Value::Unit)
             },
         ))
@@ -67,17 +68,24 @@ fn main()->(usize,bool,usize,bool){
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Tuple(vec![
-            Value::U64(1),
-            Value::Bool(true),
-            Value::U64(1),
-            Value::Bool(true),
-        ])
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(report
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime()
+                .gc()
+                .alloc_tuple(vec![
+                    Value::U64(1),
+                    Value::Bool(true),
+                    Value::U64(1),
+                    Value::Bool(true),
+                ])
+                .unwrap())
+        )
+        .unwrap()
     );
 }
 

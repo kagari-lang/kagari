@@ -263,7 +263,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
                     let mut value = Value::I32(0);
                     for _ in 0..count {
                         cx.poll()?;
-                        value = cx.call_values(target, &[receiver.clone(), value])?;
+                        value = cx.call_values(target, &[receiver, value])?;
                     }
                     Ok(value)
                 },
@@ -675,7 +675,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let rooted = vm.runtime().root_value(value.clone()).unwrap();
+    let rooted = vm.runtime().root_value(value).unwrap();
     let Value::Array(id) = value else {
         panic!("array result");
     };
@@ -727,7 +727,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .unwrap();
     heap.commit_prepared_collection(
         PreparedCollectionCommit::Retain,
-        &[value.clone(), Value::Array(mask)],
+        &[value, Value::Array(mask)],
     )
     .unwrap();
     assert_eq!(
@@ -740,6 +740,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
     else {
         panic!("prepared removal");
     };
+    let parts = vm.runtime().gc().tuple(parts).unwrap().to_vec();
     let [Value::Array(remaining), Value::Array(removed)] = parts.as_slice() else {
         panic!("prepared range arrays");
     };
@@ -764,7 +765,7 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(nodes.clone()).unwrap();
+    let root = vm.runtime().root_value(nodes).unwrap();
     vm.runtime().collect_garbage().unwrap();
     let Value::Array(id) = nodes else {
         panic!("string array result");
@@ -953,28 +954,28 @@ use std::hash::{Hash};
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let map_root = vm.runtime().root_value(map.clone()).unwrap();
+    let map_root = vm.runtime().root_value(map).unwrap();
     let set = vm
         .execute(&loaded, "empty_set")
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let set_root = vm.runtime().root_value(set.clone()).unwrap();
+    let set_root = vm.runtime().root_value(set).unwrap();
     let custom = vm
         .execute(&loaded, "custom")
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let custom_root = vm.runtime().root_value(custom.clone()).unwrap();
+    let custom_root = vm.runtime().root_value(custom).unwrap();
     let key = vm
         .execute(&loaded, "key")
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let key_root = vm.runtime().root_value(key.clone()).unwrap();
+    let key_root = vm.runtime().root_value(key).unwrap();
     let Value::Map(map_id) = map else {
         panic!("map");
     };
@@ -997,10 +998,7 @@ use std::hash::{Hash};
     assert_eq!(heap.map_len(map_id), Some(0));
     assert_eq!(heap.set_len(set_id), Some(0));
     assert!(heap.ensure_key_mode(&custom, false).is_err());
-    assert!(
-        heap.map_insert(custom_id, key.clone(), Value::I32(42))
-            .is_err()
-    );
+    assert!(heap.map_insert(custom_id, key, Value::I32(42)).is_err());
     heap.custom_insert(&custom, 7, -1, key, Value::I32(42))
         .unwrap();
     heap.map_clear(custom_id).unwrap();

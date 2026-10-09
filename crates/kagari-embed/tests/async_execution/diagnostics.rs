@@ -86,8 +86,8 @@ fn async_failure_provenance_contract() {
         let producer = f.invoke("submit", slice::from_ref(&capability));
         let producer_id = id(&f, &producer);
         assert_eq!(drive(&f, &scope, producer_id), TaskDriveResult::Waiting);
-        let left = f.invoke("observe", &[capability.clone(), f.value(&producer)]);
-        let right = f.invoke("other", &[capability.clone(), f.value(&producer)]);
+        let left = f.invoke("observe", &[capability, f.value(&producer)]);
+        let right = f.invoke("other", &[capability, f.value(&producer)]);
         for waiter in [&left, &right] {
             assert_eq!(drive(&f, &scope, id(&f, waiter)), TaskDriveResult::Waiting);
         }
@@ -183,7 +183,7 @@ fn async_failure_provenance_contract() {
             .unwrap_err();
         assert_eq!(cancelled.cancellation, Some(CancellationCause::Explicit));
         assert!(cancelled.error.trace().unwrap().frames.is_empty());
-        let dependent = f.invoke("observe", &[capability.clone(), f.value(&queued)]);
+        let dependent = f.invoke("observe", &[capability, f.value(&queued)]);
         let dependent_id = id(&f, &dependent);
         assert_eq!(drive(&f, &scope, dependent_id), TaskDriveResult::Complete);
         let cancellation = runtime
@@ -203,7 +203,7 @@ fn async_failure_provenance_contract() {
         let mut tail = producer;
         let mut bounded = None;
         for _ in 0..MAX_ASYNC_BOUNDARIES {
-            let next = f.invoke("observe", &[capability.clone(), f.value(&tail)]);
+            let next = f.invoke("observe", &[capability, f.value(&tail)]);
             let next_id = id(&f, &next);
             assert_eq!(drive(&f, &scope, next_id), TaskDriveResult::Complete);
             bounded = Some(

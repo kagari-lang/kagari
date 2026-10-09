@@ -1,4 +1,8 @@
-use crate::{error::RuntimeError, value::Value};
+use crate::{
+    error::RuntimeError,
+    gc::{GcHeap, iter::PendingItem},
+    value::Value,
+};
 use kagari_contract::operations::StringIterKind;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -12,7 +16,7 @@ pub(super) struct Cursor {
 #[derive(Debug)]
 pub(super) struct StringTraversal {
     kind: StringIterKind,
-    separator: String,
+    separator: Option<Value>,
     limit: u64,
     pub(super) cursor: Cursor,
 }
@@ -21,10 +25,10 @@ impl StringTraversal {
     pub(super) fn new(kind: StringIterKind, fields: &[Value]) -> Result<Self, RuntimeError> {
         let (limit, separator) = match (kind, fields) {
             (StringIterKind::Split, [Value::Str(_), Value::Str(separator)]) => {
-                (u64::MAX, separator.clone())
+                (u64::MAX, Some(Value::Str(*separator)))
             }
             (StringIterKind::SplitN, [Value::Str(_), Value::U64(count), Value::Str(separator)]) => {
-                (*count, separator.clone())
+                (*count, Some(Value::Str(*separator)))
             }
             (
                 StringIterKind::Whitespace
@@ -32,7 +36,7 @@ impl StringTraversal {
                 | StringIterKind::Bytes
                 | StringIterKind::CharIndices,
                 [Value::Str(_)],
-            ) => (u64::MAX, String::new()),
+            ) => (u64::MAX, None),
             _ => {
                 return Err(RuntimeError::module_validation(
                     "invalid string traversal arguments",
@@ -48,7 +52,26 @@ impl StringTraversal {
     }
 
     /// Preview one step. The caller allocates the Option before committing the cursor.
-    pub(super) fn preview(&self, text: &str) -> Result<(Option<Value>, Cursor), RuntimeError> {
+    pub(super) fn trace<'a>(&'a self, visit: &mut dyn FnMut(&'a Value)) {
+        if let Some(separator) = &self.separator {
+            visit(separator);
+        }
+    }
+
+    pub(super) fn preview(
+        &self,
+        heap: &GcHeap,
+        text: &str,
+    ) -> Result<(Option<PendingItem>, Cursor), RuntimeError> {
+        let separator = match self.separator {
+            Some(Value::Str(id)) => Some(
+                heap.string(id)
+                    .ok_or_else(|| RuntimeError::module_validation("invalid string separator"))?,
+            ),
+            None => None,
+            _ => return Err(RuntimeError::module_validation("invalid string separator")),
+        };
+        let separator = separator.as_deref().unwrap_or("");
         let mut cursor = self.cursor;
         if cursor.done || cursor.yielded == self.limit {
             cursor.done = true;
@@ -59,7 +82,7 @@ impl StringTraversal {
             let value = text
                 .as_bytes()
                 .get(start)
-                .map(|byte| Value::I64(i64::from(*byte)));
+                .map(|byte| PendingItem::Value(Value::I64(i64::from(*byte))));
             if value.is_some() {
                 cursor.position += 1;
                 cursor.yielded += 1;
@@ -86,7 +109,7 @@ impl StringTraversal {
                 if cursor.yielded == self.limit - 1 {
                     cursor.done = true;
                     Some(tail)
-                } else if self.separator.is_empty() {
+                } else if separator.is_empty() {
                     if !cursor.started {
                         cursor.started = true;
                         Some("")
@@ -97,8 +120,8 @@ impl StringTraversal {
                         cursor.done = true;
                         Some("")
                     }
-                } else if let Some(offset) = tail.find(&self.separator) {
-                    cursor.position = start + offset + self.separator.len();
+                } else if let Some(offset) = tail.find(separator) {
+                    cursor.position = start + offset + separator.len();
                     Some(&tail[..offset])
                 } else {
                     cursor.done = true;
@@ -138,9 +161,9 @@ impl StringTraversal {
                     .map_err(|_| RuntimeError::resource_limit("string iterator item"))?;
                 result.push_str(piece);
                 Ok(if self.kind == StringIterKind::CharIndices {
-                    Value::Tuple(vec![Value::U64(start as u64), Value::Str(result)])
+                    PendingItem::CharIndex(start as u64, result)
                 } else {
-                    Value::Str(result)
+                    PendingItem::Text(result)
                 })
             })
             .transpose()?;

@@ -1,3 +1,4 @@
+use kagari_runtime::value_semantics::script_equal;
 mod vector_edits;
 use super::compile_program;
 use kagari_bytecode::artifact::KbcArtifact;
@@ -176,13 +177,17 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     "#,
         &module,
     );
-    assert_eq!(
-        vm.execute(&loaded, "main")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Str("雪🌱!".into())
+    assert!(
+        script_equal(
+            vm.runtime().gc(),
+            &(vm.execute(&loaded, "main")
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result")),
+            &(vm.runtime().gc().alloc_string("雪🌱!".into()).unwrap())
+        )
+        .unwrap()
     );
 }
 
@@ -413,7 +418,7 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
             value: &Value,
         ) -> NativeResult<Self> {
             cx.runtime()
-                .root_value(value.clone())
+                .root_value(*value)
                 .map(Self)
                 .ok_or_else(|| RuntimeError::module_validation("retained array result"))
         }

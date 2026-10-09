@@ -478,14 +478,15 @@ fn candidate_module_state_access_is_limited_to_its_program() {
             .module_instance_snapshot(candidate.module())
             .is_some()
     );
+    let empty = runtime.gc().alloc_tuple(vec![]).unwrap();
     runtime
-        .write_module_slot(candidate.module(), ModuleSlot::new(0), Value::Tuple(vec![]))
+        .write_module_slot(candidate.module(), ModuleSlot::new(0), empty)
         .unwrap();
     assert_eq!(
         runtime
             .read_module_slot(candidate.module(), ModuleSlot::new(0))
             .unwrap(),
-        Value::Tuple(vec![])
+        empty
     );
     assert!(!runtime.is_quarantined());
     drop(session);

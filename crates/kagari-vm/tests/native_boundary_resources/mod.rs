@@ -84,19 +84,15 @@ impl MutationFixture {
             .unwrap()
     }
 
-    fn contents(&self) -> Vec<Value> {
+    fn is_empty(&self) -> bool {
         let heap = self.vm.runtime().gc();
-        match self.value() {
-            Value::Array(id) => heap.array_snapshot(id).unwrap(),
-            Value::Map(id) => heap
-                .map_snapshot(id)
-                .unwrap()
-                .into_iter()
-                .map(|(key, value)| Value::Tuple(vec![key, value]))
-                .collect(),
-            Value::Set(id) => heap.set_snapshot(id).unwrap(),
+        let length = match self.value() {
+            Value::Array(id) => heap.array_len(id),
+            Value::Map(id) => heap.map_len(id),
+            Value::Set(id) => heap.set_len(id),
             _ => panic!("retained collection"),
-        }
+        };
+        length.unwrap() == 0
     }
 }
 
@@ -123,7 +119,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
         runtime.gc().enum_snapshot(result).unwrap().fields,
         vec![Value::I32(42)]
     );
-    assert!(fixture.contents().is_empty());
+    assert!(fixture.is_empty());
     let counters = runtime.resources().counters();
     assert_eq!(counters.current_heap_units, 3);
     assert_eq!(counters.peak_heap_units, 4);
@@ -162,6 +158,7 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
     else {
         panic!("containers")
     };
+    let values = fixture.vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
@@ -208,7 +205,7 @@ use std::hash::{Hash};
             Value::I32(2)
         );
         let heap = fixture.vm.runtime().gc();
-        assert!(fixture.contents().is_empty());
+        assert!(fixture.is_empty());
         fixture.retained.lock().unwrap().take();
         fixture.vm.runtime().collect_garbage().unwrap();
         assert_eq!(heap.allocated_objects(), 0);
