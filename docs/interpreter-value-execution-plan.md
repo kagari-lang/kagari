@@ -28,8 +28,10 @@ Deliver two milestones, in order:
    operations and script calls, a lower-overhead execution loop, and measured
    correctness/performance acceptance against the unchanged reference workloads.
 
-The first milestone targets `size_of::<InternalValue>() <= 16` on the supported
-64-bit targets and Rust `Copy` without per-copy allocation or reference counting.
+The first milestone targets `size_of::<InternalValue>() <= 16` in release builds
+on the supported 64-bit targets and Rust `Copy` without per-copy allocation or
+reference counting. Debug-only diagnostic fields may enlarge the debug layout;
+Copy remains required in both configurations.
 `InternalValue` is a responsibility name, not a mandatory new public type. Retain
 the existing untagged scalar banks; do not route scalar arithmetic through a
 general tagged representation to simplify the migration. A small value alone is
@@ -138,6 +140,30 @@ Keep existing invalid-input rejection and invariant-failure quarantine. Raw bits
 portable IDs and foreign handles cannot be accepted as internal pointers. Preserve
 meaningful fault-injection coverage at the new contract owner; do not turn an
 existing checked boundary failure into undefined behavior to shorten the path.
+
+### Debug-only invariant diagnostics
+
+The user explicitly permits extra debug-only fields and checks to support the
+reference migration. Use `#[cfg(debug_assertions)]` for diagnostic fields or side
+metadata, such as expected heap owner, allocation generation, object kind/layout
+or execution-scope identity. Use debug assertions to cross-check facts already
+guaranteed by validated construction, roots and the admitted execution context.
+Gate on debug assertions explicitly rather than assuming an optimization level
+or profile name determines instrumentation.
+
+These diagnostics must not supply a missing release invariant. Foreign/stale host
+handle rejection, artifact validation, dynamic bounds, borrow validity and required
+failure/quarantine behavior remain enforced in release. Root publication, cleanup,
+state updates and other required work must never occur only inside a debug assertion.
+Debug checks must establish pointer validity before dereferencing; reading freed
+memory to inspect its supposed generation is not a valid diagnostic.
+
+Diagnostic metadata must not add strong roots, change collection eligibility or
+retain old code/resources in a way that hides missing production retention. Keep
+it separate from portable formats and native ABI layouts. Debug-only fields in a
+Copy value must themselves be Copy. Measure the release size/performance contract
+separately from diagnostic overhead, and exercise the affected correctness paths
+with debug assertions both enabled and disabled.
 
 ### Roots, execution regions and publication
 
@@ -304,8 +330,9 @@ No unchecked public reference API, root gap or invalid pointer survives a bounda
   representation; migrate all variant users and host descriptor ownership.
 - Preserve scalar banks, aggregate semantics, map-key preparation, formatting,
   reflection, debugging and native/ABI conversion. Remove obsolete internal forms.
-- Extend existing allocation/layout coverage to prove the <=16-byte/Copy contract
-  and identify object/header/backing-store costs separately.
+- Extend existing allocation/layout coverage to prove the release <=16-byte and
+  both-configuration Copy contracts, and identify object/header/backing-store costs
+  separately from debug-only instrumentation.
 
 Acceptance: affected producers and consumers compile together, value semantics
 and no-escape checks pass, and there is no hidden per-copy ownership operation.
@@ -414,6 +441,10 @@ Locate the current host path, reentry, root and debugger test names when selecti
 the affected subset. Run relevant safety instrumentation on any newly unsafe
 storage/access owner where the toolchain supports it; record unavailable coverage
 and its compensating review rather than inventing a passing result.
+When changing debug-only representation or access diagnostics, run the small
+affected contract subset in the normal test profile and with `--release`, verifying
+the debug-assertion configuration. This does not require two full workspace runs;
+tests must cover release behavior rather than depend on diagnostic-only rejection.
 
 Every implementation checkpoint builds its affected consumers and passes its
 focused contracts. Do not carry a deliberately broken public/internal API into
@@ -485,9 +516,10 @@ commits do not claim phase completion. Do not amend unrelated user commits.
   validity argument; the plan does not authorize deletion of these contracts.
 - The internal/host-reference split is the target boundary. Direct references in
   stable storage are the preferred candidate; VE00 still owns the measured choice.
-- <=16-byte Copy internal values and shared runtime string constants are the first
-  milestone. NaN boxing, an 8-byte universal value and global string interning are
-  not acceptance requirements.
+- Release <=16-byte Copy internal values and shared runtime string constants are
+  the first milestone. Debug-only invariant fields may enlarge the debug layout
+  without changing retention or release guarantees. NaN boxing, an 8-byte universal
+  value and global string interning are not acceptance requirements.
 - Keep existing scalar banks, typed collection storage, root leases and code-version
   graph. Change their boundaries where needed rather than duplicating them.
 - Safepoint behavior is unchanged during the first milestone. General enum
@@ -524,3 +556,12 @@ No new carried build/test failure was discovered because no build/test was run.
 Existing roadmap gaps, including shared generic Add lowering and pending prior
 track CI, remain separate; VE00 must reconfirm their status before selection of
 the final workload set. No present-worktree performance or parity claim is made.
+
+### 2026-10-09: Debug-only diagnostic policy
+
+The user authorized additional debug-only fields to help establish correctness.
+Scoped the size target to release builds, retained Copy in both configurations,
+and added owner/generation/layout diagnostics with focused debug/release validation.
+Diagnostics cannot provide required production checks or hide root/lifetime errors.
+This is a plan refinement; implementation remains unstarted. Documentation content
+and local link checks plus `git diff --check` pass; no Rust test or benchmark ran.
