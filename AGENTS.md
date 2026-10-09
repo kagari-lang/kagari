@@ -25,9 +25,10 @@ version bumps, repeated artifact regeneration and exhaustive checkpoint validati
   rebuilding all products after every incremental edit. Preserve meaningful
   source-free and behavioral coverage.
 - During feature iteration and bug fixes, run only a small set of tests directly
-  affected by the change. Local full-suite testing is prohibited. Full workspace
-  tests and complete feature/backend matrices belong to GitHub CI, including
-  integration acceptance. Do not repeat unchanged successful focused checks.
+  affected by the change. A local full-workspace test run is allowed at final
+  acceptance after a large task is complete, not after each edit or intermediate
+  phase. Batch that validation at the end; do not repeat unchanged successful
+  checks. Complete feature/backend matrices remain a GitHub CI responsibility.
 - Keep the authorized scope finite. Do not silently expand a library task into
   unrelated architecture migration or continually add checklist items. Implement
   shared capabilities only for concrete requirements; record material gaps
@@ -237,12 +238,20 @@ When changing the checker, run its `--self-test` suite as well.
   boundaries, attempt relevant checks and record failures honestly; avoid repeating
   unchanged known failures while their owning migration step is still pending.
 - Feature iterations, bug fixes and phase follow-ups use only a small set of
-  affected contract tests and lightweight checks. Agents must
-  not run `cargo test --workspace`, equivalent full suites split across commands,
-  or complete feature/backend test matrices locally. GitHub CI owns these runs.
-  Broad impact and integration checkpoints do not override this rule. This local
-  validation policy takes precedence over execution-plan command lists. Report
-  the selected tests and the CI status honestly.
+  affected contract tests and lightweight checks. Do not run `cargo test --workspace`
+  or equivalent full suites split across commands for routine changes or each
+  incremental checkpoint.
+- Once a large task's entire agreed scope is implemented, local final acceptance
+  may include `cargo test --workspace` and relevant workspace-wide checks. Examples
+  include a completed multi-phase feature or architecture migration; finishing one
+  intermediate phase does not qualify. Batch the full run at this final checkpoint.
+  If it finds failures, use focused tests while fixing them and repeat the full run
+  only when needed to establish final acceptance, not after every fix. Do not rerun
+  an unchanged successful full suite.
+- Complete feature/backend matrices remain in GitHub CI. This local validation
+  policy supersedes older plans' blanket bans on local full-workspace tests as well
+  as their unconditional full-suite command lists. Report focused local checks,
+  any final local full run and GitHub CI status separately.
 - Use the build profiles defined in the workspace `Cargo.toml`, the default
   `target` directory and Cargo's default build parallelism.
 - Python is managed through `uv`; use `uv run python` when Python is needed.
@@ -254,8 +263,10 @@ When changing the checker, run its `--self-test` suite as well.
   avoid speed claims unsupported by measurements.
 
 GitHub CI owns full architecture acceptance, including the plan's complete
-feature/behavior matrix and the checks below. This is a CI checklist, not a local
-feature-iteration command list; local work uses the focused checks defined above.
+feature/behavior matrix and the checks below. These checks may also be used for
+local final acceptance of a completed large task under the policy above. They are
+not a routine local feature-iteration command list. A passing local full run does
+not establish that GitHub CI or its complete feature/backend matrix passed.
 
 ```text
 uv run --locked scripts/check_structure.py

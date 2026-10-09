@@ -1419,10 +1419,14 @@ record a command, cause and bounded follow-up. Replace obsolete internals direct
 preserving static typing, bounds, roots, declared access and generation validation.
 Do not accumulate successful command logs or completed per-commit narratives.
 
-Use focused checks during development. GitHub CI owns final architecture
-integration, the track's behavioral/feature matrix, source-free/backend consumers
-and the commands below. Do not run local full suites or split them into package
-runs; the repository policy takes precedence over older execution-plan lists.
+Use focused checks during development and routine feature iteration. Once a large
+task's complete agreed scope is implemented, local final acceptance may include
+one batched full-workspace run and relevant checks below. Intermediate phases and
+individual edits do not trigger full runs. Fix failures using focused checks first;
+repeat a full run only when needed for final acceptance, never merely to repeat an
+unchanged success. This policy supersedes older plans' blanket local-test bans.
+GitHub CI still owns final architecture integration and complete feature/backend
+matrices. Report local full-run results separately from CI status.
 
 ```text
 uv run --locked scripts/check_structure.py

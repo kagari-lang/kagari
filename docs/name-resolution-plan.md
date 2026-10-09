@@ -451,9 +451,11 @@ results in the roadmap; do not repeatedly run unchanged successful checks.
 GitHub CI owns `cargo test --workspace`, strict workspace/all-target Clippy,
 `scripts/check_features.py`, CLI JIT and the complete backend/load matrices under
 [the current workflow](../.github/workflows/ci.yml). Run none of those full matrices
-locally and do not split them into package runs to bypass this boundary. Document
-an unobserved CI result as pending. Plan-only edits need local links/content and
-diff checks, without a workspace build.
+locally. Under [repository policy](../AGENTS.md), workspace-wide tests/checks may
+also run locally at final acceptance of a completed large task, not during ordinary
+iteration or after individual phases. Do not split full suites into package runs
+to bypass that limit. Document an unobserved CI result as pending. Plan-only edits
+need local links/content and diff checks, without a workspace build.
 
 For solver measurements use the same generated source set at NR03 and NR04:
 long alias/glob chains, a fan-out/diamond, a seeded cycle and unrelated modules

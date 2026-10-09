@@ -297,9 +297,13 @@ For AX01-AX06 also perform manual ownership/import/visibility review, then
 `uv run --locked scripts/check_structure.py`, `cargo fmt --all -- --check` and
 `git diff --check` at implementation checkpoints. Use affected-crate `cargo check`
 or targeted Clippy when needed; retain default profiles, parallelism and target.
-Do not repeat successful unchanged tests or run entire package suites as substitutes
-for selecting contracts. No local `cargo test --workspace`, split full suite or
-complete feature/backend matrix is permitted.
+During iteration, do not repeat successful unchanged tests or run entire package
+suites as substitutes for selecting contracts. Once the complete AX00-AX06
+implementation is finished, local final acceptance may include a batched
+`cargo test --workspace` run and relevant workspace-wide checks under
+[repository policy](../AGENTS.md). Individual edits and intermediate phase completion
+do not trigger full runs. Fix failures with focused tests first; repeat a full run
+only when needed for final acceptance. Complete feature/backend matrices remain in CI.
 
 [GitHub CI](../.github/workflows/ci.yml) owns full workspace tests, strict
 workspace/all-target Clippy, standalone SDK features, CLI JIT and complete

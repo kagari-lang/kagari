@@ -138,8 +138,10 @@ cargo test -p kagari-embed --test default_methods explicit_override_takes_preced
   roots/borrow cleanup, cancellation, override policy and call-depth behavior.
   Direct lowering of the proved forwarding call avoids an extra script frame.
 - Run changed-file formatting, `uv run --locked scripts/check_structure.py`,
-  relevant documentation checks and `git diff --check` at integration. No local
-  workspace tests, complete crate suites or feature/backend matrices; CI owns them.
+  relevant documentation checks and `git diff --check` at integration. Iteration
+  uses focused tests; a local full-workspace run is allowed only at final acceptance
+  of a completed large task under [repository policy](../AGENTS.md). Complete
+  feature/backend matrices remain in CI.
 
 Do not claim source-free/no-source-feature acceptance solely from a round-trip
 test built with source support. GitHub CI owns that feature boundary and broader
