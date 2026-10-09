@@ -277,7 +277,7 @@ fn annotation_navigation_uses_type_names_not_application_punctuation() {
 }
 
 #[test]
-fn explicit_bindings_shadow_all_standard_type_constructors() {
+fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() {
     for (name, args) in [
         ("HashMap", "i32, String"),
         ("Set", "i32"),
@@ -288,8 +288,6 @@ fn explicit_bindings_shadow_all_standard_type_constructors() {
             format!("struct {name} {{}}"),
             format!("enum {name} {{ Ready }}"),
             format!("trait {name} {{}}"),
-            format!("fn {name}() {{}}"),
-            format!("const {name}: i32 = 1;"),
             format!("use absent::{name};"),
         ] {
             let text = format!("{declaration} fn bad(x: {name}<{args}>) {{}}");
@@ -303,8 +301,37 @@ fn explicit_bindings_shadow_all_standard_type_constructors() {
                 .iter()
                 .find(|f| f.name == "bad")
                 .unwrap();
-            assert_eq!(function.params[0].ty, TypeId::Error, "{text}");
+            if declaration.starts_with("use ") && matches!(name, "Option" | "Result") {
+                // An unresolved import binds neither namespace; prelude recovery remains available.
+                assert!(matches!(function.params[0].ty, TypeId::Enum(_)), "{text}");
+            } else {
+                assert_eq!(function.params[0].ty, TypeId::Error, "{text}");
+            }
             assert!(analysis.into_codegen().is_err(), "{text}");
+        }
+        let module = match name {
+            "HashMap" | "Set" => "std::collections",
+            "Option" => "core::option",
+            "Result" => "core::result",
+            _ => unreachable!(),
+        };
+        for declaration in [
+            format!("fn {name}() {{}}"),
+            format!("const {name}: i32 = 1;"),
+        ] {
+            let text =
+                format!("use {module}::{name}; {declaration} fn accept(x: {name}<{args}>) {{}}");
+            let analysis = crate::analyze_source(
+                &SourceFile::new("independent.kgr", &text),
+                foundation_catalog::shared(),
+            )
+            .expect("installed declaration analysis");
+            assert!(
+                analysis.diagnostics().is_empty(),
+                "{text}: {:?}",
+                analysis.diagnostics()
+            );
+            assert!(analysis.into_codegen().is_ok(), "{text}");
         }
         let text = format!("fn bad<{name}>(x: {name}<{args}>) {{}}");
         let mut sources = SourceDatabase::default();

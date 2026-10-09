@@ -354,7 +354,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
 }
 
 #[test]
-fn source_facades_and_lexical_shadowing_do_not_confuse_constructor_owners() {
+fn source_facades_and_value_parameters_preserve_constructor_owners() {
     let mut sources = SourceDatabase::default();
     let mut insert = |name: &str, text: &str| {
         let path = format!("memory://{name}");
@@ -372,7 +372,7 @@ fn source_facades_and_lexical_shadowing_do_not_confuse_constructor_owners() {
     let left = insert("left", "pub enum Event { Data(i32) }");
     let right = insert("right", "pub enum Event { Data(String) }");
     insert("facade", "pub use pkg::left::Event;");
-    let text = "use pkg::facade; use pkg::right; use pkg::left::Event; fn a() -> Event { facade::Event::Data(1) } fn b() -> right::Event { right::Event::Data(\"ok\") } fn hidden(Event: i32) { Event::Data(1) }";
+    let text = "use pkg::facade; use pkg::right; use pkg::left::Event; fn a() -> Event { facade::Event::Data(1) } fn b() -> right::Event { right::Event::Data(\"ok\") } fn same_name(Event: i32) -> Event { Event::Data(1) }";
     let root = insert("root", text);
     let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(root).unwrap();
@@ -392,15 +392,21 @@ fn source_facades_and_lexical_shadowing_do_not_confuse_constructor_owners() {
     assert_eq!(a.location.file, left);
     assert_eq!(b.location.file, right);
     assert_ne!(a.id, b.id);
-    let hidden = text.rfind("Event::Data").unwrap();
-    assert!(analysis.definition_at(hidden).is_none());
-    assert_eq!(analysis.type_at(hidden), Some(TypeId::Error));
-    assert!(
+    let same_name = text.rfind("Event::Data").unwrap();
+    let owner = analysis.definition_at(same_name).unwrap();
+    assert_eq!(owner.name, "Event");
+    assert_eq!(owner.location.file, left);
+    assert_eq!(
         analysis
-            .result()
-            .diagnostics()
-            .iter()
-            .all(|d| d.span.is_some_and(|span| span.start >= hidden))
+            .definition_at(same_name + "Event::".len())
+            .unwrap()
+            .id,
+        a.id
+    );
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
     );
 }
 

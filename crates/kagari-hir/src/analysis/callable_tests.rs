@@ -715,21 +715,26 @@ fn run(callback: fn(i32) -> bool) {
 }
 
 #[test]
-fn lexical_values_shadow_associated_native_and_script_owners() {
-    for (owner, call) in [
-        ("Vec", "Vec::new()"),
-        ("String", "String::from(\"value\")"),
-        ("Item", "Item::make()"),
+fn lexical_values_preserve_associated_native_and_script_type_owners() {
+    for (owner, call, output) in [
+        ("Vec", "Vec::new()", "Vec<i32>"),
+        ("String", "String::from(\"value\")", "String"),
+        ("Item", "Item::make()", "Item"),
     ] {
         let text = format!(
-            "struct Item {{}} impl Item {{ pub fn make() -> Item {{ Item {{}} }} }} fn bad({owner}: i32) {{ {call}; }}"
+            "struct Item {{}} impl Item {{ pub fn make() -> Item {{ Item {{}} }} }} fn make({owner}: i32) -> {output} {{ {call} }}"
         );
         let analysis = crate::analyze_source(
             &SourceFile::new("shadow-owners.kgr", text),
             foundation_catalog::shared(),
         )
         .expect("installed declaration analysis");
-        assert!(analysis.clone().into_codegen().is_err(), "{owner}");
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{owner}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.clone().into_codegen().is_ok(), "{owner}");
         let facts = analysis.facts();
         let (id, _) = facts
             .lowered
@@ -739,7 +744,7 @@ fn lexical_values_shadow_associated_native_and_script_owners() {
             .find(|(_, expression)| matches!(expression.kind, ExprKind::Call { .. }))
             .unwrap();
         assert!(
-            facts.typed.type_table.call_resolution(id).is_none(),
+            facts.typed.type_table.call_resolution(id).is_some(),
             "{owner}"
         );
     }

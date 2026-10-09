@@ -123,7 +123,7 @@ fn declarations_and_lexical_bindings_shadow_every_helper() {
 }
 
 #[test]
-fn non_value_names_are_rejected_in_hir_while_retaining_targets() {
+fn invalid_values_and_type_only_names_are_rejected_without_losing_neighbor_targets() {
     for name in [
         "print",
         "type_of",
@@ -150,22 +150,32 @@ fn non_value_names_are_rejected_in_hir_while_retaining_targets() {
             .expressions()
             .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();
-        assert!(facts.names.expr_resolution(value).is_some(), "{name}");
+        let type_only = matches!(name, "Point" | "Mode" | "View" | "native");
+        let expected_code = if type_only {
+            "KG_RESOLVE_UNKNOWN_NAME"
+        } else {
+            "KG_TYPE_INVALID_VALUE_TARGET"
+        };
+        assert_eq!(
+            facts.names.expr_resolution(value).is_none(),
+            type_only,
+            "{name}"
+        );
         assert_eq!(facts.typed.type_table.expr_type(value), Some(TypeId::Error));
         assert!(
             file.result()
                 .diagnostics()
                 .iter()
-                .any(|d| d.kind.code() == "KG_TYPE_INVALID_VALUE_TARGET"),
+                .any(|d| d.kind.code() == expected_code),
             "{name}: {:?}",
             file.result().diagnostics()
         );
-        assert!(
-            !file
-                .result()
+        assert_eq!(
+            file.result()
                 .diagnostics()
                 .iter()
-                .any(|d| d.kind.code() == "KG_RESOLVE_UNKNOWN_NAME")
+                .any(|d| d.kind.code() == "KG_RESOLVE_UNKNOWN_NAME"),
+            type_only
         );
         assert!(
             file.definition_at(text.rfind(" x }").unwrap() + 1)

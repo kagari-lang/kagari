@@ -626,7 +626,7 @@ expansion and new numeric APIs remain outside these completed tracks.
 The [execution plan](async-execution-plan.md) owns phase scope, dependencies,
 checkpoint policy and focused acceptance. The [async design](async-execution-design.md)
 and [host task scopes](host-task-scope-design.md) own language/lifetime behavior.
-Status: implementation and focused local acceptance complete; full GitHub CI is
+Status: implementation, local workspace sweep and focused repair acceptance complete; full GitHub CI is
 pending. On 2026-10-08 the user authorized goal execution of AX00-AX06,
 including ordinary `for` traversal with `.await` in the body. Current specifications
 cover owned native/script waits and scope-owned Tasks; implementation and local/CI
@@ -638,12 +638,13 @@ acceptance are recorded separately below.
 - [x] AX03: Implement async functions, explicit async closures and await through source and artifacts (local gate).
 - [x] AX04: Add scope spawn, shared Task results, waiters and directional cancellation (focused local acceptance).
 - [x] AX05: Complete lifecycle, reload, cleanup and diagnostic integration (focused local acceptance).
-- [x] AX06: Deliver embedding/example products and local integration evidence (focused local acceptance; full CI unrun).
+- [x] AX06: Deliver embedding/example products and local integration evidence (workspace sweep plus focused repairs; full CI unrun).
 
 Dependency order is AX00 through AX06. Each implementation checkpoint must pass
 its focused checks without carrying known compilation/test failures; unsupported
-intermediate async operations reject before execution. Full suites and complete
-feature/backend matrices remain GitHub CI work. Commits carry `Async-Phase: AX00`
+intermediate async operations reject before execution. Final local full-workspace
+acceptance follows repository policy; complete feature/backend matrices remain
+GitHub CI work. Commits carry `Async-Phase: AX00`
 through `Async-Phase: AX06`; the planning commit has no implementation trailer.
 
 Async design checkpoint (2026-10-08): selected explicit `.await` over implicit
@@ -1285,6 +1286,69 @@ no carried local errors or omitted implementation phases. No full local suite or
 complete backend/feature matrix was run. Full workspace/all-target Clippy, complete
 tests and the entire feature/backend matrix remain unrun GitHub CI acceptance;
 no passing remote run or remote publication is claimed.
+
+AX06 final local integration (2026-10-09): under the user's revised large-task
+validation policy, the final workspace run exposed two unmigrated Rust callers:
+the CLI Runtime error pattern omitted task_origin (E0027), and the native boundary
+fixture omitted RuntimeConfig.async_limits (E0063). The CLI now includes origin
+identity/cancellation in diagnostics; the fixture retains its explicit GC/call
+limits and uses default async limits. Strict Clippy also identified test-only
+completion-queue type complexity and redundant single-value clones; these were
+resolved without changing execution behavior. The compiler public-ABI inventory
+still expected 19 native/enum declarations; SpawnError makes 20. Its existing
+contract now checks all three admission-error variants and their empty payloads.
+The complete language contract also retained a pre-NR expectation that a value
+parameter hides a module alias. The current independent Type/Value namespace
+specification requires the opposite. The same case now exercises both names and
+checks the resulting value on source/artifact/JIT routes; no resolver behavior changed.
+The snapshot-limit fixture also used a nesting limit of 3 that now rejects the
+installed spawn declaration before reaching user source. A deeper user expression
+and limit 16 preserve the original cache-invalidation/source-diagnostic assertions
+while leaving installed declarations valid. Its focused nesting_budget_changes_invalidate_same_revision_analysis
+test passed; parser limits and cache invalidation were not changed.
+HIR's five stale namespace fixtures now check independent Type/Value selection,
+constructor navigation, unresolved-import recovery and host-name coexistence;
+invalid calls, type applications, equality and constructors remain rejected.
+The existing payload inventory also includes SpawnError. All six focused HIR
+contracts passed. The runtime binding-closure fixture now supplies the sealed
+Future/Task/TaskScope storage descriptors required by its installed declarations,
+without weakening metadata validation or replacing binding-closure assertions.
+
+Validation and remaining acceptance:
+
+- `cargo test --workspace --no-fail-fast` completed every default-feature target
+  and doctest. The sweep exited 101 with nine failures across embed lib,
+  source_snapshots, HIR lib and runtime lib; all other targets passed. Those nine
+  failures were fixed while the sweep continued and passed focused reruns below.
+  The initial compiler inventory failure and Rust caller compilation failures were
+  fixed before this completed sweep. No single all-green workspace rerun is claimed;
+  unchanged successful targets were not repeated after test-fixture repairs.
+- Focused repair checks passed: CLI
+  `returned_errors_report_the_original_site_from_source_and_artifact`, VM
+  `async_native_completion_contract` (three cases), compiler
+  `installed_native_declarations_keep_public_representation_and_payload_contracts`,
+  embed `language_contract_routes_preserve_values_diagnostics_and_effects` and
+  `nesting_budget_changes_invalidate_same_revision_analysis`, and runtime
+  `reused_closures_preserve_exact_foundation_binding_requirements`. These used
+  `cargo test -p <owner> --lib <filter>`, except the CLI default target and embed
+  `--test source_snapshots` for its snapshot contract. Temporary language-contract
+  progress prints were removed after the complete source/artifact/JIT check passed.
+- The HIR `cargo test -p kagari-hir --lib -- <filters>` selection passed
+  `lexical_values_preserve_associated_native_and_script_type_owners`,
+  `source_facades_and_value_parameters_preserve_constructor_owners`,
+  `imported_payload_changes_invalidate_consumers_and_keep_nominal_owners`,
+  `invalid_values_and_type_only_names_are_rejected_without_losing_neighbor_targets`
+  and `host_type_rules_preserve_value_namespaces_and_neighbor_functions`.
+  `type_bindings_shadow_standard_constructors_independently_of_value_bindings`
+  passed its final individual rerun after retaining prelude recovery for unresolved
+  imports while still rejecting code generation.
+- Workspace/all-target strict Clippy passed, followed by strict HIR/runtime
+  lib/tests Clippy for their final fixture repairs. Structure checked 981 Rust
+  files with no violations/exceptions; formatting, local links and diff checks
+  passed. Manual review found no new ownership, visibility or structural debt.
+
+There are no carried local failures. Full GitHub CI and its complete feature/backend
+matrix remain unrun; local repair acceptance does not claim remote CI acceptance.
 
 ### Other proposals
 

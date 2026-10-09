@@ -314,18 +314,24 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
 }
 
 #[test]
-fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_constructors() {
-    for broken in [
-        "use right::Item; fn bad(value: Item) -> i32 { left::take(value) }",
-        "use left::Item; fn bad(a: Item, b: Item) -> bool { a == b }",
-        "use left::Item; fn bad() { val value = Item {}; }",
-        "use left::Item; fn bad(value: Item<i32>) {}",
-        "fn left() {} fn bad(value: left::Item) {}",
-        "use missing as left; fn bad(value: left::Item) {}",
-        "fn bad(value: left::Item) { value. }",
+fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
+    for (source, valid) in [
+        (
+            "use right::Item; fn bad(value: Item) -> i32 { left::take(value) }",
+            false,
+        ),
+        (
+            "use left::Item; fn bad(a: Item, b: Item) -> bool { a == b }",
+            false,
+        ),
+        ("use left::Item; fn bad() { val value = Item {}; }", false),
+        ("use left::Item; fn bad(value: Item<i32>) {}", false),
+        ("fn left() {} fn accept(value: left::Item) {}", true),
+        ("use missing as left; fn bad(value: left::Item) {}", false),
+        ("fn bad(value: left::Item) { value. }", false),
     ] {
         let mut sources = SourceDatabase::default();
-        let text = format!("{broken} fn good() -> i32 {{ 7 }}");
+        let text = format!("{source} fn good() -> i32 {{ 7 }}");
         let root = sources
             .set("mem://root", text.clone(), SourceLayer::Base)
             .unwrap();
@@ -335,7 +341,12 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(root).unwrap();
-        assert!(!file.result().diagnostics().is_empty(), "{broken}");
+        assert_eq!(
+            file.result().diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            file.result().diagnostics()
+        );
         if let Some(offset) = text.find("value.") {
             assert_eq!(
                 file.member_receiver_type(offset + "value.".len()),
@@ -352,7 +363,10 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
             file.type_at(text.rfind('7').unwrap()),
             Some(TypeId::Builtin(BuiltinType::I32))
         );
-        assert!(snapshot.check_program(root, &Default::default()).is_err());
+        assert_eq!(
+            snapshot.check_program(root, &Default::default()).is_ok(),
+            valid
+        );
     }
 }
 

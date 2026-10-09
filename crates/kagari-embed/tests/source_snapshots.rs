@@ -308,21 +308,25 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
     let id = engine
         .set_source(
             "memory://nested.kgr",
-            "fn main() -> i32 { (((42))) }".into(),
+            format!(
+                "fn main() -> i32 {{ {}42{} }}",
+                "(".repeat(16),
+                ")".repeat(16)
+            ),
             SourceLayer::Base,
         )
         .unwrap();
     let source = engine.source_snapshot();
     let before = engine.analyze(source.clone(), &Default::default()).unwrap();
     assert!(before.check_program(id, &Default::default()).is_ok());
+    // Keep installed native declarations valid while rejecting the deeper user expression.
     engine.set_parse_limits(ParseLimits {
-        max_nesting: 3,
+        max_nesting: 16,
         ..Default::default()
     });
-    let Err(EmbeddingError::Diagnostics { diagnostics }) =
-        engine.compile_snapshot(source.clone(), id, &Default::default())
-    else {
-        panic!("excessive nesting must be rejected before code generation");
+    let result = engine.compile_snapshot(source.clone(), id, &Default::default());
+    let Err(EmbeddingError::Diagnostics { diagnostics }) = result else {
+        panic!("excessive nesting must be rejected before code generation: {result:?}");
     };
     let limit = diagnostics
         .iter()

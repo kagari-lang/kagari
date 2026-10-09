@@ -96,6 +96,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
     let mut count = 0;
     let mut seen_map = false;
     let mut seen_result = false;
+    let mut seen_spawn_error = false;
     for declared in snapshot.declaration_snapshot().files() {
         if !matches!(
             declared.source().module_identity().package.0.as_str(),
@@ -144,13 +145,25 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                     assert_eq!(ty.variants[1].payload, [ty.generic_params[1].as_type()]);
                     seen_result = true;
                 }
+                TypeDefKind::Enum if ty.name == "SpawnError" => {
+                    assert!(ty.generic_params.is_empty());
+                    assert_eq!(
+                        ty.variants
+                            .iter()
+                            .map(|variant| variant.name.as_str())
+                            .collect::<Vec<_>>(),
+                        ["ScopeClosed", "CapacityExceeded", "DispatchUnavailable"]
+                    );
+                    assert!(ty.variants.iter().all(|variant| variant.payload.is_empty()));
+                    seen_spawn_error = true;
+                }
                 _ => {}
             }
             count += 1;
         }
     }
-    assert_eq!(count, 19);
-    assert!(seen_map && seen_result);
+    assert_eq!(count, 20);
+    assert!(seen_map && seen_result && seen_spawn_error);
 }
 
 #[test]

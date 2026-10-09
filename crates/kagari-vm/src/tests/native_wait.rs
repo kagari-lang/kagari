@@ -39,6 +39,7 @@ use kagari_types::{
 };
 use std::{
     num::NonZeroUsize,
+    slice::from_ref,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -84,10 +85,12 @@ fn function(
     }
 }
 
+type PendingReplies = Vec<(i32, Completion<i32>)>;
+
 struct Fixture {
     vm: Vm,
     module: LoadedModule,
-    sent: Arc<Mutex<Vec<(i32, Completion<i32>)>>>,
+    sent: Arc<Mutex<PendingReplies>>,
     starts: Arc<AtomicUsize>,
     cancels: Arc<AtomicUsize>,
 }
@@ -445,7 +448,7 @@ fn async_native_completion_contract() {
         f.vm.start(
             &f.module,
             "wait",
-            &[value.clone()],
+            from_ref(&value),
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -551,7 +554,7 @@ fn async_native_completion_contract_retirement_and_admission() {
             f.vm.runtime(),
             &f.module,
             FunctionRef::new(1),
-            &[value.clone()]
+            from_ref(&value)
         )
         .is_err()
     );
@@ -564,7 +567,7 @@ fn async_native_completion_contract_retirement_and_admission() {
         f.vm.start(
             &f.module,
             "wait",
-            &[value.clone()],
+            from_ref(&value),
             ExecutionOptions::default(),
         )
         .unwrap();

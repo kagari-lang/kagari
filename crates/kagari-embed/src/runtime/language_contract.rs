@@ -729,9 +729,9 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Expected::Diagnostic("KG_RESOLVE_DUPLICATE_DECLARATION"),
         ),
         Case::new(
-            "shadowed-standard-namespace",
-            "use core::option as api; fn main(api: i32) -> i32 { match api::Option::Some(1) { Some(x) => x, None => 0 } }",
-            Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME"),
+            "standard-namespace-independent-of-value-parameter",
+            "use core::option as api; fn pick(api: i32) -> i32 { val n = match api::Option::Some(1) { Some(x) => x, None => 0 }; n + api } fn main() -> i32 { pick(2) }",
+            Expected::Value(Value::I32(3)),
         ),
         Case::new(
             "resolved-language-constructor",

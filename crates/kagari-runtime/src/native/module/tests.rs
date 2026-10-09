@@ -6,13 +6,22 @@ use crate::{
         catalog::DeclarationCatalog,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
+        storage::NativeStorage,
         types::Type,
     },
     value::Value,
 };
 use kagari_common::identity::DefinitionPath;
 use kagari_stdlib::catalog as standard_catalog;
-use kagari_types::declaration::names::{ExportName, NameNamespace};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{
+        TypeDefKind,
+        names::{ExportName, NameNamespace},
+        native::NativeStorageLayout,
+    },
+};
+use std::collections::BTreeMap;
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
     assert_path_catalog_eq(&left.to_paths().unwrap(), &right.to_paths().unwrap());
@@ -35,11 +44,9 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
     let modules = declarations
         .into_iter()
         .map(|declaration| {
-            let mut bindings = std::collections::BTreeMap::new();
+            let mut bindings = BTreeMap::new();
             for entry in declaration.native_declarations() {
-                let kagari_types::callable::CallableImplementation::Native(id) =
-                    entry.function.implementation
-                else {
+                let CallableImplementation::Native(id) = entry.function.implementation else {
                     panic!("native template");
                 };
                 bindings.entry(id).or_insert_with(|| {
@@ -50,10 +57,27 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
                     )
                 });
             }
+            let owned = DeclarationCatalog::declared([&declaration]).unwrap();
+            let storage = owned
+                .types
+                .iter()
+                .filter_map(|(id, ty)| {
+                    let TypeDefKind::NativeStorage(layout) = ty.kind else {
+                        return None;
+                    };
+                    let storage = match layout {
+                        NativeStorageLayout::Future => NativeStorage::future(),
+                        NativeStorageLayout::Task => NativeStorage::task(),
+                        NativeStorageLayout::TaskScope => NativeStorage::task_scope(),
+                        _ => panic!("unexpected foundation storage: {layout:?}"),
+                    };
+                    Some((id.clone(), storage))
+                })
+                .collect();
             NativeModule::checked(
                 declaration,
                 bindings.into_iter().collect(),
-                Default::default(),
+                storage,
                 &providers,
             )
             .unwrap()

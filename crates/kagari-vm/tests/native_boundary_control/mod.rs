@@ -101,6 +101,7 @@ fn runtime(limits: RuntimeLimits) -> Runtime {
         },
 
         limits,
+        ..Default::default()
     });
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),

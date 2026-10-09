@@ -434,11 +434,18 @@ fn print_embedding_error(error: EmbeddingError) -> CliError {
             kind,
             message,
             trace,
+            task_origin,
         } => CliError::message(
             1,
             format!(
-                "{}: {message}{}",
+                "{}: {message}{}{}",
                 kind.code(),
+                task_origin
+                    .map(|origin| format!(
+                        "\n  originating task: {:?}, cancellation: {:?}",
+                        origin.task, origin.cancellation
+                    ))
+                    .unwrap_or_default(),
                 trace.as_ref().map(ToString::to_string).unwrap_or_default()
             ),
         ),
