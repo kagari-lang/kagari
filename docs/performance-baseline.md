@@ -7,6 +7,141 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Compact value baseline (VE00), 2026-10-09
+
+Production revision: `19fe129d` (runtime unchanged from `f521b2f0`) plus the
+VE00 benchmark additions. Frozen workloads and representation decisions belong to
+[the execution plan](interpreter-value-execution-plan.md#2026-10-09-ve00-acceptance).
+The baseline executable was preserved before runtime edits at
+`target/ve00/baseline-executable`, SHA-256
+`60aa2c07334fb25123208c8c77a4008d1bc93d2f680da6ac21560838e7ebfc81`.
+The final benchmark import-style repair does not alter any workload or runtime.
+
+Environment: Apple M1 Max, 10 logical CPUs, 32 GiB RAM, macOS 26.6.2 arm64;
+Rust 1.98.1 (`48a229cea`), LLVM 22.1.8, Cargo 1.98.1, default workspace release
+profile, target and Cargo parallelism. SDK source/native and mlua lua54/vendored
+features; locked PUC Lua 5.4.8; interpreter execution only. Command environment:
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools`; no custom compiler flags,
+CPU target or jobs. Initial cold release build took 69 seconds; warm driver
+builds took 0.083–0.104 seconds. Builds are excluded from execution.
+
+Reproduce with `uv run python scripts/benchmark_lua.py --interpreter-only`,
+then separately with `--source-forms` and `--numeric-matrix`, using the environment
+above. Each route has three warmups and eleven checked samples in each of two
+fresh sequential processes; the second reverses order. Ordinary GC remains enabled.
+Compilation, verification and linking are outside execution; host entry/return
+remain inside. No agent-started builds/tests/profilers ran during throughput
+measurement. CPU frequency, affinity and unrelated background activity were not
+controlled. All 1,364 measured execution batches passed independent checksums;
+none were discarded. The allocation probe below is a separate instrumented run.
+
+Medians and ranges below are microseconds per complete workload. Entry is per
+call from 1,000-call batches and is a separate boundary diagnostic.
+
+### Original suite
+
+| Workload | VM median | Lua median | VM/Lua | VM min–max | Lua min–max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 3413.667 | 384.479 | 8.88 | 3371.500–3500.792 | 378.375–404.042 |
+| arrays | 16184.771 | 74.250 | 217.98 | 15356.125–19968.792 | 67.375–105.208 |
+| branches | 3961.291 | 806.958 | 4.91 | 3932.500–4020.417 | 791.417–856.792 |
+| calls | 7318.688 | 223.625 | 32.73 | 7189.625–17463.750 | 220.666–235.083 |
+| entry | 1.444 | 0.029 | 50.64 | 1.440–1.508 | 0.028–0.029 |
+| fibonacci | 15410.584 | 353.021 | 43.65 | 14969.416–39779.666 | 343.875–805.500 |
+| maps | 14228.104 | 74.020 | 192.22 | 14032.791–31550.583 | 65.834–93.167 |
+
+### Source forms
+
+| Workload | VM median | Lua median | VM/Lua | VM min–max | Lua min–max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7727.396 | 111.624 | 69.23 | 7682.375–7862.833 | 108.708–133.084 |
+| forms_capture_cell | 11065.500 | 137.708 | 80.35 | 10971.417–11408.208 | 131.333–161.625 |
+| forms_concrete_generic | 3663.229 | 103.042 | 35.55 | 3626.375–3715.709 | 98.667–105.625 |
+| forms_direct | 467.521 | 75.083 | 6.23 | 465.375–542.625 | 74.916–94.417 |
+| forms_field | 8015.750 | 90.355 | 88.71 | 7962.084–8259.042 | 89.792–94.041 |
+| forms_helper | 3627.021 | 140.250 | 25.86 | 3610.417–3695.375 | 128.250–145.250 |
+| forms_host_callback | 2091.624 | 383.791 | 5.45 | 2077.208–2156.625 | 383.250–390.666 |
+| forms_interface | 10861.916 | 134.187 | 80.95 | 10786.625–10958.083 | 133.250–149.250 |
+| forms_native | 2088.000 | 139.105 | 15.01 | 2071.125–2123.875 | 130.083–163.333 |
+| forms_shared_generic | 21813.041 | 107.375 | 203.15 | 21722.500–22383.709 | 105.666–136.125 |
+| forms_string_calls | 30471.750 | 125.395 | 243.01 | 30303.458–30570.292 | 122.792–130.250 |
+| forms_string_constants | 23699.729 | 68.376 | 346.61 | 23331.583–24243.708 | 66.250–81.083 |
+
+### Bounded numeric matrix
+
+| Workload | VM median | Lua median | VM/Lua | VM min–max | Lua min–max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| numeric_f32 | 2559.646 | 444.354 | 5.76 | 2533.959–2700.167 | 440.500–477.042 |
+| numeric_f64 | 2502.666 | 442.229 | 5.66 | 2491.500–2558.167 | 440.166–461.958 |
+| numeric_i16 | 2827.083 | 575.188 | 4.92 | 2802.750–2989.917 | 572.375–663.458 |
+| numeric_i32 | 2830.271 | 580.875 | 4.87 | 2779.875–3018.250 | 572.667–641.000 |
+| numeric_i64 | 2785.771 | 573.938 | 4.85 | 2768.959–2981.833 | 572.708–615.791 |
+| numeric_i8 | 2844.187 | 574.542 | 4.95 | 2810.625–2961.959 | 572.500–608.041 |
+| numeric_isize | 2863.416 | 584.355 | 4.90 | 2794.083–2896.958 | 574.000–595.125 |
+| numeric_u16 | 2808.312 | 590.042 | 4.76 | 2788.042–2898.250 | 573.875–618.917 |
+| numeric_u32 | 2818.688 | 591.062 | 4.77 | 2780.209–2929.625 | 572.375–608.958 |
+| numeric_u64 | 2822.916 | 575.542 | 4.90 | 2784.708–2878.583 | 572.333–594.708 |
+| numeric_u8 | 2816.188 | 577.250 | 4.88 | 2783.625–2898.458 | 572.375–605.791 |
+| numeric_usize | 2800.834 | 575.062 | 4.87 | 2786.708–2839.625 | 572.541–596.875 |
+
+The `native` row remains unmatched (Rust callback versus Lua script helper).
+The new `host_callback` row invokes the same Rust checked-arithmetic implementation
+through both adapters. String cases alternate 62/68 ASCII bytes for 5,000
+iterations, result 325,000; string_calls adds script argument/return transfer.
+Numeric rows cover bounded exactly representable values, not full-domain Lua
+compatibility. Shared generic Add default-method compilation was rechecked and
+still fails MIR lowering with `MissingBinding("checked callable requirement")`;
+it is excluded, not reported as supported by the identity default method.
+
+### Representation and allocation diagnostics
+
+A release-linked layout probe reports: Value 32 bytes, HeapObjectId 24,
+RangeValue 24, EphemeralValue 16, RootedValue 32, HostRootHandle 40,
+HostPathViewHandle 104 and FrameHostBorrowToken 48. These are headers, excluding
+String/Vec/Arc backing allocations. Candidate enums with a u64 scalar and either
+a direct reference or a 12-byte (u32 owner/slot/generation) index are both 16 bytes.
+
+A bounded storage probe uses 8,192 72-byte nodes, eleven alternating samples,
+two million permuted payload accesses, and 100 mark/sweep-scan passes retaining
+every second node. Direct references borrow individually boxed stable nodes;
+indices address a contiguous Vec. Host admission checks owner, bounds and generation
+for both. The admitted-access case assumes those checks and retention were already
+established; indexed access still uses safe bounds checking. Allocation includes
+creation and destruction. Marking uses a per-node Cell; sweep is a scan/reset, not
+the production collector, metadata graph or native destructor protocol.
+
+| Probe | Boxed direct median µs | Compact index median µs |
+| --- | ---: | ---: |
+| Allocate/drop 8,192 nodes | 203.750 | 12.000 |
+| Two million admitted reads | 1,900.833 | 2,304.125 |
+| Two million checked host admissions/reads | 2,648.000 | 2,198.875 |
+| 100 root-mark/sweep scans | 1,347.042 | 1,251.958 |
+
+Direct access is cheaper in this probe; it does not establish that a stable slab
+allocator or a whole direct-reference interpreter would have these costs. The
+selected compact index avoids per-object boxes and new unsafe lifetime contracts,
+while meeting the measured candidate value size. This is a design tradeoff,
+not an interpreter speedup claim. VE04 must measure the actual implementation.
+Probe source/results: `target/ve00/references.rs`, `references.csv`, `layout.log`;
+compiled with `rustc --edition=2024 -O`, linked to the baseline release runtime.
+
+A separate global allocator probe wraps one warmed public execution after three
+warmups, counting alloc/alloc_zeroed/realloc calls and requested sizes. It uses the
+same string function bodies and checks result 325,000. string_constants requests
+480,007 allocations/reallocations and 50,155,179 bytes; string_calls requests
+500,007 and 51,455,175 bytes. Both report zero script GC allocations/collections.
+Counts include runtime, type/native conversion and root bookkeeping; they are not
+counts of strings alone, retained memory, or RSS. Source inspection confirms each
+string LoadConst clones owned text and native owned String conversion copies again.
+The large non-GC allocation count makes shared string storage and read-only native
+access separate requirements. Raw instrumented source/output:
+`target/ve00/measure_source.rs`, `strings.kgr`, `string-allocations.log`.
+
+Raw throughput metadata/samples: `target/lua-comparison/20261009T152106Z/`,
+`20261009T152231Z-forms/` and `20261009T152327Z-numeric/`. The benchmark package,
+lockfile, driver and binary hashes are included in each report. VE00 adds baseline
+and diagnostic evidence only; no production speedup or Lua parity is claimed.
+
 ## Windows arithmetic comparison, 2026-10-07
 
 Only the unchanged arithmetic workload was measured: 50,000 iterations of

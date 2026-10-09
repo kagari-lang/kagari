@@ -1,9 +1,8 @@
 # Compact values and interpreter execution (VE00-VE08)
 
-Status: planned on 2026-10-09; implementation has not started. The user requested
-this execution document after choosing compact values as the first step toward
-pure interpreter performance at least equal to Lua. Implementation activation
-will be recorded in the roadmap.
+Status: active, authorized on 2026-10-09. The user requested goal execution of
+VE00-VE08 in order, following the debug-only diagnostic refinement. VE00 baseline
+and design are complete; VE01 storage/reference implementation is next.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation and queue placement. This plan owns phase order, implementation scope,
@@ -527,7 +526,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 
 ### Phase checklist
 
-- [ ] VE00: Current baseline, consumer inventory and selected representation.
+- [x] VE00: Current baseline, consumer inventory and selected representation.
 - [ ] VE01: Storage, internal reference ownership and roots.
 - [ ] VE02: Compact Copy values and complete consumer migration.
 - [ ] VE03: Runtime string constants and shared string access.
@@ -565,3 +564,139 @@ and added owner/generation/layout diagnostics with focused debug/release validat
 Diagnostics cannot provide required production checks or hide root/lifetime errors.
 This is a plan refinement; implementation remains unstarted. Documentation content
 and local link checks plus `git diff --check` pass; no Rust test or benchmark ran.
+
+### 2026-10-09: Activation and VE00 baseline preparation
+
+Goal execution of VE00-VE08 is authorized. Starting revision: `19fe129d`, clean
+worktree. Establishing the current baseline and freezing the missing string and
+matched host-callback workloads before preserving its executable. Original seven
+workloads and existing source-form bodies remain unchanged. No performance result
+or reference-representation decision is recorded until measurement completes.
+
+### 2026-10-09: VE00 acceptance
+
+The [current baseline](performance-baseline.md#compact-value-baseline-ve00-2026-10-09)
+records machine/toolchain/profile, complete median/range tables, allocation counts,
+probe limits and reproduction commands. Production is unchanged at this checkpoint.
+Preserved executable: `target/ve00/baseline-executable`, SHA-256
+`60aa2c07334fb25123208c8c77a4008d1bc93d2f680da6ac21560838e7ebfc81`.
+Use this binary for later paired comparisons; do not overwrite it with VE01 builds.
+
+**Frozen acceptance workloads.** Keep the original six nontrivial workloads and
+the source-form direct/helper/concrete_generic/interface/shared_generic/capture_cell/
+field/byte_state/string_constants/string_calls routes. The host_callback route
+separately measures the same Rust arithmetic function through both host adapters.
+Entry is reported separately. The existing native row is diagnostic only because
+its boundaries differ. Numeric-matrix rows compare only their bounded exact inputs;
+full-domain checked numeric semantics retain their independent contract tests.
+Shared generic Add default-body compilation was reproduced with a trait method
+`forward<T: Add<T>>(self, a: T, b: T) -> T::Output { a + b }` invoked through an
+interface. MIR lowering still rejects `MissingBinding("checked callable requirement")`.
+That frontend gap stays excluded and deferred; the supported identity method does
+not substitute for its correctness. No workload was dropped because it is slow.
+
+**Selected representation: checked compact indices.** Use a private-field
+HeapObjectId of three u32 words: runtime owner, slot, allocation generation. Keep
+contiguous Vec<ObjectSlot> storage and its existing RefCell access discipline.
+The release layout probe verifies that Rust's default enum layout fits this
+12-byte payload and full-width u64/f64 scalars in a 16-byte enum. Assert the actual
+production size; never expose that compiler-chosen layout as a wire/native ABI.
+The index constructor stays inside the heap. Copying it grants no retention or
+dereference capability. Public host retention remains the non-Copy RootedValue
+lease, with owner/generation/lease checks. Unrooted raw values can safely become
+stale and are rejected by checked access; no dangling Rust pointers are created.
+
+The direct-reference candidate used address-stable per-object boxes, checked
+external identities and separate admitted references. It won the admitted-read
+probe but lost allocation/drop and checked host admission; it also requires an
+additional reference/scope admission layer across current raw-value consumers.
+The compact-index alternative meets size/Copy goals without that unsafe lifetime
+surface or per-object allocation. This bounded comparison does not rule out a
+future stable slab design and does not predict end-to-end performance. There will
+be one production representation, and VE04 remains its regression gate.
+
+Counter policy is part of correctness: owner exhaustion fails explicitly before
+reusing an identity; reject a new slot beyond u32 capacity before storage/accounting
+mutation; retire a slot when its u32 generation cannot increment. Never truncate
+an existing u64 identity or wrap a generation. Metadata/root identities can retain
+their current widths; widening the compact owner is exact. These limits replace
+unreachable practical capacities, not ownership/generation validation. VE01 covers
+reuse/exhaustion, foreign values, roots and exclusive runtime transfer.
+
+No new unsafe code or unsafe Send impl is needed for this design. Vec relocation
+is harmless to IDs. Scoped payload access borrows the owning storage; conflicting
+mutation/collection must reject before changing data, and no borrow survives a
+callback, reentry or suspension. Runtime remains Send and not Sync through existing
+field ownership; retained host leases remain independently Send/Sync. Native
+payload addresses gain no new stability promise. Collection tracing/destructor
+quarantine stays unchanged.
+
+**Complete value migration map.** Keep Value as the compact transport name; use
+heap-aware accessors instead of pretending an ID provides a Rust reference.
+
+| Current variants | Selected storage/access | Semantic and lifetime requirements |
+| --- | --- | --- |
+| Unit, Bool, I32, I64, U64, F32, F64 | Inline tag/scalar; existing untagged frame banks | Preserve numeric domains/float bits; no pointer interpretation. |
+| Str | Immutable heap text, compact ID; scoped read | Content equality/hash; explicit owned host String conversion copies. Copies in frames/objects do not copy text. |
+| Tuple | Immutable heap member buffer, compact ID | Trace every member; recursive storage/borrow checks consult the heap, including temporary non-storable tuples. Preserve value equality and shared mutable children. |
+| Range | Immutable heap RangeValue, compact ID | Full-width endpoints/type/kind; iterator stores progress separately, with no per-step range boxing. |
+| Array, Map, Set, GcHandle | Existing native storage with compact IDs | Keep concrete Vec storage, leases, revisions, selected operations and native tracing/drop contracts. |
+| Enum, Struct | Existing payload/layout records with compact IDs | Preserve structural enum equality, struct identity, checked kinds/layouts and candidate isolation. |
+| Interface | Compact ID to existing interface object/snapshot graph | Trace data and method/environment metadata; retain runtime/code generations. |
+| Closure, Cell | Existing snapshots/cells with compact IDs | Capture roots, shared mutation and generation-pinned call targets. |
+| HostRoot, HostPathView | Traced descriptor records containing existing checked handles | Host resources stay outside the heap. Trace dynamic path args; descriptor records are reclaimed through ordinary roots, not permanent tables. Preserve no-escape restrictions. |
+| Ephemeral (HostRef, HostMut, Runtime) | Compact ID to a scoped-token descriptor record | Heap record allocation does not make tokens storable. Keep owner/frame/epoch checks; no nested oversized enum in Value. |
+
+Only transport descriptors become traced records; registry, module, type metadata
+and actual Rust resources retain their existing owners. Existing Arc-backed
+descriptor contents may remain inside a record if needed by their API. Collection
+does not release a borrowed Rust resource merely because its token record dies;
+the host scope remains the validity authority. No descriptor creates an internal
+root or cycle of strong metadata ownership. Heap-aware storable/borrow predicates
+must inspect out-of-line aggregates and reject invalid IDs in release.
+
+**Consumer and boundary map.** The inventory found 375 source lines in 87 files
+matching large variants (including frontend namesakes, which are not runtime Value).
+Migrate by contract owner rather than mechanically replacing frontend constants.
+
+| Consumer | Required integration |
+| --- | --- |
+| gc/storage, collection, roots; native payload trace callbacks | Trace new text/aggregate/descriptor records; retain graph atomicity, root leases, slot retirement and quarantine. |
+| frame/values, cursor, arguments, transfer, session and VM executor | Copy slots/windows; publish live values around allocation/calls; keep scalar banks, origins and cancellation. |
+| module/state, execution_metadata and runtime object constructors | Version-owned constant edges, installed/staged roots, closure/interface metadata and checked payload construction. |
+| native/conversion scalars/tuples/composites/context, native/objects and typed adapters | Allocate through owning conversion context, root child values during conversion, explicit owned decoding; use scoped text access for readonly operations. |
+| host registry/scope/borrows, dynamic paths and typed mutation | Resolve descriptor IDs through runtime; keep schemas, epochs, once-only arguments, mutation commit and non-escape rules. |
+| value_check, MapKey, value_semantics, builtin standard, numeric | Keep type checking and content equality/hash/formatting distinct from Rust ID equality; numeric scalars stay allocation-free. |
+| stdlib bindings/construction, string iterator and range operations | Read shared text without owned decoding; preserve Unicode/bounds and range progress. |
+| reflection, error_trace, debugger and SDK language_contract/handles | Materialize owned display data only when requested; preserve retained roots and declared member access. |
+| Future/Task payloads and async conversion/execution | Trace outputs/errors/suspended windows, root publication before handoff, cleanup and no scoped-borrow escape. |
+| runtime/jit_abi and Cranelift/ABI consumers | Current JitValue decodes only Unit/Bool/I32; keep explicit scalar ABI. Internal Value layout is not serialized or transmuted into ABI slots. |
+| CLI, examples and existing unit/integration fixtures | Use owning allocation/access APIs and semantic comparisons; preserve foreign/stale fault injection. |
+
+**Constants and native conversion.** Canonical bytecode LoadConst will use checked
+indices into the module constant pool, making that pool the portable identity owner.
+Compiler emission and source-free verification must agree on bounds and float-bit
+identity. Shared prepared programs store portable indices only. Runtime module state
+owns lazily or eagerly materialized immutable constants and exposes their edges to
+the existing program graph. The binding is retained by its exact program version;
+escaped values remain rooted independently, and dead versions release constants.
+No text-keyed lookup occurs on each execution. VE03 owns this change and the focused
+artifact refresh. Explicit host String conversion remains owned; internal readonly
+string operations use checked scoped heap access and release it before callbacks.
+
+**Measured starting costs.** Value 32 bytes; HeapObjectId/RangeValue 24 each;
+EphemeralValue 16; RootedValue 32; descriptor payloads 40/104/48 bytes. A warmed
+5,000-iteration string constant execution requests 480,007 Rust allocations/reallocs
+and 50,155,179 bytes; adding an identity call gives 500,007 and 51,455,175 bytes.
+These include conversion/type/root bookkeeping, not just text. Both have zero
+script heap allocations/collections. VE02/VE03 must distinguish moved allocations
+from eliminated copies; small Value alone cannot explain or close the current gap.
+
+Validation: all original/source-form/numeric baseline checksums pass (1,364 batches);
+the paired source-form check exercises the expanded driver with both binary roles.
+The structure checker initially found one qualified import in the new benchmark;
+it was repaired with an explicit LuaError import. The final release build,
+formatting, structure (981 files, zero violations), Python syntax, 79 local
+document link targets and diff checks pass. All 88 probe checksums also pass.
+No production Rust contract changed, and no workspace tests or CI matrix ran.
+The reproduced shared-Add frontend error is pre-existing and outside VE scope.

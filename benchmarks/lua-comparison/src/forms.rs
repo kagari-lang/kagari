@@ -11,7 +11,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use mlua::{Function, Lua};
+use mlua::{Error as LuaError, Function, Lua};
 use std::{hint::black_box, time::Instant};
 
 const N: i32 = 5_000;
@@ -41,6 +41,22 @@ fn field() -> i32 { val counter = Counter { value: 1 }; var sum = 0; var i = 0;
     while i < 5000 { counter.value = (counter.value * 3 + 7) % 251; sum += counter.value; i += 1; } sum }
 fn native() -> i32 { var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = native_step(state); sum += state; i += 1; } sum }
+fn host_callback() -> i32 { var state = 1; var sum = 0; var i = 0;
+    while i < 5000 { state = native_step(state); sum += state; i += 1; } sum }
+fn string_identity(text: String) -> String { text }
+fn string_constants() -> i32 { var sum = 0; var i = 0;
+    while i < 5000 {
+        val text = if i % 2 == 0 { "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
+            else { "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-extra" };
+        sum += text.len() as i32; i += 1;
+    } sum }
+fn string_calls() -> i32 { var sum = 0; var i = 0;
+    while i < 5000 {
+        val text = if i % 2 == 0 { "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
+            else { "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-extra" };
+        val result = string_identity(text);
+        sum += result.len() as i32; i += 1;
+    } sum }
 fn byte_state() -> i32 { val memory: Vec<u8> = [0u8; 256]; var state = 1u8; var sum = 0; var i = 0;
     while i < 5000 {
         state = (((state as u32) * 13u32 + 17u32) as u8) ^ (state >> 3u32);
@@ -52,6 +68,10 @@ fn byte_state() -> i32 { val memory: Vec<u8> = [0u8; 256]; var state = 1u8; var 
 "#;
 
 fn native_step(_: &mut CallContext<'_>, state: i32) -> NativeResult<i32> {
+    host_step(state)
+}
+
+fn host_step(state: i32) -> NativeResult<i32> {
     let multiplied = numeric::binary(BinaryOp::Mul, Value::I32(state), Value::I32(3))?;
     let added = numeric::binary(BinaryOp::Add, multiplied, Value::I32(7))?;
     let Value::I32(result) = numeric::binary(BinaryOp::Rem, added, Value::I32(251))? else {
@@ -60,12 +80,15 @@ fn native_step(_: &mut CallContext<'_>, state: i32) -> NativeResult<i32> {
     Ok(result)
 }
 
-fn reference(byte: bool) -> i32 {
+fn reference(name: &str) -> i32 {
+    if matches!(name, "string_constants" | "string_calls") {
+        return (0..N).map(|i| if i % 2 == 0 { 62 } else { 68 }).sum();
+    }
     let mut state = 1u32;
     let mut sum = 0;
     let mut memory = [0u8; 256];
     for i in 0..N {
-        if byte {
+        if name == "byte_state" {
             state = ((state * 13 + 17) & 255) ^ (state >> 3);
             let slot = &mut memory[i as usize & 255];
             *slot = slot.wrapping_add(state as u8);
@@ -79,12 +102,23 @@ fn reference(byte: bool) -> i32 {
 }
 
 fn lua_source(name: &str) -> String {
+    if matches!(name, "string_constants" | "string_calls") {
+        let transfer = if name == "string_calls" {
+            "text = identity(text);"
+        } else {
+            ""
+        };
+        return format!(
+            "return function() local function identity(text) return text end; local sum, i = 0, 0; while i < {N} do local text; if i % 2 == 0 then text = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ' else text = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-extra' end; {transfer} sum = sum + #text; i = i + 1 end; return sum end"
+        );
+    }
     let (setup, action) = match name {
         "direct" => ("", "state = (state * 3 + 7) % 251"),
         "helper" | "native" => (
             "local function step(x) return (x * 3 + 7) % 251 end",
             "state = step(state)",
         ),
+        "host_callback" => ("", "state = host_step(state)"),
         "concrete_generic" => (
             "local function add(a, b) return a + b end",
             "state = add(state * 3, 7) % 251",
@@ -153,6 +187,13 @@ pub(super) fn run(options: &Options) {
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
     eprintln!("forms link_ns={}", start.elapsed().as_nanos());
     let lua = Lua::new();
+    lua.globals()
+        .set(
+            "host_step",
+            lua.create_function(|_, state: i32| host_step(state).map_err(LuaError::external))
+                .unwrap(),
+        )
+        .unwrap();
     let mut names = [
         "direct",
         "helper",
@@ -163,6 +204,9 @@ pub(super) fn run(options: &Options) {
         "field",
         "native",
         "byte_state",
+        "host_callback",
+        "string_constants",
+        "string_calls",
     ];
     if let Some(selected) = &options.profile {
         assert!(
@@ -182,7 +226,7 @@ pub(super) fn run(options: &Options) {
             continue;
         }
         let entry: Function = lua.load(lua_source(name)).eval().unwrap();
-        let expected = reference(name == "byte_state");
+        let expected = reference(name);
         let execute = |engine: &str| {
             if engine == "lua54" {
                 return entry.call::<i32>(()).unwrap();

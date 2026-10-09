@@ -622,10 +622,10 @@ Collector replacement, enum unboxing, general collection lease redesign, JIT
 expansion and new numeric APIs remain outside these completed tracks.
 
 The [compact values and interpreter execution plan](interpreter-value-execution-plan.md)
-defines the proposed VE00-VE08 follow-up. Planning was requested on 2026-10-09;
-implementation has not started. The plan owns its phase checklist, decisions and
-ledger. VE00-VE04 first establish compact Copy internal values, checked host-handle
-boundaries, shared strings/runtime constants and GC/async integration. VE05-VE08
+defines the active VE00-VE08 follow-up. Goal execution was authorized on 2026-10-09;
+VE00 baseline/design work is complete. The plan owns its phase checklist,
+decisions and ledger. VE00-VE04 first establish compact Copy internal values,
+checked host-handle boundaries, shared strings/runtime constants and GC/async integration. VE05-VE08
 then cover prepared object/collection operations, script calls, execution-loop
 costs and final measurements. Address-stable storage is a candidate, not an
 implemented or measured improvement. Completing the value milestone does not

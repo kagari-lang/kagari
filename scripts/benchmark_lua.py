@@ -63,9 +63,9 @@ def main() -> None:
     parser.add_argument("--numeric-matrix", action="store_true",
                         help="Measure bounded numeric/bit/cast loops in every numeric domain")
     parser.add_argument("--source-forms", action="store_true",
-                        help="Measure concrete/dynamic recurrence forms and bounded byte state")
+                        help="Measure recurrence forms, byte state, strings and host callbacks")
     parser.add_argument("--baseline-executable", type=Path,
-                        help="Interleave the unchanged original suite with a saved release binary")
+                        help="Interleave the selected unchanged workloads with a saved release binary")
     args = parser.parse_args()
     if args.numeric_matrix or args.source_forms or args.baseline_executable:
         args.interpreter_only = True
@@ -73,12 +73,12 @@ def main() -> None:
         parser.error("--workload cannot be combined with a matrix or saved baseline")
     if args.numeric_matrix and args.source_forms:
         parser.error("select one expanded matrix")
-    if args.baseline_executable and (args.numeric_matrix or args.source_forms):
-        parser.error("the saved baseline is paired only with the unchanged original suite")
     if args.runs < 1:
         parser.error("--runs must be positive")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    suffix = "-paired" if args.baseline_executable else "-forms" if args.source_forms else "-numeric" if args.numeric_matrix else ""
+    suffix = "-forms" if args.source_forms else "-numeric" if args.numeric_matrix else ""
+    if args.baseline_executable:
+        suffix += "-paired"
     output = ROOT / "target/lua-comparison" / (stamp + suffix + ("-check" if args.check else ""))
     output.mkdir(parents=True, exist_ok=True)
     metadata = {"timestamp_utc": stamp, "revision": command("git", "rev-parse", "HEAD"),
@@ -91,12 +91,12 @@ def main() -> None:
                 "samples_per_process": 1 if args.check else 11,
                 "warmups_per_route": 0 if args.check else 3,
                 "setup_samples_per_workload": 1 if args.check or args.numeric_matrix or args.source_forms else 3,
-                "workloads": "source forms and byte state" if args.source_forms else "numeric matrix" if args.numeric_matrix else args.workload or "original seven",
+                "workloads": "source forms, byte state, strings and host callbacks" if args.source_forms else "numeric matrix" if args.numeric_matrix else args.workload or "original seven",
                 "setup_scope": "one matrix module per process" if args.numeric_matrix or args.source_forms else "per workload",
                 "runs": args.runs, "check": args.check,
                 "interpreter_only": args.interpreter_only,
                 "environment": {key: os.environ[key] for key in (
-                    "CARGO_BUILD_JOBS", "CARGO_TARGET_DIR", "RUSTFLAGS", "CFLAGS", "CC"
+                    "CARGO_BUILD_JOBS", "CARGO_TARGET_DIR", "RUSTFLAGS", "CFLAGS", "CC", "DEVELOPER_DIR"
                 ) if key in os.environ}}
     sources = ROOT / "benchmarks/lua-comparison"
     metadata["source_sha256"] = {

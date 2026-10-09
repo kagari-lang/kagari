@@ -42,6 +42,34 @@ Neither language delegates the workload to a Rust helper. Both use explicit
 All seven results are checked against independent Rust reference calculations.
 The regression test additionally checks empty and single-element inputs.
 
+The VE00 follow-up also freezes `--source-forms`: direct/helper/concrete generic,
+interface/shared generic identity, captured cell, field, byte state, native,
+host_callback, string_constants and string_calls. The last three were added before
+the VE00 baseline executable was preserved. All use 5,000 iterations and checked
+reference results. String routes alternate 62-byte and 68-byte ASCII constants;
+string_calls additionally passes each value through a script identity function.
+The result is 325,000 bytes in both engines. These fixtures compare byte length,
+not Unicode character-count semantics or global string interning.
+
+`host_callback` calls the same checked Rust arithmetic helper through both engines'
+host adapters. The older `native` row compares a Kagari native callback with a Lua
+script helper and remains diagnostic only. Shared generic identity and interface
+dispatch compare observable algorithms, not equivalent language type systems.
+The shared generic Add default-body lowering failure remains separately tracked.
+The numeric matrix uses bounded exact inputs; it does not claim Lua implements
+Kagari's entire integer/float domain or checked-overflow semantics.
+
+Saved VE00 binaries can be paired with either unchanged matrix as well as the
+original suite. For example:
+
+```text
+uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve00/baseline-executable
+```
+
+Both binaries must contain the same selected fixtures. Results, binary/source hashes
+and process order are recorded; setup, allocation instrumentation and throughput
+runs remain separate. See the [VE00 report](../../docs/performance-baseline.md#compact-value-baseline-ve00-2026-10-09).
+
 | Workload | Input | Measured script work |
 | --- | ---: | --- |
 | entry | 1,000 calls per batch | Return `40 + 2`; primarily host entry overhead |
