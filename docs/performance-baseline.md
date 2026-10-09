@@ -7,6 +7,96 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Borrowed scalar execution segments (VE07), 2026-10-10
+
+Post-VE06 sampling selected one bounded change: borrow the code, logical-PC fields
+and scalar/initialization slices at segment entry. This removes repeated loaded
+function and bank-range lookup while retaining per-slot bounds/initialization and
+every canonical instruction boundary. No fusion, eliminated source operation,
+weakened cancellation policy or unsafe pointer was introduced. Arithmetic takes
+0.771x VE06 time, branches 0.787x and direct source-form computation 0.749x.
+Calls take 0.955x and helper 0.945x; arrays increase 0.3%. Maps and dynamic forms
+remain dominated by other work. All Lua parity ratios remain above one.
+
+Baseline is VE06 `13c151ef`, `target/ve06/candidate-executable`, SHA-256
+`15ff231a38726958d2b53948793cdee1b35f438c30953d2dc6c1f8a3ecfc0c66`.
+Candidate is `target/ve07/candidate-executable`, SHA-256
+`98a14ea576a1a4f616bb6573c8e7342f01148dbbeac70147753269d08edf2261`.
+Environment, release settings, features and timing boundaries are the same as VE05/06.
+The unchanged suites run baseline,candidate,candidate,baseline, three warmups and
+eleven samples per process/route, with reverse route order in the second pair.
+All 1,672 execution checksums pass; no builds/tests/probes/profilers run concurrently
+with throughput. Background activity/frequency remain uncontrolled. Small changes
+are not significance claims. Native source-form is still an unmatched adapter row.
+
+Tables are microseconds per complete workload, with candidate VM min–max ranges.
+
+### Original workloads
+
+| Workload | VE06 VM | VE07 VM | C/B | Candidate Lua | VM/Lua | VE07 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 3241.376 | 2497.771 | 0.771 | 382.562 | 6.53 | 2430.458–2564.708 |
+| arrays | 5103.167 | 5116.250 | 1.003 | 68.604 | 74.58 | 4979.541–5212.459 |
+| branches | 3783.562 | 2978.104 | 0.787 | 803.604 | 3.71 | 2923.250–3024.167 |
+| calls | 6429.792 | 6142.438 | 0.955 | 226.042 | 27.17 | 6077.334–6275.417 |
+| entry | 1.430 | 1.409 | 0.985 | 0.028 | 49.58 | 1.402–1.420 |
+| fibonacci | 12801.104 | 12634.104 | 0.987 | 353.250 | 35.77 | 12582.125–13212.166 |
+| maps | 12455.729 | 12383.563 | 0.994 | 66.188 | 187.10 | 12306.917–12674.875 |
+
+Excluded build wall time: 18.573 s.
+
+### Source forms
+
+| Workload | VE06 VM | VE07 VM | C/B | Candidate Lua | VM/Lua | VE07 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7183.938 | 6930.833 | 0.965 | 110.750 | 62.58 | 6839.166–7034.500 |
+| forms_capture_cell | 10285.625 | 10282.667 | 1.000 | 143.917 | 71.45 | 9989.459–10357.375 |
+| forms_concrete_generic | 3157.625 | 3047.834 | 0.965 | 103.416 | 29.47 | 3020.625–3107.625 |
+| forms_direct | 449.416 | 336.416 | 0.749 | 75.125 | 4.48 | 335.500–353.250 |
+| forms_field | 3832.062 | 3761.041 | 0.981 | 91.542 | 41.09 | 3691.250–3777.542 |
+| forms_helper | 3216.667 | 3040.917 | 0.945 | 139.917 | 21.73 | 3023.875–3099.667 |
+| forms_host_callback | 1992.500 | 1914.292 | 0.961 | 251.750 | 7.60 | 1896.167–1930.458 |
+| forms_interface | 10585.978 | 10360.417 | 0.979 | 133.770 | 77.45 | 10300.500–10533.833 |
+| forms_native | 1980.688 | 1918.792 | 0.969 | 141.500 | 13.56 | 1889.375–1984.000 |
+| forms_shared_generic | 21764.229 | 21438.271 | 0.985 | 109.291 | 196.16 | 21274.667–22212.792 |
+| forms_string_calls | 12772.542 | 12762.000 | 0.999 | 126.376 | 100.98 | 12704.625–13010.583 |
+| forms_string_constants | 7119.521 | 7056.292 | 0.991 | 67.041 | 105.25 | 6966.084–7137.792 |
+
+Excluded build wall time: 0.083 s.
+
+### Selection evidence and reproduction
+
+Post-VE06 wall-clock stack samples are under
+`target/lua-comparison/20261009T174818Z-macos-profile/`. Arithmetic places 3193/3628
+top samples in the scalar loop, 267 in cancellation and 163 in numeric kernels.
+Calls retain repeated stack admission/termination costs; maps prominently sample
+allocation/free and type compatibility. Optimized inline attribution is incomplete;
+these are not CPU performance counters. The original generated scalar loop
+recovered module/function/code and bank metadata inside dispatch. Before/after
+assembly is `target/ve07/{ve06,candidate}-scalars.asm`.
+
+Canonical operations and physical frame layouts are unchanged. Independent observer
+counts remain arithmetic 550,015 Kagari / 250,007 Lua, direct 75,015 / 40,006 and
+helper 105,012 / 65,007. Arithmetic execution medians therefore correspond to
+approximately 5.89 -> 4.54 ns per canonical Kagari instruction; this includes the
+whole public execution boundary and is not an isolated kernel timing. No instruction
+was renamed away to obtain that figure. Arithmetic/direct/helper allocate zero
+script heap objects and perform zero GC collections. Value/ExecutionInstruction
+remain 16/24 bytes. No persistent per-instruction metadata was added.
+
+Final raw reports are `target/lua-comparison/20261009T175200Z-paired/` and
+`20261009T175429Z-forms-paired/`. Numeric/source-free, trap, sliced execution,
+debugger and reentry checks remain separate from throughput evidence.
+
+```sh
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py arithmetic calls arrays maps
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/ve06/candidate-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve06/candidate-executable
+target/ve07/candidate-executable --interpreter-only --profile=arithmetic
+target/ve07/candidate-executable --source-forms --profile=direct
+target/ve07/candidate-executable --source-forms --profile=helper
+```
+
 ## Prepared script calls and frame retirement (VE06), 2026-10-10
 
 Concrete calls prepare physical argument/return locations and callee layouts;

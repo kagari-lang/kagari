@@ -729,6 +729,12 @@ The scalar loop hands prepared field operations back to the cursor's object
 handlers without releasing its frame/window access. Keeping those handlers outside
 the scalar loop prevents their storage checks from changing its inlining budget;
 the handoff retains original logical PC and instruction-slice accounting.
+Each scalar segment splits the admitted Rust borrow into an immutable code slice,
+mutable logical-PC fields and bounded scalar/initialization slices. Instructions
+still check operand bounds and initialization, but no longer recover the loaded
+function or bank range per operand. These borrows end before object handoff or
+region exit; no pointer or exclusive borrow survives a callback or arena growth.
+Canonical instructions remain one-to-one with prepared instructions.
 Shared generic layouts and other managed operations use the ordinary boundary.
 The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks

@@ -6,18 +6,15 @@ use crate::{
         ExecutionFrame, ExecutionStack,
         values::{ExecutionValues, WindowRanges},
     },
-    module::execution::ExecutionInstruction,
     session::SessionState,
     value::Value,
 };
-use kagari_bytecode::{
-    instruction::{LocalSlot, Register},
-    module::CallableTarget,
-};
+use kagari_bytecode::instruction::{LocalSlot, Register};
 use std::cell::{Ref, RefMut};
 
 pub mod kernel;
 mod objects;
+mod scalars;
 
 /// A transient interpreter view. Release it before GC, observation, native calls,
 /// stack growth or synchronous reentry; the stores reject conflicting borrows.
@@ -60,36 +57,6 @@ impl ExecutionStack<'_> {
 }
 
 impl ExecutionCursor<'_> {
-    /// Publish the next logical PC before deciding whether a full boundary is
-    /// needed. Cancellation is completed outside this borrow so its trace can
-    /// inspect the stack. Observers and collections always run without a cursor.
-    fn prepare_instruction(&mut self, collection_due: bool) -> Result<bool, RuntimeError> {
-        self.frame.prepare_instruction();
-        Ok(self.session.options.cancellation.check().is_err()
-            || self.session.observer_attached.get()
-            || collection_due
-            || (self.runtime.gc().automatic_collection_enabled()
-                && self.runtime.modules.has_abandoned_programs()?))
-    }
-
-    fn next_instruction(&mut self) -> Option<ExecutionInstruction> {
-        let CallableTarget::Script(function) = self.frame.target else {
-            return None;
-        };
-        let instruction = self
-            .frame
-            .loaded
-            .execution()
-            .functions
-            .get(function.index())?
-            .instructions
-            .get(self.frame.ip)
-            .copied()?;
-        self.frame.executing = Some(self.frame.ip);
-        self.frame.ip += 1;
-        Some(instruction)
-    }
-
     fn invalid(&self) -> RuntimeError {
         self.runtime
             .gc()
@@ -139,20 +106,5 @@ impl ExecutionCursor<'_> {
 
     pub fn write_local(&mut self, local: LocalSlot, value: Value) -> Result<(), RuntimeError> {
         self.write(self.frame.register_count + local.index(), value)
-    }
-
-    fn jump(&mut self, target: usize) -> Result<(), RuntimeError> {
-        if self
-            .frame
-            .function()
-            .is_none_or(|function| target >= function.instructions.len())
-        {
-            return Err(self
-                .runtime
-                .resources()
-                .quarantine("invalid frame jump target"));
-        }
-        self.frame.ip = target;
-        Ok(())
     }
 }

@@ -1,9 +1,9 @@
 # Compact values and interpreter execution (VE00-VE08)
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
-VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE06 are
-locally complete; VE07 execution-region profiling is in progress. Lua parity and
-full-plan integration/CI acceptance remain open.
+VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE07 are
+locally complete; VE08 final integration and baseline comparison are in progress.
+Lua parity and full-plan integration/CI acceptance remain open.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation and queue placement. This plan owns phase order, implementation scope,
@@ -534,7 +534,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 - [x] VE04: Value/reference integration and measurement gate.
 - [x] VE05: Prepared object and collection operations.
 - [x] VE06: Prepared script calls and frame transfers.
-- [ ] VE07: Execution-region and instruction costs.
+- [x] VE07: Execution-region and instruction costs.
 - [ ] VE08: Final integration and paired performance evaluation.
 - [ ] Final local correctness/integration acceptance.
 - [ ] Complete GitHub CI feature/backend acceptance.
@@ -1131,3 +1131,47 @@ async, debug and native-frame checks. Runtime/VM/embed all-target Clippy passes;
 structure check reports 987 files and no violations. No carried build errors or
 new structural exceptions. Full workspace checks and CI remain pending VE08.
 VE06 is locally accepted; post-VE06 scalar/mixed sampling selects bounded VE07 work.
+
+### VE07 in progress: scalar region access
+
+VE06 checkpoint is `13c151ef`. Post-VE06 sampling lives at
+`target/lua-comparison/20261009T174818Z-macos-profile/`: arithmetic has 3193 of
+3628 top samples in execute_scalars, 267 in cancellation and 163 in numeric kernels.
+Calls retain stack admission/termination overhead; maps show prominent allocator
+and type comparison stacks. These are wall-clock samples with incomplete optimized
+inline attribution, not CPU counters. Generated scalar code is preserved under
+`target/ve07/ve06-scalars.asm` for comparison.
+
+Select one bounded change: split Rust borrows at scalar-region admission to retain
+code and current scalar-bank slices, eliminating repeated loaded-function and bank
+range lookup. Keep per-slot bounds/initialization, logical PCs, cancellation,
+observer/slice boundaries and checked arithmetic. Object handoff releases only the
+scalar sub-borrow; the admitted parent cursor remains. No unsafe pointer, instruction
+fusion or removal of canonical operations is introduced. Evaluate actual generated
+code and timing before acceptance; no VE07 acceptance yet.
+
+### VE07 local acceptance
+
+The scalar segment retains safe split borrows of code, PCs and frame scalar slices.
+Generated code now reads instructions through the admitted slice/length instead of
+recovering module/function metadata at each dispatch. Bank range offset work is
+also hoisted, while per-slot bounds/initialization checks remain. No instruction
+fusion is selected in this bounded phase: canonical counts, origins and slice
+units remain unchanged, making the measured dispatch-cost change directly comparable.
+
+All 1,672 paired execution checksums pass. Arithmetic takes 0.771x VE06 time,
+branches 0.787x, direct 0.749x, calls 0.955x and helper 0.945x. Arrays increase
+0.3%; maps/capture/string calls remain approximately unchanged. Independent counts
+are arithmetic 550,015, direct 75,015 and helper 105,012; corresponding Lua counts
+are 250,007 / 40,006 / 65,007. Value/ExecutionInstruction remain 16/24 bytes and
+these scalar workloads allocate no GC objects. The
+[full report](performance-baseline.md#borrowed-scalar-execution-segments-ve07-2026-10-10)
+contains environment, samples/ranges, hashes and reproduction commands.
+
+Focused execution contracts (44), owned/sliced drive (2), debug protocol (2),
+reentrant breakpoint/trap traces (1), sessions (9), and numeric/source-free domain,
+overflow, IEEE and conversion contracts (4) pass. Affected all-target check/Clippy,
+structure (988 files, zero violations), formatting and diff checks pass. No unsafe
+code, structural exception, carried errors or obsolete production prototype remains.
+VE07 is locally accepted; VE08 owns batched final workspace integration and the
+preserved VE00 comparison. Lua parity remains unaccepted.
