@@ -148,9 +148,11 @@ and uses the same slot write checks. Reflection cannot bypass read-only fields
 or scalar representation checks. Named `StructValueField` records exist only in
 diagnostic snapshots, not heap storage or allocation APIs.
 
-The current `value.rs` file already separates script-owned handles from host-backed handles.
-
-The value shape is:
+Internal values are compact tagged copies; owned payloads live outside the value
+slot. The implementation uses 16-byte `Value` in release and debug builds, with
+12-byte checked heap identities containing owner, slot and allocation generation.
+Copying a value does not retain its referent or allocate/copy payload bytes.
+The implemented categories are:
 
 ```text
 Value {
@@ -158,16 +160,37 @@ Value {
   Bool(bool),
   I32(i32),
   I64(i64),
+  U64(u64),
   F32(f32),
   F64(f64),
-  Str(StringHandle),
-  GcHandle(GcObjectId),
-  InterfaceHandle(InterfaceObjectId),
-  HostOwned(HostObjectId),
-  HostPathView(HostPathViewId),
-  Ephemeral(EphemeralValueId)
+  Str(HeapObjectId),
+  Tuple(HeapObjectId),
+  Range(HeapObjectId),
+  Array/Map/Set/Enum/Struct/GcHandle/Closure/Cell(HeapObjectId),
+  Interface(InterfaceObjectId),
+  HostRoot(HeapObjectId),
+  HostPathView(HeapObjectId),
+  Ephemeral(HeapObjectId),
+  RuntimeEphemeral(EphemeralValueId)
 }
 ```
+
+Strings and tuple membership are immutable. Updating a tuple creates replacement
+membership, sharing referenced children; mutation of an aliased mutable child
+remains visible through all aliases. String equality/hashing uses contents,
+independently of storage identity. Raw Rust Value equality describes transport
+identity and must not replace language equality. Host root/path/borrow descriptors
+are heap-owned records, while Rust host objects and borrow authority stay with the
+host registry and active scope. The descriptor's continued existence never extends
+a host borrow past its validated scope.
+
+Module constants use portable checked indices. Materialized strings belong to a
+runtime-local module-version cache, participate in GC tracing, and are shared by
+repeated loads. Sharing verified code between runtimes does not share heap values.
+An escaped string needs an ordinary root and does not retain obsolete executable
+state. Internal string access borrows a scoped view, released before script-heap
+allocation, collection or callback boundaries; owned host String conversion copies
+the bytes.
 
 The representation must preserve:
 
@@ -208,7 +231,7 @@ seed their values and program/environment metadata, including suspended callers.
 Prepared-method and selected-native-call metadata is stored alongside persistent
 roots; public leases never own that storage.
 A reached program traces its dependency members'
-module slots; a reached closure or interface traces its executable owner and
+module slots and materialized constants; a reached closure or interface traces its executable owner and
 environment. Metadata traversal uses an explicit worklist, visits shared descriptors
 once and excludes pure layout provenance from executable state retention. Program
 edges validate the installed generation and runtime identity. An obsolete module
@@ -290,8 +313,9 @@ heap/root identities and Arc leases. Clones share one entry. Dropping the last l
 removes retention eligibility; expired entries are pruned on registration and
 collection. A concurrent last drop may retain an object for one extra collection.
 RootedValue::value and set require the owning heap and validate identity/generation;
-replacement also validates incoming references. Value::clone alone does not retain
-heap objects. Frame/native/debug slots use the same table through RootSet.
+replacement also validates incoming references. Copying a raw Value does not retain
+heap objects. Persistent native/debug retention uses this table; active interpreter
+frames are traced from runtime-owned scalar/managed windows.
 Executable metadata roots are published through Runtime so program ownership and
 metadata generations are validated before replacing the old references. Failed
 replacement preserves the previous roots; released or foreign metadata cannot

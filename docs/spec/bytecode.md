@@ -711,15 +711,19 @@ The `JumpTarget` representation used by the VM is instruction-stream based, not 
 
 ## Constant Handling
 
-The current `ConstantOperand` model is small and inline.
+`LoadConst` carries a `ConstantId`, indexing the owning module's portable
+`ConstantOperand` table. Lowering deduplicates constants by tag and exact payload;
+float payloads use bit equality, preserving signed zero and NaN payloads. The
+verifier rejects out-of-range indices, duplicate pool entries and destination
+representation mismatches. Semantic integer-range analysis reads the indexed
+operand. Artifacts serialize indices and portable constants, never runtime handles.
 
-For the current language model, `LoadConst` is primarily aimed at small scalar operands.
-
-Future Work: string-heavy or other large inline operands can move into a constant pool when:
-
-- serialized artifact size matters
-- deduplication becomes worthwhile
-- VM loading cost needs to be reduced
+Runtime preparation embeds scalar payload bits in physical scalar operations.
+Strings are materialized lazily in a runtime-local cache owned by the loaded
+module version; subsequent loads copy its compact Value. The GC traces these
+cache entries with the program graph. Escaped rooted strings remain valid when
+an obsolete cache is reclaimed. Independently loaded runtimes share immutable
+verified code but have separate constant storage. Dynamic interning is not required.
 
 This does not mean that `const` items produce heap-backed frozen objects.
 Aggregate runtime values are built through explicit construction instructions.
@@ -728,6 +732,7 @@ Aggregate runtime values are built through explicit construction instructions.
 
 The examples below show the execution shape.
 Opcode spelling is implementation-defined when the semantic behavior is unchanged.
+Literal operands shown on `LoadConst` are shorthand for constant-table indices.
 
 ### Example: Simple Arithmetic
 

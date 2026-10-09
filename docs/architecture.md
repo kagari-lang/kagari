@@ -631,7 +631,7 @@ The active [runtime ownership and host object API](runtime-ownership-and-host-ap
 replaces distributed Rc ownership with central checked stores and automatic host
 leases, and targets exclusive execution in a Send runtime. It also owns typed
 registration, managed object mutation and checked host function/trait calls. The
-following paragraphs describe the implemented GO baseline and IP01–IP03 interpreter storage.
+following paragraphs describe the implemented ownership, compact values and interpreter storage.
 
 The runtime owns values, the script GC heap, explicit roots, host registry,
 module versions, installed native code owners and execution sessions. The VM
@@ -640,6 +640,25 @@ host state. Host calls use scoped borrow validation; deep host mutation uses
 checked typed paths rather than retained Rust references or reflective field lookup.
 See [runtime](spec/runtime.md), [host interop](spec/host-interop.md) and
 [typed path mutation](spec/typed-path-mutation.md).
+
+Internal `Value` is a 16-byte `Copy` tagged value. Scalars retain complete payloads;
+strings, immutable tuples/ranges, mutable objects and host descriptors carry checked
+12-byte heap identities (owner, slot, generation). Copying a Value neither copies
+text/aggregate contents nor acquires ownership or a root. Tuple updates allocate a
+replacement tuple while sharing referenced children; mutable children retain alias
+semantics. Host descriptors are heap records, but referenced Rust state remains
+outside the script heap. Runtime-only ephemeral IDs remain a distinct value tag.
+Every heap access still checks owner, generation and object kind. Saturated slot
+generations retire storage; owner/slot exhaustion cannot truncate or wrap identity.
+
+Canonical `LoadConst` refers to a deduplicated module constant table by checked
+`ConstantId`. Equality of portable float constants uses their exact bits. Shared
+verified programs contain no runtime heap identities. Each runtime module record
+lazily materializes its own string constants and traces them as edges of that
+version. Repeated loads copy only the Value. Reclaiming an obsolete module releases
+its cache; independently rooted escaped strings keep their bytes without retaining
+the old module state. Standard string input operations borrow scoped UTF-8 views;
+owned Rust String conversion remains an explicit copy at the host boundary.
 
 Persistent root values live in a heap-owned generational table. Host/debug handles
 carry Arc leases and checked root identities; value access requires the owning heap.

@@ -7,6 +7,167 @@ Older superseded tables and successful test logs remain in Git history.
 Historical sections were not rerun by the documentation cleanup. The post-GO06
 interpreter section is a new measurement on its explicitly recorded revision.
 
+## Compact values and shared constants (VE04), 2026-10-10
+
+VE00-VE03 reduce Value from 32 to 16 bytes and make it Copy without per-copy
+ownership work. Paired execution shows string-constant and string-call workloads
+at 29.7% and 41.9% of the preserved baseline time, respectively. Arrays improve
+9.3%; most other mixed routes improve 2–9%. Numeric routes are 0.1–2.0% slower;
+this migration does not improve the scalar execution loop. Lua parity is still
+open: the first value/reference milestone is not final interpreter acceptance.
+
+Candidate production revision: `511e40a2` (VE04 changes only integration fixtures
+and documentation). Candidate executable SHA-256:
+`88440efb52b9d16ea3f87ab38458a24c7896fd571269f4196651e3b261e693d0`.
+The preserved VE00 executable remains
+`60aa2c07334fb25123208c8c77a4008d1bc93d2f680da6ac21560838e7ebfc81`.
+The benchmark sources, inputs, lockfile and driver are unchanged from VE00.
+
+Environment: Apple M1 Max, 10 logical CPUs, 32 GiB RAM, macOS 26.6.2 arm64;
+Rust 1.98.1 (`48a229cea`), LLVM 22.1.8, Cargo 1.98.1. Workspace release profile,
+default target directory and Cargo parallelism; SDK source/native and mlua
+lua54/vendored features, locked PUC Lua 5.4.8, interpreter-only execution.
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools`; no custom jobs or flags.
+The first release rebuild took 28.173 s; subsequent driver builds reused it in
+0.084/0.079 s. Builds and source/verification/link preparation are excluded from
+execution, while public host entry/return and normal GC remain included.
+
+Each matrix uses baseline,candidate,candidate,baseline sequential fresh processes,
+three warmups and eleven checked samples per route/process; the second pair reverses
+workload/engine order. There are 22 samples per variant/engine/workload and all
+2,728 measured execution batches pass independent checksums. No build, test or
+profiler ran concurrently with throughput timing. CPU frequency, affinity and
+unrelated background activity remain uncontrolled. Allocation counts below come
+from separate instrumented executions and are not used as throughput samples.
+
+Tables show microseconds per complete workload; entry is per call from 1,000-call
+batches. C/B is candidate VM / preserved baseline VM (lower is better); VM/Lua
+uses Lua from the candidate process. Small differences are reported without a
+statistical-significance claim. Numeric and branch/entry regressions are retained,
+not discarded or hidden by the smaller Value.
+
+### Original suite
+
+| Workload | Baseline VM | Candidate VM | C/B | Candidate Lua | VM/Lua | Candidate VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 3472.312 | 3421.354 | 0.985 | 390.812 | 8.75 | 3407.625–3449.292 |
+| arrays | 15550.416 | 14109.792 | 0.907 | 67.188 | 210.01 | 13987.083–14627.834 |
+| branches | 4011.688 | 4061.624 | 1.012 | 819.438 | 4.96 | 4038.375–4102.083 |
+| calls | 7369.188 | 7145.937 | 0.970 | 225.771 | 31.65 | 7127.583–7289.334 |
+| entry | 1.450 | 1.462 | 1.008 | 0.029 | 50.07 | 1.457–1.495 |
+| fibonacci | 15237.479 | 14654.854 | 0.962 | 350.583 | 41.80 | 14575.667–14700.666 |
+| maps | 14263.875 | 13678.396 | 0.959 | 66.730 | 204.98 | 13573.875–13861.083 |
+
+### Source forms
+
+| Workload | Baseline VM | Candidate VM | C/B | Candidate Lua | VM/Lua | Candidate VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7748.229 | 7173.021 | 0.926 | 111.105 | 64.56 | 7086.333–7270.375 |
+| forms_capture_cell | 11108.041 | 10127.521 | 0.912 | 143.458 | 70.60 | 10081.000–10459.291 |
+| forms_concrete_generic | 3707.854 | 3533.229 | 0.953 | 102.770 | 34.38 | 3519.125–3704.708 |
+| forms_direct | 481.896 | 464.250 | 0.963 | 75.084 | 6.18 | 460.959–536.250 |
+| forms_field | 8018.729 | 7699.958 | 0.960 | 89.958 | 85.60 | 7685.834–7769.417 |
+| forms_helper | 3673.000 | 3485.146 | 0.949 | 140.292 | 24.84 | 3471.500–3533.084 |
+| forms_host_callback | 2088.021 | 1950.625 | 0.934 | 248.604 | 7.85 | 1946.334–1996.541 |
+| forms_interface | 10820.854 | 10431.854 | 0.964 | 133.729 | 78.01 | 10312.292–10577.167 |
+| forms_native | 2109.541 | 1949.104 | 0.924 | 140.250 | 13.90 | 1945.916–1971.458 |
+| forms_shared_generic | 21832.312 | 21420.604 | 0.981 | 106.500 | 201.13 | 21227.750–21674.750 |
+| forms_string_calls | 30389.375 | 12745.084 | 0.419 | 125.209 | 101.79 | 12679.459–13356.750 |
+| forms_string_constants | 23347.500 | 6945.729 | 0.297 | 66.562 | 104.35 | 6922.000–7166.458 |
+
+### Bounded numeric matrix
+
+| Workload | Baseline VM | Candidate VM | C/B | Candidate Lua | VM/Lua | Candidate VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| numeric_f32 | 2566.271 | 2569.646 | 1.001 | 441.125 | 5.83 | 2543.875–2582.959 |
+| numeric_f64 | 2522.104 | 2546.438 | 1.010 | 443.604 | 5.74 | 2503.334–2665.542 |
+| numeric_i16 | 2838.229 | 2882.333 | 1.016 | 573.437 | 5.03 | 2854.625–2895.291 |
+| numeric_i32 | 2836.688 | 2860.083 | 1.008 | 573.355 | 4.99 | 2834.209–2927.292 |
+| numeric_i64 | 2801.791 | 2838.729 | 1.013 | 575.688 | 4.93 | 2823.333–2862.875 |
+| numeric_i8 | 2863.876 | 2889.125 | 1.009 | 576.333 | 5.01 | 2867.125–2914.291 |
+| numeric_isize | 2816.563 | 2842.021 | 1.009 | 573.771 | 4.95 | 2828.167–2868.083 |
+| numeric_u16 | 2814.854 | 2846.001 | 1.011 | 573.458 | 4.96 | 2837.750–2895.584 |
+| numeric_u32 | 2829.312 | 2853.209 | 1.008 | 574.083 | 4.97 | 2842.000–2883.750 |
+| numeric_u64 | 2805.875 | 2859.709 | 1.019 | 573.854 | 4.98 | 2850.250–2959.333 |
+| numeric_u8 | 2805.959 | 2850.376 | 1.016 | 574.542 | 4.96 | 2835.042–3026.375 |
+| numeric_usize | 2808.021 | 2863.562 | 1.020 | 576.562 | 4.97 | 2847.500–2886.083 |
+
+The native source-form row remains unmatched (Rust callback versus Lua helper).
+The host_callback row is matched within each binary. Its Lua time changes from
+383.417 to 248.604 us between binaries. Both adapters call the same Rust `host_step`,
+which uses Kagari Value/numeric operations affected by this migration, so the Lua
+row also includes changed Kagari Rust code. The callback's implementation source
+is unchanged; this does not isolate a Lua VM or callback-body speedup. Report the
+candidate ratio 7.85, including its current callback cost,
+rather than combining the new Kagari measurement with the old Lua callback cost.
+Shared-generic Add remains excluded for the pre-existing frontend error; the frozen
+shared-generic identity/default-method row does not establish Add support.
+
+### Representation and allocation
+
+Current release/debug Value is 16 bytes and Copy, HeapObjectId is 12, HeapObject
+is 128, and a complete ObjectSlot is 168. TupleData is 32 plus 16 bytes per member;
+String control storage is 24 plus text capacity; RangeValue is 24. RootedValue
+remains a 32-byte owning lease. Host descriptors remain 40/104/48-byte payloads
+behind compact checked IDs. These are implementation layout observations, not
+portable ABI sizes, retained-memory measurements or RSS. Scalar banks already
+stored raw 64-bit payloads and are not halved by the Value change.
+
+The unchanged allocator probe runs one 5,000-iteration public execution after
+three warmups and checks 325000. Counts cover Rust alloc/alloc_zeroed/realloc and
+requested bytes, not just strings or heap nodes:
+
+| Workload | Baseline calls → candidate calls | Baseline bytes → candidate bytes | Baseline heap allocations / collections → candidate |
+| --- | ---: | ---: | ---: |
+| string constants/length | 480007 → 7 | 50155179 → 163 | 0 / 0 → 0 / 0 |
+| string function transfer/length | 500007 → 7 | 51455175 → 159 | 0 / 0 → 0 / 0 |
+| tuple construction/member read | 35007 → 5315 | 1680179 → 1175451 | 0 / 0 → 5000 / 14 |
+| one-element range traversal | 1540708 → 1480704 | 107233227 → 106005195 | 15000 / 25 → 20000 / 29 |
+
+Strings now materialize once per runtime/module version, and standard readonly
+string inputs no longer decode to owned Rust Strings. Warmed loads/transfers copy
+no text. The seven remaining allocations occur at the complete execution boundary.
+Tuples/ranges now have GC records: this is a real added collector cost, not a hidden
+zero-allocation claim. Tuple copying no longer duplicates membership, giving fewer
+Rust requests/bytes; each range construction adds one record, not one per iterator
+step. Range iterator/Option/native costs still dominate its allocation workload.
+No new collector or general enum-unboxing work was added to explain these results.
+
+### Reproduction and acceptance
+
+Run sequentially with the environment above:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/ve00/baseline-executable
+uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve00/baseline-executable
+uv run python scripts/benchmark_lua.py --numeric-matrix --baseline-executable target/ve00/baseline-executable
+```
+
+Full raw samples, setup phases, process order, machine/toolchain, source/binary
+hashes and build logs are in `target/lua-comparison/20261009T163933Z-paired/`,
+`20261009T164241Z-forms-paired/` and `20261009T164314Z-numeric-paired/`.
+The original suite records engine/runtime initialization, source-to-artifact,
+artifact preparation and program linking as separate phases. Expanded matrices
+prepare one module outside execution. None of these setup costs were subtracted
+from only one engine's timed execution.
+
+Allocation probes are `target/ve00/measure_source` (preserved baseline) and
+`target/ve03/measure_source` (release-linked candidate); use the same `strings.kgr`
+and `tuple-range.kgr` inputs under `target/ve00/`. The latter constructs `(i,65)`
+and reads `pair[1]` 5000 times, then separately traverses `i..(i+1)` 5000 times,
+adding 65 each time. Probe aliases string_constants/string_calls name tuple/range
+in that input. Candidate logs are `target/ve03/string-allocations.log` and
+`target/ve04/aggregate-allocations.log`; link commands are recorded by
+`target/ve03/build_probe.py`/`probe-build.log`.
+
+The [VE04 ledger](interpreter-value-execution-plan.md#ve04-completed-integration-and-performance-gate)
+records focused correctness, lifetime, source-free and backend checks separately.
+The compact value/reference gate passes locally: no material unexplained throughput
+regression, reduced allocation traffic, and explicit accounting for added tuple/range
+records. This does not establish a scalar speedup, complete GitHub CI acceptance or
+Lua parity. VE05–VE07 still own prepared object/collection/call and execution-loop
+costs; the end-to-end ratios above remain the full-plan performance obligation.
+
 ## Compact value baseline (VE00), 2026-10-09
 
 Production revision: `19fe129d` (runtime unchanged from `f521b2f0`) plus the

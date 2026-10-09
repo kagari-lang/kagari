@@ -182,9 +182,19 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     runtime.gc().map_clear(map).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 7);
     runtime.gc().set_clear(set).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 4);
+    // The original string is still owned by the published constant cache.
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
     assert!(MapKey::from_value(runtime.gc(), &key).is_none());
     drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    let candidate = runtime
+        .stage_reload_verified_program(
+            &loaded,
+            loaded.name.clone(),
+            loaded.verified_program().clone(),
+        )
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
 

@@ -623,13 +623,14 @@ expansion and new numeric APIs remain outside these completed tracks.
 
 The [compact values and interpreter execution plan](interpreter-value-execution-plan.md)
 defines the active VE00-VE08 follow-up. Goal execution was authorized on 2026-10-09;
-VE00 baseline/design and VE01 compact reference ownership are complete; VE02 is
-next. The plan owns its phase checklist,
+VE00-VE04 are locally complete with 16-byte Copy values, checked compact identities,
+runtime-local string constants and the lifecycle/performance gate; VE05 is next.
+The plan owns its phase checklist,
 decisions and ledger. VE00-VE04 first establish compact Copy internal values,
 checked host-handle boundaries, shared strings/runtime constants and GC/async integration. VE05-VE08
 then cover prepared object/collection operations, script calls, execution-loop
-costs and final measurements. Address-stable storage is a candidate, not an
-implemented or measured improvement. Completing the value milestone does not
+costs and final measurements. VE00 selected compact checked indices over direct
+references using bounded storage probes. Completing the value milestone does not
 establish Lua parity; final local, CI and performance acceptance stay separate.
 
 ### Async execution (AX00-AX06, active)

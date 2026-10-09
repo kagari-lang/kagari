@@ -1,8 +1,9 @@
 # Compact values and interpreter execution (VE00-VE08)
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
-VE00-VE08 in order, following the debug-only diagnostic refinement. VE00 baseline
-and VE01 storage/reference ownership are complete; VE02 value migration is in progress.
+VE00-VE08 in order, following the debug-only diagnostic refinement. VE00-VE04 are
+complete; VE05 prepared object/collection operations are next. Lua parity and
+full-plan integration/CI acceptance remain open.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation and queue placement. This plan owns phase order, implementation scope,
@@ -530,7 +531,7 @@ commits do not claim phase completion. Do not amend unrelated user commits.
 - [x] VE01: Storage, internal reference ownership and roots.
 - [x] VE02: Compact Copy values and complete consumer migration.
 - [x] VE03: Runtime string constants and shared string access.
-- [ ] VE04: Value/reference integration and measurement gate.
+- [x] VE04: Value/reference integration and measurement gate.
 - [ ] VE05: Prepared object and collection operations.
 - [ ] VE06: Prepared script calls and frame transfers.
 - [ ] VE07: Execution-region and instruction costs.
@@ -645,7 +646,7 @@ heap-aware accessors instead of pretending an ID provides a Rust reference.
 | Interface | Compact ID to existing interface object/snapshot graph | Trace data and method/environment metadata; retain runtime/code generations. |
 | Closure, Cell | Existing snapshots/cells with compact IDs | Capture roots, shared mutation and generation-pinned call targets. |
 | HostRoot, HostPathView | Traced descriptor records containing existing checked handles | Host resources stay outside the heap. Trace dynamic path args; descriptor records are reclaimed through ordinary roots, not permanent tables. Preserve no-escape restrictions. |
-| Ephemeral (HostRef, HostMut, Runtime) | Compact ID to a scoped-token descriptor record | Heap record allocation does not make tokens storable. Keep owner/frame/epoch checks; no nested oversized enum in Value. |
+| Ephemeral (HostRef, HostMut), RuntimeEphemeral | Host borrows use compact IDs to scoped-token records; runtime-only IDs use a separate inline tag | Heap record allocation does not make tokens storable. Keep owner/frame/epoch checks and distinct admission domains; no nested oversized enum in Value. |
 
 Only transport descriptors become traced records; registry, module, type metadata
 and actual Rust resources retain their existing owners. Existing Arc-backed
@@ -921,3 +922,72 @@ by `target/ve03/build_probe.py`/`probe-build.log`, and
 `target/ve03/measure_source target/ve00/strings.kgr`. Raw validation/allocation logs
 are under `target/ve03/`; preserved baseline binaries remain untouched. VE03
 acceptance passes. VE04 owns the combined lifecycle and paired throughput gate.
+
+### VE04 completed: integration and performance gate
+
+VE03 production checkpoint is `511e40a2`. Focused lifecycle, asynchronous retention/
+output, callback GC, cleanup, source-free and supported backend contracts pass.
+Disposable artifacts under `target/fixtures` were regenerated once for the indexed
+format. Architecture/runtime/bytecode descriptions now match compact checked IDs,
+Copy transport, immutable tuples/strings and version-owned constant caches.
+
+Initial focused integration exposed three exact-count assumptions: the GC key
+fixture expected clearing containers to free their constant string, and reentry/
+cancellation cleanup expected a published module to have no retained constants.
+The cache correctly retains those strings. Updated existing contracts assert the
+remaining constant, replace the published version without executing its new cache,
+and then require exact-zero collection. No frame/root cleanup check is removed.
+Reproduction: `cargo test -p kagari-vm --test native_boundary native_boundary_gc`
+(key fixture: reclaimed 3, expected 4), and
+`cargo test -p kagari-vm --lib tests::sessions` (two cleanup cases: live 1, expected 0).
+All three cases pass their focused reruns. The standalone source-free native
+consumer had the same exact-zero assumption (11 published strings). It now releases
+that version before exact-zero collection and also passes its focused rerun.
+
+Validation (CommandLineTools environment, normal workspace profiles/default target
+and parallelism; complete feature/backend matrices remain CI-owned):
+
+- Embedding generic reload: 2 pass; native artifacts: 2 pass; exclusive runtime
+  transfer: 1 pass. Existing asynchronous lifecycle/reload and output-publication
+  contracts each pass, covering suspension, cancellation, fault and successful output.
+- GC/native payload contracts: 14 pass initially plus the repaired key-root case.
+  Session/reentry contracts: 7 pass initially plus the repaired trap/cancel cases.
+  Stored native callbacks trace captures through callback-triggered collection.
+- Warmed native scalar/bulk and script-window allocation contracts: 2 pass.
+  Supported backend adapters/fallbacks: 10 pass. Real Cranelift preparation,
+  retained entry ownership/reload and safepoint contracts: 3 pass.
+- `scripts/check_features.py --async-only`: 13 production dependency boundaries
+  and the standalone source-free async contract pass; forbidden frontend/compiler
+  dependencies remain absent. Source-free native enum and forged-import contracts
+  pass; repaired native binding cleanup passes independently. This is focused
+  standalone validation, not a complete feature/backend matrix.
+- Affected VM/embedding all-target Clippy with `-D warnings`, formatting, structure
+  (983 files, zero violations), imports/ownership review and `git diff --check`
+  pass. No full workspace suite or GitHub CI matrix ran. Logs: `target/ve04/`.
+
+[Paired results](performance-baseline.md#compact-values-and-shared-constants-ve04-2026-10-10)
+record all 2,728 checked baseline/candidate/Lua batches across the frozen original,
+source-form and numeric sets. Same machine/toolchain/release features as VE00,
+three warmups/eleven samples in two fresh processes per binary; build/test activity
+was stopped for timing. Candidate strings take 29.7%/41.9% of baseline time;
+arrays take 90.7%, calls 97.0%, recursion 96.2%, maps 95.9%. Branch/entry and numeric
+routes show small 0.1–2.0% slowdowns; no scalar speedup or statistical-significance
+claim is made. The unchanged closed scalar route has not received the later
+dispatch/call optimizations. Lua host-callback comparisons include the common Rust
+numeric function affected by compact Value on both adapters, as the report explains.
+
+Value remains 16 bytes and Copy in both configurations; IDs are 12 bytes, with the
+VE02 debug/release correctness evidence reused. Warmed string loops allocate zero
+GC objects and make seven Rust allocation requests per full execution. Tuple/range
+allocation probes reproduce VE02 counts exactly: tuples reduce Rust requests from
+35007 to 5315 but add 5000 GC nodes/14 collections; ranges reduce 1540708 requests
+to 1480704 while increasing GC nodes from 15000 to 20000 and collections 25 to 29.
+Requested bytes fall in both cases. The added records are accounted for explicitly;
+there is no per-copy payload duplication or per-step range boxing. No allocator,
+collector or enum-unboxing scope was added. This accepts the representation tradeoff
+with measured string/mixed-route benefits, not a size-only argument.
+
+All carried VE04 failures are resolved. The value/reference milestone is locally
+accepted, permitting VE05. Full-plan local integration, CI and Lua parity remain
+open; current matched VM/Lua ratios are still well above 1.0. VE05–VE07 own the
+already-authorized prepared collection/object/call and execution-loop work.

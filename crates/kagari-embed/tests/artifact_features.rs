@@ -99,7 +99,7 @@ fn source_free_native_bindings_execute_and_release_scopes() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let mut loaded = runtime.load_program(&program, Default::default()).unwrap();
     for _ in 0..3 {
         assert_eq!(
             runtime
@@ -116,6 +116,11 @@ fn source_free_native_bindings_execute_and_release_scopes() {
             0
         );
         assert!(!runtime.runtime().is_quarantined());
+        // Release the version's constant roots before checking for leaked native
+        // scopes/results; the replacement cache has not been materialized.
+        loaded = runtime
+            .reload_program(&loaded, &program, Default::default())
+            .unwrap();
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
     }

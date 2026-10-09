@@ -404,6 +404,17 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         Value::I32(42)
     );
     assert_eq!(vm.runtime().gc().active_roots(), 0);
+    // Releasing the published constant cache makes exact-zero collection detect
+    // leaked frames as well as heap values after the nested trap.
+    let candidate = vm
+        .runtime()
+        .stage_reload_verified_program(
+            &loaded,
+            loaded.name.clone(),
+            loaded.verified_program().clone(),
+        )
+        .unwrap();
+    vm.runtime().publish_staged_reload(candidate).unwrap();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
@@ -470,7 +481,11 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             assert!(vm.execute(&loaded, "ready").is_err());
             drop(session);
             vm.runtime().collect_garbage().unwrap();
-            assert_eq!(vm.runtime().gc().allocated_objects(), 0);
+            assert_eq!(
+                vm.runtime().gc().allocated_objects(),
+                1,
+                "published string constant"
+            );
             assert_eq!(
                 vm.execute(&loaded, "ready")
                     .unwrap()
@@ -479,6 +494,16 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
                     .expect("retained execution result"),
                 Value::I32(7)
             );
+            let candidate = vm
+                .runtime()
+                .stage_reload_verified_program(
+                    &loaded,
+                    loaded.name.clone(),
+                    loaded.verified_program().clone(),
+                )
+                .unwrap();
+            vm.runtime().publish_staged_reload(candidate).unwrap();
+            assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
             assert!(!vm.runtime().is_quarantined());
         }
     }
