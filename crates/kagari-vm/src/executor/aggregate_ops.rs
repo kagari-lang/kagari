@@ -1,5 +1,5 @@
 use crate::{error::VmError, executor::Executor};
-use kagari_bytecode::instruction::{EnumId, FieldRef, Register, StructId};
+use kagari_bytecode::instruction::{EnumId, Register, StructId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_runtime::{
     error::RuntimeErrorKind,
@@ -150,24 +150,6 @@ impl Executor<'_> {
         Ok(Value::Struct(handle))
     }
 
-    pub(crate) fn read_field(
-        &self,
-        base: Register,
-        field: &FieldRef<DefinitionId>,
-    ) -> Result<Value, VmError> {
-        let layout =
-            self.current_frame()?
-                .struct_layout(self.runtime, field.structure, &field.arguments)?;
-        match self.current_frame()?.read_register(self.runtime, base)? {
-            Value::Struct(handle) => self
-                .runtime
-                .gc()
-                .struct_get_slot(handle, &layout, field.slot as usize)
-                .ok_or(VmError::TypeMismatch("struct layout or field mismatch")),
-            _ => Err(VmError::TypeMismatch("read_field expects struct value")),
-        }
-    }
-
     pub(crate) fn read_index(&self, base: Register, index: Register) -> Result<Value, VmError> {
         let base = self.current_frame()?.read_register(self.runtime, base)?;
         let index = self.current_frame()?.read_register(self.runtime, index)?;
@@ -197,31 +179,6 @@ impl Executor<'_> {
             _ => Err(VmError::TypeMismatch(
                 "read_index expects array or tuple value",
             )),
-        }
-    }
-
-    pub(crate) fn write_field(
-        &self,
-        base: Register,
-        field: &FieldRef<DefinitionId>,
-        value: Register,
-    ) -> Result<(), VmError> {
-        let value = self.current_frame()?.read_register(self.runtime, value)?;
-        if !value.is_default_heap_payload(self.runtime.gc()) {
-            return Err(VmError::TypeMismatch(
-                "write_field expects default-storable value",
-            ));
-        }
-        let layout =
-            self.current_frame()?
-                .struct_layout(self.runtime, field.structure, &field.arguments)?;
-        match self.current_frame()?.read_register(self.runtime, base)? {
-            Value::Struct(handle) => self
-                .runtime
-                .gc()
-                .struct_set_slot(handle, &layout, field.slot as usize, value)
-                .map_err(VmError::from),
-            _ => Err(VmError::TypeMismatch("write_field expects struct value")),
         }
     }
 

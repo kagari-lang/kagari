@@ -1,12 +1,11 @@
 //! Borrowed banks preserve the ordinary slot representation rules after window admission.
 use crate::{
     frame::values::{ExecutionValues, FrameSlots, scalar},
-    module::execution::layout::{FrameLayout, Location},
+    module::execution::layout::Location,
     value::Value,
 };
 
 pub(crate) struct OperandWindow<'a> {
-    layout: &'a FrameLayout,
     pub(crate) managed: &'a mut [Value],
     pub(crate) payloads: &'a mut [u64],
     pub(crate) initialized: &'a mut [bool],
@@ -17,8 +16,8 @@ impl ExecutionValues {
         // Validate owner/generation once, before any references into the banks escape.
         self.window(slots)?;
         let window = self.windows.get(slots.index)?.as_ref()?;
+        window.registers.as_ref()?;
         Some(OperandWindow {
-            layout: window.registers.as_deref()?,
             managed: self.values.get_mut(window.ranges.managed.clone())?,
             payloads: self.payloads.get_mut(window.ranges.scalars.clone())?,
             initialized: self.initialized.get_mut(window.ranges.scalars.clone())?,
@@ -27,16 +26,8 @@ impl ExecutionValues {
 }
 
 impl OperandWindow<'_> {
-    pub(crate) fn read(&self, logical: usize) -> Option<Value> {
-        self.read_location(self.layout.location(logical)?)
-    }
-
     pub(crate) fn read_location(&self, location: Location) -> Option<Value> {
         read_operand(self.managed, self.payloads, self.initialized, location)
-    }
-
-    pub(crate) fn write(&mut self, logical: usize, value: Value) -> Option<()> {
-        self.write_location(self.layout.location(logical)?, value)
     }
 
     pub(crate) fn write_location(&mut self, location: Location, value: Value) -> Option<()> {

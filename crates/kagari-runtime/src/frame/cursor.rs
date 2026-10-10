@@ -4,13 +4,11 @@ use crate::{
     error::RuntimeError,
     frame::{
         ExecutionFrame, ExecutionStack,
-        cursor::kernel::{CursorExit, RegionExit},
+        cursor::kernel::{CursorExit, RegionError, RegionExit},
         values::operands::OperandWindow,
     },
     session::SessionState,
-    value::Value,
 };
-use kagari_bytecode::instruction::Register;
 use std::ptr;
 
 pub mod kernel;
@@ -18,6 +16,7 @@ mod objects;
 mod scalars;
 #[cfg(test)]
 mod tests;
+mod transitions;
 
 /// All references live inside execute_region. No caller callback or supplied Value
 /// can intervene while admission is reused; exits release the frame and bank borrows.
@@ -35,50 +34,16 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         remaining: &mut Option<usize>,
-    ) -> Result<RegionExit, RuntimeError> {
+    ) -> Result<RegionExit, RegionError> {
         if !ptr::eq(runtime.resources(), self.session.resources) {
             return Err(RuntimeError::module_validation(
                 "execution stack belongs to another runtime",
-            ));
+            )
+            .into());
         }
         match self.execute_admitted_region(runtime, remaining)? {
             CursorExit::Region(exit) => Ok(exit),
-            CursorExit::Constant { dst, constant } => {
-                // The cursor and all frame/bank/session borrows have ended. The
-                // runtime-owned frame still roots the supplying program. This is
-                // the cold allocation transition, not a second logical instruction.
-                let (owner, pool) = {
-                    let frame = self.current()?;
-                    let links = frame.links.as_ref().ok_or_else(|| {
-                        runtime
-                            .resources()
-                            .quarantine("missing constant execution link")
-                    })?;
-                    (frame.loaded.clone(), links.constants.clone())
-                };
-                let value = pool.materialize(runtime, &owner, constant)?;
-                let frame = self.current()?;
-                if !runtime.gc().validate_value(&value) {
-                    return Err(runtime.resources().quarantine("invalid constant value"));
-                }
-                runtime
-                    .resources()
-                    .frame_values
-                    .try_borrow_mut()
-                    .map_err(|_| {
-                        runtime
-                            .resources()
-                            .quarantine("execution slots borrowed during constant publication")
-                    })?
-                    .set_location(frame.slots, dst, value)
-                    .ok_or_else(|| {
-                        runtime
-                            .resources()
-                            .quarantine("invalid constant destination")
-                    })?;
-                // Recompute allocation/collection state at the successor PC.
-                Ok(RegionExit::Safepoint)
-            }
+            CursorExit::Transition(transition) => self.complete_transition(runtime, transition),
         }
     }
 
@@ -86,7 +51,7 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         remaining: &mut Option<usize>,
-    ) -> Result<CursorExit, RuntimeError> {
+    ) -> Result<CursorExit, RegionError> {
         // current_mut admits the active session/frame scope and sticky termination.
         let mut frame = self.current_mut()?;
         runtime.gc().ensure_no_native_borrow()?;
@@ -120,25 +85,5 @@ impl ExecutionCursor<'_> {
         self.runtime
             .resources()
             .quarantine("invalid execution operand slot")
-    }
-
-    fn read_register(&self, register: Register) -> Result<Value, RuntimeError> {
-        if register.index() >= self.frame.register_count {
-            return Err(self.invalid());
-        }
-        self.values
-            .read(register.index())
-            .ok_or_else(|| self.invalid())
-    }
-
-    fn write_register(&mut self, register: Register, value: Value) -> Result<(), RuntimeError> {
-        if register.index() >= self.frame.register_count
-            || !self.runtime.gc().validate_value(&value)
-        {
-            return Err(self.invalid());
-        }
-        self.values
-            .write(register.index(), value)
-            .ok_or_else(|| self.invalid())
     }
 }

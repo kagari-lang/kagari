@@ -793,7 +793,8 @@ assign dense function-local ordinals. Closed contracts, including independent ca
 inside generic functions, are prepared before candidate publication. Linking validates
 their graph and proves that every executable dependency belongs to the same pinned
 program. Function entry admits one linked execution record containing the immutable
-call table and its module's constant pool; scalar-only functions need no such record.
+call table, its module's constant pool and scoped field arguments when needed;
+functions with no runtime links need no such record.
 Calls borrow facts directly by ordinal while the active window's program root protects
 the record and its traced edges.
 These code-bounded links are not optional application caches and cannot be evicted.
@@ -853,9 +854,17 @@ do not require a second semantic description or change debug locations. The VM
 borrows these records at slow boundaries instead of cloning wide instructions.
 The runtime cursor supplies a closed nonallocating execution region: it fetches only
 sealed operations and reuses entry authority without admitting caller callbacks
-or external Values. Concrete field operations retain sealed slots and layout IDs,
-bind them to the executing frame's exact loaded version, and use checked heap
-storage. Copying a field value does not allocate, create a root lease or run a
+or external Values. Field instructions reference a dense function-local table of physical receiver/
+value locations, access direction, slots and portable layout IDs. These records
+keep the common instruction stream at 24 bytes. Concrete layouts bind directly to
+the admitted frame's exact version; scoped applications exit the cursor before
+layout preparation, with no operand-bank borrow held. Runtime-linked function
+records retain scoped field type arguments from normalized code; the shared verified
+execution table holds no runtime-local DefinitionIds. Both paths use the same field
+actions and checked heap storage. Write-value admission still precedes layout
+preparation and receiver access; reads prepare their layout before reading the
+receiver. Type mismatches preserve VM error categories and trap observation without
+falling back to canonical interpretation. Copying a field value does not allocate, create a root lease or run a
 destructor; the frame and object remain traced at the surrounding safepoints.
 The scalar loop hands prepared managed operations back to the cursor's object
 handlers without releasing its frame/window access. Keeping those handlers outside
@@ -863,18 +872,25 @@ the scalar loop prevents their storage checks from changing its inlining budget;
 the handoff retains original logical PC and instruction-slice accounting.
 `PreparedManagedOperation` is an opaque sealed record shared by instructions and
 this handoff. Its internal variants cover physical value copies, linked constant loads,
-managed returns and the existing field read/write operations. It cannot represent a scalar opcode
+managed returns and ordinals into the prepared field table. It cannot represent a scalar opcode
 or require an unreachable generic-operation arm. Managed local/register copies use
 prepared physical locations and the ordinary bank read/write representation rules,
 retaining heap owner/generation/kind validation without repeating public frame
 admission. Both slots remain traced in the admitted window. Managed returns carry
 the rooted value to common frame retirement; there is no separate VM return decoder.
-The previous VM LoadConst/LoadLocal/StoreLocal/Move/Return handlers are removed.
+The previous VM LoadConst/LoadLocal/StoreLocal/Move/Return and aggregate field handlers
+are removed, along with the cursor's logical-register mapping helpers. SDK/reflection
+field access still uses the same checked GC storage kernels.
 Scalar exits explicitly distinguish boundary, slice, safepoint, return and managed
 operation. The region reconstructs payload-free exits directly; only returns and
 managed operations carry data across that internal boundary. A cold constant miss
 additionally carries its destination and ordinal out of the complete cursor, where
-allocation runs after all transient borrows end.
+allocation runs after all transient borrows end. PreparedTransition describes the
+constant-materialization and scoped-field requests; a separate non-inlined completion
+handler owns their allocating work. Ordinary region admission does not contain those preparation bodies, and the completion
+path cannot accept an already-finished region as a request. Field failures travel
+through RegionError, separate from successful RegionExit values; the VM maps runtime
+faults and type mismatches to their original error categories before trap observation.
 Each scalar segment splits the admitted Rust borrow into an immutable code slice,
 mutable logical-PC fields and bounded scalar/initialization slices. Fetch borrows
 one immutable instruction; dispatch then reads only its selected payload rather
@@ -883,8 +899,9 @@ still check operand bounds and initialization, but no longer recover the loaded
 function or bank range per operand. These borrows end before object handoff or
 region exit; no pointer or exclusive borrow survives a callback or arena growth.
 Canonical instructions remain one-to-one with prepared instructions.
-Shared generic field layouts and other unmigrated operations still use the ordinary
-boundary; their remaining HP04 migration is not implied by managed copies or constants.
+Scoped field layouts retain an explicit preparation transition; reuse of their applied
+layout admission remains part of the layout work. Other unmigrated operations still
+use the ordinary canonical boundary; field migration does not imply their completion.
 The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks
 cancellation, observer requests and candidate-reclamation notifications at each

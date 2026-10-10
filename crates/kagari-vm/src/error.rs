@@ -6,6 +6,7 @@ use kagari_runtime::{
     builtin::BuiltinError,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
+    frame::cursor::kernel::RegionError,
     host::HostError,
     reflection::ReflectionError,
 };
@@ -41,6 +42,15 @@ impl From<BuiltinError> for VmError {
             Self::BuiltinError(error)
         } else {
             Self::RuntimeError(error.into_runtime_error())
+        }
+    }
+}
+
+impl From<RegionError> for VmError {
+    fn from(error: RegionError) -> Self {
+        match error {
+            RegionError::Runtime(error) => Self::RuntimeError(error),
+            RegionError::TypeMismatch(reason) => Self::TypeMismatch(reason),
         }
     }
 }

@@ -23,9 +23,28 @@ pub enum RegionExit {
     Return(ReturnValue),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RegionError {
+    #[error(transparent)]
+    Runtime(RuntimeError),
+    #[error("{0}")]
+    TypeMismatch(&'static str),
+}
+
+impl From<RuntimeError> for RegionError {
+    fn from(error: RuntimeError) -> Self {
+        Self::Runtime(error)
+    }
+}
+
 pub(super) enum CursorExit {
     Region(RegionExit),
+    Transition(PreparedTransition),
+}
+
+pub(super) enum PreparedTransition {
     Constant { dst: Location, constant: ConstantId },
+    Field { index: usize },
 }
 
 impl ExecutionCursor<'_> {
@@ -36,7 +55,7 @@ impl ExecutionCursor<'_> {
     pub(super) fn execute_region(
         &mut self,
         remaining: &mut Option<usize>,
-    ) -> Result<CursorExit, RuntimeError> {
+    ) -> Result<CursorExit, RegionError> {
         // A closed region cannot allocate heap records, mutate executable metadata
         // or change collector policy. Field operations copy rooted Values using
         // checked storage methods; no destructor/callback runs on replacement.
@@ -68,10 +87,13 @@ impl ExecutionCursor<'_> {
                         .ok_or_else(|| self.invalid())?
                         .constants;
                     let Some(value) = pool.get(constant) else {
-                        return Ok(CursorExit::Constant { dst, constant });
+                        return Ok(CursorExit::Transition(PreparedTransition::Constant {
+                            dst,
+                            constant,
+                        }));
                     };
                     if !self.runtime.gc().validate_value(&value) {
-                        return Err(self.invalid());
+                        return Err(self.invalid().into());
                     }
                     self.values
                         .write_location(dst, value)
@@ -89,7 +111,7 @@ impl ExecutionCursor<'_> {
                         .read_location(src)
                         .ok_or_else(|| self.invalid())?;
                     if !self.runtime.gc().validate_value(&value) {
-                        return Err(self.invalid());
+                        return Err(self.invalid().into());
                     }
                     self.values
                         .write_location(dst, value)
@@ -110,26 +132,11 @@ impl ExecutionCursor<'_> {
                         ReturnValue::general(value),
                     )));
                 }
-                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::ReadField {
-                    dst,
-                    base,
-                    field,
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Field {
+                    index,
                 })) => {
-                    if !self.read_field(dst, base, field)? {
-                        #[cfg(feature = "execution-diagnostics")]
-                        diagnostics::record(Event::SlowBoundary);
-                        return Ok(CursorExit::Region(RegionExit::Boundary));
-                    }
-                }
-                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::WriteField {
-                    base,
-                    value,
-                    field,
-                })) => {
-                    if !self.write_field(base, value, field)? {
-                        #[cfg(feature = "execution-diagnostics")]
-                        diagnostics::record(Event::SlowBoundary);
-                        return Ok(CursorExit::Region(RegionExit::Boundary));
+                    if let Some(exit) = self.execute_field(index)? {
+                        return Ok(exit);
                     }
                 }
             }

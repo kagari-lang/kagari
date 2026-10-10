@@ -82,7 +82,7 @@ impl Executor<'_> {
             let result = self
                 .stack
                 .execute_region(self.runtime, &mut remaining)
-                .map_err(VmError::RuntimeError);
+                .map_err(VmError::from);
             let progress = match self.report_operation(result)? {
                 RegionExit::Safepoint | RegionExit::Slice => continue,
                 RegionExit::Return(value) => InstructionProgress::Return(value),

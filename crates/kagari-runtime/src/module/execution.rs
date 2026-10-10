@@ -3,37 +3,29 @@
 //! variable-length operands stay in that immutable code, addressed by the PC.
 pub(crate) mod allocation;
 pub(crate) mod calls;
+pub(crate) mod fields;
 pub(crate) mod layout;
 pub mod managed;
 
 use crate::{
     frame::values::scalar,
-    module::{
-        LoadedModule, StructLayoutRef,
-        execution::{
-            calls::PreparedCall,
-            layout::{FrameLayout, Location, scalar_type},
-            managed::{ManagedOperation, PreparedManagedOperation},
-        },
+    module::execution::{
+        calls::PreparedCall,
+        fields::PreparedFieldOperation,
+        layout::{FrameLayout, Location, scalar_type},
+        managed::{ManagedOperation, PreparedManagedOperation},
     },
     numeric::binary_operation,
     value::Value,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{
-        BinaryOp, BytecodeInstruction, ConstantOperand, FieldRef, JumpTarget, Register, StructId,
-        UnaryOp,
-    },
+    instruction::{BinaryOp, BytecodeInstruction, ConstantOperand, JumpTarget, Register, UnaryOp},
     module::BytecodeModule,
     suspension::AwaitLiveness,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::representation::semantic_representation;
-use kagari_types::{
-    payload::{self, ScalarKernel},
-    ty::Ty,
-};
+use kagari_types::payload::{self, ScalarKernel};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A bounded physical operand in a prepared function's value window.
@@ -69,42 +61,6 @@ impl ScalarSlot {
     #[inline]
     pub(crate) fn index(self) -> usize {
         self.0 as usize
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PreparedField {
-    structure: StructId,
-    pub(crate) slot: u32,
-    pub(crate) representation: ValueType,
-}
-
-impl PreparedField {
-    fn prepare(
-        module: &BytecodeModule<DefinitionId>,
-        field: &FieldRef<DefinitionId>,
-    ) -> Option<Self> {
-        let layout = module.structures.get(field.structure.index())?;
-        if layout.arguments != field.arguments || !layout.arguments.iter().all(Ty::is_concrete) {
-            return None;
-        }
-        Some(Self {
-            structure: field.structure,
-            slot: field.slot,
-            representation: semantic_representation(&layout.fields.get(field.slot as usize)?.ty),
-        })
-    }
-
-    /// Only sealed concrete layouts use this record. The executing frame supplies
-    /// its exact loaded owner; shared code never stores a runtime identity.
-    pub(crate) fn layout(self, owner: &LoadedModule) -> StructLayoutRef {
-        StructLayoutRef {
-            module: owner.clone(),
-            id: self.structure,
-            applied: None,
-            canonical: Some(owner.program.layouts.structure(owner.slot, self.structure)),
-            scope: None,
-        }
     }
 }
 
@@ -154,14 +110,16 @@ pub(crate) struct ExecutionFunction {
     /// coalescing may share a location: any live logical alias keeps it alive.
     pub awaits: BTreeMap<usize, Box<[u64]>>,
     pub calls: BTreeMap<usize, PreparedCall>,
+    pub fields: Box<[PreparedFieldOperation]>,
     pub interface_calls: usize,
     pub has_closed_interface_calls: bool,
     has_linked_constants: bool,
+    pub(crate) has_scoped_fields: bool,
 }
 
 impl ExecutionFunction {
     pub(crate) fn needs_runtime_links(&self) -> bool {
-        self.has_closed_interface_calls || self.has_linked_constants
+        self.has_closed_interface_calls || self.has_linked_constants || self.has_scoped_fields
     }
 }
 
@@ -199,11 +157,19 @@ impl ExecutionModule {
                             (point.instruction(), retained.into_boxed_slice())
                         })
                         .collect();
+                    let mut fields = Vec::new();
                     let instructions: Box<[_]> = function
                         .instructions
                         .iter()
-                        .map(|instruction| {
-                            ExecutionInstruction::prepare(instruction, &registers, module)
+                        .enumerate()
+                        .map(|(pc, instruction)| {
+                            ExecutionInstruction::prepare(
+                                pc,
+                                instruction,
+                                &registers,
+                                module,
+                                &mut fields,
+                            )
                         })
                         .collect();
                     ExecutionFunction {
@@ -219,6 +185,8 @@ impl ExecutionModule {
                         registers,
                         awaits,
                         calls: BTreeMap::new(),
+                        has_scoped_fields: fields.iter().any(|field| !field.concrete),
+                        fields: fields.into_boxed_slice(),
                         interface_calls: 0,
                         has_closed_interface_calls: false,
                     }
@@ -230,9 +198,11 @@ impl ExecutionModule {
 
 impl ExecutionInstruction {
     fn prepare(
+        pc: usize,
         instruction: &BytecodeInstruction<DefinitionId>,
         registers: &FrameLayout,
         module: &BytecodeModule<DefinitionId>,
+        fields: &mut Vec<PreparedFieldOperation>,
     ) -> Self {
         let location = |register: Register| {
             registers
@@ -299,20 +269,17 @@ impl ExecutionInstruction {
             BytecodeInstruction::Move { dst, src } => {
                 Self::move_slots(location(dst), location(src))
             }
-            BytecodeInstruction::ReadAggregateField {
-                dst,
-                base,
-                ref field,
-            } => PreparedField::prepare(module, field).map_or(Self::Boundary, |field| {
-                Self::managed(ManagedOperation::ReadField { dst, base, field })
-            }),
-            BytecodeInstruction::WriteAggregateField {
-                base,
-                value,
-                ref field,
-            } => PreparedField::prepare(module, field).map_or(Self::Boundary, |field| {
-                Self::managed(ManagedOperation::WriteField { base, value, field })
-            }),
+            BytecodeInstruction::ReadAggregateField { .. }
+            | BytecodeInstruction::WriteAggregateField { .. } => {
+                let index = fields.len();
+                fields.push(PreparedFieldOperation::prepare(
+                    pc,
+                    instruction,
+                    registers,
+                    module,
+                ));
+                Self::managed(ManagedOperation::Field { index })
+            }
             BytecodeInstruction::Unary { dst, op, operand } => {
                 let ty = scalar_type(location(operand).representation);
                 let kernel = match op {
@@ -398,10 +365,11 @@ mod tests {
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
         eprintln!(
-            "execution metadata bytes: instruction={}, frame={}, linked_function={}, constant_cell={}, previous_constant_cell={}",
+            "execution metadata bytes: instruction={}, frame={}, linked_function={}, field_operation={}, constant_cell={}, previous_constant_cell={}",
             size_of::<ExecutionInstruction>(),
             size_of::<ExecutionFrame>(),
             size_of::<LinkedFunction>(),
+            size_of::<PreparedFieldOperation>(),
             size_of::<OnceLock<Value>>(),
             size_of::<Option<Value>>()
         );

@@ -1,55 +1,54 @@
-//! Concrete fields reuse sealed layouts within a nonallocating execution region.
+//! Concrete fields use physical operands and the same storage kernels as applied fields.
 use crate::{
-    error::RuntimeError, frame::cursor::ExecutionCursor, module::execution::PreparedField,
-    value::Value,
+    frame::{
+        cursor::{
+            ExecutionCursor,
+            kernel::{CursorExit, PreparedTransition, RegionError},
+        },
+        fields::FieldAction,
+    },
+    module::execution::fields::FieldAccess,
 };
-use kagari_bytecode::instruction::Register;
 
 impl ExecutionCursor<'_> {
-    /// An invalid receiver falls back before any write, preserving VM diagnostics.
     #[inline(never)]
-    pub(super) fn read_field(
+    pub(super) fn execute_field(
         &mut self,
-        dst: Register,
-        base: Register,
-        field: PreparedField,
-    ) -> Result<bool, RuntimeError> {
-        let Value::Struct(id) = self.read_register(base)? else {
-            return Ok(false);
+        index: usize,
+    ) -> Result<Option<CursorExit>, RegionError> {
+        let operation = self
+            .frame
+            .prepared_field(index)
+            .ok_or_else(|| self.invalid())?;
+        let Some(layout) = operation.concrete_layout(self.frame.loaded()) else {
+            return Ok(Some(CursorExit::Transition(PreparedTransition::Field {
+                index,
+            })));
         };
-        let layout = field.layout(self.frame.loaded());
-        let Some(value) = self
-            .runtime
-            .gc()
-            .struct_get_slot(id, &layout, field.slot as usize)
-        else {
-            return Ok(false);
+        let action = match operation.access {
+            FieldAccess::Read { .. } => FieldAction::Read,
+            FieldAccess::Write { value } => FieldAction::Write(
+                self.values
+                    .read_location(value)
+                    .ok_or_else(|| self.invalid())?,
+            ),
         };
-        if !value.has_representation(field.representation) {
-            return Ok(false);
+        action.validate(self.runtime)?;
+        let base = self
+            .values
+            .read_location(operation.base)
+            .ok_or_else(|| self.invalid())?;
+        if let Some(value) = action.execute(self.runtime, &layout, operation.slot as usize, base)? {
+            let FieldAccess::Read { dst } = operation.access else {
+                return Err(self.invalid().into());
+            };
+            if !self.runtime.gc().validate_value(&value) {
+                return Err(self.invalid().into());
+            }
+            self.values
+                .write_location(dst, value)
+                .ok_or_else(|| self.invalid())?;
         }
-        self.write_register(dst, value)?;
-        Ok(true)
-    }
-
-    #[inline(never)]
-    pub(super) fn write_field(
-        &self,
-        base: Register,
-        value: Register,
-        field: PreparedField,
-    ) -> Result<bool, RuntimeError> {
-        let value = self.read_register(value)?;
-        if !value.is_default_heap_payload(self.runtime.gc()) {
-            return Ok(false);
-        }
-        let Value::Struct(id) = self.read_register(base)? else {
-            return Ok(false);
-        };
-        let layout = field.layout(self.frame.loaded());
-        self.runtime
-            .gc()
-            .struct_set_slot(id, &layout, field.slot as usize, value)?;
-        Ok(true)
+        Ok(None)
     }
 }

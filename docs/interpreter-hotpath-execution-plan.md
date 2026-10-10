@@ -2510,3 +2510,163 @@ has passed strict affected-target Clippy; there is no carried build/test error.
 No full-workspace or CI run was performed. HP04 remains open for field operands and
 fallback retirement, Vec index/String byte-length contracts, integrated metadata/setup
 accounting and residual control regressions. HP05–HP06, CI and Lua parity remain open.
+
+2026-10-10 HP04, prepared field ownership (in progress):
+Replaced the partial concrete-field specialization with one prepared field model.
+Each function owns a dense immutable table of physical receiver/value locations,
+read/write direction, structure/field ordinals, preparation class and source PC.
+Instructions contain its ordinal. This avoids widening every scalar instruction to
+carry two full physical locations plus a field contract. Concrete and scoped fields
+both leave canonical VM dispatch; the old field helpers and cursor logical-register
+mapping methods are removed. Existing bank representation/range checks still apply.
+
+Concrete fields execute in the admitted cursor. Scoped fields use a private layout-
+preparation transition after releasing cursor and bank/session borrows. They borrow
+the prepared field contract, retain their frame/environment roots, resolve the exact
+applied layout and publish through physical locations. Both paths use FieldAction
+and the existing GC struct_get_slot/struct_set_slot kernels also used by SDK and
+reflection. No speculative constant folding, alias assumptions, separate storage
+implementation or new root container is introduced. Shared layout preparation still
+runs at its real boundary; this checkpoint does not claim to eliminate its allocation
+or scope work. HP05's applied-layout admission remains necessary.
+
+Write-value validation precedes layout preparation and receiver read, while read
+layout preparation precedes receiver read. Read receiver/layout failures retain their
+TypeMismatch reasons, write storage errors retain RuntimeError, and the driver emits
+one trap observation before normal traced cleanup. A private field-preparation exit
+and an explicit public TypeMismatch outcome replace the old bool/fallback protocol;
+failed concrete access does not re-enter a second semantic interpreter. This removes
+the public PreparedField helper (a Rust API break); unpublished artifact/ABI identifiers
+are unchanged. Production error and GC/generation/access checks remain enforced.
+
+Identity review caught why field type arguments cannot be copied into shared prepared
+code: normalization remaps DefinitionIds while reusing that code. Portable operations
+therefore keep only slots/PCs; the existing runtime-linked function record owns scoped
+arguments cloned from its normalized canonical field once during linking. Frame entry
+admits that record with constants/closed calls. Scoped lookup uses its dense ordinal,
+not a per-field ModuleStore lookup or canonical instruction decode. These argument
+records contain no heap handles, applied scopes or independent roots; their supplying
+program and the active frame's type environment retain actual dependencies.
+
+Existing field contracts (6: mutable alias behavior, nominal rejection, reflection and
+cross-generation shared fields), owned-drive slicing/GC contracts (2), debugger
+contracts (4) and instruction-size budget (1) pass. The initial type-complexity Clippy
+finding was resolved by naming the owning LinkedField record, without an allowance
+or extra allocation. Structure and strict affected-target checks are recorded below.
+Metadata sizes on this 64-bit target: instruction 24 bytes, frame 264 bytes,
+PreparedFieldOperation 40 bytes, LinkedFunction 40 bytes (previously 24). A function
+adds a boxed field-table header plus 40 bytes per field operation; scoped links add
+an optional-argument table and the normalized argument trees, allocated only at link.
+Concrete-only field functions still need no runtime link record. These are bounded
+setup/storage costs, not per-access allocation reductions or free metadata.
+
+Initial field candidate retained every diagnostic count (all 72 rows identical to
+constants-borrowed) and passed all checksums, but source-form throughput regressed
+broadly. target/lua-comparison/20261010T072158Z-forms-paired/results.json measured
+field 1.0698, helper 1.0994, concrete generic 1.1018, interface 1.0647, byte state
+1.0649, string constants 1.0396 and string calls 1.0797 versus constants-borrowed;
+Lua controls were near one. Direct improved to 0.9283 (Lua 0.9989). The initial
+binary is target/hp04/fields/executable, SHA-256
+2dd6cff52141b1d2105c4cdbffe7013136fd3143fdd26509be231fb9a452bbbe; build 19.251 s
+was excluded. This is not accepted as a field performance improvement.
+
+Read-only post-timing inspection found ordinary execute_region growing from 528 to
+1,407 machine instructions, with its dynamic stack allocation increasing from 0x1c0
+to 0x300 (both also save 0x60 bytes of registers). The scoped field preparation body
+had been inlined into this common entry. ScalarCursor simultaneously shrank from
+509 to 456 instructions with unchanged 0xd0 stack. Separate helper profiles of the
+preserved binaries completed their execution windows and instruction checksum passes
+under target/hp04/fields/profiles. Sampling is wall-clock evidence, not an exact CPU
+attribution or proof that code size alone explains every regression.
+
+Revised the ownership boundary instead of adding field-specific bypasses: CursorExit
+now distinguishes finished RegionExit from a private PreparedTransition. Constant
+materialization and scoped field layout requests are completed in one separate,
+non-inlined transition handler after all cursor/bank/session borrows end. Ordinary
+region entry retains its admission and dispatch, while allocating preparation owns
+its own stack/code footprint. This also consolidates the preceding constant slow
+path rather than leaving a growing collection of inlined handlers in admission.
+Only real preparation transitions pay the extra function call; no first-PC rewrite,
+alignment, padding or compiler flag changes are involved. Field (6), owned-drive (2)
+and strict affected-target Clippy pass after this change; fresh paired results follow.
+
+The transition split alone was insufficient: 20261010T072631Z-forms-paired measured
+helper 1.1067, field 1.0537, direct 0.9408 and string calls 1.0569 versus the same
+baseline; all checksums passed and the 19.428 s build was excluded. Common entry
+shrunk to 763 instructions but still reserved 0x300 bytes plus register saves.
+Therefore neither smaller whole-function code nor the proposed stack explanation
+established recovery. An existing quarantine test temporarily measured old/current
+RegionExit (24/24 bytes) and Result with RuntimeError (72/72 bytes); the enum-growth
+hypothesis was disproved. The temporary size instrumentation was removed afterward.
+
+Corrected the failure protocol itself: TypeMismatch is an error, not another success
+outcome. Public execute_region now returns RegionError (Runtime or TypeMismatch),
+and VmError converts it through the ordinary report_operation failure path. FieldAction
+also returns read values/write completion separately from errors, removing the parallel
+FieldResult failure encoding. Original runtime errors, type-mismatch reasons, trap
+observation and frame cleanup are preserved. This is an additional Rust API change;
+there is no compatibility wrapper. Both direct and scoped field paths share this
+error protocol. Field (6), owned-drive (2), debugger (4), strict affected-target Clippy
+and operand-borrow quarantine (1) pass for the final arrangement.
+
+Final source-form paired results pass all checksums in
+`target/lua-comparison/20261010T073145Z-forms-paired/results.json`. Ratios against
+constants-borrowed are direct 0.9395, helper 1.0054, concrete generic 1.0064, interface
+1.0171, shared generic 1.0321, capture cell 1.0190, field 1.0324, native 0.9846,
+byte state 1.0047, host callback 0.9919, string constants 0.9845 and string calls
+1.0173. Direct/helper/field Lua controls are 0.9994/0.9980/0.9986. Most broad call
+regressions from the initial candidate are recovered; field's 3.24% and shared
+generic's 3.21% increases remain unresolved for integrated HP04 review. Do not report
+a field speedup. Direct improves 6.05%, while fields/shared generics still take
+13.69/54.16 times Lua. Warm protocol counts and original controls follow below.
+
+Ordinary candidate is preserved as `target/hp04/fields/prepared-executable`, SHA-256
+8f3ecc8c03094a78972fd9713325067f0a2628e1497690f653ae26777cec23a0.
+The initial executable and transition-executable are superseded experiments.
+Same M1 Max/32 GiB/10 logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8,
+workspace release/default parallelism, vendored Lua 5.4.8, sequential fresh baseline/
+candidate/candidate/baseline processes, three warmups and 22 pooled samples per
+variant. Workloads/settings are unchanged, diagnostics disabled and normal GC included;
+the 19.620 s build is excluded. Final disassembly shows scalar 456 instructions/0xd0
+stack and common entry 765 instructions/0x300 dynamic stack (plus 0x60 register saves).
+The typed-failure result recovered throughput without reducing those whole-function
+size measures; no exact causal CPU percentage is inferred from them.
+
+Source-form setup medians (two fresh processes per variant), baseline/candidate:
+source-to-artifact 1,142.835/1,141.406 ms, artifact preparation 262.190/266.180 ms,
+runtime-init 111.833/111.631 ms, program-link 2.845/2.954 ms. These noisy aggregate
+samples cannot isolate the new table's bounded memory/setup cost or prove it free.
+
+Original-seven paired checksums pass in
+`target/lua-comparison/20261010T073324Z-paired/results.json` (0.105 s build excluded).
+Candidate/baseline ratios: entry 0.9964, arithmetic 0.9265, branches 0.9000, calls
+1.0077, fibonacci 1.0269, arrays 0.9991 and maps 1.0072. Corresponding Lua controls
+are 0.9934/1.0013/0.9968/1.0004/1.0194/0.9988/1.0032. Arithmetic and branches improve
+7.35%/10.00%; arrays/maps remain near the baseline. Fibonacci's 2.69% increase comes
+with 1.94% Lua drift and does not establish an isolated regression of that size.
+This recovers the preceding checkpoint's scalar increases, but does not erase the
+field/shared-generic increases above. Arithmetic/branches/arrays/maps remain
+4.97/2.87/42.06/68.14 times Lua; overall parity is not achieved.
+
+Original-suite setup medians (six samples per workload/variant) span runtime-init
+107.764–108.111 ms baseline versus 108.118–108.380 ms candidate, and link
+2.388–2.561 ms versus 2.405–2.582 ms. These measurements include setup outside hot
+execution; no per-field allocation claim is inferred from setup duration. Metadata
+storage and remaining scoped layout preparation remain explicit costs.
+
+Final diagnostics match all 72 rows of the preceding constant checkpoint exactly:
+allocations/bytes, heap objects, GC, metadata preparation/admission, driver and
+canonical slow-boundary counts. Generic fields still take their explicit preparation
+transition even though they no longer use canonical slow dispatch; this counter
+must not be read as proving generic layout preparation disappeared. Final structure
+review passes (1,014 Rust files, zero violations/exceptions), along with strict
+affected-target Clippy, formatting, 41 local document links and diff checks.
+Both final timing runs match the preserved ordinary executable hash. No build/test
+error is carried; no full-workspace or CI run was performed.
+
+HP04 remains open for verified Vec index/String byte-length primitive contracts,
+retiring their superseded shortcuts and integrated setup/metadata/control acceptance.
+Track the field/shared-generic regressions above in that acceptance; HP05 must still
+address applied-layout/type admission. HP05–HP06, complete CI and Lua parity remain
+open. Use target/hp04/fields/prepared-executable as the next ordinary baseline;
+target/release currently contains the final diagnostic build, not a timing binary.

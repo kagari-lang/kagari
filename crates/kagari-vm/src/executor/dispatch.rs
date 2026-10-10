@@ -377,22 +377,6 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
-            BytecodeInstruction::ReadAggregateField {
-                dst,
-                base,
-                ref field,
-            } => {
-                let value = self.read_field(base, field)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
-            }
-            BytecodeInstruction::WriteAggregateField {
-                base,
-                ref field,
-                value,
-            } => {
-                self.write_field(base, field, value)?;
-            }
             BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
                 let value = self.read_index(base, index)?;
                 self.current_frame_mut()?
@@ -497,7 +481,9 @@ impl<'a> Executor<'a> {
                 self.stack.begin_await(self.runtime, value, dst, future)?;
                 return Ok(InstructionProgress::Await);
             }
-            BytecodeInstruction::LoadConst { .. }
+            BytecodeInstruction::ReadAggregateField { .. }
+            | BytecodeInstruction::WriteAggregateField { .. }
+            | BytecodeInstruction::LoadConst { .. }
             | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. }
             | BytecodeInstruction::LoadLocal { .. }

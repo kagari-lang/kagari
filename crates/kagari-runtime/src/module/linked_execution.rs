@@ -10,16 +10,29 @@ use crate::{
         LoadedModule, ModuleStore, constants::ConstantPool, execution::calls::PreparedCallTarget,
     },
 };
+use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::ids::FunctionRef;
+use kagari_types::ty::Ty;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct LinkedFunction {
     pub(crate) constants: Arc<ConstantPool>,
     calls: Box<[Option<Arc<ScopedInterfaceCall>>]>,
+    fields: Box<[Option<LinkedField>]>,
+}
+
+#[derive(Debug)]
+struct LinkedField {
+    arguments: Box<[Ty<DefinitionId>]>,
 }
 
 impl LinkedFunction {
+    pub(crate) fn field_arguments(&self, index: usize) -> Option<&[Ty<DefinitionId>]> {
+        Some(&self.fields.get(index)?.as_ref()?.arguments)
+    }
+
     pub(crate) fn call(&self, index: usize) -> Option<&Arc<ScopedInterfaceCall>> {
         self.calls.get(index)?.as_ref()
     }
@@ -98,7 +111,33 @@ impl Runtime {
                 }
                 calls.push(Some(call));
             }
+            let fields = if prepared.has_scoped_fields {
+                prepared
+                    .fields
+                    .iter()
+                    .map(|operation| {
+                        if operation.concrete {
+                            return Ok(None);
+                        }
+                        let field = match &function.instructions[operation.pc] {
+                            BytecodeInstruction::ReadAggregateField { field, .. }
+                            | BytecodeInstruction::WriteAggregateField { field, .. } => field,
+                            _ => {
+                                return Err(RuntimeError::module_validation(
+                                    "invalid linked field origin",
+                                ));
+                            }
+                        };
+                        Ok(Some(LinkedField {
+                            arguments: field.arguments.clone().into_boxed_slice(),
+                        }))
+                    })
+                    .collect::<Result<Box<[_]>, RuntimeError>>()?
+            } else {
+                Box::default()
+            };
             functions.push(Some(Arc::new(LinkedFunction {
+                fields,
                 constants: constants.clone(),
                 calls: calls.into_boxed_slice(),
             })));
