@@ -82,12 +82,15 @@ lowering still has `MissingBinding("checked callable requirement")`; the support
 shared-identity workload does not close that capability gap. Byte-state benchmarks
 do not establish NES emulation acceptance.
 
-The [HP00-HP06 hot-path execution plan](interpreter-hotpath-execution-plan.md) is
-written and queued, not yet activated. It sequences baseline/proof ownership,
-shared generic application reuse, interface transfers/metadata admission, managed
-execution regions, primitive string/collection paths, enum-pattern reads and final
-integration. It preserves the existing Lua gate and separates local implementation,
-measured improvement and complete CI. Its ledger owns this follow-up's progress.
+The [HP00-HP06 execution architecture plan](interpreter-hotpath-execution-plan.md)
+is written and queued, not yet activated. At the user's direction it now replaces
+the unstarted hotspot-by-hotspot approach: audit architecture and earlier IP/NE/VE
+optimizations, establish runtime-linked executable identities, separate active
+execution ownership from host admission, unify call/return and prepared operations,
+then unify layout admission and retire old paths. Prior benchmark wins do not exempt
+obsolete mechanisms from replacement. The plan owns the retrospective dispositions,
+migration ledger and finite scope; the Lua gate remains unchanged and separate from
+local correctness, architectural acceptance, measured benefit and complete CI.
 
 ### Async execution (AX00-AX06, CI pending)
 

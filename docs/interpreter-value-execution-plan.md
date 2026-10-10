@@ -7,6 +7,11 @@ completed phases. The [roadmap](implementation-roadmap.md#interpreter-performanc
 owns future activation. Full phase contracts, intermediate failures and measurements
 are recoverable with `git show 9dfeba3c:docs/interpreter-value-execution-plan.md`.
 
+The queued [HP architecture plan](interpreter-hotpath-execution-plan.md#mandatory-review-of-earlier-optimizations)
+explicitly reviews and may replace these implemented mechanisms. This record's
+completed status preserves historical evidence, not a requirement to retain the old
+execution boundaries, specialized paths or caches in the follow-up architecture.
+
 ## Implemented representation and boundaries
 
 - `Value` is 16 bytes and Rust Copy in debug/release on the measured 64-bit target,
