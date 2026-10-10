@@ -979,3 +979,86 @@ links and diff checks pass. The restored ordinary release executable is preserve
 `target/hp01/layout-admission-executable`, SHA-256
 `a9d904035cfa44fc41ee4f7f1f694672d872d437c7bcac63518f1ab5d5abbee6`.
 These cold checksum checks are not throughput samples.
+
+
+2026-10-10 HP01, native signature and allocation-accounting checkpoint (in progress):
+`LinkedNativeFunction` now owns one preparation cell. Closed bindings fill it lazily;
+generic application preparation fills the same cell directly. Removed the separate
+`scoped_signature` option/Arc and duplicate result-validation fallback. Native argument
+views, object storage scopes and typed payload construction consume the same prepared
+signature; closed native result construction no longer rebuilds its result TypeArgument.
+The separate selected-call descriptor still owns its own signature, as required by its
+callable boundary. No value/owner/generation or conversion check was removed.
+
+The diagnostic allocator moved from the Lua comparison executable into the runtime's
+opt-in diagnostics module. The benchmark registers it explicitly; only the diagnostic
+runtime unit-test binary registers it automatically. Ordinary runtime builds do not
+install an allocator. The implementation still forwards System's allocation contracts
+unchanged and counts successful requests on the measured thread. Allocation and execution
+counters retain separate measurement scopes. The new ignored memory probe uses checked
+source and installed native declarations; it prepares metadata without executing script,
+creating frames or calling native callbacks. Compilation occurs outside measurement.
+
+Reproduce isolated native accounting with:
+
+```text
+DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo test --release -p kagari-runtime --lib diagnostics::memory --features execution-diagnostics -- --ignored --nocapture --test-threads=1
+```
+
+The probe measures the whole runtime lifecycle, with setup, cold preparation, two repeated
+preparation/collection passes, compatible hot reload/old-version retirement and teardown.
+An identical control loads the same program and explicitly roots the same input type
+environments, but skips descriptor preparation. A preliminary unmeasured lifecycle warms
+process/thread state. Reported retained bytes are prepared-minus-control snapshots after
+collection, including descriptor/index capacity and excluding common input/setup costs.
+The new program version is unprepared. Allocator overhead, peak memory, other threads and
+execution throughput are outside this probe's scope.
+
+| Preparation case | Extra bytes after cold preparation | After two repeats | After retirement | After runtime teardown |
+| --- | ---: | ---: | ---: | ---: |
+| One closed zero-argument scalar signature | 280 | 280 | 0 | 0 |
+| One generic native application | 1,552 | 1,552 | 0 | 0 |
+| Four distinct generic native applications | 5,984 | 5,984 | 0 | 0 |
+| 160 distinct generic native applications | 1,735,432 | 1,735,432 | 0 | 0 |
+
+Generic inputs are tuples containing 1 through N i32 elements. The last row deliberately
+exceeds the 128-entry bound and varies type size; it is neither a fixed per-entry byte
+cost nor evidence of allocation-free warm lookup under eviction. Cold and repeated
+retained sizes agree, while the over-capacity workload repeatedly prepares evicted facts.
+Setup retained-byte differences are zero in every pair, and *each* complete control and
+prepared lifecycle independently ends at zero net bytes. Retirement retains common
+runtime/module/environment arena capacities (for example, 83,440 bytes in either side
+of the 160-input case); their release occurs at runtime teardown. These observations
+cover native descriptors only, not yet the full HP01 descriptor-memory acceptance.
+
+Evidence: `target/hp01/native-memory.log`; M1 Max, 32 GiB, 10 logical CPUs,
+macOS 26.6.2 arm64, rustc 1.98.1 / LLVM 22.1.8, workspace release profile,
+`execution-diagnostics`, default Cargo build parallelism and one probe test thread.
+Build caches were incremental; compilation is excluded. Initial probe failures were
+resolved: annotate scalar-only Ty with DefinitionId, use an interface generic body to
+emit a shared native template, and reload an ABI-compatible program instead of an empty
+incompatible replacement. The reload ABI check was preserved. The earlier stale native
+storage field consumers were also migrated to the single signature cell.
+
+Focused validation passes: existing frame-window contracts (6), VM native function/
+application/selected-call contracts (38), generic managed payload fields (1), native enum
+boundaries (6), and the ignored release memory probe (1). Runtime/benchmark all-target
+Clippy with diagnostics is clean; structure checks 1,001 Rust files with zero violations
+or exceptions; formatting, 703 local Markdown links and diff checks pass. No build/test
+failure is carried. This checkpoint adds a manual diagnostic tool, not another ordinary
+regression matrix.
+
+The diagnostic source-form/scaling run passes all 64 cold/warm checksum probes;
+`target/hp01/native-signature-diagnostics.log` records the same toolchain/machine and
+fourth-call warm protocol used previously. Fixed/changing native application probes
+request 12/24 fewer allocations per measured call at both 2,500 and 5,000 iterations.
+All other warm request counts, and all warm object/metadata-validation/environment
+counts, are unchanged. This is a constant preparation reduction, not a per-iteration
+speedup claim. The frozen benchmark workloads remain unchanged. HP01 remains open for
+isolated method/shared/witness/layout/admission memory accounting; HP02–HP06 and full
+workspace/CI/Lua-parity acceptance remain outstanding.
+
+Final ordinary original/source-form checksum checks pass. The ordinary release binary
+is restored and preserved at `target/hp01/native-signature-executable`, SHA-256
+`0b819cc66b167a1ed42bf76dd69eeeeb54581e9186c22c4ddadea5ece438e512`.
+These cold correctness runs are not throughput measurements.

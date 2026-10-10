@@ -394,7 +394,6 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
                 params: vec![],
                 result: Ty::Builtin(BuiltinType::Unit),
             },
-            scoped_signature: None,
             prepared_signature: Default::default(),
             result_adapter: None,
             selected: vec![LinkedOperation::Ready(LinkedCallable {

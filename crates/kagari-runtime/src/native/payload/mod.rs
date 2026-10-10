@@ -19,7 +19,7 @@ use crate::{
     },
     value::Value,
 };
-use std::{marker::PhantomData, slice, sync::Arc};
+use std::{marker::PhantomData, sync::Arc};
 
 #[derive(Debug)]
 struct TypeRecord {
@@ -160,18 +160,10 @@ impl NativeContext<'_> {
         let function = self.function.ok_or_else(|| {
             RuntimeError::module_validation("native construction requires a declared result")
         })?;
-        let argument = match &function.scoped_signature {
-            Some(signature) => signature.result.clone(),
-            None => self
-                .runtime()
-                .type_arguments(
-                    self.conversion.owner(),
-                    None,
-                    slice::from_ref(&function.signature.result),
-                )?
-                .pop()
-                .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?,
-        };
+        let argument = function
+            .type_signature(self.runtime(), self.conversion.owner())?
+            .result
+            .clone();
         self.runtime()
             .prepare_native_type::<T>(self.conversion.owner(), argument)
     }

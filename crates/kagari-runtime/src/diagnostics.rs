@@ -1,5 +1,9 @@
 //! Opt-in per-thread execution diagnostics, absent from ordinary builds.
 //! Counts include synchronous reentry on the measured thread, including other runtimes.
+pub mod allocations;
+#[cfg(test)]
+mod memory;
+
 use std::cell::Cell;
 
 #[derive(Debug, Default, Clone, Copy)]

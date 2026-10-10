@@ -177,7 +177,6 @@ pub struct LinkedNativeFunction {
     pub(crate) declaration: DefinitionId,
     pub(crate) binding: NativeBinding,
     pub(crate) signature: Signature<DefinitionId>,
-    pub(crate) scoped_signature: Option<Arc<ScopedSignature>>,
     pub(crate) prepared_signature: OnceLock<NativeResult<ScopedSignature>>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,
@@ -191,9 +190,6 @@ impl LinkedNativeFunction {
         runtime: &Runtime,
         owner: &LoadedModule,
     ) -> NativeResult<&'a ScopedSignature> {
-        if let Some(signature) = &self.scoped_signature {
-            return Ok(signature);
-        }
         self.prepared_signature
             .get_or_init(|| {
                 let params = runtime.type_arguments(owner, None, &self.signature.params)?;
@@ -250,13 +246,11 @@ impl LinkedNativeFunction {
                 .collect(),
             result: result.ty().clone(),
         };
-        let scoped_signature = Some(Arc::new(ScopedSignature { params, result }));
         Ok(Self {
             declaration: self.declaration,
             binding: self.binding.clone(),
             signature,
-            scoped_signature,
-            prepared_signature: OnceLock::new(),
+            prepared_signature: OnceLock::from(Ok(ScopedSignature { params, result })),
             result_adapter: self
                 .result_adapter
                 .as_ref()
@@ -300,24 +294,14 @@ impl LinkedNativeFunction {
             ));
         }
         context.poll()?;
+        let signature = self.type_signature(context.runtime, context.owner)?;
         let result = (self.binding.entry)(context);
         context.poll()?;
         let value = result?;
         if (!self.binding.converted_result || self.result_adapter.is_some())
-            && !match self.scoped_signature.as_deref().or_else(|| {
-                self.prepared_signature
-                    .get()
-                    .and_then(|signature| signature.as_ref().ok())
-            }) {
-                Some(signature) => signature
-                    .result
-                    .matches(context.runtime, &value, context.owner),
-                None => context.runtime.matches_interface_method_abi(
-                    &value,
-                    &self.signature.result,
-                    context.owner,
-                ),
-            }
+            && !signature
+                .result
+                .matches(context.runtime, &value, context.owner)
         {
             return Err(RuntimeError::module_validation(
                 "native result differs from its Kagari declaration",

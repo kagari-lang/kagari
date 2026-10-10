@@ -268,11 +268,12 @@ impl<'call> CallContext<'call> {
             runtime: self.runtime,
             owner: self.owner,
             ty,
-            scope: self
-                .function
-                .scoped_signature
-                .as_ref()
-                .map(|signature| &signature.result),
+            scope: Some(
+                &self
+                    .function
+                    .type_signature(self.runtime, self.owner)?
+                    .result,
+            ),
             selected: &self.function.selected,
         })?;
         let id = self.heap().alloc_native(object)?;
@@ -300,11 +301,12 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native storage is not installed"))?;
         self.runtime.validate_loaded_module(self.owner)?;
         let mut object = storage.prepare_payload(self.heap(), ty, payload, self.owner)?;
-        object.scope = self
-            .function
-            .scoped_signature
-            .as_ref()
-            .map(|signature| signature.result.clone());
+        object.scope = Some(
+            self.function
+                .type_signature(self.runtime, self.owner)?
+                .result
+                .clone(),
+        );
         self.heap().alloc_native(object).map(Value::GcHandle)
     }
 
@@ -445,17 +447,13 @@ impl<'call> CallContext<'call> {
     }
 
     pub(crate) fn argument_type_view(&self, index: usize) -> NativeResult<TypeView<'call>> {
-        match &self.function.scoped_signature {
-            Some(signature) => signature.params.get(index).map(|ty| ty.view(self.owner)),
-            None => self
-                .function
-                .signature
-                .params
-                .get(index)
-                .map(|ty| TypeView::new(ty, self.owner, None)),
-        }
-        .and_then(TypeView::normalized)
-        .ok_or_else(|| RuntimeError::module_validation("native argument scope"))
+        self.function
+            .type_signature(self.runtime, self.owner)?
+            .params
+            .get(index)
+            .map(|ty| ty.view(self.owner))
+            .and_then(TypeView::normalized)
+            .ok_or_else(|| RuntimeError::module_validation("native argument scope"))
     }
 
     pub fn result_type(&self) -> &'call Ty<DefinitionId> {

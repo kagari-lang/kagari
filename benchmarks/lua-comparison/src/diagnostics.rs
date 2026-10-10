@@ -1,78 +1,13 @@
 //! Allocation and runtime-protocol counts, kept outside throughput measurements.
 use kagari_embed::{context::ExecutionContext, runtime::KagariRuntime};
-use kagari_runtime::{diagnostics, module::LoadedModule, value::Value};
-use std::{
-    alloc::{GlobalAlloc, Layout, System},
-    cell::Cell,
+use kagari_runtime::{
+    diagnostics::{self, allocations},
+    module::LoadedModule,
+    value::Value,
 };
 
-#[derive(Default, Clone, Copy)]
-struct Counts {
-    requests: usize,
-    requested_bytes: usize,
-    net_bytes: i128,
-}
-
-thread_local! {
-    static ACTIVE: Cell<Option<Counts>> = const { Cell::new(None) };
-}
-
-struct Allocator;
-
 #[global_allocator]
-static ALLOCATOR: Allocator = Allocator;
-
-fn record(size: usize, released: usize, request: bool) {
-    let _ = ACTIVE.try_with(|active| {
-        if let Some(mut counts) = active.get() {
-            counts.requests += usize::from(request);
-            counts.requested_bytes += size;
-            counts.net_bytes += size as i128 - released as i128;
-            active.set(Some(counts));
-        }
-    });
-}
-
-// SAFETY: forward unchanged pointer/layout contracts to System. Const TLS counters
-// neither allocate nor invoke callbacks. Record only successful allocation requests.
-unsafe impl GlobalAlloc for Allocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { System.alloc(layout) };
-        if !ptr.is_null() {
-            record(layout.size(), 0, true);
-        }
-        ptr
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { System.alloc_zeroed(layout) };
-        if !ptr.is_null() {
-            record(layout.size(), 0, true);
-        }
-        ptr
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        let result = unsafe { System.realloc(ptr, layout, size) };
-        if !result.is_null() {
-            record(size, layout.size(), true);
-        }
-        result
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        record(0, layout.size(), false);
-        unsafe { System.dealloc(ptr, layout) };
-    }
-}
-
-struct Reset;
-
-impl Drop for Reset {
-    fn drop(&mut self) {
-        ACTIVE.with(|active| active.set(None));
-    }
-}
+static ALLOCATOR: allocations::Allocator = allocations::Allocator;
 
 pub(super) fn measure(
     runtime: &KagariRuntime,
@@ -103,15 +38,9 @@ fn count(
     phase: &str,
 ) {
     let before = runtime.runtime().gc().stats();
-    ACTIVE.with(|active| {
-        assert!(active.get().is_none());
-        active.set(Some(Counts::default()));
+    let ((report, execution), allocations) = allocations::measure(|| {
+        diagnostics::measure(|| runtime.execute(module, entry, args, context))
     });
-    let reset = Reset;
-    let (report, execution) =
-        diagnostics::measure(|| runtime.execute(module, entry, args, context));
-    let allocations = ACTIVE.with(|active| active.get().unwrap());
-    drop(reset);
     let report = report.unwrap();
     assert_eq!(
         report.return_value.value(runtime.runtime().gc()),
