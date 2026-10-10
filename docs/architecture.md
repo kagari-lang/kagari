@@ -668,8 +668,18 @@ runtime/variant checks; the older same-member/Arc shortcut is removed. Interpret
 patterns, native enum argument access and raw enum type checks borrow immutable
 tag/payload storage. A field read copies one Value without cloning the payload list.
 The enclosing frame/native argument retains the root, and the borrow ends before
-collection, heap allocation or callbacks. Owning snapshots remain for consumers
-that cross those boundaries.
+collection, heap allocation or callbacks. Intrinsic enum equality, ordering,
+formatting, key extraction, range-bound reads and error previews use the same
+immutable views. Their recursion only reads the script heap; Rust output/key
+allocation does not collect or call user code. Key extraction copies Values into
+its work stack and retains the key's required nominal data, without copying a
+second payload vector. Reflection copies the type name and releases the view
+before allocating the returned script string. Host nominal validation and SDK
+Option/Result conversion project only the layout and bounded payload state before
+type preparation or user conversion; the existing host/conversion roots retain
+inputs. Native child converters may collect or mutate aliases after the borrow
+ends. Public `enum_snapshot` remains an owning inspection API, not an internal
+execution adapter; its copies do not root payload handles.
 Standard-library enum consumers use one checked borrowed projection for nominal
 declaration, member and payload inspection. Iterator/construction readers copy at
 most one Value, comparison readers return a Rust Ordering, and propagation copies

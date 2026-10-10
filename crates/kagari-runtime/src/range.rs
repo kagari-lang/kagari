@@ -135,8 +135,8 @@ pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeEr
     let Value::Enum(id) = value else {
         return Err(invalid());
     };
-    let value = gc.enum_snapshot(*id).ok_or_else(invalid)?;
-    let EnumTag::Declared(layout) = value.tag;
+    let value = gc.enum_view(*id).ok_or_else(invalid)?;
+    let EnumTag::Declared(layout) = &value.tag;
     if !binding::matches(
         &layout.layout().declaration,
         &binding::bound_declaration(),

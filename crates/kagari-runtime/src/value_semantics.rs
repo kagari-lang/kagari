@@ -120,8 +120,8 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
             &gc.tuple(*b).ok_or_else(invalid)?,
         )?,
         (Value::Enum(a), Value::Enum(b)) => {
-            let a = gc.enum_snapshot(*a).ok_or_else(invalid)?;
-            let b = gc.enum_snapshot(*b).ok_or_else(invalid)?;
+            let a = gc.enum_view(*a).ok_or_else(invalid)?;
+            let b = gc.enum_view(*b).ok_or_else(invalid)?;
             a.tag == b.tag && members_equal(gc, &a.fields, &b.fields)?
         }
         (Value::Array(a), Value::Array(b))
@@ -237,7 +237,7 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
                 out.push(')');
             }
             Value::Enum(id) if debug => {
-                let value = gc.enum_snapshot(*id)?;
+                let value = gc.enum_view(*id)?;
                 write!(
                     out,
                     "{}::{}",
@@ -314,8 +314,8 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
         ),
         (Value::Enum(a), Value::Enum(b)) => {
             let rank = |id| {
-                let snapshot = gc.enum_snapshot(id)?;
-                let EnumTag::Declared(layout) = snapshot.tag;
+                let snapshot = gc.enum_view(id)?;
+                let EnumTag::Declared(layout) = &snapshot.tag;
                 if !snapshot.fields.is_empty()
                     || !binding::matches(
                         &layout.layout().declaration,

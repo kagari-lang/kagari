@@ -219,14 +219,11 @@ impl Runtime {
         let Value::Enum(id) = value else {
             return None;
         };
-        let snapshot = self.gc.enum_snapshot(*id)?;
+        let snapshot = self.gc.enum_view(*id)?;
         let payload = snapshot.fields.first()?;
-        let preview = value_semantics::format_value(
-            &self.gc,
-            payload,
-            !matches!(payload, crate::value::Value::Str(_)),
-        )
-        .unwrap_or_else(|_| "<error payload unavailable>".into());
+        let preview =
+            value_semantics::format_value(&self.gc, payload, !matches!(payload, Value::Str(_)))
+                .unwrap_or_else(|_| "<error payload unavailable>".into());
         let mut clipped = false;
         let message =
             label(&preview, &mut clipped).unwrap_or_else(|| "<error payload unavailable>".into());

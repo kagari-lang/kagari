@@ -37,6 +37,7 @@ fn variant(module: &LoadedModule, name: &str) -> kagari_runtime::module::EnumVar
 fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     use kagari_runtime::{
         error::RuntimeErrorKind,
+        reflection,
         value::{EnumTag, Value},
         value_semantics::script_equal,
     };
@@ -71,6 +72,12 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         runtime.runtime().gc().enum_snapshot(handle).unwrap().fields,
         [Value::I32(42)]
     );
+    let Value::Str(name) =
+        reflection::type_of(runtime.runtime().gc(), &Value::Enum(handle)).unwrap()
+    else {
+        panic!("enum type name")
+    };
+    assert_eq!(&*runtime.runtime().gc().string(name).unwrap(), "Option");
     let standard = runtime
         .runtime()
         .make_enum_member(

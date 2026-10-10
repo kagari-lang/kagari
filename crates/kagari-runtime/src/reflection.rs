@@ -67,13 +67,12 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
         Value::Map(_) => "map",
         Value::Set(_) => "set",
         Value::Enum(handle) => {
-            return gc
-                .alloc_string(
-                    gc.enum_snapshot(*handle)
-                        .map(|snapshot| snapshot.tag.type_name().to_owned())
-                        .unwrap_or_else(|| "enum".to_owned()),
-                )
-                .map_err(Into::into);
+            // Copy only the name and release the heap view before allocating.
+            let name = gc
+                .enum_view(*handle)
+                .map(|view| view.tag.type_name().to_owned())
+                .unwrap_or_else(|| "enum".to_owned());
+            return gc.alloc_string(name).map_err(Into::into);
         }
         Value::Struct(handle) => {
             return gc

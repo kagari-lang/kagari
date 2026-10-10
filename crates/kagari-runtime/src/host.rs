@@ -1189,10 +1189,16 @@ fn host_value_matches(
                 pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
             }
             (Value::Enum(id), HostValueType::Option(_, _) | HostValueType::Result { .. }) => {
-                let Some(snapshot) = heap.enum_snapshot(id) else {
+                let Some((layout, field, field_count)) = heap.enum_view(id).map(|view| {
+                    let EnumTag::Declared(layout) = &view.tag;
+                    (
+                        layout.clone(),
+                        view.fields.first().copied(),
+                        view.fields.len(),
+                    )
+                }) else {
                     return Ok(false);
                 };
-                let EnumTag::Declared(layout) = snapshot.tag;
                 let expected = runtime
                     .resolve_type_arguments(layout.module(), &[Ty::from_host_type(ty)])?
                     .remove(0);
@@ -1213,7 +1219,7 @@ fn host_value_matches(
                     .module()
                     .definition_name(layout.variant().declaration);
                 let expected = match (ty, member) {
-                    (HostValueType::Option(_, _), Some("None")) if snapshot.fields.is_empty() => {
+                    (HostValueType::Option(_, _), Some("None")) if field_count == 0 => {
                         continue;
                     }
                     (HostValueType::Option(_, element), Some("Some")) => element,
@@ -1221,15 +1227,10 @@ fn host_value_matches(
                     (HostValueType::Result { error, .. }, Some("Err")) => error,
                     _ => return Ok(false),
                 };
-                if snapshot.fields.len() != 1 {
+                if field_count != 1 {
                     return Ok(false);
                 }
-                pending.extend(
-                    snapshot
-                        .fields
-                        .into_iter()
-                        .map(|value| (value, expected.as_ref())),
-                );
+                pending.extend(field.map(|value| (value, expected.as_ref())));
             }
             _ => return Ok(false),
         }

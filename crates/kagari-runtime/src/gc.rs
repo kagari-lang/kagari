@@ -412,6 +412,9 @@ impl GcHeap {
         })
     }
 
+    /// Copy tag and fields for an owning inspection boundary. This copy does not
+    /// root payload handles; retain their source root across allocation or reentry.
+    /// Synchronous reads should use `enum_view` and release it before either boundary.
     pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
         self.enum_view(id).map(|view| (*view).clone())
     }

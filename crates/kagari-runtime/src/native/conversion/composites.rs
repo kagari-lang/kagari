@@ -143,10 +143,10 @@ impl<T: FromKagari> FromKagari for Option<T> {
         value: &Value,
     ) -> NativeResult<Self> {
         match enum_payload(cx, expected, value, "None", "Some")? {
-            (false, fields) if fields.is_empty() => Ok(None),
-            (true, fields) if fields.len() == 1 => {
+            (false, EnumPayload::Empty) => Ok(None),
+            (true, EnumPayload::Single(value)) => {
                 let element = cx.parameter(expected, 0)?;
-                cx.decode_value(&element, &fields[0]).map(Some)
+                cx.decode_value(&element, &value).map(Some)
             }
             _ => Err(RuntimeError::module_validation("Option conversion payload")),
         }
@@ -220,17 +220,25 @@ impl<T: FromKagari, E: FromKagari> FromKagari for Result<T, E> {
         expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        let (error, fields) = enum_payload(cx, expected, value, "Ok", "Err")?;
-        if fields.len() != 1 {
+        let (error, payload) = enum_payload(cx, expected, value, "Ok", "Err")?;
+        let EnumPayload::Single(value) = payload else {
             return Err(RuntimeError::module_validation("Result conversion payload"));
-        }
+        };
         let element = cx.parameter(expected, usize::from(error))?;
         if error {
-            cx.decode_value(&element, &fields[0]).map(Err)
+            cx.decode_value(&element, &value).map(Err)
         } else {
-            cx.decode_value(&element, &fields[0]).map(Ok)
+            cx.decode_value(&element, &value).map(Ok)
         }
     }
+}
+
+// Conversion may invoke a user adapter. Copy only the selected payload before
+// releasing the heap view; the enclosing conversion frame retains the input root.
+enum EnumPayload {
+    Empty,
+    Single(Value),
+    Invalid,
 }
 
 fn enum_payload(
@@ -239,24 +247,32 @@ fn enum_payload(
     value: &Value,
     first: &str,
     second: &str,
-) -> NativeResult<(bool, Vec<Value>)> {
+) -> NativeResult<(bool, EnumPayload)> {
     let Value::Enum(id) = value else {
         return Err(RuntimeError::module_validation(
             "nominal conversion requires an enum",
         ));
     };
-    let snapshot = cx
+    let (actual, payload) = cx
         .runtime()
         .gc()
-        .enum_snapshot(*id)
+        .enum_view(*id)
+        .map(|view| {
+            let EnumTag::Declared(actual) = &view.tag;
+            let payload = match view.fields.as_slice() {
+                [] => EnumPayload::Empty,
+                [value] => EnumPayload::Single(*value),
+                _ => EnumPayload::Invalid,
+            };
+            (actual.clone(), payload)
+        })
         .ok_or_else(|| RuntimeError::module_validation("enum conversion identity"))?;
-    let EnumTag::Declared(actual) = snapshot.tag;
     for (member, choice) in [(first, false), (second, true)] {
         let expected = cx
             .runtime()
             .declared_enum_variant(cx.owner(), expected, member)?;
         if actual.matches_layout(&expected) {
-            return Ok((choice, snapshot.fields));
+            return Ok((choice, payload));
         }
     }
     Err(RuntimeError::module_validation(

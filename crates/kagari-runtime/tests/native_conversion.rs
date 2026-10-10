@@ -405,7 +405,7 @@ impl FromKagari for Detached {
 }
 
 #[test]
-fn owned_array_snapshot_survives_alias_mutation_and_collection_in_child_conversion() {
+fn owned_composites_survive_alias_mutation_and_collection_in_child_conversion() {
     let (runtime, owner) = fixture();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let root = cx.encode(vec![vec![1], vec![2]]).unwrap();
@@ -419,6 +419,19 @@ fn owned_array_snapshot_survives_alias_mutation_and_collection_in_child_conversi
     );
     assert_eq!(runtime.gc().array_len(array), Some(0));
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    drop(root);
+
+    for value in [Ok(vec![3]), Err(vec![4])] {
+        let expected = Some(value.clone().map(Detached).map_err(Detached));
+        let root = cx.encode(Some(value)).unwrap();
+        assert_eq!(
+            cx.decode::<Option<Result<Detached, Detached>>>(&root)
+                .unwrap(),
+            expected
+        );
+        assert_eq!(runtime.gc().active_roots(), 1);
+    }
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
 
 #[derive(Debug, PartialEq)]

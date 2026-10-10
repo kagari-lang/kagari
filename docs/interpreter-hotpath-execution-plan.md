@@ -1,7 +1,8 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP03 are complete;
-HP05 implementation is in progress, carrying HP04's unmet performance/admission gate.
+Status: active, authorized by the user on 2026-10-10; HP00–HP03 and HP05 implementation
+are complete. HP04 acceptance and HP06 integration/retrospective remain open; local
+phase progress does not establish CI acceptance or Lua parity.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -378,7 +379,7 @@ only content/link/diff checks. Use `Phase: HPxx` in implementation commit traile
 - [x] HP02 — Active execution ownership and transitions.
 - [x] HP03 — Unified call/return protocol (local phase acceptance; final performance/CI gates remain open).
 - [ ] HP04 — Common prepared operation model.
-- [ ] HP05 — Unified layout admission and enum access.
+- [x] HP05 — Unified layout admission and enum access (local mechanism/contract acceptance; integrated performance and CI remain open).
 - [ ] HP06 — Old-path retirement and architecture evaluation.
 - [ ] Complete GitHub CI acceptance.
 - [ ] All 16 matched workloads reach Lua parity.
@@ -4263,3 +4264,120 @@ must review region/code-view ownership and the remaining per-managed-operation s
 cursor reconstruction, then measure any coherent change against this checkpoint and
 the preserved pre-regression binary. HP05 still owes the runtime snapshot-consumer
 audit; HP06 integration/retrospective/CI/parity acceptance remains open.
+
+
+2026-10-10 HP05, remaining runtime enum-consumer migration:
+
+The snapshot audit found no need for a second enum representation. Immutable enum
+payloads can be borrowed throughout intrinsic equality/ordering/formatting, range
+validation and error previews, because these operations neither allocate script
+objects nor invoke user code. Their existing owner/generation, recursion/formatting
+bounds, nominal/type checks and failure ordering remain unchanged. Rust text/key
+allocation is independent of the script collector. MapKey borrows the enum, copies
+children into its existing bounded work stack and retains the key's owned nominal
+arguments; it no longer allocates a temporary duplicate field vector.
+
+Effectful boundaries use narrow owned projections. Reflection copies only the name
+and releases the enum view before allocating its result string. Host nominal
+validation copies the layout, first field and count before resolving types, preserving
+foreign/type/member/arity checks. SDK Option/Result decoding copies the layout and
+Empty/Single/Invalid payload state, then releases the view before member/type
+preparation or custom child conversion. Payload-shape errors are still emitted only
+after member admission; the enclosing conversion frame roots the original input.
+For example, decoding Some(Ok(array)) copies the inner Value before entering a child
+adapter that may collect or mutate arrays; it does not hold a RefCell view across
+that adapter. No new cache, root lease, public API or heap layout is introduced.
+
+Production search now finds `enum_snapshot` only at its owning public definition.
+That API remains intentional for external detached inspections, including existing
+host/test consumers that keep data across later operations; it is not a compatibility
+alias or a second enum implementation. Its documentation explicitly says payload
+handles require a source root across allocation/reentry. Array/map/set snapshots
+used across mutable callbacks are outside this immutable-enum replacement and remain
+necessary where their membership can change.
+
+Focused checks under `target/hp05/enum-consumers/`: runtime native conversion (10)
+and host nominal contracts (8) pass. The existing child-conversion GC/alias test now
+also decodes Some(Ok(array)) and Some(Err(array)) through a collecting custom adapter;
+its focused rerun passes with scratch roots released. The existing enum version/
+payload contract now checks reflective type-name allocation. All four embed enum
+payload and 13 error-trace tests pass, including equality/hash independence of failure
+metadata and diagnostic previews that must not invoke user Debug. The VM GC/payload
+filter passes 15 cases and the applied Bound contract passes. No duplicate smoke test
+or new regression-only test was introduced. Runtime all-target diagnostic Clippy,
+formatting, diff checks and structure review pass (1,025 files, zero violations and
+zero exceptions). All 86 restored-fixture diagnostic rows are exactly unchanged from
+75a62d09, including allocations, net bytes and all mechanism counters. Full-workspace
+and CI checks remain for HP06.
+
+Temporary diagnostic source (`probe.py`, saved original/probe source and candidate
+file contents in the log directory) reuses the existing 2,500/5,000 scaling driver.
+Both candidates were built with default release plus the opt-in diagnostics feature;
+original production/test/benchmark sources were restored exactly in a finally block.
+No diagnostic executable supplies throughput evidence. All 32 rows retain their
+non-allocation counters and net bytes, including the 24 unchanged source-form rows.
+
+| Warm probe | Requests at 5,000 before → after | Requested bytes before → after |
+| --- | ---: | ---: |
+| Repeated equality of two existing Some(7) values | 10,009 → 9 | 160,299 → 299 |
+| Repeated HashMap lookup with an existing Some(7) key | 135,310 → 120,309 | 5,960,446 → 5,720,430 |
+
+The 2,500/5,000 comparison removes exactly two requests/32 bytes per equality, and
+three requests/48 bytes per lookup plus one request/16 bytes for initial key insertion.
+The lookup still constructs ordinary Option results; its other key/container/protocol
+costs are not claimed fixed. Equality creates two enum objects per call in both builds;
+lookup creates N+2, with unchanged collection counts. No extra retained metadata or
+root is introduced, and lower allocation alone is not an execution-speed claim.
+
+Ordinary candidate SHA-256 is
+`80ad1058a08d98a3bf8aecdfd09995aa775472841a99b4abb4cf8072d928280b`, saved at
+`target/hp05/enum-consumers/prepared-executable`. Paired runs against 75a62d09's
+`185577120e579897dcd5c0ddaa4746cd91900fa94222508bdd9cc3a69ee7a312` are
+`20261010T115153Z-forms-paired` and `20261010T115226Z-paired` under
+`target/lua-comparison/`. The prior checkpoint's M1 Max/32 GiB/10-CPU/macOS 26.6.2,
+rustc 1.98.1/LLVM 22.1.8, PUC Lua 5.4.8, workspace release/default target/parallelism,
+source/native feature and normal-GC conditions are unchanged. Diagnostics are off;
+serial B/C/C/B uses three warmups and 11 samples/process (22 pooled). No timing
+shares a build/test/profile/Rust edit. Excluded builds are 20.936/0.085 seconds.
+All checksums pass. Original-suite C/B medians range 0.9753–1.0154, with Map 1.0049
+(Lua control 0.9947); no new Map speedup is claimed. Current Map/arrays/fibonacci
+remain 51.22/23.41/30.96 times Lua respectively. Source forms other than String
+range 0.9716–1.0130. String constants/calls C/B are 0.9122/0.9520 (Lua controls
+1.0179/0.9980), or 12.37/27.57 times Lua. These untouched source paths recover in
+this binary, without establishing a causal fix for the generated-code sensitivity.
+A direct comparison against the preserved pre-regression 84455163 binary follows.
+
+The independent direct reference pair is `20261010T115443Z-forms-paired`, using
+84455163/b30d9400… as baseline, the same candidate/hash/conditions, and an excluded
+0.083-second build. String constants/calls C/B are 0.9964/0.9994 (Lua 1.0010/1.0058);
+current times are 818.500/3,391.167 microseconds, or 12.32/26.91 times Lua. Other
+source forms range 0.9931–1.0470; direct's 1.0470 accompanies Lua 1.0296. All checksums
+pass. The regression observed at 75a62d09 is no longer reproduced by this candidate;
+its data remains recorded, and recovery is not attributed to a proven String fix.
+The older HP04 comparison against 5c2527f2 has not been rerun or declared recovered.
+
+HP05's planned implementation and local mechanism/contract gate are complete:
+canonical applied layout admission replaces VE09's separate shortcut, exact function/
+type owners retain preparation, enum producers/consumers preserve nominal and payload
+checks, and production reads no longer take owned enum snapshots. Frozen Map has no
+repeated layout/scope preparation or pattern/snapshot descriptor allocation; ordinary
+Option allocation remains explicitly counted. The measured representation review
+locates native/protocol work ahead of object allocation and does not justify launching
+an unboxing/collector migration. This is not full performance, CI or Lua acceptance.
+No build/test error is carried. Current ordinary executable is preserved and also
+matches `target/release/kagari-lua-benchmark`.
+
+Next authorized work returns to the carried HP04 gate, then HP06. Review the existing
+region boundary as a whole: ExecutionCursor currently borrows the entire mutable frame,
+then reconstructs ScalarCursor and reselects the same checked function/code after each
+managed operation. Prepared field/index lookup repeats that same function selection.
+The immutable function/link facts and mutable PC/window have the same admitted lifetime
+but are not represented as separate views. Evaluate a single borrowed function/link
+view at region admission, with disjoint PC/window mutation, before further local tuning.
+Keep constant misses, lazy field/tuple transitions, roots, logical cancellation/observer
+boundaries, native effects and all live heap/access checks unchanged. Do not add a
+persistent per-frame cache, extra module lease, unsafe alias or benchmark-specific path.
+Any implementation must replace the repeated reconstruction coherently and compare
+with both this checkpoint and the preserved HP04 reference. HP06 still owns final
+retrospective removal, setup/retained-memory accounting, final checks and unchanged
+HP00 comparisons; the finite scope and separate unmet performance gates remain intact.
