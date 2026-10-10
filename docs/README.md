@@ -35,6 +35,8 @@ parallel migration documents.
   and the [AX00-AX06 acceptance record](async-execution-plan.md).
 - [Compact values/interpreter acceptance (VE00-VE09)](interpreter-value-execution-plan.md).
   Implementation is complete locally; Lua parity and full CI remain open.
+- [Interpreter execution architecture and prior-optimization review (HP00-HP06)](interpreter-hotpath-execution-plan.md).
+  Migration and final local evaluation are complete; full CI and Lua parity remain open.
 - Completed semantic contracts: [nominal enums/propagation](enum-propagation-plan.md),
   [imports and namespaces](import-resolution-plan.md),
   [Type/Value namespaces and import solving](name-resolution-plan.md), and
@@ -47,7 +49,6 @@ These documents do not imply implemented APIs or active execution. The roadmap
 owns activation, dependencies and phase order.
 
 - [Rust value/opaque interoperability](rust-interop-design.md).
-- [Interpreter execution architecture and prior-optimization review (HP00-HP06)](interpreter-hotpath-execution-plan.md).
 - [Host API unification](host-api-refactor.md).
 - [Packages and dependency resolution](package-design.md).
 - [Compatible reload and state replacement](update-model-design.md).

@@ -1,13 +1,285 @@
 # Performance Measurements
 
-Current interpreter evidence is VE09, followed by the VE08 whole-track comparison
-against the preserved VE00 binary. Representation tradeoffs and distinct compiler,
-startup and platform observations remain below. Intermediate phase reports live
-in Git history; the historical index identifies their checkpoints.
+Current interpreter evidence is the HP06 execution-architecture evaluation below.
+VE09 and VE08 are historical baselines; their mechanism descriptions refer to those
+revisions and may have been replaced by HP00–HP06. Compiler, startup and platform
+observations remain separate.
 
 Keep workloads, hashes, environment and timing scope together. Allocation requests
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
+
+## Execution architecture evaluation (HP06), 2026-10-10
+
+HP00–HP06 implementation and final local correctness checks are complete. All 16
+unchanged matched workloads improve against HP00, but **none reaches Lua parity**:
+current interpreter medians are 2.57–51.11 times Lua. This closes the bounded
+migration/evaluation, not the performance objective or complete GitHub CI acceptance.
+The [execution plan](interpreter-hotpath-execution-plan.md#mandatory-review-of-earlier-optimizations)
+records the final disposition of earlier IP/NE/VE mechanisms; the implemented owners
+are described in [architecture](architecture.md).
+
+Runtime-owned executable identities and checked publication now own prepared facts;
+active execution regions borrow admitted function/link views and disjoint PC/window
+state. Internal calls/returns share one protocol, managed/scalar operations share
+prepared execution, and canonical layout admission plus borrowed enum reads replace
+the separate VE09 shortcut and snapshot consumers. External entry, real dynamic
+boundaries, roots, bounds, generation checks, cancellation and observable failure order
+remain. Value stays 16-byte Copy; ordinary Option still allocates traced enum objects.
+
+### Frozen paired throughput
+
+Baseline: HP00/VE09 f97b4095, SHA-256
+`a10ea34693c9a113b97cf2f1e2af1906c07a2b175e1bfcd209bb055c01cecc22`,
+`target/hp00/baseline-executable`. Candidate: eca16497 (production code 375c727d;
+eca16497 changes only an opt-in test and documentation), SHA-256
+`5161d2859bb0e693960c7e7fa0b1b6e288f182eafc52ee6f804571494b9d3d33`.
+The ordinary candidate binary is identical to the accepted HP04 region-view binary.
+
+Apple M1 Max, 32 GiB, 10 logical CPUs, macOS 26.6.2 arm64; rustc 1.98.1
+(48a229cea, LLVM 22.1.8), Cargo 1.98.1, vendored PUC Lua 5.4.8 through mlua.
+Workspace release/opt-level=3, default target and Cargo parallelism; SDK source/native
+features, only interpretation executed. No allocation counters, observer, debugger
+or profiler runs in throughput. Normal GC/allocator and public host entry/return are
+included; compilation, verification, loading and setup are excluded. Build cache
+was warm; the two excluded build times were 0.094/0.134 seconds.
+
+Both matrices run serial baseline/candidate/candidate/baseline, three warmups and
+eleven samples per process/engine/workload (22 pooled). Workload and initial engine
+order reverse in the second pair. All 1,672 measured batches pass checksums. Fixture
+source/Lua bodies, sizes, expected results and ordinary loops are unchanged from HP00.
+No agent-started build/test/profile or Rust edit overlaps timing. CPU placement,
+frequency and desktop activity remain uncontrolled. No best samples are selected.
+
+Microseconds per complete workload; C/B is candidate/HP00 elapsed time, so lower is
+better. Ranges are sample extrema, not confidence intervals.
+
+| Matched workload | HP00 VM | HP06 VM | C/B | Candidate Lua | VM/Lua | HP06 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 2491.125 | 1711.479 | 0.687 | 387.584 | 4.42 | 1669.292–1754.792 |
+| arrays | 5021.667 | 1403.771 | 0.280 | 67.292 | 20.86 | 1395.875–1472.250 |
+| branches | 2953.709 | 2158.021 | 0.731 | 838.812 | 2.57 | 2096.459–7976.209 |
+| calls | 6229.958 | 4980.124 | 0.799 | 222.417 | 22.39 | 4933.250–5085.416 |
+| fibonacci | 12528.646 | 10268.604 | 0.820 | 353.416 | 29.06 | 10151.000–10640.209 |
+| maps | 5991.374 | 3344.417 | 0.558 | 71.916 | 46.50 | 3227.041–11025.333 |
+| byte_state | 6941.542 | 1341.688 | 0.193 | 109.250 | 12.28 | 1331.667–1394.917 |
+| capture_cell | 10118.166 | 5943.458 | 0.587 | 138.292 | 42.98 | 5890.750–6086.166 |
+| concrete_generic | 3073.312 | 2525.312 | 0.822 | 103.833 | 24.32 | 2497.958–2576.375 |
+| direct | 348.708 | 239.792 | 0.688 | 75.312 | 3.18 | 233.833–253.041 |
+| field | 3718.396 | 1017.646 | 0.274 | 90.166 | 11.29 | 1009.375–1088.208 |
+| helper | 3056.749 | 2456.876 | 0.804 | 139.833 | 17.57 | 2431.625–2607.208 |
+| interface | 10379.437 | 4334.583 | 0.418 | 134.480 | 32.23 | 4264.042–4394.583 |
+| shared_generic | 21593.500 | 5460.146 | 0.253 | 106.834 | 51.11 | 5417.625–5576.791 |
+| string_calls | 12899.812 | 3057.000 | 0.237 | 125.604 | 24.34 | 3018.125–3232.375 |
+| string_constants | 7059.167 | 671.375 | 0.095 | 66.396 | 10.11 | 667.834–705.083 |
+
+Branch and Map outliers remain in the table (7,976.209 and 11,025.333 us).
+Their two candidate-process medians are 2,339.000/2,120.250 and 3,407.042/3,297.000 us;
+HP00's are 2,940.208/2,954.875 and 5,974.875/6,007.375 us. Both process orders support
+lower elapsed time and both remain far above Lua. Candidate/baseline Lua controls
+range 0.978–1.042 in the original suite and 0.985–1.016 in the ten matched source
+forms. No >5% control regression against HP00 is observed; uncertainty near parity
+is not relevant because every row is far above 1.0. Phase-level regressions and
+their recovered gates remain recorded in the execution ledger.
+
+Entry and adapters stay outside the 16-workload parity gate. Entry is normalized
+per public call; native compares a Rust body with a script helper and is unmatched;
+host_callback measures the same Rust body through each engine's host adapter.
+
+| Diagnostic | HP00 VM | HP06 VM | C/B | Candidate Lua | VM/Lua | HP06 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| entry | 1.430 | 1.336 | 0.934 | 0.028 | 47.00 | 1.328–1.423 |
+| host_callback | 1913.396 | 1429.146 | 0.747 | 249.750 | 5.72 | 1416.625–1530.666 |
+| native | 1896.417 | 1428.333 | 0.753 | 141.062 | 10.13 | 1418.125–1456.917 |
+
+### Allocation, preparation and transitions
+
+Separate diagnostic builds count one warmed script execution after three warmups.
+The 86 final rows at production 375c727d are reused: eca16497 changes no production
+code. Common HP00 rows are compared below. Original workloads each have their own
+runtime in both versions; HP00 source forms shared one runtime, while final probes
+use freshly linked runtimes per entry. Allocation traffic and protocol counts remain
+useful, but GC/live/net deltas across the source forms are not equal-context retained
+memory comparisons. Final cold/warm/changing-key probes stay separate from throughput.
+
+| Workload | Rust allocation requests, HP00 -> HP06 | Requested bytes, HP00 -> HP06 | Metadata graph entries, HP00 -> HP06 | Region exits to ordinary dispatch, HP00 -> HP06 |
+| --- | ---: | ---: | ---: | ---: |
+| arrays | 12059 -> 59 | 180250 -> 20282 | 0 -> 0 | 16003 -> 2002 |
+| maps | 30207 -> 2178 | 1313040 -> 1022792 | 0 -> 0 | 12003 -> 8002 |
+| interface | 70040 -> 5039 | 3923832 -> 43832 | 5001 -> 1 | 10002 -> 5001 |
+| shared_generic | 315599 -> 5050 | 26257537 -> 44785 | 20002 -> 2 | 20002 -> 5001 |
+| field | 5009 -> 8 | 40231 -> 223 | 0 -> 0 | 10002 -> 1 |
+| byte_state | 36 -> 38 | 2888 -> 3112 | 0 -> 0 | 25002 -> 1 |
+| string_constants | 7 -> 7 | 170 -> 170 | 0 -> 0 | 25000 -> 0 |
+| string_calls | 7 -> 7 | 166 -> 166 | 0 -> 0 | 45000 -> 5000 |
+
+Shared-generic per-execution method preparation/environment allocation counts fall
+5,000/10,000 -> 0/0. Alternating receiver/type probes keep distinct checked identities:
+at 5,000 iterations their requests fall 315,726 -> 5,093 and graph entries 20,004 -> 4.
+Their warm preparation does not scale with iterations. There is still roughly one
+8-byte allocation per interface/shared invocation; zero preparation is not zero
+call cost. Byte-state requests increase slightly; it is not an allocation win.
+
+Scalar/direct/helper/concrete-generic/calls/fibonacci still request seven allocations
+per complete warmed execution; no per-recursive-call Rust allocation is introduced.
+Arrays still create one script object with two collections, Map 2,001 with five,
+and both string cases zero objects/collections. Region exits are neither host
+crossings nor opcode counts. Metadata counters exclude cheap Program ownership
+validation and GC traversal; zero does not imply checks were removed.
+
+### Preparation and retained memory
+
+Preparation is intentionally visible. Across original fixtures, median program-link
+time moves from 2.348–2.508 ms to 2.817–3.134 ms (six setup samples per workload/version).
+For the source-form module (two samples/version), source-to-artifact is
+1,141.288 -> 1,159.579 ms, artifact preparation 263.630 -> 268.355 ms and linking
+2.779 -> 3.355 ms. Candidate runtime creation is 111.375 ms; the frozen HP00 forms
+binary did not report that phase, so no comparative value is fabricated. This is
+an execution improvement with preparation/storage costs, not a startup speed claim.
+
+Release layout measurements: prepared instruction 24 bytes, ExecutionFrame 264,
+LinkedFunction 56, ExecutionFunction 128, field/index operand 40/28, native primitive
+slot 40, region exit/result 24/32. FunctionLayouts is 40, AppliedLayouts 16 (40 in
+debug due to its extra environment check), AggregateLayout 56 and its lazy cell 64.
+Linked constant cells are 24 bytes versus the previous 16-byte Option<Value>.
+These are shallow type sizes, not total transitive metadata or bytes per instruction;
+variable tables, shared Arc slices and lazily prepared descriptors add storage.
+
+Isolated release probes compare identical runtime/input roots without versus with
+preparation, with no script execution/VM frames. They cover cold preparation, two
+warm repeats, 30 further repeats with GC, compatible reload/old-version retirement
+and runtime teardown. Optional indices retain at most 128 keys; the 160-key case
+also grows tuple widths from 1 to 160, so it is neither fixed-cost entries nor an
+allocation-free steady state. Capacity can grow at eviction and remain after records
+retire. Values below are extra **net allocated bytes after GC**, not RSS or peak.
+
+| Prepared owner | Cold: 1 / 4 / 160 keys | After 30 repeats: 160 keys | After retirement: 1 / 4 / 160 keys |
+| --- | ---: | ---: | ---: |
+| native application | 1512 / 5824 / 1730312 | 1730312 | 0 / 0 / 0 |
+| method application | 3408 / 7340 / 2633956 | 2699236 | 1376 / 1760 / 176128 |
+| shared environment | 1464 / 4576 / 165896 | 167688 | 0 / 384 / 24576 |
+| witness scope | 3200 / 13732 / 467856 | 496272 | 0 / 448 / 56896 |
+| struct layout | 3185 / 11080 / 3851472 | 3868112 | 0 / 0 / 0 |
+| enum layout | 3616 / 11488 / 3856600 | 3873240 | 0 / 0 / 0 |
+| cross-version admission (two producers/key) | 900 / 1388 / 21148 | 26396 | 0 / 0 / 0 |
+
+Setup deltas are zero; closed native preparation adds zero in this fixture. Every
+control and prepared runtime returns to zero net allocation on teardown. Retirement
+assertions verify old executable records/environments are reclaimed; a replacement
+program's valid closed witness and reusable store capacity must not be mistaken for
+old-version leaks. Small capacity differences may depend on hash/eviction order.
+HP00 has no equivalent isolated owner probe, so these are final design costs, not
+an invented HP00 memory speedup or retained-byte delta.
+
+### Remaining architecture costs and bounded follow-up
+
+Five ordinary-binary profiles use `/usr/bin/sample PID 5 1` within a ten-second
+warmed execution window: three warmups for original fixtures, six for source forms.
+The same candidate hash and workspace release settings apply; no allocation counters,
+observer or Lua hook is active in that window. Logical instruction counting runs
+separately afterward. All profile-window/counting checksums pass. Reports are
+`target/lua-comparison/20261010T123134Z-macos-profile` (arrays/maps/fibonacci) and
+`20261010T123211Z-macos-profile` (shared_generic/string_constants).
+
+| Workload | Main-thread samples | Kagari / Lua logical instructions per execution | Observed remaining cost |
+| --- | ---: | ---: | --- |
+| shared_generic | 3657 | 95017 / 60009 | `push_prepared_call` 63.36% inclusive, return 11.18%; SipHash 9.76% and ModuleKey hashing 3.83% leaf |
+| maps | 3652 | 63030 / 24012 | native invocation 53.72% inclusive; frame validation 9.53%; identified enum allocation/GC stacks 8.08% |
+| fibonacci | 3703 | 240801 / 120400 | prepared call entry 36.94% inclusive, return 10.40%, frame validation 12.18%; value-window allocation 9.13% leaf |
+| arrays | 3615 | 72030 / 42012 | native invocation 45.48% inclusive; scalar kernel 15.35% leaf; typed storage and access checks remain |
+| string_constants | 3670 | 100012 / 52506 | scalar kernel 47.87% and region kernel 13.27% leaf; no objects or collections |
+
+These are wall-clock stack samples, not exact CPU fractions. Inclusive families count
+a sample once per family and include callees; families overlap and must not be added.
+Leaf values use the sampler's collapsed-symbol list (entries >=5). Optimized inline
+attribution is incomplete. The Map enum-allocation/GC family covers named
+Runtime/GcHeap `alloc_enum` and collector stacks, not every representation-related
+instruction. None of these percentages is a predicted speedup or an unboxing bound.
+
+For example, the shared identity body merely returns its argument, but 5,000 calls
+still select an applied invocation, check current dependencies/arguments, establish
+frame slots, return and retire slots. Reused descriptors remove preparation, while
+`frame/calls.rs`, `objects/invocation.rs` and frame admission still perform runtime
+lookup/validation at those transitions. Fibonacci allocates no script objects and
+only seven Rust allocations per complete execution: `ExecutionValues::allocate`
+primarily means initializing/reusing window storage, not one heap allocation per
+recursive call. Thus shrinking Value or changing GC alone cannot explain these costs.
+
+For Map, each successful `get` still produces an ordinary Option followed by tag and
+payload operations. The frozen workload executes 4,002 calls, 2,000 tag tests and
+2,000 payload reads, creating 2,001 objects and five collections. Native invocation
+also includes argument/result validation, installed storage authority, hashing and
+mutation guards. Array indexing now uses prepared operands, but 2,000 growing
+`push` operations still use native transitions; growth, type checks and real access
+checks remain. Neither finding justifies deleting dynamic checks or calling the
+remaining cost entirely allocation.
+
+The next **proposed, unactivated** scope is one finite call-lifecycle migration:
+review prepared invocation contracts and active-session frame ownership across
+selection, argument admission, slot initialization and return. For the same identity
+call, carry checked executable/type facts into a bounded internal transition rather
+than rediscovering them through general module/type lookups, while validating real
+receiver/version changes and retaining host/reentry boundaries. Avoid another
+callsite cache, duplicated fast-call implementation or unchecked public API. Accept
+only with changing receiver/type/version, eviction, source-free, GC/trap/cancel/reentry
+contracts, measured call-window/lookup counts and paired shared/interface/capture/
+fibonacci controls, including setup and retained memory.
+
+After that bounded result, reconsider native collection contracts separately. Any
+prepared collection operation must use exact installed binding/effect authority and
+one storage implementation, preserving alias/growth guards and result publication;
+ordinary Option representation should be changed only with evidence isolating its
+material cost. A distinct future kernel/bytecode review can address excess logical
+loads/stores/branches and general operand checks. It must retain observable trap
+order, logical stepping and cancellation. These are remaining architectural questions,
+not silently activated phases or proof that completing HP06 makes the design sufficient
+for Lua parity.
+
+### Correctness and reproduction
+
+One final local workspace run passes: 1,948 tests, zero failures, two ignored;
+strict workspace/all-target Clippy, formatting, structure (1,025 files, zero
+violations/exceptions) and diff checks pass. Release verification additionally
+passes 56 admission/lifetime/control contracts, the metadata-size check and three
+manual memory probes. The memory probe initially assumed globally zero witness
+groups after reload; eca16497 instead checks all old groups reclaimed and exactly
+one current-program group alive, matching the existing ownership contract. Affected
+diagnostic Clippy/format/structure checks pass after that test-only fix. No production
+error is carried; the successful default full suite was not needlessly repeated.
+
+GitHub has no run for the measured revision; complete CI/feature/backend acceptance
+is pending and is not implied by local success. Shared generic Add still fails
+MIR lowering with MissingBinding("checked callable requirement"); the unchanged
+shared-identity benchmark does not establish that separate compiler capability.
+The following source reproduces it with `cargo run -p kagari-cli -- run <file>`
+(on macOS, use the DEVELOPER_DIR prefix below); it is outside this migration's scope.
+No JIT, collector replacement or general enum unboxing was silently added to the task.
+
+```kagari
+use core::ops::Add;
+trait Forward {
+    fn forward<T: Add<T>>(self, a: T, b: T) -> T::Output { a + b }
+}
+impl Forward for i32 {}
+fn main() -> i32 { val receiver: Forward = 0; receiver.forward(1, 2) }
+```
+
+```sh
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/hp00/baseline-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/hp00/baseline-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py arrays maps fibonacci
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py --source-forms shared_generic string_constants
+DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo test --release -p kagari-runtime --lib --features execution-diagnostics diagnostics::memory -- --ignored --nocapture --test-threads=1
+DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo test --release -p kagari-runtime --lib --features execution-diagnostics module::execution::tests::physical_instruction_budget -- --nocapture
+```
+
+Raw throughput: `target/lua-comparison/20261010T122909Z-paired` and
+`20261010T122855Z-forms-paired`, retaining all samples, checksums, setup phases,
+source/driver/binary hashes and environment. Diagnostic rows are in
+`target/hp00/` and `target/hp04/region-views/`; final validation/memory logs in
+`target/hp06/`. [Diagnostic instructions](../benchmarks/lua-comparison/README.md#execution-architecture-diagnostics-hp00)
+keep counting/sampling separate from throughput. Raw target files are disposable;
+this report and the plan retain the durable results and reproduction contracts.
 
 ## Native enum result layout reuse (VE09), 2026-10-10
 

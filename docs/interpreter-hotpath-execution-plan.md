@@ -1,10 +1,13 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP05 have local phase
-acceptance. HP06 integration/retrospective remains open; local phase progress does
-not establish complete architecture/CI acceptance or Lua parity.
+Status: HP00–HP06 implementation and final local evaluation are complete on
+2026-10-10 (production 375c727d; diagnostic acceptance eca16497). Complete GitHub
+CI acceptance remains pending; all 16 workloads still miss Lua parity. The bounded
+migration is complete, but its architecture is not proven sufficient for the performance
+goal. See the [final measurements](performance-baseline.md#execution-architecture-evaluation-hp06-2026-10-10).
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
-activation; this document owns the finite phase order and progress ledger.
+activation and remaining acceptance. This document owns phase contracts and the
+historical progress ledger; earlier in-progress entries describe their checkpoints.
 
 ## Objective and evidence
 
@@ -160,7 +163,8 @@ these paths receives a concrete disposition and phase owner in this same table.
 
 ### HP00 migration map and invariant ownership
 
-The audit follows an ordinary interface call through
+The following HP00 audit describes the pre-migration implementation; final dispositions
+are recorded above. It follows an ordinary interface call through
 `executor/dispatch.rs::dispatch_call` in the VM and runtime `objects/application`,
 `execution_metadata/links`, `frame/shared`, `frame/calls` and `frame/returns`.
 For example, `receiver.forward<i32>(value)` currently selects a host-rooted method,
@@ -378,10 +382,10 @@ only content/link/diff checks. Use `Phase: HPxx` in implementation commit traile
 - [x] HP00 — Architecture audit, baseline and replacement map.
 - [x] HP01 — Runtime-linked executable identities and publication.
 - [x] HP02 — Active execution ownership and transitions.
-- [x] HP03 — Unified call/return protocol (local phase acceptance; final performance/CI gates remain open).
-- [x] HP04 — Common prepared operation model (local contracts and carried control gates accepted; HP06 integration/CI/parity remain open).
-- [x] HP05 — Unified layout admission and enum access (local mechanism/contract acceptance; integrated performance and CI remain open).
-- [ ] HP06 — Old-path retirement and architecture evaluation.
+- [x] HP03 — Unified call/return protocol (local phase and integration acceptance).
+- [x] HP04 — Common prepared operation model (local contracts and carried control gates accepted).
+- [x] HP05 — Unified layout admission and enum access (local mechanism and contract acceptance).
+- [x] HP06 — Old-path retirement, final local integration and architecture evaluation (CI/parity outcomes remain separate).
 - [ ] Complete GitHub CI acceptance.
 - [ ] All 16 matched workloads reach Lua parity.
 
@@ -4489,7 +4493,7 @@ No additional language/backend feature or unbounded optimization work is authori
 by closing this phase. target/release retains the same ordinary candidate binary.
 
 
-2026-10-10 HP06, final ownership audit and integration (in progress):
+2026-10-10 HP06, final ownership audit and local integration:
 
 At 375c727d, HP04's region view replacement, focused checks and current/historical
 control comparisons are committed. HP06 now
@@ -4537,3 +4541,57 @@ GitHub repository kagari-lang/kagari is public. An exact-commit `gh run list` fo
 375c727d returns no runs. Local results therefore cannot establish remote CI or its
 feature-consumer/CLI-native matrix. CI status will be reported separately from the
 local checks; no remote acceptance is claimed from an older revision.
+
+
+2026-10-10 HP06, final measurement and finite-scope acceptance:
+
+Production remains 375c727d; eca16497 adds only the corrected ignored memory probe
+and acceptance documentation. The ordinary candidate SHA-256 remains
+5161d2859bb0e693960c7e7fa0b1b6e288f182eafc52ee6f804571494b9d3d33.
+All 16 frozen matched workloads improve against HP00/f97b4095. Paired candidate/HP00
+ratios range 0.095–0.822: String constants 0.095, byte state 0.193, shared generic
+0.253, arrays 0.280 and maps 0.558. All 1,672 measured batches pass checksums.
+The final candidate is still **2.57–51.11 times Lua** across the 16 cases; no parity
+or aggregate substitute is accepted. Branch/Map outliers are preserved and both
+process orders support the direction of improvement. No >5% HP00 control regression
+is observed. Setup, sample extrema, Lua controls, machine/toolchain/features, hashes,
+commands and raw report paths are in the
+[durable HP06 report](performance-baseline.md#execution-architecture-evaluation-hp06-2026-10-10).
+
+Final common diagnostic rows remove per-iteration application/environment preparation
+and full layout/snapshot work while preserving ordinary object counts. Warm arrays
+requests fall 12,059 -> 59, shared generic 315,599 -> 5,050 and Map 30,207 -> 2,178;
+Map still creates 2,001 objects with five collections. The source-form HP00 runtime
+sharing differs from current isolated probes; live/net deltas are not presented as
+equivalent retained-memory measurements. The isolated final retention probes cover
+1/4/160 keys, 30 repeats, reload and teardown. Retired records disappear, reusable
+capacity may remain, and every control/prepared runtime returns to zero net allocated
+bytes on destruction. Optional retention bounds do not imply zero eviction/preparation
+cost or constant bytes for arbitrarily large types. Link medians rise from
+2.348–2.508 to 2.817–3.134 ms across original fixtures; prepared execution is not free
+startup or memory. Detailed retained-byte and shallow-type-size tables are in the report.
+
+Independent ordinary-binary sampling confirms remaining protocol and kernel work:
+shared-generic call entry 63.36% inclusive, Fibonacci call entry/return 36.94%/10.40%,
+Map native invocation 53.72%; String constants have no objects/GC and spend 47.87%
+leaf samples in scalar execution. Inclusive families overlap and are not speedup
+estimates. The exact instruction counts and sampling caveats are recorded with the
+measurements. The next proposed bounded task is a call-lifecycle architecture review
+and migration across prepared invocation, active-session entry, argument admission,
+frame-window setup and return. Preserve genuine dynamic receiver/version checks,
+host/reentry boundaries, roots, trap order and cancellation; do not add another
+callsite cache or duplicate fast-call path. This proposal is **not activated** by
+completion of HP06. Native collection contracts and logical-operation/kernel design
+remain subsequent questions to prioritize from that result, not additional checklist
+items for this goal. General enum unboxing/GC replacement is not justified merely
+by the presence of Option allocation.
+
+Local correctness and the planned ownership migration are accepted with no carried
+integration error. The full successful workspace run and focused release/test-only
+probe checks are recorded above; no unchanged full suite was repeated. Exact-commit
+GitHub queries for 375c727d and eca16497 return no runs, so remote architecture/feature/
+backend acceptance is pending. Shared generic Add still reproduces
+`MissingBinding("checked callable requirement")` in MIR lowering using the report's
+source example; it remains a separate compiler capability gap. Final documentation
+content/link/diff checks cover this record. The finite HP00–HP06 task is locally
+complete; complete CI and Lua parity remain unchecked outcomes, not invented success.

@@ -56,43 +56,41 @@ See [the contract and acceptance record](native-default-bodies-plan.md).
 
 ### Interpreter performance follow-up
 
-VE00-VE09 implementation and local acceptance are complete. The
-[compact execution record](interpreter-value-execution-plan.md) owns representation,
-safety boundaries, checkpoints and remaining acceptance. `Value` is 16-byte Copy;
-strings/constants share storage, concrete fields/calls use prepared facts, scalar
-segments borrow code/banks, and enum results reuse complete layouts within a pinned
-program. No new collector, general enum unboxing or JIT expansion was introduced.
+VE00–VE09 and the authorized HP00–HP06 migration/evaluation are implemented and
+locally accepted. The [Value record](interpreter-value-execution-plan.md) preserves
+representation decisions; the [HP execution plan](interpreter-hotpath-execution-plan.md)
+owns the completed architecture contracts, prior-optimization dispositions and
+historical ledger. Production checkpoint: `375c727d`; final diagnostic acceptance:
+`eca16497`. Value is 16-byte Copy. Runtime-owned publication and executable identities,
+admitted region views, common calls/returns and prepared operations, canonical layout
+admission and borrowed enum reads replace the superseded paths. No new collector,
+general enum unboxing or JIT expansion was introduced.
 
-[VE08](performance-baseline.md#compact-value-and-interpreter-final-local-evaluation-ve08-2026-10-10)
-passed local workspace integration. The separately authorized
-[VE09](performance-baseline.md#native-enum-result-layout-reuse-ve09-2026-10-10)
-passed 38 focused contracts and reduces map time to 0.489x VE08, with Map::get
-requests falling 500,280 -> 50,280 and unchanged GC counts. Complete CI remains unrun.
+[Final HP06 measurements](performance-baseline.md#execution-architecture-evaluation-hp06-2026-10-10)
+show all 16 unchanged workloads improve against HP00 (0.095–0.822x elapsed time),
+with preparation and retained-metadata costs reported separately. The
+local workspace sweep passes (1,948 tests, zero failures), alongside strict Clippy,
+formatting/structure and focused release lifetime/retention checks. The full GitHub
+feature/backend matrix is still pending. This completes the finite migration and
+local evaluation, not proof that the architecture meets the performance goal.
 
-Lua parity remains **unmet**: all 16 matched nontrivial workloads exceed Lua,
-currently 3.66-201.94x median time. Acceptance requires interpreter/Lua median <=1.0
-for every matched workload, repeated on one machine with uncertainty analysis near
-parity. Entry, host adapters and bounded numeric diagnostics remain separate; no
-average, changed semantics or JIT result can replace that gate. Further work needs
-a bounded activation, not replay of completed phases.
+Lua parity remains **unmet**: all 16 matched workloads take 2.57–51.11x Lua time.
+Acceptance requires interpreter/Lua median <=1.0 for every matched workload, repeated
+on one machine with uncertainty analysis near parity. Entry, adapters and alternate
+numeric diagnostics remain separate; no mean, changed semantics or JIT result can
+replace this gate. Byte-state results do not establish NES emulation acceptance.
 
-Remaining measured costs include script/generic/interface boundaries, collection
-retention, type/layout work and allocation. Shared generic Add default-method
-lowering still has `MissingBinding("checked callable requirement")`; the supported
-shared-identity workload does not close that capability gap. Byte-state benchmarks
-do not establish NES emulation acceptance.
-
-The [HP00-HP06 execution architecture plan](interpreter-hotpath-execution-plan.md)
-is active from 2026-10-10, with HP00–HP05 locally accepted at `375c727d` and HP06
-final integration/retrospective in progress. The carried HP04 String control regression
-is recovered; full architecture/CI acceptance and Lua parity remain separate gates. At the user's direction it replaces
-the unstarted hotspot-by-hotspot approach: audit architecture and earlier IP/NE/VE
-optimizations, establish runtime-linked executable identities, separate active
-execution ownership from host admission, unify call/return and prepared operations,
-then unify layout admission and retire old paths. Prior benchmark wins do not exempt
-obsolete mechanisms from replacement. The plan owns the retrospective dispositions,
-migration ledger and finite scope; the Lua gate remains unchanged and separate from
-local correctness, architectural acceptance, measured benefit and complete CI.
+The next proposed, unactivated task is a bounded call-lifecycle architecture review
+and migration: prepared invocation contracts, active-session admission, parameter/
+frame-window setup and return. Sampling identifies substantial call/return protocol
+cost despite descriptor reuse; replacing ownership/transition boundaries takes
+priority over another callsite cache. Preserve dynamic receiver/type/version changes,
+rooting, cancellation, host/reentry and trap order, and compare unchanged workloads
+with setup/memory costs. The HP06 report records concrete evidence and acceptance
+requirements. Native collection protocols and operation/kernel design remain later
+questions, not automatic extensions. Shared generic Add still fails with
+`MissingBinding("checked callable requirement")`; shared-identity benchmarks do not
+close that separate compiler gap.
 
 ### Async execution (AX00-AX06, CI pending)
 

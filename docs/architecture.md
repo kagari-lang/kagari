@@ -922,8 +922,9 @@ Application arguments share their prepared exact type identities. Each immutable
 interface method binding derives its structural selection identity once, without
 capturing the receiver or an applied result. The existing application index consumes
 these shared identities; host entry constructs the same argument bundle. No separate
-application solver or result cache is introduced. Remaining invocation-scaled type
-compatibility work remains part of HP05 layout/type admission.
+application solver or result cache is introduced. Canonical applied-layout admission
+and TypeArgument-owned proofs reuse nominal facts; genuine invocation-scoped argument,
+result and dynamic compatibility checks still run at the call boundary.
 Executable environments are published by the runtime after validating their complete
 parent/operation graph. The central environment record retains a flat list of exact
 program dependencies alongside its immutable edges. Frame entry checks the environment's
