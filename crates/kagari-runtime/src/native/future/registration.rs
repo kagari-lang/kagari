@@ -67,7 +67,7 @@ impl ModuleBuilder {
                         "cold Future construction",
                     ));
                 }
-                let signature = call.function.type_signature(call.runtime, call.owner)?;
+                let signature = call.function.type_signature()?;
                 let output = signature.result.parameter(call.runtime, call.owner, 0)?;
                 let cx = ConversionContext::in_native_call(call)?;
                 cx.check_type::<R>(&output)?;

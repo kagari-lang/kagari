@@ -37,7 +37,7 @@ impl<'call> CallContext<'call> {
     /// not create an owning Rust handle or convert the value through host storage.
     pub fn checked_argument(&self, index: usize) -> NativeResult<Value> {
         let value = self.argument(index)?;
-        let signature = self.function.type_signature(self.runtime, self.owner)?;
+        let signature = self.function.type_signature()?;
         if !signature
             .params
             .get(index)
@@ -53,7 +53,7 @@ impl<'call> CallContext<'call> {
     /// Admit a call-scoped Vec receiver with its retained element contract and
     /// declared access. Storage methods still check dynamic leases and bounds.
     pub fn array_argument(&self, index: usize, writable: bool) -> NativeResult<HeapObjectId> {
-        let signature = self.function.type_signature(self.runtime, self.owner)?;
+        let signature = self.function.type_signature()?;
         let expected = signature
             .params
             .get(index)

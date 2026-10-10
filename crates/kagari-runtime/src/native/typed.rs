@@ -177,7 +177,7 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
         invoke_script: Some(call.invoke_script),
         function: Some(call.function),
     };
-    let signature = call.function.type_signature(call.runtime, call.owner)?;
+    let signature = call.function.type_signature()?;
     let result_type = &signature.result;
     // A mismatch known before invocation cannot run any argument converter or
     // callback. The final value is still checked: user adapters are not trusted.

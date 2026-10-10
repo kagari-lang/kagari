@@ -1,6 +1,6 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00 is complete; HP01 is in progress.
+Status: active, authorized by the user on 2026-10-10; HP00–HP01 are complete; HP02 is next.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -373,7 +373,7 @@ only content/link/diff checks. Use `Phase: HPxx` in implementation commit traile
 
 - [x] Evidence-based plan recorded and revised to architecture-first scope.
 - [x] HP00 — Architecture audit, baseline and replacement map.
-- [ ] HP01 — Runtime-linked executable identities and publication.
+- [x] HP01 — Runtime-linked executable identities and publication.
 - [ ] HP02 — Active execution ownership and transitions.
 - [ ] HP03 — Unified call/return protocol.
 - [ ] HP04 — Common prepared operation model.
@@ -1062,3 +1062,136 @@ Final ordinary original/source-form checksum checks pass. The ordinary release b
 is restored and preserved at `target/hp01/native-signature-executable`, SHA-256
 `0b819cc66b167a1ed42bf76dd69eeeeb54581e9186c22c4ddadea5ece438e512`.
 These cold correctness runs are not throughput measurements.
+
+
+2026-10-10 HP01, descriptor-memory and closed-link preparation checkpoint:
+manual probes now cover method applications, shared environments, witness selections,
+scoped struct/enum applications and cross-version layout admission, alongside native
+applications. They use real checked source contracts without executing script or native
+callbacks. Caller environments, interface receivers and type/layout inputs are created
+and rooted identically in control/prepared runtimes before the first snapshot. Temporary
+method host handles drop before collection/sampling; their freed allocations count as
+requests, but do not inflate retained descriptor bytes. Admission inputs include both
+versions' complete layouts before sampling, so its row measures compatibility evidence
+rather than layout preparation. Each case measures cold preparation, two repeat passes,
+32 repeat passes, compatible reload/retirement and complete runtime teardown.
+
+Final release results below are incremental retained bytes over the control, after GC.
+`N` is the number of distinct applications or lexical witness scopes. Admission uses
+N struct pairs plus N enum pairs, sharing one 128-relation bound. Method/shared/native
+input tuples contain 1 through N i32 elements; layout inputs also include a nominal
+Marker to exercise provenance scopes. These sizes are workload-specific, not fixed
+per-entry sizes or peak memory. Over-capacity cases evict and reprepare facts. Separate
+per-index bounds remain 128 entries; arena capacity and variable-size type trees mean
+that is not a 128-byte or constant-byte bound.
+
+| Descriptor | N | Cold bytes | After 32 repeats | After retirement |
+| --- | ---: | ---: | ---: | ---: |
+| method | 1 | 4,984 | 4,984 | 1,280 |
+| shared | 1 | 1,464 | 1,464 | 0 |
+| witness | 1 | 4,140 | 4,140 | 448 |
+| method | 4 | 11,100 | 11,100 | 1,568 |
+| shared | 4 | 4,480 | 4,480 | 288 |
+| witness | 4 | 14,064 | 14,064 | 448 |
+| method | 160 | 3,513,076 | 3,578,356 | 163,840 |
+| shared | 160 | 159,752 | 161,544 | 18,432 |
+| witness | 160 | 469,512 | 497,928 | 57,344 |
+| struct | 1 | 3,581 | 3,581 | 0 |
+| enum | 1 | 3,616 | 3,616 | 0 |
+| admission | 1x2 | 900 | 900 | 0 |
+| struct | 4 | 11,348 | 11,348 | 0 |
+| enum | 4 | 11,488 | 11,488 | 0 |
+| admission | 4x2 | 1,388 | 1,388 | 0 |
+| struct | 160 | 3,852,120 | 3,868,760 | 0 |
+| enum | 160 | 3,856,600 | 3,873,240 | 0 |
+| admission | 160x2 | 21,148 | 21,148 | 0 |
+| native | 0 | 0 | 0 | 0 |
+| native | 1 | 1,512 | 1,512 | 0 |
+| native | 4 | 5,824 | 5,824 | 0 |
+| native | 160 | 1,730,312 | 1,730,312 | 0 |
+
+Every pair has zero setup retained-byte difference. Every control and prepared runtime
+independently finishes with zero net bytes at teardown. Executable probes also assert
+that their environment/application/group live counts are zero after retirement. The
+remaining method/shared/witness bytes above are retained slot/free-list capacities:
+central stores detach records, increment generations and reuse slots without shrinking
+vectors. They are released at runtime drop. Method/shared/witness retained totals after
+32 passes equal their two-pass totals. Optional layout/admission hash-index capacities
+can grow during repeated eviction; randomized table placement affects when growth occurs
+and request counts. The table records observations, not a claim of no future capacity
+change. Entries remain bounded; pure-fact indices fully disappear at retirement. No
+arena-shrinking or allocator tuning was added to hide these costs.
+
+Reproduce using the previous `cargo test --release ... diagnostics::memory` command;
+all three ignored probe functions pass. Final evidence is
+`target/hp01/descriptor-memory.log`, on the same M1 Max/32 GiB/10-core macOS 26.6.2,
+rustc 1.98.1/LLVM 22.1.8 host, workspace release profile, execution-diagnostics feature,
+default build parallelism, incremental build caches and one test thread. Compilation
+and process warmup are outside measurement. The initial method fixture looked up the
+implementation table by a trait name; selecting its checked method entry fixes that
+probe-only failure without changing product behavior.
+
+The acceptance audit found one remaining mismatch with the target preparation model:
+closed native signatures still initialized during their first call. `Runtime` loading
+and reload now share `stage_linked_program`, which obtains exact staged provenance and
+prepares every closed native signature before returning/publishing the candidate.
+Generic templates remain unapplied until concrete environments exist. Failed preparation
+drops the existing staged lease; abandoned-candidate reclamation remains the cleanup
+owner. The cell now stores only a completed ScopedSignature, and consumer access cannot
+perform preparation or cache an error. Argument conversion, result construction, typed
+futures and selected operations use that read-only accessor. No callback or execution
+happens during signature preparation, and value/generation/access checks remain intact.
+
+The native N=0 row now measures a read of an already linked closed signature: zero
+additional bytes. Its preparation moved into the common setup baseline; it did not become
+free. Compared with the earlier native table, the smaller completed-signature cell saves
+40 retained bytes per live native application (5,120 bytes for 128 retained entries).
+These are allocation/layout observations, not interpreter-throughput claims.
+
+
+HP01 requirement audit against the implemented owners:
+
+| Requirement | Current implementation and evidence |
+| --- | --- |
+| Shared owner and exact supplying scopes | `module/descriptors.rs` owns method/shared/witness/native indices; `ApplicationKey`, `SharedScope`, generational environments and operation identities distinguish applications. Existing application identity, foreign-scope and abandoned-provider contracts pass in the recorded HP01 checkpoints. |
+| Normalize same-program layouts; admit distinct versions explicitly | `layout_identity.rs`, `applied_layout_identity.rs` and sealed `LayoutScope` prepare complete identities; `layout_admission.rs` uses checked complete pairs with weak producer identity. Records tests cover equivalent members, changed scopes, copied-key forgery, eviction and cross-version retirement. |
+| Transactional publication and checked lazy edges | `publish_descriptor` validates dependency graphs before installation; `DescriptorIndex` reserves before mutation. Remaining receiver/parent `MetadataCache` cells are relationship edges on traced interface metadata, not competing applied-call stores; writes remain in checked `execution_metadata/links.rs`. Existing publication tests cover partial/foreign/abandoned edges. |
+| General generic preparation and repeat reuse | Method/shared/witness/native preparers use those indices; warm diagnostics record zero repeated preparations for stable applications. Changed types, supplying versions and selected operations cannot reuse a different entry. Cold closed native signatures are now prepared before candidate publication. |
+| Bounded retention without hidden receiver values | Each descriptor index has a 128-entry bound across its lexical scopes. Descriptor records contain immutable facts and checked metadata IDs, not invocation Values; active frame/native edges and escaped host roots retain needed dependencies independently of eviction. |
+| Reclaim cycles and measure memory | Existing active-window, old-version, abandoned-candidate and metadata-cycle contracts establish lifetime behavior. The new isolated probes cover every HP01 descriptor family, explicitly distinguish retired arena capacity from live records and finish every measured runtime at zero net bytes. |
+| Remove superseded paths | Receiver-local applied-call cells, direct per-entry shared/witness/native reconstruction, duplicate native scoped-signature storage and the VE09 same-program structural comparison shortcut have been removed in the recorded commits. No compatibility aliases or second semantic implementations were added. |
+
+This closes the HP01 preparation/ownership work after the checkpoint checks below.
+It does not close HP02 active execution admission, HP03 unified transfers, HP04 prepared
+managed operations or HP05 raw enum operand consumers. Those named consumers still need
+migration; the existing zero aggregate-layout-walk counter does not mean all type checks
+or metadata traversals are gone. Full workspace/CI acceptance and all 16 Lua-parity gates
+remain HP06/final work, not an implication of this phase's acceptance.
+
+Checkpoint validation passes: release memory probes (3), VM native function/application
+contracts (38), diagnostic module records/layout/retirement contracts (8), source-free
+native Future waiting/completion/admission/cleanup contracts (4), strict runtime/benchmark
+all-target Clippy with diagnostics, structure (1,003 Rust files, zero violations or
+exceptions), formatting, 703 local Markdown links and diff checks. No carried error
+remains. The final source-form/scaling diagnostic run passes all 64 cold/warm checksums
+(`target/hp01/linked-signature-diagnostics.log`); every warm request/object/environment/
+metadata-validation/native-preparation count equals the preceding signature checkpoint.
+The same fourth-call warm protocol and machine/toolchain apply. Moving closed preparation
+into linking is an architectural boundary change, not a demonstrated steady-state speedup.
+
+HP02 starts from `ExecutionStack::cursor`, `ExecutionCursor` and the VM executor driver.
+The cursor already borrows frame/window/session state, but general operand reads/writes
+still repeat session admission and window lookup; scalar regions already retain direct
+bank slices. The next migration must give ordinary execution one admitted ownership
+scope with explicit exits for callbacks, GC, observation, growth, parking and returns.
+It must preserve quarantine and external checked access while replacing the repeated
+internal protocol, not add a parallel unchecked accessor at each call site. Driver
+native/waiting rediscovery and managed-operation boundaries remain part of HP02–HP04.
+
+Final ordinary original/source-form checksum checks pass, and the ordinary release
+binary is restored at `target/release/kagari-lua-benchmark`. Its preserved copy is
+`target/hp01/linked-signature-executable`, SHA-256
+`becc1d1b12ee30d1494dc1503dc36bcd42156e4a62a7d05ce5ff857c3abb7f4d`.
+These are correctness checks, not throughput samples. HP01 is accepted for its stated
+preparation/publication scope; HP02 is the next implementation phase. The full goal
+remains active, with architectural integration, GitHub CI and Lua parity still open.

@@ -1,4 +1,7 @@
 //! Manual retained-memory probes: checked inputs, no script execution or VM frames.
+mod applications;
+mod layouts;
+
 use crate::{
     Runtime,
     diagnostics::allocations::{self, Counts},
@@ -71,11 +74,50 @@ struct Phases {
     setup: Counts,
     cold: Counts,
     warm: Counts,
+    repeated: Counts,
     retired: Counts,
 }
 
 fn snapshot() -> Counts {
     allocations::current().unwrap()
+}
+
+fn compare(label: &str, mut lifecycle: impl FnMut(bool) -> (Phases, Counts)) {
+    lifecycle(true);
+    let (control, control_total) = lifecycle(false);
+    let (prepared, prepared_total) = lifecycle(true);
+    println!(
+        "{label} control={control:?} prepared={prepared:?} control_total={control_total:?} prepared_total={prepared_total:?}"
+    );
+    println!(
+        "{label} extra_net_bytes setup={} cold={} warm={} repeated={} retired={} teardown={}",
+        prepared.setup.net_bytes - control.setup.net_bytes,
+        prepared.cold.net_bytes - control.cold.net_bytes,
+        prepared.warm.net_bytes - control.warm.net_bytes,
+        prepared.repeated.net_bytes - control.repeated.net_bytes,
+        prepared.retired.net_bytes - control.retired.net_bytes,
+        prepared_total.net_bytes - control_total.net_bytes
+    );
+    assert_eq!(control_total.net_bytes, 0, "control runtime teardown");
+    assert_eq!(prepared_total.net_bytes, 0, "prepared runtime teardown");
+}
+
+fn preparation(runtime: &Runtime, mut prepare: impl FnMut()) -> (Counts, Counts, Counts, Counts) {
+    runtime.collect_garbage().unwrap();
+    let setup = snapshot();
+    prepare();
+    runtime.collect_garbage().unwrap();
+    let cold = snapshot();
+    for _ in 0..2 {
+        prepare();
+        runtime.collect_garbage().unwrap();
+    }
+    let warm = snapshot();
+    for _ in 0..30 {
+        prepare();
+        runtime.collect_garbage().unwrap();
+    }
+    (setup, cold, warm, snapshot())
 }
 
 fn native_lifecycle(
@@ -143,7 +185,7 @@ fn native_lifecycle(
                         .modules
                         .native_binding(&owner, NativeImportId::new(closed))
                         .unwrap()
-                        .type_signature(&runtime, &owner)
+                        .type_signature()
                         .unwrap();
                 }
                 for environment in &environments {
@@ -163,6 +205,10 @@ fn native_lifecycle(
         prepare_all();
         prepare_all();
         let warm = snapshot();
+        for _ in 0..30 {
+            prepare_all();
+        }
+        let repeated = snapshot();
         let staged = runtime
             .stage_reload_program(&loaded, "memory", code.clone())
             .unwrap();
@@ -178,6 +224,7 @@ fn native_lifecycle(
             setup,
             cold,
             warm,
+            repeated,
             retired,
         }
     })
@@ -205,10 +252,11 @@ fn native_descriptor_retention() {
             "native applications={applications} control={control:?} prepared={prepared:?} control_total={control_total:?} prepared_total={prepared_total:?}"
         );
         println!(
-            "native applications={applications} extra_net_bytes setup={} cold={} warm={} retired={} teardown={}",
+            "native applications={applications} extra_net_bytes setup={} cold={} warm={} repeated={} retired={} teardown={}",
             prepared.setup.net_bytes - control.setup.net_bytes,
             prepared.cold.net_bytes - control.cold.net_bytes,
             prepared.warm.net_bytes - control.warm.net_bytes,
+            prepared.repeated.net_bytes - control.repeated.net_bytes,
             prepared.retired.net_bytes - control.retired.net_bytes,
             prepared_total.net_bytes - control_total.net_bytes
         );

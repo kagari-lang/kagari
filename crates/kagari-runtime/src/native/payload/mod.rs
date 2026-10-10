@@ -160,10 +160,7 @@ impl NativeContext<'_> {
         let function = self.function.ok_or_else(|| {
             RuntimeError::module_validation("native construction requires a declared result")
         })?;
-        let argument = function
-            .type_signature(self.runtime(), self.conversion.owner())?
-            .result
-            .clone();
+        let argument = function.type_signature()?.result.clone();
         self.runtime()
             .prepare_native_type::<T>(self.conversion.owner(), argument)
     }

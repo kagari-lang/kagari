@@ -4,12 +4,12 @@ use crate::{
     error::RuntimeError,
     module::{
         LinkedHostBindings, LoadedModule, ModuleEpochRetention, ModuleKey, VerifiedProgram,
-        retention::ProgramLease,
+        retention::ProgramLease, staging::StagedProgram,
     },
     native::registry::link_host,
     reload::{
-        ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
-        validate_verified_reload_candidate,
+        ModuleEpoch, ReloadValidationError, validate_reload_artifact_candidate,
+        validate_reload_candidate, validate_verified_reload_candidate,
     },
     session::ExecutionPhase,
 };
@@ -17,6 +17,7 @@ use kagari_bytecode::{
     artifact::{
         ArtifactCompatibility, ArtifactFingerprint, KbcArtifact, validate_program_resource_limits,
     },
+    instruction::NativeImportId,
     module::BytecodeModule,
     program::BytecodeProgram,
 };
@@ -84,6 +85,37 @@ impl Runtime {
         Ok(bindings)
     }
 
+    fn stage_linked_program(
+        &self,
+        name: String,
+        epoch: ModuleEpoch,
+        program: VerifiedProgram,
+        bindings: Vec<LinkedHostBindings>,
+    ) -> Result<StagedProgram, RuntimeError> {
+        let staged = self.modules.stage_verified_program(
+            name,
+            epoch,
+            program,
+            self.host.owner(),
+            bindings,
+        )?;
+        // Exact program provenance now exists, but the candidate is not published.
+        // On failure the lease drops; normal abandoned-candidate collection owns cleanup.
+        for owner in staged.module().members() {
+            for (index, import) in owner.bytecode.native_imports.iter().enumerate() {
+                if import.generic.is_none() {
+                    self.modules
+                        .native_binding(&owner, NativeImportId::new(index))
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("unlinked native signature")
+                        })?
+                        .prepare_signature(self, &owner)?;
+                }
+            }
+        }
+        Ok(staged)
+    }
+
     pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
         self.resources().ensure_execution_allowed()?;
         if !module.belongs_to(self.host.owner()) {
@@ -131,8 +163,7 @@ impl Runtime {
         }
         let epoch = self.modules.reserve_epoch(&name)?;
         let module = self
-            .modules
-            .stage_verified_program(name, epoch, program, self.host.owner(), bindings)?
+            .stage_linked_program(name, epoch, program, bindings)?
             .publish(&self.modules)?;
         self.invalidate_interpreter_caches_for_reload(&module, dependencies);
         Ok(module)
@@ -255,8 +286,7 @@ impl Runtime {
             .reserve_epoch(&name)
             .map_err(ReloadValidationError::Runtime)?;
         let program = self
-            .modules
-            .stage_verified_program(name, epoch, program, self.host.owner(), bindings)
+            .stage_linked_program(name, epoch, program, bindings)
             .map_err(ReloadValidationError::Runtime)?;
         Ok(StagedReload {
             initialization_error: Default::default(),

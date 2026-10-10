@@ -268,12 +268,7 @@ impl<'call> CallContext<'call> {
             runtime: self.runtime,
             owner: self.owner,
             ty,
-            scope: Some(
-                &self
-                    .function
-                    .type_signature(self.runtime, self.owner)?
-                    .result,
-            ),
+            scope: Some(&self.function.type_signature()?.result),
             selected: &self.function.selected,
         })?;
         let id = self.heap().alloc_native(object)?;
@@ -301,12 +296,7 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native storage is not installed"))?;
         self.runtime.validate_loaded_module(self.owner)?;
         let mut object = storage.prepare_payload(self.heap(), ty, payload, self.owner)?;
-        object.scope = Some(
-            self.function
-                .type_signature(self.runtime, self.owner)?
-                .result
-                .clone(),
-        );
+        object.scope = Some(self.function.type_signature()?.result.clone());
         self.heap().alloc_native(object).map(Value::GcHandle)
     }
 
@@ -343,7 +333,7 @@ impl<'call> CallContext<'call> {
     /// Retain the declared argument's supplying type/layout generation.
     pub fn argument_type_argument(&self, index: usize) -> NativeResult<TypeArgument> {
         self.function
-            .type_signature(self.runtime, self.owner)?
+            .type_signature()?
             .params
             .get(index)
             .cloned()
@@ -371,7 +361,7 @@ impl<'call> CallContext<'call> {
 
     pub fn result_type_parameter(&self, index: usize) -> NativeResult<TypeArgument> {
         self.function
-            .type_signature(self.runtime, self.owner)?
+            .type_signature()?
             .result
             .parameter(self.runtime, self.owner, index)
     }
@@ -380,17 +370,13 @@ impl<'call> CallContext<'call> {
     /// This uses the typed boundary's limits and temporary roots. The caller
     /// publishes the returned value before the next safepoint.
     pub fn encode_result<T: IntoKagari>(&self, value: T) -> NativeResult<Value> {
-        let signature = self.function.type_signature(self.runtime, self.owner)?;
+        let signature = self.function.type_signature()?;
         ConversionContext::in_native_call(self)?.encode_value(&signature.result, value)
     }
 
     /// Retain the complete result type, including nominal payload scopes.
     pub fn result_type_argument(&self) -> NativeResult<TypeArgument> {
-        Ok(self
-            .function
-            .type_signature(self.runtime, self.owner)?
-            .result
-            .clone())
+        Ok(self.function.type_signature()?.result.clone())
     }
 
     /// Derive a nested type parameter while retaining its supplying scope.
@@ -448,7 +434,7 @@ impl<'call> CallContext<'call> {
 
     pub(crate) fn argument_type_view(&self, index: usize) -> NativeResult<TypeView<'call>> {
         self.function
-            .type_signature(self.runtime, self.owner)?
+            .type_signature()?
             .params
             .get(index)
             .map(|ty| ty.view(self.owner))

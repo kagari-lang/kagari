@@ -83,7 +83,7 @@ shared-identity workload does not close that capability gap. Byte-state benchmar
 do not establish NES emulation acceptance.
 
 The [HP00-HP06 execution architecture plan](interpreter-hotpath-execution-plan.md)
-is active from 2026-10-10, with HP00 complete and HP01 in progress. At the user's direction it replaces
+is active from 2026-10-10, with HP00–HP01 complete and HP02 next. At the user's direction it replaces
 the unstarted hotspot-by-hotspot approach: audit architecture and earlier IP/NE/VE
 optimizations, establish runtime-linked executable identities, separate active
 execution ownership from host admission, unify call/return and prepared operations,

@@ -559,8 +559,11 @@ guards through completion or failure. Generic execution does not name MapIterato
 ### Prepared native type facts
 
 Runtime-local linked native bindings own one scoped-signature preparation cell:
-closed bindings initialize it lazily, while applied generic bindings populate it during
-application preparation. Argument views, result validation and native object construction
+closed bindings populate it after staging establishes exact program provenance and before
+candidate publication; applied generic bindings populate it during application preparation.
+Signature consumers only read prepared facts. Preparation failure abandons the candidate
+through its existing lease and collection protocol. Argument views, result validation
+and native object construction
 reuse those same immutable type facts; there is no separate applied-signature store.
 Generic native applications are published under their linked member, import and
 generational type-environment identity. Their signatures, result adapters and selected

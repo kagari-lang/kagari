@@ -177,30 +177,33 @@ pub struct LinkedNativeFunction {
     pub(crate) declaration: DefinitionId,
     pub(crate) binding: NativeBinding,
     pub(crate) signature: Signature<DefinitionId>,
-    pub(crate) prepared_signature: OnceLock<NativeResult<ScopedSignature>>,
+    pub(crate) prepared_signature: OnceLock<ScopedSignature>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,
 }
 
 impl LinkedNativeFunction {
-    /// Runtime-local bindings own this preparation; immutable type provenance
-    /// does not create an executable retention lease or a program ownership cycle.
-    pub(crate) fn type_signature<'a>(
-        &'a self,
+    /// Prepare closed facts before candidate publication. Their immutable provenance
+    /// creates neither an executable retention lease nor a program ownership cycle.
+    pub(crate) fn prepare_signature(
+        &self,
         runtime: &Runtime,
         owner: &LoadedModule,
-    ) -> NativeResult<&'a ScopedSignature> {
+    ) -> NativeResult<()> {
+        let params = runtime.type_arguments(owner, None, &self.signature.params)?;
+        let result = runtime
+            .type_arguments(owner, None, slice::from_ref(&self.signature.result))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
         self.prepared_signature
-            .get_or_init(|| {
-                let params = runtime.type_arguments(owner, None, &self.signature.params)?;
-                let result = runtime
-                    .type_arguments(owner, None, slice::from_ref(&self.signature.result))?
-                    .pop()
-                    .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
-                Ok(ScopedSignature { params, result })
-            })
-            .as_ref()
-            .map_err(Clone::clone)
+            .set(ScopedSignature { params, result })
+            .map_err(|_| RuntimeError::module_validation("duplicate native signature preparation"))
+    }
+
+    pub(crate) fn type_signature(&self) -> NativeResult<&ScopedSignature> {
+        self.prepared_signature
+            .get()
+            .ok_or_else(|| RuntimeError::module_validation("native signature is not prepared"))
     }
 
     pub(crate) fn check_requirement(
@@ -250,7 +253,7 @@ impl LinkedNativeFunction {
             declaration: self.declaration,
             binding: self.binding.clone(),
             signature,
-            prepared_signature: OnceLock::from(Ok(ScopedSignature { params, result })),
+            prepared_signature: OnceLock::from(ScopedSignature { params, result }),
             result_adapter: self
                 .result_adapter
                 .as_ref()
@@ -294,7 +297,7 @@ impl LinkedNativeFunction {
             ));
         }
         context.poll()?;
-        let signature = self.type_signature(context.runtime, context.owner)?;
+        let signature = self.type_signature()?;
         let result = (self.binding.entry)(context);
         context.poll()?;
         let value = result?;
