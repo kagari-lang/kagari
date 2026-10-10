@@ -916,3 +916,66 @@ Original/source-form checksum checks pass. These are cold correctness checks, no
 throughput measurements; the frozen benchmark definitions remain unchanged.
 The focused associated-type family/GC-object/default-method execution contract also
 passes against the final implementation. Final worktree diff checks pass.
+
+2026-10-10 HP01, layout compatibility admission checkpoint (in progress): struct and
+enum descriptor matching now share `module/layout_admission.rs`. Equal complete IDs in
+one program stay on the direct path. A different pair first undergoes the existing full
+`TypeView` comparison; only successful, complete prepared pairs publish reusable type
+compatibility evidence. Missing IDs retain the full checked path. Enum variant and runtime
+owner checks still precede admission, and per-value GC generation, access, bounds and
+current payload checks remain at their existing owners.
+
+The consumer's immutable `ProgramDescriptor` owns a lazily allocated, thread-safe index
+of at most 128 relations across both aggregate kinds. Keys include producer version and
+both complete layout IDs; a weak producer descriptor must match the exact source Arc as
+well. This is pure type evidence, not executable admission: it survives runtime-record
+retirement when immutable facts remain held, but holds no Values, scopes, native links,
+program leases or strong producer references. It therefore needs no GC root/edge. The
+existing runtime-owned application/signature stores continue to own executable edges.
+Changing versions/identities cannot reuse a proof; eviction, contention, poisoned cache
+access or failed optional retention falls back to full comparison. No lock crosses that
+comparison. New versions receive empty evidence, and never-recycled layout IDs prevent
+meaning changes within a version.
+
+The diagnostic `layout_comparisons` counter counts aggregate-descriptor fallback walks,
+not every raw `TypeView` comparison in the runtime. Focused metadata tests with
+`execution-diagnostics` establish one cold comparison for a cross-version struct pair
+and one for an enum pair, then zero for 2,500 and 5,000 repeated checks of either pair.
+The bounded-lifetime contract fills 160 relations, observes a fresh comparison after
+eviction and subsequent reuse, checks that copied numeric IDs in a different descriptor
+cannot reuse a producer's proof, transfers prepared facts across a thread, rejects a
+foreign runtime and confirms that a weak producer descriptor expires after retirement.
+An existing descriptor-forgery fixture is shared between the relevant contracts.
+
+All frozen/source-form and scaling diagnostic checksums pass. Warm source-form probes
+report zero aggregate-descriptor walks. Nested 5,000-iteration probes still request
+2,111,197/2,111,171 allocations and perform 20,002 metadata validations, unchanged from
+the previous checkpoint. Other raw type checks and execution protocols remain; zero in
+this new counter does not mean all type validation disappeared. Evidence is in
+`target/hp01/layout-admission-diagnostics.log`, using the documented HP00 machine and
+toolchain, default Cargo parallelism, incremental release diagnostics, a fresh runtime
+per probe and the measured fourth call after two additional warmups. Metadata reuse
+counts above use the optimized test profile. Compilation is excluded; neither dataset
+is a new throughput claim or isolated descriptor-memory measurement.
+
+Focused checks pass: diagnostic module records/admission/lifetime (8), VM native enums
+(6), embed enum payloads (4), source-free native enums (2), generic reload (2), and host
+old-version binding/cache lifetime (1), plus strict runtime/benchmark all-target Clippy
+with diagnostics and structure (999 files, zero violations/exceptions). The intermediate
+duplicate module import was fixed. No carried build/test failure remains.
+
+The preparation-owner audit confirms that method applications, shared environments,
+witnesses and generic native applications use linked publication; layout applications
+and scopes use the complete pure-fact model above; host `bind_enum_type` preparation is
+an explicit owning setup boundary. `LinkedNativeFunction` still carries both an applied
+signature option and a lazy closed-signature cell: consolidate that storage under its
+existing owner before HP01 acceptance. Raw type-expression/operand checks lacking
+prepared producer/consumer facts remain HP03–HP05 migration work. HP01 also still needs
+isolated descriptor-memory accounting, including retirement; it is not accepted yet.
+No full workspace or GitHub CI matrix has run, and Lua parity remains open.
+
+Final ordinary original/source-form checksum checks, formatting, all 703 local Markdown
+links and diff checks pass. The restored ordinary release executable is preserved at
+`target/hp01/layout-admission-executable`, SHA-256
+`a9d904035cfa44fc41ee4f7f1f694672d872d437c7bcac63518f1ab5d5abbee6`.
+These cold checksum checks are not throughput samples.

@@ -4,6 +4,7 @@ mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
 pub mod execution;
+mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
 mod layouts;
@@ -18,6 +19,7 @@ use crate::{
     metadata::TypeId,
     module::{
         execution::ExecutionModule,
+        layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
         layout_identity::{LayoutIdentity, ProgramLayouts},
         layout_scope::LayoutScope,
         records::ModuleRecord,
@@ -282,6 +284,7 @@ impl VerifiedProgram {
 struct ProgramDescriptor {
     code: VerifiedProgram,
     layouts: ProgramLayouts,
+    layout_admissions: LayoutAdmissions,
     root: ModuleRef,
     fingerprint: ArtifactFingerprint,
     modules: Vec<LinkedModule>,
@@ -400,7 +403,11 @@ impl LoadedModule {
     }
 
     fn program_key(&self) -> ModuleKey {
-        self.program_root().key()
+        let root = &self.program.modules[self.program.root.index()];
+        ModuleKey {
+            id: root.id,
+            epoch: root.epoch,
+        }
     }
 
     pub fn struct_layout(&self, id: StructId) -> Option<StructLayoutRef> {
@@ -517,12 +524,24 @@ impl StructLayoutRef {
 
     pub(crate) fn matches(&self, other: &Self) -> bool {
         self.same_instance(other)
-            || (self.module.registry_owner == other.module.registry_owner
-                && self.matches_type(
-                    &other.type_expression(),
-                    &other.module,
-                    other.type_bindings().map(Arc::as_ref),
-                ))
+            || layout_admission::admit(
+                AggregateKind::Struct,
+                LayoutEndpoint {
+                    owner: &self.module,
+                    identity: self.canonical,
+                },
+                LayoutEndpoint {
+                    owner: &other.module,
+                    identity: other.canonical,
+                },
+                || {
+                    self.matches_type(
+                        &other.type_expression(),
+                        &other.module,
+                        other.type_bindings().map(Arc::as_ref),
+                    )
+                },
+            )
     }
 }
 
@@ -675,6 +694,7 @@ impl ModuleStore {
             .collect();
         let program = Arc::new(ProgramDescriptor {
             layouts: ProgramLayouts::prepare(&program.modules),
+            layout_admissions: LayoutAdmissions::default(),
             code: program,
             root,
             fingerprint,

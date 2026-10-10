@@ -5,6 +5,7 @@ use crate::{
         EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef,
         applied_layout_identity::AppliedIdentities,
         descriptor_index::DescriptorIndex,
+        layout_admission::{self, AggregateKind, LayoutEndpoint},
         layout_identity::{LayoutIdentity, ProgramLayouts},
         layout_scope::{LayoutScope, LayoutScopes},
     },
@@ -435,18 +436,23 @@ impl EnumVariantRef {
         {
             return true;
         }
-        // Equal layouts in different member slots were normalized at linking or
-        // application preparation. No hashing or structural comparison occurs here.
-        if Arc::ptr_eq(&self.module.program, &other.module.program)
-            && self.canonical.is_some()
-            && self.canonical == other.canonical
-        {
-            return true;
-        }
-        self.matches_type(
-            &other.type_expression(),
-            &other.module,
-            other.type_bindings().map(Arc::as_ref),
+        layout_admission::admit(
+            AggregateKind::Enum,
+            LayoutEndpoint {
+                owner: &self.module,
+                identity: self.canonical,
+            },
+            LayoutEndpoint {
+                owner: &other.module,
+                identity: other.canonical,
+            },
+            || {
+                self.matches_type(
+                    &other.type_expression(),
+                    &other.module,
+                    other.type_bindings().map(Arc::as_ref),
+                )
+            },
         )
     }
 

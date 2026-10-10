@@ -101,6 +101,48 @@ fn native_owner(loaded: &LoadedModule) -> LoadedModule {
         .unwrap()
 }
 
+fn detached_copy(loaded: &LoadedModule) -> LoadedModule {
+    LoadedModule {
+        slot: loaded.slot,
+        program: Arc::new(ProgramDescriptor {
+            code: loaded.program.code.clone(),
+            layouts: loaded.program.layouts.clone(),
+            layout_admissions: Default::default(),
+            root: loaded.program.root,
+            fingerprint: loaded.program.fingerprint,
+            modules: loaded
+                .program
+                .modules
+                .iter()
+                .map(|module| LinkedModule {
+                    id: module.id,
+                    name: module.name.clone(),
+                    epoch: module.epoch,
+                    bytecode: module.bytecode.clone(),
+                    registry_owner: module.registry_owner,
+                    host_types: module.host_types.clone(),
+                    host_functions: module.host_functions.clone(),
+                    host_paths: module.host_paths.clone(),
+                })
+                .collect(),
+        }),
+    }
+}
+
+fn assert_layout_check(check: impl FnOnce() -> bool, expected: bool, comparisons: u64) {
+    #[cfg(feature = "execution-diagnostics")]
+    {
+        let (actual, counts) = crate::diagnostics::measure(check);
+        assert_eq!(actual, expected);
+        assert_eq!(counts.layout_comparisons, comparisons);
+    }
+    #[cfg(not(feature = "execution-diagnostics"))]
+    {
+        let _ = comparisons;
+        assert_eq!(check(), expected);
+    }
+}
+
 #[test]
 fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_caches() {
     fn assert_send_sync<T: Send + Sync>() {}
@@ -570,12 +612,22 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
         .applied_struct_layout(&latest, struct_id, &args, None)
         .unwrap();
     assert!(!structure.same_instance(&fresh));
-    assert!(structure.matches(&fresh));
+    assert_layout_check(|| structure.matches(&fresh), true, 1);
+    for repeats in [2_500, 5_000] {
+        assert_layout_check(|| (0..repeats).all(|_| structure.matches(&fresh)), true, 0);
+    }
     let fresh_enum = runtime
         .modules
         .applied_enum_variant(&latest, enum_id, &args, 0, None)
         .unwrap();
-    assert!(enumeration.matches_layout(&fresh_enum));
+    assert_layout_check(|| enumeration.matches_layout(&fresh_enum), true, 1);
+    for repeats in [2_500, 5_000] {
+        assert_layout_check(
+            || (0..repeats).all(|_| enumeration.matches_layout(&fresh_enum)),
+            true,
+            0,
+        );
+    }
     // The same printed argument from a new generation cannot inherit an old proof.
     let latest_args = runtime
         .resolve_type_arguments(&latest, slice::from_ref(&nominal))
@@ -606,6 +658,69 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
     assert!(dynamic.same_instance(&dynamic_alias));
     assert!(dynamic_enum.matches_layout(&dynamic_enum_alias));
     assert!(structure.same_instance(&alias));
+}
+
+#[test]
+fn layout_admission_is_bounded_and_does_not_retain_producer_programs() {
+    let (runtime, old, code) = fixture();
+    let id = generic_structure(&old);
+    let latest = runtime
+        .publish_staged_reload(runtime.stage_reload_program(&old, "records", code).unwrap())
+        .unwrap();
+    let arguments = [Ty::Builtin(BuiltinType::I32)];
+    let producer = runtime
+        .modules
+        .applied_struct_layout(&old, id, &arguments, None)
+        .unwrap();
+    let consumer = runtime
+        .modules
+        .applied_struct_layout(&latest, id, &arguments, None)
+        .unwrap();
+    assert!(producer.canonical.is_some() && consumer.canonical.is_some());
+    assert_layout_check(|| consumer.matches(&producer), true, 1);
+    assert_layout_check(|| consumer.matches(&producer), true, 0);
+    let copied_owner = detached_copy(&old);
+    let copied = copied_owner.applied_struct_layout(id, &arguments).unwrap();
+    assert_eq!(producer.canonical, copied.canonical);
+    // Equal numeric keys in another descriptor cannot reuse the producer's proof.
+    assert_layout_check(|| consumer.matches(&copied), true, 1);
+    assert_layout_check(|| consumer.matches(&producer), true, 0);
+    drop((copied, copied_owner));
+    for width in 1..=160 {
+        let arguments = [Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width])];
+        let actual = runtime
+            .modules
+            .applied_struct_layout(&old, id, &arguments, None)
+            .unwrap();
+        let expected = runtime
+            .modules
+            .applied_struct_layout(&latest, id, &arguments, None)
+            .unwrap();
+        assert_layout_check(|| expected.matches(&actual), true, 1);
+        assert_layout_check(|| expected.matches(&actual), true, 0);
+    }
+    // Eviction removes only reusable evidence, never the validity of owned facts.
+    assert_layout_check(|| consumer.matches(&producer), true, 1);
+    assert_layout_check(|| consumer.matches(&producer), true, 0);
+    let cross_thread = (consumer.clone(), producer.clone());
+    thread::spawn(move || {
+        for _ in 0..64 {
+            assert!(cross_thread.0.matches(&cross_thread.1));
+        }
+    })
+    .join()
+    .unwrap();
+    let (_, foreign, _) = fixture();
+    let foreign = foreign
+        .applied_struct_layout(generic_structure(&foreign), &arguments)
+        .unwrap();
+    assert_layout_check(|| consumer.matches(&foreign), false, 0);
+    let producer_program = Arc::downgrade(&old.program);
+    drop((producer, old));
+    runtime.collect_garbage().unwrap();
+    assert!(producer_program.upgrade().is_none());
+    // Consumer-side admission evidence has no strong edge back to the producer.
+    assert!(consumer.matches(&consumer));
 }
 
 #[test]
@@ -691,30 +806,7 @@ fn abandoned_candidates_release_links_even_when_their_descriptors_are_retained()
 #[test]
 fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor() {
     let (runtime, loaded, _) = fixture();
-    let forged = LoadedModule {
-        slot: loaded.slot,
-        program: Arc::new(ProgramDescriptor {
-            code: loaded.program.code.clone(),
-            layouts: loaded.program.layouts.clone(),
-            root: loaded.program.root,
-            fingerprint: loaded.program.fingerprint,
-            modules: loaded
-                .program
-                .modules
-                .iter()
-                .map(|module| LinkedModule {
-                    id: module.id,
-                    name: module.name.clone(),
-                    epoch: module.epoch,
-                    bytecode: module.bytecode.clone(),
-                    registry_owner: module.registry_owner,
-                    host_types: module.host_types.clone(),
-                    host_functions: module.host_functions.clone(),
-                    host_paths: module.host_paths.clone(),
-                })
-                .collect(),
-        }),
-    };
+    let forged = detached_copy(&loaded);
     assert_eq!(loaded.key(), forged.key());
     assert!(forged.belongs_to(runtime.host.owner()));
     let before = runtime.modules.loaded_count();

@@ -590,10 +590,18 @@ scope afterward. Dynamic IDs start after linked IDs and are never recycled on ev
 scope IDs are also monotonic within their exact program. Exhaustion, detached facts or
 a borrowed store retain full compatibility checks when no prepared proof is available.
 Same-program accesses compare complete canonical identities instead of whole layouts,
-including equivalent scoped/unscoped producers and consumers across members. Genuine
-cross-generation compatibility retains full checks pending explicit admission in the
-active HP plan. Operand resolution and lookup still occur at execution sites until the
-prepared-operation migration.
+including equivalent scoped/unscoped producers and consumers across members. A distinct
+prepared layout pair goes through the shared struct/enum compatibility admission owner.
+The consumer's immutable program description lazily retains at most 128 successful
+relations across both aggregate kinds, keyed by complete producer/consumer identities
+and the producer version. A weak producer descriptor must also match exactly on lookup.
+This pure type evidence remains usable after executable retirement and cannot keep the
+producer's code or runtime resources alive. A lazy mutex protects optional evidence when
+type facts cross threads; graph comparison runs outside the lock. Missing identities,
+eviction or unavailable cache access retain full checks. A new version cannot inherit an
+old proof, and a proof never authorizes execution, a heap handle or mutable access.
+Raw type-expression checks still need prepared producer/consumer facts before they can
+use admission; that migration and operand preparation remain in the active HP plan.
 Every value access continues to validate heap ownership, slot generation and access.
 
 Typed callbacks borrow their enclosing synchronous call's program retention.
