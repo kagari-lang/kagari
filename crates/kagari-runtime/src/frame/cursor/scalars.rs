@@ -79,7 +79,7 @@ impl ScalarCursor<'_> {
             if !first && *remaining == Some(0) {
                 return Ok(ScalarExit::Slice);
             }
-            if !first && self.prepare_instruction(collection_due)? {
+            if !first && self.prepare_instruction(collection_due) {
                 return Ok(ScalarExit::Safepoint);
             }
             first = false;
@@ -185,13 +185,13 @@ impl ScalarCursor<'_> {
             .quarantine("invalid execution operand slot")
     }
 
-    fn prepare_instruction(&mut self, collection_due: bool) -> Result<bool, RuntimeError> {
+    fn prepare_instruction(&mut self, collection_due: bool) -> bool {
         *self.executing = None;
-        Ok(self.session.options.cancellation.check().is_err()
+        self.session.options.cancellation.check().is_err()
             || self.session.observer_attached.get()
             || collection_due
             || (self.runtime.gc().automatic_collection_enabled()
-                && self.runtime.modules.has_abandoned_programs()?))
+                && self.runtime.modules.abandonment_pending())
     }
 
     fn next_instruction(&mut self) -> Option<ExecutionInstruction> {

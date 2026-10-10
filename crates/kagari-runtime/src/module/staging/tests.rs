@@ -6,6 +6,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use std::thread;
 
 fn program() -> BytecodeProgram {
     BytecodeProgram {
@@ -71,7 +72,7 @@ fn publication_rejects_foreign_stores_and_forged_stage_leases() {
     let key = candidate.module().key();
     let forged = StagedProgram {
         module: candidate.module().clone(),
-        lease: Arc::new(()),
+        lease: Arc::new(CandidateLease::new(Arc::default())),
     };
     assert_eq!(
         forged.publish(&runtime.modules).unwrap_err().kind(),
@@ -96,7 +97,10 @@ fn publication_rejects_foreign_stores_and_forged_stage_leases() {
             .validate_loaded_module(foreign_candidate.module())
             .is_ok()
     );
+    let published_lease = foreign_candidate.program.lease.clone();
     foreign.publish_staged_reload(foreign_candidate).unwrap();
+    thread::spawn(move || drop(published_lease)).join().unwrap();
+    assert!(!foreign.modules.abandonment_pending());
 }
 
 #[test]
@@ -107,7 +111,7 @@ fn candidate_handles_do_not_keep_runtime_state_alive() {
     let resources = runtime.resources().lifetime_probe();
     drop(runtime);
     assert!(resources.upgrade().is_none());
-    drop(candidate);
+    thread::spawn(move || drop(candidate)).join().unwrap();
 }
 
 #[test]
@@ -117,12 +121,42 @@ fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
     for _ in 0..32 {
         let candidate = stage(&mut runtime, &baseline);
         assert_eq!(runtime.modules.inner.borrow().records.len(), 2);
+        assert!(!runtime.modules.abandonment_pending());
+        let last = candidate.program.lease.clone();
         drop(candidate);
+        assert!(!runtime.modules.abandonment_pending());
+        thread::spawn(move || drop(last)).join().unwrap();
+        assert!(runtime.modules.abandonment_pending());
         assert_eq!(runtime.modules.loaded_count(), 1);
     }
     runtime.gc_safepoint().unwrap();
     assert_eq!(runtime.modules.inner.borrow().records.len(), 1);
     assert_eq!(runtime.gc.stats().collections, 32);
+    assert!(!runtime.modules.abandonment_pending());
+
+    // A failed/incomplete graph walk must not consume a pending request.
+    let candidate = stage(&mut runtime, &baseline);
+    drop(candidate);
+    let graph = runtime.modules.collection_graph().unwrap();
+    assert!(!runtime.modules.abandonment_pending());
+    drop(graph);
+    assert!(runtime.modules.abandonment_pending());
+    runtime.gc_safepoint().unwrap();
+    assert!(!runtime.modules.abandonment_pending());
+
+    // Last release after root discovery needs another collection even when
+    // that program was already retained by the in-progress mark.
+    let candidate = stage(&mut runtime, &baseline);
+    let mut graph = runtime.modules.collection_graph().unwrap();
+    let roots = graph.roots();
+    thread::spawn(move || drop(candidate)).join().unwrap();
+    let dead = graph.prepare_sweep(&roots);
+    assert!(graph.detach(dead).is_empty());
+    drop(graph);
+    assert!(runtime.modules.abandonment_pending());
+    runtime.gc_safepoint().unwrap();
+    assert!(!runtime.modules.abandonment_pending());
+    assert_eq!(runtime.modules.inner.borrow().records.len(), 1);
 }
 
 #[test]
@@ -138,11 +172,13 @@ fn disabled_automatic_gc_still_invalidates_candidates_until_explicit_collection(
     assert_eq!(runtime.modules.loaded_count(), 1);
     assert_eq!(runtime.gc.stats().collections, 0);
     assert_eq!(runtime.modules.inner.borrow().records.len(), 5);
+    assert!(runtime.modules.abandonment_pending());
     assert_eq!(
         runtime.collect_garbage().unwrap().reclaimed_modules.len(),
         4
     );
     assert_eq!(runtime.modules.inner.borrow().records.len(), 1);
+    assert!(!runtime.modules.abandonment_pending());
 }
 
 #[test]
@@ -152,6 +188,10 @@ fn safepoints_reject_borrowed_module_storage_without_panicking() {
         config.gc.collection_threshold = automatic.then_some(1024);
         let mut runtime = Runtime::new(config);
         let baseline = runtime.load_program("candidate", program()).unwrap();
+        let view = runtime.modules.instance_mut(baseline.key()).unwrap();
+        // Public safepoints retain borrow validation without pending work too.
+        assert_eq!(runtime.gc_safepoint().is_err(), automatic);
+        drop(view);
         let candidate = stage(&mut runtime, &baseline);
         let view = runtime.modules.instance_mut(baseline.key()).unwrap();
         drop(candidate);

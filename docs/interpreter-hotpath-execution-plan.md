@@ -2257,3 +2257,95 @@ therefore describe the retained checkpoint. Do not use the later rejected binary
 left in `target/release` as the next baseline; use `target/hp04/managed-executable`.
 Final document links and diff checks pass. No build/test failure is carried, no
 full-workspace/CI run was performed, and HP04 plus overall Lua acceptance remain open.
+
+2026-10-10 HP04, candidate reclamation notification (in progress):
+Review confirmed that the hot loop borrowed ModuleStore and scanned staged Weak
+leases on every PC solely to discover asynchronous last release. CandidateLease now
+owns that event: last unpublished release sets a runtime-local atomic request bit.
+Publication disarms its exact lease before removing the staged record. Weak identity
+and strong-count checks still determine immediate program availability; the request
+bit is only a conservative collection trigger, never authority to execute or retain
+a program. The bit owns no module, heap edge or runtime storage, and may outlive the
+runtime with a candidate handle. Completed cross-thread release publishes the request
+with Release/Acquire ordering; no mutable store borrow or callback runs in Drop.
+
+Collection acknowledges the bit only after acquiring the graph borrow and before
+discovering roots. Releases racing with marking set a fresh request for the next
+safepoint, including when the candidate was already marked live. Dropping an incomplete
+graph restores its acknowledged request; only successful detachment commits the
+acknowledgment. A release already reclaimed by a racing collection can conservatively
+request another collection. No completed notification can be cleared at collection
+end. Disabled automatic GC still invalidates access immediately and retains the request
+until explicit collection. No independent roots, queue or second availability model
+is introduced.
+
+`abandonment_pending` replaces the old scan. External GC safepoints retain their module
+borrow validation (with and without pending work), including the original threshold/
+disabled-GC error ordering. The admitted nonallocating region cannot introduce a new
+module-store borrow; its per-PC cancellation/observer/collection polls now read the
+request bit without repeating that admission. The rejected first-PC loop rewrite is
+not reintroduced. Existing staging contracts are extended for cloned last release,
+cross-thread destruction/publication, failed graph acknowledgment and post-mark expiry.
+
+Focused staging lifecycle contracts (6), metadata ownership/reclamation contracts (31),
+abandoned witness-provider admission (1), owned-drive slicing/GC contracts (2) and
+debugger contracts (4) pass. Strict affected-target diagnostics Clippy, formatting,
+structure review (1,011 Rust files; zero violations/exceptions) and diff checks pass.
+The old per-PC Weak scan is removed, with no compatibility wrapper or cached answer
+to that scan. No build/test error is carried; no full-workspace or CI run was performed.
+
+All 72 cold/warm diagnostic rows in `target/hp04/lease-diagnostics.log` are byte-for-
+byte identical to the retained managed checkpoint, including allocation/byte/object,
+GC, preparation, admission and slow-boundary counts. This change moves notification
+ownership; it does not remove logical polls or change the measured allocation model.
+ModuleStore construction adds one shared atomic signal allocation; staged creation
+replaces the empty Arc marker with CandidateLease. These are setup costs outside the
+execution diagnostic region, not per-instruction allocations.
+
+Ordinary paired source forms pass all checksums in
+`target/lua-comparison/20261010T064039Z-forms-paired/results.json`. Baseline is
+`target/hp04/managed-executable` (`5cc995c4...` above); candidate is preserved as
+`target/hp04/lease-executable`, SHA-256
+`676883b485b093ca0ee6c0e37dc518ec59f72a222718c4afee4f8658c742b3e4`.
+Candidate/baseline ratios are direct 0.7981, helper 1.0018, concrete generic 0.9717,
+interface 0.9956, shared generic 0.9852, capture cell 0.9993, field 0.9595,
+native 0.9826, byte state 1.0146, host callback 0.9806, string constants 0.9842
+and string calls 0.9994. Direct's Lua control is 0.9791, with VM/Lua 3.72; the
+20.19% measured reduction exceeds that control drift and recovers the preceding
+direct regression. Other Lua controls range 0.9626–1.0037, so small changes do not
+establish a universal speedup. Byte state's 1.46% increase remains visible. Shared
+generic/string calls are still 52.31/43.99 times Lua.
+
+Same M1 Max/32 GiB/10 logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8,
+workspace release/default Cargo parallelism, fresh sequential baseline/candidate/
+candidate/baseline processes, three warmups and 22 pooled samples per variant.
+Normal GC is included, diagnostics disabled and the 19.386 s build excluded.
+Workloads, compiler settings and alignment are unchanged. Original scalar/array
+controls and setup medians follow below; overall HP04 acceptance remains open.
+
+Original-seven paired checksums also pass:
+`target/lua-comparison/20261010T064225Z-paired/results.json`, same hashes/environment,
+0.078 s build excluded. Candidate/baseline ratios are entry 1.0072, arithmetic 0.8082,
+branches 0.8218, calls 0.9817, fibonacci 0.9989, arrays 1.0195 and maps 1.0077.
+Lua controls range 0.9872–1.0084; arithmetic/branches controls are 0.9872/0.9925.
+The 19.18%/17.82% scalar reductions recover the prior regressions without restoring
+the old managed-operation boundary. Arrays' 1.95% increase and maps' 0.77% increase
+remain visible for integrated HP04 acceptance. Arithmetic/branches/calls/arrays/maps
+remain 5.30/3.04/22.52/41.99/68.06 times Lua; this is not overall parity.
+
+Setup summaries (six samples per workload/variant) show runtime-init medians across
+the seven workloads at 107.920–108.197 ms baseline and 107.944–108.406 ms candidate;
+program-link medians are 2.407–2.583 ms and 2.396–2.599 ms. These noisy setup timings
+do not establish zero cost for the new signal allocation, nor isolate interface-link
+cost. Prepared instruction/frame representations are unchanged by notification.
+Independent post-timing disassembly is in `target/hp04/lease-scalar-assembly.txt`.
+The repeated staged Weak-table scan is absent; the scalar function stack changes
+from 0x170 to 0x130, while total function instructions increase from 458 to 521.
+Whole-function instruction count alone is not a speed proxy; the paired execution
+result, rather than smaller-code speculation, establishes the scalar benefit.
+
+Final content/link/diff checks pass and the preserved candidate matches both timing
+runs. Keep `target/hp04/lease-executable` as the next checkpoint baseline. No build/test
+error is carried. HP04 remains open for linked constants, remaining field operands,
+Vec index/String byte-length contracts, obsolete-handler retirement and integrated
+setup/metadata/performance review; HP05–HP06, complete CI and Lua parity remain open.

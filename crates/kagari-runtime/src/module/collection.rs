@@ -7,11 +7,17 @@ use crate::{
     },
     value::Value,
 };
-use std::{cell::RefMut, collections::HashSet};
+use std::{
+    cell::RefMut,
+    collections::HashSet,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 /// Exclusive access prevents instance writes between marking and detachment.
 pub(crate) struct ProgramGraph<'a> {
     store: RefMut<'a, ModuleStoreInner>,
+    abandoned: &'a AtomicBool,
+    restore_abandonment: bool,
 }
 
 /// Detached together with dead heap slots, then disposed outside storage borrows.
@@ -24,9 +30,22 @@ pub(crate) struct DeadPrograms(Vec<ModuleKey>);
 
 impl ModuleStore {
     pub(crate) fn collection_graph(&self) -> Option<ProgramGraph<'_>> {
+        let store = self.inner.try_borrow_mut().ok()?;
+        // Acknowledge before tracing. Releases racing with this collection leave
+        // their own request set, including programs already reached by marking.
         Some(ProgramGraph {
-            store: self.inner.try_borrow_mut().ok()?,
+            store,
+            abandoned: &self.abandoned,
+            restore_abandonment: self.abandoned.swap(false, Ordering::AcqRel),
         })
+    }
+}
+
+impl Drop for ProgramGraph<'_> {
+    fn drop(&mut self) {
+        if self.restore_abandonment {
+            self.abandoned.store(true, Ordering::Release);
+        }
     }
 }
 
@@ -100,6 +119,7 @@ impl ProgramGraph<'_> {
         for retained in self.store.retentions.values_mut() {
             retained.prune();
         }
+        self.restore_abandonment = false;
         retired
     }
 }

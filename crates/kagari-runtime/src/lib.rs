@@ -622,9 +622,15 @@ impl Runtime {
 
     pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
         self.resources().poll_execution()?;
-        if self.gc.collection_due()
-            || (self.gc.automatic_collection_enabled() && self.modules.has_abandoned_programs()?)
-        {
+        let collection_due = if self.gc.collection_due() {
+            true
+        } else if self.gc.automatic_collection_enabled() {
+            self.modules.check_collection_access()?;
+            self.modules.abandonment_pending()
+        } else {
+            false
+        };
+        if collection_due {
             self.collect_garbage()?;
         }
         Ok(())

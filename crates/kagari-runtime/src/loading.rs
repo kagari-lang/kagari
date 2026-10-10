@@ -161,7 +161,7 @@ impl Runtime {
             .iter()
             .map(|module| self.link_native_module(module, &program))
             .collect::<Result<Vec<_>, _>>()?;
-        if self.modules.has_abandoned_programs()? {
+        if self.modules.abandonment_pending() {
             self.gc_safepoint()?;
         }
         let epoch = self.modules.reserve_epoch(&name)?;
@@ -276,11 +276,7 @@ impl Runtime {
                 ));
             }
         }
-        if self
-            .modules
-            .has_abandoned_programs()
-            .map_err(ReloadValidationError::Runtime)?
-        {
+        if self.modules.abandonment_pending() {
             self.gc_safepoint()
                 .map_err(ReloadValidationError::Runtime)?;
         }

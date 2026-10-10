@@ -31,8 +31,8 @@ impl ExecutionCursor<'_> {
         // or change collector policy. Field operations copy rooted Values using
         // checked storage methods; no destructor/callback runs on replacement.
         // Recompute after every allocating or reentrant boundary.
-        // Abandoned program leases can expire on another thread and remain
-        // checked at each logical PC, as do cancellation and observer requests.
+        // Candidate leases can expire on another thread. Their collection request
+        // is polled at each logical PC, as are cancellation and observer requests.
         let collection_due = self.runtime.gc().collection_due();
         let mut first = true;
         loop {

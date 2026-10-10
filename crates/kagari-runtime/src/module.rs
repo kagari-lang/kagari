@@ -25,7 +25,7 @@ use crate::{
         layout_scope::LayoutScope,
         records::ModuleRecord,
         retention::{ProgramLease, Retentions},
-        staging::StagedProgram,
+        staging::{CandidateLease, StagedProgram},
     },
     native::binding::LinkedNativeFunction,
     reload::{ModuleEpoch, ModuleEpochAllocator},
@@ -53,7 +53,10 @@ use std::{
     cell::{BorrowError, RefCell},
     collections::{HashMap, HashSet},
     ops::Deref,
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[cfg(test)]
@@ -559,6 +562,7 @@ impl ModuleInstance {
 #[derive(Debug, Default)]
 pub struct ModuleStore {
     inner: RefCell<ModuleStoreInner>,
+    abandoned: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Default)]
@@ -568,7 +572,7 @@ struct ModuleStoreInner {
     ids_by_member: HashMap<(String, ModuleIdentity), ModuleId>,
     records: HashMap<ModuleKey, ModuleRecord>,
     latest_by_name: HashMap<String, ModuleKey>,
-    staged: HashMap<ModuleKey, Weak<()>>,
+    staged: HashMap<ModuleKey, Weak<CandidateLease>>,
     retentions: HashMap<ModuleKey, Retentions>,
 }
 
@@ -700,7 +704,7 @@ impl ModuleStore {
             inner.retentions.entry(key).or_default();
             inner.records.insert(key, ModuleRecord::new(member, native));
         }
-        let lease = Arc::new(());
+        let lease = Arc::new(CandidateLease::new(self.abandoned.clone()));
         inner
             .staged
             .insert(loaded.program_key(), Arc::downgrade(&lease));
@@ -753,18 +757,17 @@ impl ModuleStore {
             .is_some_and(|lease| lease.strong_count() != 0)
     }
 
-    pub(crate) fn has_abandoned_programs(&self) -> Result<bool, RuntimeError> {
-        Ok(self
-            .inner
-            .try_borrow()
-            .map_err(|_| {
-                RuntimeError::module_validation(
-                    "module store is borrowed at a collection safepoint",
-                )
-            })?
-            .staged
-            .values()
-            .any(|lease| lease.strong_count() == 0))
+    pub(crate) fn abandonment_pending(&self) -> bool {
+        self.abandoned.load(Ordering::Acquire)
+    }
+
+    /// External safepoints admit storage even when no reclamation is pending.
+    /// Closed regions admit no external store borrows between polls.
+    pub(crate) fn check_collection_access(&self) -> Result<(), RuntimeError> {
+        let _storage = self.inner.try_borrow().map_err(|_| {
+            RuntimeError::module_validation("module store is borrowed at a collection safepoint")
+        })?;
+        Ok(())
     }
 
     /// Installed members available for access, excluding abandoned candidates.

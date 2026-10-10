@@ -3,14 +3,42 @@ use crate::{
     error::RuntimeError,
     module::{LoadedModule, ModuleStore},
 };
-use std::sync::{Arc, Weak};
+use std::sync::{
+    Arc, Weak,
+    atomic::{AtomicBool, Ordering},
+};
+
+/// The store keeps only a Weak identity. Last release requests a collection
+/// without borrowing storage or keeping the runtime/program graph alive.
+#[derive(Debug)]
+pub(super) struct CandidateLease {
+    abandoned: Arc<AtomicBool>,
+    published: AtomicBool,
+}
+
+impl CandidateLease {
+    pub(super) fn new(abandoned: Arc<AtomicBool>) -> Self {
+        Self {
+            abandoned,
+            published: AtomicBool::new(false),
+        }
+    }
+}
+
+impl Drop for CandidateLease {
+    fn drop(&mut self) {
+        if !self.published.load(Ordering::Relaxed) {
+            self.abandoned.store(true, Ordering::Release);
+        }
+    }
+}
 
 /// Authorizes an unpublished program without owning its mutable storage.
 /// Last-drop invalidates candidate access; collection retires its physical records.
 #[derive(Debug)]
 pub(crate) struct StagedProgram {
     pub(super) module: LoadedModule,
-    pub(super) lease: Arc<()>,
+    pub(super) lease: Arc<CandidateLease>,
 }
 
 impl StagedProgram {
@@ -33,6 +61,7 @@ impl StagedProgram {
                 "invalid staged program publication",
             ));
         }
+        self.lease.published.store(true, Ordering::Relaxed);
         inner.staged.remove(&key);
         inner
             .latest_by_name

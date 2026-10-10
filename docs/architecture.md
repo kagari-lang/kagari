@@ -870,8 +870,16 @@ Shared generic layouts, constants and other unmigrated operations still use the
 ordinary boundary; their remaining HP04 migration is not implied by managed copies.
 The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks
-cancellation, observer requests and abandoned program leases at each original
-program point. Collector threshold eligibility is invariant within the closed
+cancellation, observer requests and candidate-reclamation notifications at each
+original program point. The last unpublished CandidateLease release sets a runtime-
+local atomic request without borrowing or retaining module storage; publication
+disarms that lease. Weak identity/strong-count checks still own program availability.
+Collection consumes the request before discovering roots, restores it if graph
+processing fails, and leaves concurrent releases pending for a later safepoint.
+The signal is conservative and never grants execution authority. External safepoints
+retain module-store borrow validation; the closed region polls the signal without
+reacquiring that borrow or scanning the staged program table. Collector threshold
+eligibility is invariant within the closed
 region and is recomputed on entry after every allocating or reentrant boundary;
 the driver has already checked the first PC before acquiring it. Full safepoints
 and error observation run after releasing the cursor. Values retain full scalar
