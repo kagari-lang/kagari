@@ -81,21 +81,6 @@ impl<'a> Executor<'a> {
         instruction: &BytecodeInstruction<DefinitionId>,
     ) -> Result<InstructionProgress, VmError> {
         match *instruction {
-            BytecodeInstruction::LoadLocal { dst, local } => {
-                let value = self.current_frame()?.read_local(self.runtime, local)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
-            }
-            BytecodeInstruction::StoreLocal { local, src } => {
-                let value = self.current_frame()?.read_register(self.runtime, src)?;
-                self.current_frame_mut()?
-                    .write_local(self.runtime, local, value)?;
-            }
-            BytecodeInstruction::Move { dst, src } => {
-                let value = self.current_frame()?.read_register(self.runtime, src)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
-            }
             BytecodeInstruction::Unary { dst, op, operand } => {
                 let value = self.current_frame()?.read_register(self.runtime, operand)?;
                 let value = Self::apply_unary(op, value)?;
@@ -510,17 +495,6 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
-            BytecodeInstruction::Return(register) => {
-                let value = register
-                    .map(|register| {
-                        self.current_frame()?
-                            .read_register(self.runtime, register)
-                            .map_err(VmError::RuntimeError)
-                    })
-                    .transpose()?
-                    .unwrap_or(Value::Unit);
-                return Ok(InstructionProgress::Return(ReturnValue::general(value)));
-            }
             BytecodeInstruction::Await {
                 dst,
                 value,
@@ -530,7 +504,12 @@ impl<'a> Executor<'a> {
                 self.stack.begin_await(self.runtime, value, dst, future)?;
                 return Ok(InstructionProgress::Await);
             }
-            BytecodeInstruction::Jump { .. } | BytecodeInstruction::Branch { .. } => {
+            BytecodeInstruction::Jump { .. }
+            | BytecodeInstruction::Branch { .. }
+            | BytecodeInstruction::LoadLocal { .. }
+            | BytecodeInstruction::StoreLocal { .. }
+            | BytecodeInstruction::Move { .. }
+            | BytecodeInstruction::Return(_) => {
                 return Err(VmError::UnsupportedInstruction(
                     "cursor operation at slow boundary",
                 ));

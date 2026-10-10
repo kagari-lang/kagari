@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{cursor::ExecutionCursor, transfer::ReturnValue},
-    module::execution::{ExecutionInstruction, PreparedFieldOperation, ScalarSlot},
+    module::execution::{ExecutionInstruction, ScalarSlot, managed::PreparedManagedOperation},
     session::SessionState,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -23,14 +23,14 @@ pub(super) enum ScalarExit {
     Safepoint,
     Boundary,
     Return(ReturnValue),
-    Object(PreparedFieldOperation),
+    Managed(PreparedManagedOperation),
 }
 
 enum CursorProgress {
     Continue,
     Boundary,
     Return(ReturnValue),
-    Object(PreparedFieldOperation),
+    Managed(PreparedManagedOperation),
 }
 
 impl ExecutionCursor<'_> {
@@ -92,7 +92,9 @@ impl ScalarCursor<'_> {
                 CursorProgress::Return(value) => {
                     return Ok(ScalarExit::Return(value));
                 }
-                CursorProgress::Object(instruction) => return Ok(ScalarExit::Object(instruction)),
+                CursorProgress::Managed(instruction) => {
+                    return Ok(ScalarExit::Managed(instruction));
+                }
             }
         }
     }
@@ -145,17 +147,13 @@ impl ScalarCursor<'_> {
                 representation,
             } => {
                 let value = match value {
-                    Some(slot) if slot.managed() => return Ok(CursorProgress::Boundary),
-                    Some(slot) => ReturnValue::scalar(
-                        representation,
-                        self.payload(slot.scalar().expect("scalar return"))?,
-                    ),
+                    Some(slot) => ReturnValue::scalar(representation, self.payload(slot)?),
                     None => ReturnValue::scalar(representation, 0),
                 };
                 return Ok(CursorProgress::Return(value));
             }
-            ExecutionInstruction::Field(operation) => {
-                return Ok(CursorProgress::Object(operation));
+            ExecutionInstruction::Managed(operation) => {
+                return Ok(CursorProgress::Managed(operation));
             }
             ExecutionInstruction::Boundary => return Ok(CursorProgress::Boundary),
         };

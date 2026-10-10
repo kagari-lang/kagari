@@ -4,6 +4,7 @@
 pub(crate) mod allocation;
 pub(crate) mod calls;
 pub(crate) mod layout;
+pub mod managed;
 
 use crate::{
     frame::values::scalar,
@@ -11,7 +12,8 @@ use crate::{
         LoadedModule, StructLayoutRef,
         execution::{
             calls::PreparedCall,
-            layout::{FrameLayout, scalar_type},
+            layout::{FrameLayout, Location, scalar_type},
+            managed::{ManagedOperation, PreparedManagedOperation},
         },
     },
     numeric::binary_operation,
@@ -106,21 +108,6 @@ impl PreparedField {
     }
 }
 
-/// The same sealed field description serves preparation and the scalar/object handoff.
-#[derive(Debug, Clone, Copy)]
-pub enum PreparedFieldOperation {
-    Read {
-        dst: Register,
-        base: Register,
-        field: PreparedField,
-    },
-    Write {
-        base: Register,
-        value: Register,
-        field: PreparedField,
-    },
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum ExecutionInstruction {
     Constant {
@@ -143,9 +130,9 @@ pub enum ExecutionInstruction {
         then_target: JumpTarget,
         else_target: JumpTarget,
     },
-    Field(PreparedFieldOperation),
+    Managed(PreparedManagedOperation),
     Return {
-        value: Option<OperandSlot>,
+        value: Option<ScalarSlot>,
         representation: ValueType,
     },
     /// Consult the canonical instruction at the current logical PC after
@@ -238,11 +225,10 @@ impl ExecutionInstruction {
                 .expect("verified register")
         };
         let slot = |register: Register| location(register).operand;
-        let local_slot = |index: usize| {
+        let local_location = |index: usize| {
             registers
                 .location(registers.register_count + index)
                 .expect("verified local")
-                .operand
         };
         let scalar = |dst: Register, lhs: Register, rhs: Register, kernel: Option<ScalarKernel>| {
             let Some(kernel) = kernel else {
@@ -282,25 +268,27 @@ impl ExecutionInstruction {
                 }
             }
             BytecodeInstruction::LoadLocal { dst, local } => {
-                Self::move_slots(slot(dst), local_slot(local.index()))
+                Self::move_slots(location(dst), local_location(local.index()))
             }
             BytecodeInstruction::StoreLocal { local, src } => {
-                Self::move_slots(local_slot(local.index()), slot(src))
+                Self::move_slots(local_location(local.index()), location(src))
             }
-            BytecodeInstruction::Move { dst, src } => Self::move_slots(slot(dst), slot(src)),
+            BytecodeInstruction::Move { dst, src } => {
+                Self::move_slots(location(dst), location(src))
+            }
             BytecodeInstruction::ReadAggregateField {
                 dst,
                 base,
                 ref field,
             } => PreparedField::prepare(module, field).map_or(Self::Boundary, |field| {
-                Self::Field(PreparedFieldOperation::Read { dst, base, field })
+                Self::managed(ManagedOperation::ReadField { dst, base, field })
             }),
             BytecodeInstruction::WriteAggregateField {
                 base,
                 value,
                 ref field,
             } => PreparedField::prepare(module, field).map_or(Self::Boundary, |field| {
-                Self::Field(PreparedFieldOperation::Write { base, value, field })
+                Self::managed(ManagedOperation::WriteField { base, value, field })
             }),
             BytecodeInstruction::Unary { dst, op, operand } => {
                 let ty = scalar_type(location(operand).representation);
@@ -352,8 +340,11 @@ impl ExecutionInstruction {
                 then_target,
                 else_target,
             },
+            BytecodeInstruction::Return(Some(value)) if slot(value).managed() => {
+                Self::managed(ManagedOperation::Return { value: slot(value) })
+            }
             BytecodeInstruction::Return(value) => Self::Return {
-                value: value.map(slot),
+                value: value.map(|value| slot(value).scalar().expect("classified scalar return")),
                 representation: value.map_or(ValueType::Unit, |register| {
                     location(register).representation
                 }),
@@ -362,11 +353,15 @@ impl ExecutionInstruction {
         }
     }
 
-    fn move_slots(dst: OperandSlot, src: OperandSlot) -> Self {
-        match (dst.scalar(), src.scalar()) {
+    fn move_slots(dst: Location, src: Location) -> Self {
+        match (dst.operand.scalar(), src.operand.scalar()) {
             (Some(dst), Some(src)) => Self::Move { dst, src },
-            _ => Self::Boundary,
+            _ => Self::managed(ManagedOperation::Copy { dst, src }),
         }
+    }
+
+    fn managed(operation: ManagedOperation) -> Self {
+        Self::Managed(PreparedManagedOperation(operation))
     }
 }
 

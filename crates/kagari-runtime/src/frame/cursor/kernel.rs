@@ -8,7 +8,7 @@ use crate::{
         cursor::{ExecutionCursor, scalars::ScalarExit},
         transfer::ReturnValue,
     },
-    module::execution::PreparedFieldOperation,
+    module::execution::managed::{ManagedOperation, PreparedManagedOperation},
 };
 
 pub enum RegionExit {
@@ -45,14 +45,53 @@ impl ExecutionCursor<'_> {
                     diagnostics::record(Event::SlowBoundary);
                     return Ok(RegionExit::Boundary);
                 }
-                ScalarExit::Object(PreparedFieldOperation::Read { dst, base, field }) => {
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Copy {
+                    dst,
+                    src,
+                })) => {
+                    // The admitted banks own both roots. Keep the ordinary heap
+                    // identity and destination representation checks; copying a
+                    // Value cannot allocate, collect, run a destructor or reenter.
+                    let value = self
+                        .values
+                        .read_location(src)
+                        .ok_or_else(|| self.invalid())?;
+                    if !self.runtime.gc().validate_value(&value) {
+                        return Err(self.invalid());
+                    }
+                    self.values
+                        .write_location(dst, value)
+                        .ok_or_else(|| self.invalid())?;
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Return {
+                    value,
+                })) => {
+                    // The callee window retains this value through adaptation.
+                    // Common retirement/publication permits no GC or callback gap.
+                    let value = self
+                        .values
+                        .managed
+                        .get(value.index())
+                        .copied()
+                        .ok_or_else(|| self.invalid())?;
+                    return Ok(RegionExit::Return(ReturnValue::general(value)));
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::ReadField {
+                    dst,
+                    base,
+                    field,
+                })) => {
                     if !self.read_field(dst, base, field)? {
                         #[cfg(feature = "execution-diagnostics")]
                         diagnostics::record(Event::SlowBoundary);
                         return Ok(RegionExit::Boundary);
                     }
                 }
-                ScalarExit::Object(PreparedFieldOperation::Write { base, value, field }) => {
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::WriteField {
+                    base,
+                    value,
+                    field,
+                })) => {
                     if !self.write_field(base, value, field)? {
                         #[cfg(feature = "execution-diagnostics")]
                         diagnostics::record(Event::SlowBoundary);
@@ -60,7 +99,7 @@ impl ExecutionCursor<'_> {
                     }
                 }
             }
-            // The field's PC and slice unit were consumed before the handoff.
+            // The operation's PC and slice unit were consumed before the handoff.
             // Its successor still needs the normal logical boundary checks.
             first = false;
         }

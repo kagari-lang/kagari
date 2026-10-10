@@ -28,20 +28,23 @@ impl ExecutionValues {
 
 impl OperandWindow<'_> {
     pub(crate) fn read(&self, logical: usize) -> Option<Value> {
-        read_operand(
-            self.managed,
-            self.payloads,
-            self.initialized,
-            self.layout.location(logical)?,
-        )
+        self.read_location(self.layout.location(logical)?)
+    }
+
+    pub(crate) fn read_location(&self, location: Location) -> Option<Value> {
+        read_operand(self.managed, self.payloads, self.initialized, location)
     }
 
     pub(crate) fn write(&mut self, logical: usize, value: Value) -> Option<()> {
+        self.write_location(self.layout.location(logical)?, value)
+    }
+
+    pub(crate) fn write_location(&mut self, location: Location, value: Value) -> Option<()> {
         write_operand(
             self.managed,
             self.payloads,
             self.initialized,
-            self.layout.location(logical)?,
+            location,
             value,
         )
     }

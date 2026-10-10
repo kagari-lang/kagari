@@ -795,7 +795,7 @@ interface method binding derives its structural selection identity once, without
 capturing the receiver or an applied result. The existing application index consumes
 these shared identities; host entry constructs the same argument bundle. No separate
 application solver or result cache is introduced. Remaining invocation-scaled type
-compatibility work is part of the HP03/HP05 admission review.
+compatibility work remains part of HP05 layout/type admission.
 Executable environments are published by the runtime after validating their complete
 parent/operation graph. The central environment record retains a flat list of exact
 program dependencies alongside its immutable edges. Frame entry checks the environment's
@@ -844,23 +844,30 @@ or external Values. Concrete field operations retain sealed slots and layout IDs
 bind them to the executing frame's exact loaded version, and use checked heap
 storage. Copying a field value does not allocate, create a root lease or run a
 destructor; the frame and object remain traced at the surrounding safepoints.
-The scalar loop hands prepared field operations back to the cursor's object
+The scalar loop hands prepared managed operations back to the cursor's object
 handlers without releasing its frame/window access. Keeping those handlers outside
 the scalar loop prevents their storage checks from changing its inlining budget;
 the handoff retains original logical PC and instruction-slice accounting.
-`PreparedFieldOperation` is shared by sealed instructions and this handoff. The
-handoff carries only a field read/write, not an arbitrary `ExecutionInstruction`;
-it cannot represent a scalar opcode or require an unreachable generic-operation arm.
-Scalar exits explicitly distinguish boundary, slice, safepoint, return and field
+`PreparedManagedOperation` is an opaque sealed record shared by instructions and
+this handoff. Its internal variants cover physical value copies, managed returns
+and the existing field read/write operations. It cannot represent a scalar opcode
+or require an unreachable generic-operation arm. Managed local/register copies use
+prepared physical locations and the ordinary bank read/write representation rules,
+retaining heap owner/generation/kind validation without repeating public frame
+admission. Both slots remain traced in the admitted window. Managed returns carry
+the rooted value to common frame retirement; there is no separate VM return decoder.
+The previous VM LoadLocal/StoreLocal/Move/Return handlers are removed.
+Scalar exits explicitly distinguish boundary, slice, safepoint, return and managed
 operation. The region reconstructs payload-free exits directly; only returns and
-field operations carry data across that internal boundary.
+managed operations carry data across that internal boundary.
 Each scalar segment splits the admitted Rust borrow into an immutable code slice,
 mutable logical-PC fields and bounded scalar/initialization slices. Instructions
 still check operand bounds and initialization, but no longer recover the loaded
 function or bank range per operand. These borrows end before object handoff or
 region exit; no pointer or exclusive borrow survives a callback or arena growth.
 Canonical instructions remain one-to-one with prepared instructions.
-Shared generic layouts and other managed operations use the ordinary boundary.
+Shared generic layouts, constants and other unmigrated operations still use the
+ordinary boundary; their remaining HP04 migration is not implied by managed copies.
 The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks
 cancellation, observer requests and abandoned program leases at each original

@@ -2112,3 +2112,148 @@ then the already-scoped Vec index and String byte-length contracts. Preserve laz
 allocation transitions, current access/bounds, aliases, traps, logical-PC polling and
 host callbacks. Retire migrated VM handlers instead of adding parallel fast paths;
 reuse the existing contract tests and count metadata/setup as well as execution.
+
+2026-10-10 HP04, physical managed copies and returns (in progress):
+The first operation migration replaces the field-only handoff with one opaque
+`PreparedManagedOperation` record. Verified LoadLocal/StoreLocal/Move operands now
+carry physical source/destination locations whenever a managed bank is involved.
+Within the admitted cursor they use the same bank representation helpers and heap
+owner/generation/kind validation as ordinary writes, without session/frame/window
+readmission or canonical VM decoding. Both slots remain traced throughout the closed
+copy; no allocation, collection, destructor or callback can intervene. Existing
+concrete field handlers use this same handoff, with their remaining logical operand/
+fallback migration still pending. Scalar kernels retain their separate compact loop.
+
+Managed returns hand a Value packet to the existing common return protocol while
+the callee root remains live. Scalar return records now carry ScalarSlot directly,
+classifying the bank during preparation rather than testing it on execution. Return
+adaptation and closed retirement/publication are unchanged. The VM's separate
+LoadLocal/StoreLocal/Move/Return implementations and public PreparedFieldOperation
+type are removed; public prepared instruction variants change in this unpublished
+Rust API, without altering portable bytecode or its version. No compatibility branch
+or duplicate execution path is retained. Physical instruction size remains within
+the existing 24-byte budget; no frame field, runtime side table or heap object is added.
+
+Existing VM execution contracts (44, including debugger and generic/reload behavior),
+GC/frame-window contracts (9), owned-drive contracts (2, slicing after each logical
+instruction and collecting between activations), and the instruction-size budget (1)
+pass. Strict diagnostics-target Clippy and structure review (1,011 Rust files, zero
+violations/exceptions) pass. A final ScalarSlot type refinement is checked below.
+No new duplicate regression cases are added. Constants, field operands and verified
+Vec/String primitive admission remain HP04 work; this is not phase acceptance.
+
+The final ScalarSlot representation passes owned-drive contracts (2), diagnostics
+Clippy, formatting and structure review. All 72 separate cold/warm diagnostic rows
+pass in `target/hp04/managed-diagnostics.log`; deltas against the HP03 linked-call
+binary are in `target/hp04/managed-diagnostic-delta.json`. Every allocation request,
+requested/net byte, object, collection, preparation, graph-validation, driver-admission
+and await-poll count is identical. Only canonical slow-boundary counts change:
+
+| Warm workload, 5,000 iterations | HP03 exits | Prepared managed exits |
+| --- | ---: | ---: |
+| Interface | 10,002 | 5,001 |
+| Shared generic | 20,002 | 5,001 |
+| Capture cell | 30,004 | 20,002 |
+| Field | 10,002 | 1 |
+| Byte state | 25,002 | 15,001 |
+| String constants | 25,000 | 10,000 |
+| String calls | 45,000 | 15,000 |
+| Alternating managed captures/arguments | 30,011 | 5,005 |
+
+N/2N fixed and changing receiver/type/capture cases retain the same preparation and
+lifetime counts. This isolates the removed repeated operation boundary; it does not
+claim lower allocation or fewer logical instructions. In particular, field allocations
+and native/layout costs remain despite fewer VM exits. Diagnostic and ordinary timing
+binaries are built/run separately without overlapping CPU-heavy work.
+
+Initial ordinary paired source forms pass all checksums in
+`target/lua-comparison/20261010T061237Z-forms-paired/results.json`, against
+`target/hp03/linked-calls-executable`. Preserved candidate `target/hp04/managed-executable`
+has SHA-256 `5cc995c4f1d930471c4d0af504acc01c0caedd67466bf7dc26c8267bb4b36ac2`.
+Candidate/baseline ratios are direct 1.0876, helper 0.9968, concrete generic 1.0121,
+interface 0.8663, shared generic 0.7404, capture cell 0.7967, field 0.4706,
+native 1.0144, byte state 0.7638, host callback 1.0072, string constants 0.5849
+and string calls 0.5792. String Lua controls are 1.0003/0.9995; their VM/Lua ratios
+remain 44.22/44.67. Direct regresses 8.76% with Lua control 1.0003, so the gains do
+not establish performance acceptance. Other Lua controls range 0.9621–1.0106.
+Same recorded M1 Max/toolchain/workspace release configuration, normal GC, unchanged
+fixtures, three warmups and 22 pooled samples in sequential baseline/candidate/
+candidate/baseline order. The 19.130 s build is excluded.
+
+Independent ordinary profiles are in `target/hp04/managed-direct-profiles/`.
+Both direct variants execute 75,015 logical Kagari instructions versus 40,006 Lua
+instructions, with no heap allocation or collection during their 10 s sample window;
+baseline/candidate finish 30,034/27,901 invocations. Both have 24-byte prepared
+instructions and return packets, 16-byte Values and 136-byte canonical instructions.
+The scalar loop dominates both 5 s/1 ms stack samples. Its disassembly shows that
+the candidate carries/reset-tests the `first` flag on steady-state backedges, while
+the baseline compiler eliminated that repeated entrance classification. Stack use
+changes from 0x160 to 0x170. These are concrete code-generation differences, not
+exclusive cycle attribution. The source currently mixes already-observed entry and
+steady-state PC checks in one loop; making that entrance responsibility explicit is
+the next bounded architecture correction, preserving each logical check. Compiler
+settings, alignment, padding and semantic checks remain unchanged.
+
+The initial original-seven pair confirms the scalar regression independently:
+`target/lua-comparison/20261010T061511Z-paired/results.json`, all checksums pass,
+same hashes/environment, 0.079 s build excluded. Candidate/baseline ratios are entry
+0.9966, arithmetic 1.0785, branches 1.0630, calls 1.0131, fibonacci 1.0263, arrays
+0.7410 and maps 0.8896; Lua controls range 0.9971–1.0080. The explicit next correction
+moves first-PC classification outside the scalar loop. An unobserved managed successor
+still receives slice/cancellation/observer/GC checks at entry; a scalar successor
+receives the identical checks at the backedge, after consuming its predecessor and
+before fetching the next logical PC. Returns/errors/handoffs exit before those checks
+as before. No conditional first-PC state survives a steady-state backedge. This
+clarifies execution responsibility instead of relying on compiler loop peeling.
+
+The entry/backedge correction passes debugger contracts (4), owned-drive contracts
+(2), strict affected-target diagnostic Clippy, formatting and structure checks.
+`target/hp04/entry-diagnostics.log` is byte-for-byte identical to the preceding
+72-row managed diagnostic run, including all preparation, allocation, collection,
+driver and slow-boundary counts. This keeps the measured managed-operation gains
+in protocol traffic while isolating the scalar control-flow correction. Current
+architecture and 41 local document link targets are checked; no build/test error
+is carried. Paired ordinary performance follows below, without overlapping tests,
+builds, diagnostics or sampling.
+
+Rejected entry/backedge candidate: ordinary source forms in
+`target/lua-comparison/20261010T062229Z-forms-paired/results.json` pass checksums but
+direct regresses 13.31% against HP03 (Lua control 0.9989), versus 8.76% for the initial
+managed candidate. Helper is 1.0345, concrete generic 0.9970, interface 0.8821,
+shared generic 0.7478, capture cell 0.7993, field 0.4798, native 1.0241, byte state
+0.7974, host callback 1.0271, string constants 0.6009 and string calls 0.5853.
+Same paired configuration; 19.232 s build excluded. Preserved rejected binary
+`target/hp04/entry-executable` has SHA-256
+`6bb80b5c59fe3d49b861882b1b99492a42cd8b14de448541993b22e14a99bba3`;
+its scalar source and disassembly are in `target/hp04/entry-scalars.rs` and
+`target/hp04/entry-scalar-assembly.txt`. Scalar function instructions increase from
+458 to 791, including duplicated preparation/error paths. The source-level entry
+split did not solve the performance problem and is reverted, including its current-
+architecture claim. The first-flag observation was an incomplete explanation, not
+a proven exclusive cause. The retained implementation is the initial managed-copy/
+return model and original logical-boundary loop, hash `5cc995c4...` above.
+
+The scalar regression remains an HP04 acceptance failure. Before another control-flow
+tweak, review the polling/proof ownership inside the prepared region: the current
+`ModuleStore::has_abandoned_programs` borrows the store and scans staged Weak leases
+at every logical PC because candidate leases may expire on another thread. The same
+admission concern is mixed into the scalar loop's generated body. Any replacement
+must derive invalidation from the actual lease lifecycle, preserve cross-thread
+expiry and safepoint cadence, and retain all release checks; removing the scan without
+an equivalent invalidation proof is forbidden. This is review of the already-scoped
+execution boundary, not authorization for a different cancellation/GC policy or an
+alignment/compiler-flag workaround. Constants and primitive-operation migration and
+their setup/metadata accounting remain the other outstanding HP04 responsibilities.
+
+The rejected candidate's original-seven confirmation is
+`target/lua-comparison/20261010T062354Z-paired/results.json`: checksums pass, but
+arithmetic/branches are 1.1277/1.0767 of HP03 (Lua controls 0.9984/0.9788). Entry,
+calls, fibonacci, arrays and maps are 1.0057, 0.9947, 1.0081, 0.7674 and 0.8954;
+the excluded build is 0.077 s. No speedup is claimed for this rejected experiment.
+After reverting, the complete tracked Rust diff exactly matches the saved measured
+initial managed candidate (`target/hp04/managed-before-entry.patch`); the new managed
+operation module is unchanged. Its existing validation and first paired measurements
+therefore describe the retained checkpoint. Do not use the later rejected binary
+left in `target/release` as the next baseline; use `target/hp04/managed-executable`.
+Final document links and diff checks pass. No build/test failure is carried, no
+full-workspace/CI run was performed, and HP04 plus overall Lua acceptance remain open.
