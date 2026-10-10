@@ -4,8 +4,134 @@ Keep workload, baseline/candidate, environment, timing scope and reproduction
 together. These are finite observations, not language-wide guarantees. Build,
 preparation and execution times are separate; allocation requests are not RSS.
 Older superseded tables and successful test logs remain in Git history.
-The VE00-VE08 sections record the compact-value and interpreter execution track;
+The VE00-VE09 sections record the compact-value and interpreter execution track;
 older measurements retain their original revisions and were not rerun implicitly.
+
+## Native enum result layout reuse (VE09), 2026-10-10
+
+The explicitly authorized follow-up is locally accepted. Native Map::get results
+and their consuming patterns retain equal concrete enum layouts in different
+module slots of one pinned program. EnumVariantRef::matches_layout now compares
+those existing applied layouts directly when neither side has a lexical environment.
+Runtime owner and variant checks precede the comparison; different generations or
+lexical scopes retain the general type-graph comparison. Allocation, dynamic payload
+checks, roots, traced enum storage, cancellation and return publication are unchanged.
+No additional cache, public API, metadata field or unsafe code was introduced.
+
+In the frozen map workload the median falls from 12,423.354 to 6,075.917 microseconds,
+0.489x VE08 time (51.1% less). The isolated Map::get counting probe removes 90 Rust
+allocation requests per iteration, with unchanged GC objects/collections. Other
+workloads retain small increases and decreases below, including fibonacci +2.1%.
+All 16 matched nontrivial workloads still fail Lua parity, at 3.66-201.94x Lua time;
+this phase does not close the interpreter-wide performance goal. Full CI is unrun.
+
+### Attribution and allocation
+
+The unchanged `target/ve05/collections.kgr` probe performs 5,000 warmed iterations
+and checks 325,000. Separate baseline counting and stack captures use VE08 production
+code. Requests 100-199 in a diagnostic execution allocate 90 times in enum layout
+compatibility, six in pattern descriptor admission, two in payload snapshots, one
+for payload storage and one for allocation validation. This is a bounded stack
+sample, not a distribution over every workload. Backtrace machinery is excluded
+from counting. A temporary descriptor diagnostic confirms one ProgramDescriptor,
+module slots 0/14, enum IDs 4/5, equal full applied layouts and no lexical environments.
+Native result layout caching already hits; adding another cache would miss this cost.
+All diagnostic instrumentation was removed before candidate verification and timing.
+
+| Probe | VE08 requests | VE09 requests | VE08 requested bytes | VE09 requested bytes | Script objects / GC collections, both |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Map get / ordinary Option | 500280 | 50280 | 38753903 | 1353903 | 5001 / 10 |
+| Map update + contains_key | 25045 | 25045 | 283323 | 283323 | 1 / 0 |
+
+Requests count alloc/alloc_zeroed/realloc; requested bytes are neither RSS nor peak
+live memory. Construction, public host entry/return and default GC remain included;
+source compilation, loading and three warmups are excluded. Probe entry aliases
+`string_constants` / `string_calls` retain their historical names but execute these
+collection cases, not the frozen string timing fixtures. Value remains 16-byte Copy;
+no backing-layout or persistent metadata size changed in VE09.
+
+### Paired release measurements
+
+Baseline: VE08 `06757739`, `target/ve08/candidate-executable`, SHA-256
+`98a14ea576a1a4f616bb6573c8e7342f01148dbbeac70147753269d08edf2261`.
+Candidate: that revision plus the EnumVariantRef layout comparison change,
+`target/ve09/candidate-executable`, SHA-256
+`a10ea34693c9a113b97cf2f1e2af1906c07a2b175e1bfcd209bb055c01cecc22`.
+
+Apple M1 Max (10 logical CPUs, 32 GiB), macOS 26.6.2 arm64; Rust 1.98.1
+(`48a229cea`, LLVM 22.1.8), Cargo 1.98.1; workspace release defaults and default
+Cargo parallelism/target, source/native SDK, mlua lua54,vendored Lua 5.4.8. Only
+interpreter execution is timed. Candidate build took 19.37 s; the paired drivers
+reused it in 0.132 / 0.084 s, all excluded from execution. Each matrix runs
+baseline,candidate,candidate,baseline sequentially with three warmups and eleven
+samples per process/route, reversing initial order for the second pair. There are
+22 samples per variant/engine/workload; all 1,672 measured batches pass checksums.
+No tests, builds, allocation probes or profilers ran concurrently with throughput.
+
+CPU frequency, affinity and background activity remain uncontrolled. Tables show
+microseconds per complete workload, C/B median ratio and candidate sample extrema;
+entry is normalized per call. Extrema are not confidence intervals; small changes
+are not claims of significance. The 14,022.084 us string-constant sample is retained.
+Raw reports retain both variants' ranges and separate setup measurements. Execution
+includes host entry/return and ordinary GC; compile/verify/link/setup are excluded.
+The seven original and twelve source-form fixtures are unchanged. Native is an
+unmatched adapter diagnostic; host_callback compares the same Rust body separately.
+The bounded numeric diagnostic matrix was not rerun for this enum-only change.
+
+### Original workload results
+
+| Workload | VE08 VM | VE09 VM | C/B | Candidate Lua | VM/Lua | VE09 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 2488.500 | 2507.646 | 1.008 | 383.250 | 6.54 | 2440.833–2582.875 |
+| arrays | 5005.250 | 5034.105 | 1.006 | 68.792 | 73.18 | 4971.166–5495.625 |
+| branches | 2926.667 | 2952.624 | 1.009 | 806.792 | 3.66 | 2889.709–3013.667 |
+| calls | 6127.688 | 6188.833 | 1.010 | 224.292 | 27.59 | 6146.750–6400.333 |
+| entry | 1.412 | 1.412 | 1.000 | 0.029 | 49.00 | 1.404–1.452 |
+| fibonacci | 12422.104 | 12688.541 | 1.021 | 355.584 | 35.68 | 12425.834–13253.875 |
+| maps | 12423.354 | 6075.917 | 0.489 | 69.041 | 88.00 | 5975.333–6171.208 |
+
+### Source form results
+
+| Workload | VE08 VM | VE09 VM | C/B | Candidate Lua | VM/Lua | VE09 VM min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 6964.188 | 6915.063 | 0.993 | 110.250 | 62.72 | 6865.083–6978.459 |
+| forms_capture_cell | 10144.459 | 10129.708 | 0.999 | 140.500 | 72.10 | 10060.167–10484.417 |
+| forms_concrete_generic | 3135.417 | 3078.604 | 0.982 | 103.084 | 29.87 | 3052.292–3126.583 |
+| forms_direct | 345.916 | 348.812 | 1.008 | 75.146 | 4.64 | 335.500–398.709 |
+| forms_field | 3749.501 | 3738.563 | 0.997 | 90.209 | 41.44 | 3704.917–3812.042 |
+| forms_helper | 3132.875 | 3071.001 | 0.980 | 141.312 | 21.73 | 3046.250–3136.167 |
+| forms_host_callback | 1912.896 | 1908.938 | 0.998 | 248.667 | 7.68 | 1891.167–1951.208 |
+| forms_interface | 10710.438 | 10429.146 | 0.974 | 135.833 | 76.78 | 10378.250–10510.458 |
+| forms_native | 1906.542 | 1900.250 | 0.997 | 140.688 | 13.51 | 1883.250–1945.833 |
+| forms_shared_generic | 22307.730 | 21708.834 | 0.973 | 107.499 | 201.94 | 21553.542–22412.792 |
+| forms_string_calls | 12905.834 | 12908.000 | 1.000 | 124.708 | 103.51 | 12804.000–13175.792 |
+| forms_string_constants | 7070.312 | 7111.479 | 1.006 | 67.334 | 105.62 | 7017.875–14022.084 |
+
+### Correctness and reproduction
+
+All 38 affected existing contracts pass: enum payload identity/reload (4), source-free
+native enums including nested traced payloads and rejected operations (2), generic
+reload (2), native enum boundaries (6), hash handles/custom callbacks and cleanup
+(8), GC ownership (6), native conversion (10). Runtime all-target Clippy, formatting,
+structure (988 files, no violations/exceptions) and diff checks pass. No full
+workspace suite was rerun for this bounded change; VE08's full pass is historical.
+No carried local build/test failures remain. Complete GitHub CI is unrun.
+
+Raw paired reports are `target/lua-comparison/20261010T002035Z-paired/` and
+`20261010T002247Z-forms-paired/`. Counting/trace sources, builds and focused logs are
+under `target/ve09/`; baseline/candidate allocation executables remain preserved.
+Temporary logs/binaries are ignored, with durable evidence recorded here.
+
+```sh
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/ve08/candidate-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve08/candidate-executable
+uv run python target/ve09/build_probe.py target/ve00/measure_source.rs target/ve09/candidate-allocations
+target/ve09/baseline-allocations target/ve05/collections.kgr
+target/ve09/candidate-allocations target/ve05/collections.kgr
+```
+
+The build helper selects the current release rlibs. Rebuilding a historical probe
+requires its corresponding production revision; do not overwrite a saved baseline.
 
 ## Compact value and interpreter final local evaluation (VE08), 2026-10-10
 

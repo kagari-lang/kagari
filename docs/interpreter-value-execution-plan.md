@@ -1,15 +1,17 @@
-# Compact values and interpreter execution (VE00-VE08)
+# Compact values and interpreter execution (VE00-VE09)
 
 Status: active, authorized on 2026-10-09. The user requested goal execution of
 VE00-VE08 in order, following the debug-only diagnostic refinement. The finite
-implementation and final local integration/performance evaluation are complete.
+VE00-VE08 implementation and final local integration/performance evaluation are complete.
 Lua parity fails the frozen gate; GitHub CI acceptance remains unrun. Overall goal
-acceptance remains open, and the bounded follow-up proposal is not activated.
+acceptance remains open. On 2026-10-10 the user explicitly activated the bounded
+native enum-result follow-up as VE09, now locally accepted; VE00-VE08 scope remains closed.
 
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation and queue placement. This plan owns phase order, implementation scope,
-acceptance, decisions and the progress ledger for VE00-VE08. Update this ledger
-rather than creating another migration checklist. Existing IP/NE implementation
+acceptance, decisions and the progress ledger for VE00-VE08 and the authorized
+VE09 follow-up. Update this ledger rather than creating another migration
+checklist. Existing IP/NE implementation
 completion and their still-open Lua parity acceptance remain separate facts.
 
 ## Outcome and finite scope
@@ -1288,3 +1290,96 @@ admission proposal above is the single recorded follow-up and is not activated;
 its allocation/type evidence identifies a concrete next investigation without
 claiming that it solves the remaining interpreter-wide gap. There are no carried
 local build/test errors or unresolved structural exceptions.
+
+### VE09: Native enum-result admission (authorized 2026-10-10)
+
+The user explicitly expanded the goal to execute the bounded proposal above. This
+supersedes its earlier not-activated status without reopening VE08. Keep the original
+Lua parity gate and honest local/CI distinction; this follow-up alone is not a
+promise to meet all interpreter workloads.
+
+Scope: attribute warmed Map::get/Option allocation requests to exact runtime call
+sites, then reuse existing generation-pinned variant/payload type facts through
+construction and result admission. Keep ordinary traced enum storage, runtime
+owner/generation checks, dynamic payload validation, roots, callback/reload behavior
+and trap cleanup. Exclude general enum unboxing, collector replacement, JIT,
+unrelated dispatch changes and benchmark changes. Use existing native enum/type
+owners; do not create a parallel semantic path.
+
+- [x] Attribute remaining warmed allocation requests on the VE08 production baseline.
+- [x] Implement the measured reuse at the existing runtime owner.
+- [x] Pass affected enum, collection, foreign-runtime, reload and cleanup contracts.
+- [x] Measure allocation and paired end-to-end cost against preserved VE08, report regressions.
+- [x] Record local checks, CI status and final bounded-phase conclusion; commit with `Interpreter-Phase: VE09`.
+
+Acceptance requires fewer warmed metadata allocations and improved end-to-end
+Map::get cost with unchanged results and safety boundaries. Temporary probes belong
+under `target/ve09/`; durable evidence and commands belong in this ledger and the
+existing performance report. Original VE00/VE08 binaries remain untouched.
+
+VE09 attribution: the unchanged 5,000-iteration Map::get probe reproduces 500,280
+Rust requests / 38,753,903 requested bytes and 5,001 script objects / 10 collections.
+A separate first-iteration allocator stack sample (requests 100-199, excluding
+backtrace machinery) assigns 90 requests to EnumVariantRef::matches_layout graph
+compatibility, six to pattern descriptor admission, two to payload snapshots, one
+to enum payload storage and one to allocation validation. Native result layout
+caching already hits. A temporary descriptor diagnostic identifies equal complete
+applied layouts in the same ProgramDescriptor but different module slots (0/14)
+and enum IDs (4/5), both without lexical environments. This explains why descriptor
+pointer identity misses and the general comparator reconstructs both type graphs.
+
+The bounded implementation therefore reuses complete applied layout equality at
+this existing enum owner for one pinned program with no lexical bindings. Runtime
+owner and variant checks precede both paths; different programs/environments retain
+the general structural comparison. Allocation/payload validation, roots and enum
+storage remain unchanged. This follows the measured native-result consumer path;
+it does not add another cache or alter generic dispatch. Temporary diagnostic
+instrumentation was removed before candidate validation and timing.
+
+Initial VE09 counting probe: Map::get requests fall to 50,280 and requested bytes
+to 1,353,903, with unchanged 5,001 script objects and 10 collections. The map
+update/contains control stays at 25,045 requests / 283,323 bytes and one object /
+zero collections. This is allocation evidence only; paired throughput and affected
+correctness gates are still pending. No throughput claim uses instrumented builds.
+
+VE09 focused correctness gate passes 38 existing tests: embed enum payloads (4),
+native enums with source-free/traced payloads (2), generic reload (2), VM native
+enum boundaries (6), hash handles including callback/reload cleanup (8), runtime
+GC ownership (6) and native conversion (10). Runtime all-target Clippy, format,
+structure (988 files, no violations/exceptions) and diff checks pass. No new tests,
+public APIs, layout fields, unsafe code or dependency changes were needed. These
+focused results do not repeat or replace VE08's historical full-workspace run;
+complete GitHub CI remains unrun. Paired measurements now run alone.
+
+Validity boundary: EnumVariantRef construction retains immutable, checked concrete
+layouts. LoadedModule::members resolves nominal definitions through the one retained
+ProgramDescriptor. The fast comparison requires that exact descriptor identity,
+no lexical environment on either operand, equal entire applied layouts (declaration,
+arguments, all variants and payload types), equal variant indices and runtime owner.
+Different generations, lexical scopes or unequal layouts still use the existing
+graph comparator. GC handles, payloads and return publication remain checked at
+unchanged allocation/access boundaries; no cached verdict outlives its owner.
+
+### VE09 local acceptance
+
+The two unchanged paired matrices pass all 1,672 measured batch checksums. Map
+median time falls from 12,423.354 to 6,075.917 us (0.489x VE08); Map::get allocation
+requests fall 500,280 -> 50,280 with identical results and GC counts. All other
+workload medians/ranges, including fibonacci's 2.1% increase and a string-constant
+outlier, are retained in the [VE09 report](performance-baseline.md#native-enum-result-layout-reuse-ve09-2026-10-10).
+No significance claim is made for small differences. Baseline/candidate order,
+environment, hashes, timing exclusions and reproduction are recorded there.
+
+The one-function change at the existing enum layout owner is locally accepted with
+38 focused contract tests, runtime all-target Clippy, structure, format and diff
+checks. No tests were weakened, no new public surface or persistent cache was added,
+and temporary production diagnostic prints are absent. There are no carried build
+errors or structural exceptions. VE08's successful full workspace run was not
+repeated; full GitHub CI remains unrun.
+
+This completes the explicitly authorized bounded follow-up. All 16 frozen matched
+nontrivial workloads still exceed Lua (3.66-201.94x median); the overall performance
+goal remains unaccepted. Remaining Map::get work includes pattern descriptor
+admission and ordinary enum payload/storage checks, while other language paths
+retain their previously measured costs. Do not infer another optimization phase
+from this acceptance or narrow the original Lua goal to the map improvement.

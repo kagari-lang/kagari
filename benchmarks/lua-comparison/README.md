@@ -28,11 +28,12 @@ cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
 The current compact-value/interpreter results are recorded in the
-[VE08 final local evaluation](../../docs/performance-baseline.md#compact-value-and-interpreter-final-local-evaluation-ve08-2026-10-10).
-The seven original workloads remain unchanged. Implementation and local workspace
-integration are complete, but all 16 frozen matched nontrivial original/source-form
-cases still take 3.65-201.48x Lua time. Parity remains unmet and full GitHub CI is
-unrun. Historical reports below retain their distinct baseline scope.
+[VE09 enum result layout report](../../docs/performance-baseline.md#native-enum-result-layout-reuse-ve09-2026-10-10).
+The seven original workloads remain unchanged. VE08 local workspace integration
+and VE09 focused checks passed; the latter reduces map time to 0.489x VE08. All
+16 frozen matched nontrivial original/source-form cases still take 3.66-201.94x
+Lua time. Parity remains unmet and full GitHub CI is unrun. Historical reports
+below retain their distinct baseline scope.
 
 ## Matching and timing
 

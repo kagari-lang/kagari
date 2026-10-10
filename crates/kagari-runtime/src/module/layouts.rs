@@ -280,6 +280,11 @@ impl EnumVariantRef {
 
     /// Pattern access requires the concrete payload contract, not only a tag identity.
     pub fn matches_layout(&self, other: &Self) -> bool {
+        if self.module.registry_owner != other.module.registry_owner
+            || self.variant != other.variant
+        {
+            return false;
+        }
         // Prepared descriptors identify the complete immutable payload scope.
         // Other applications and generations retain structural compatibility checks.
         if Arc::ptr_eq(&self.module.program, &other.module.program)
@@ -299,13 +304,23 @@ impl EnumVariantRef {
         {
             return true;
         }
-        self.module.registry_owner == other.module.registry_owner
-            && self.variant == other.variant
-            && self.matches_type(
-                &other.type_expression(),
-                &other.module,
-                other.environment.as_deref(),
-            )
+        // Native results and their consuming patterns can use different module
+        // slots/templates in the same pinned program. With no lexical bindings,
+        // equal applied layouts resolve every nested nominal type through that
+        // same immutable dependency graph. Reuse those layouts instead of
+        // rebuilding both type applications during each compatibility check.
+        if Arc::ptr_eq(&self.module.program, &other.module.program)
+            && self.environment.is_none()
+            && other.environment.is_none()
+            && self.layout() == other.layout()
+        {
+            return true;
+        }
+        self.matches_type(
+            &other.type_expression(),
+            &other.module,
+            other.environment.as_deref(),
+        )
     }
 
     pub(crate) fn payload_type(

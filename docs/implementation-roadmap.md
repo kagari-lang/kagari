@@ -622,7 +622,8 @@ Collector replacement, enum unboxing, general collection lease redesign, JIT
 expansion and new numeric APIs remain outside these completed tracks.
 
 The [compact values and interpreter execution plan](interpreter-value-execution-plan.md)
-defines the active VE00-VE08 follow-up. Goal execution was authorized on 2026-10-09;
+records the VE00-VE08 track and its explicitly activated VE09 follow-up.
+Goal execution was authorized on 2026-10-09;
 VE00-VE08 implementation and final local evaluation are complete: 16-byte Copy
 values, checked compact identities, shared runtime string constants, GC/async
 integration, prepared field/scoped collection operations and script call/frame
@@ -634,9 +635,14 @@ The [final report](performance-baseline.md#compact-value-and-interpreter-final-l
 records the preserved-baseline comparison and passing local workspace integration.
 All 16 frozen matched nontrivial workloads still exceed Lua (3.65-201.48x median
 time), so performance acceptance remains open. Complete GitHub CI feature/backend
-acceptance remains unrun. One bounded native enum-result admission proposal is
-recorded in the plan but is not activated; this finite track does not automatically
-expand to more architecture work.
+acceptance remains unrun. On 2026-10-10 the user explicitly activated the bounded
+native enum-result admission follow-up as VE09 in the same plan. Its scope is
+allocation attribution and reuse of existing pinned enum/payload facts; VE00-VE08
+remain closed, and unrelated architecture work remains excluded.
+VE09 is now locally accepted: the [paired report](performance-baseline.md#native-enum-result-layout-reuse-ve09-2026-10-10)
+records 0.489x VE08 map time and 500,280 -> 50,280 Map::get allocation requests,
+with unchanged GC counts and passing focused contracts. Its 16 matched workloads
+still exceed Lua by 3.66-201.94x; complete CI remains unrun.
 
 ### Async execution (AX00-AX06, active)
 
