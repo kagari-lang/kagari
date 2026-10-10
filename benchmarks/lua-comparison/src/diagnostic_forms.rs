@@ -16,6 +16,26 @@ impl Compare for i32 {}
 fn less<T: Ord>(a: T, b: T) -> bool { a.cmp(b) == Ordering::Less }
 trait Relay { fn relay<T: Ord>(self, a: T, b: T) -> bool { less(a, b) } }
 impl Relay for i32 {}
+trait Append { fn append<T>(self, values: Vec<T>, value: T) { values.push(value); } }
+impl Append for i32 {}
+impl Append for i64 {}
+fn native_application(n: i32) -> i32 {
+    val receiver: Append = 0; val values: Vec<i32> = Vec::new(); var i = 0;
+    while i < n { receiver.append(values, i); i += 1; }
+    var sum = 0; for value in values { sum += value; } sum
+}
+fn changing_native_application(n: i32) -> i32 {
+    val first: Append = 0; val second: Append = 0i64;
+    val narrow: Vec<i32> = Vec::new(); val wide: Vec<i64> = Vec::new(); var i = 0;
+    while i < n {
+        val receiver = if i % 2 == 0 { first } else { second };
+        if i % 4 < 2 { receiver.append(narrow, i); }
+        else { receiver.append(wide, i as i64); }
+        i += 1;
+    }
+    var sum = 0; for value in narrow { sum += value; }
+    for value in wide { sum += value as i32; } sum
+}
 fn shared_application(n: i32) -> i32 {
     val receiver: Relay = 0; var sum = 0; var i = 0;
     while i < n { if receiver.relay(i, i + 1) { sum += i; } i += 1; } sum
@@ -59,6 +79,8 @@ pub(super) fn run() {
         "changing_application",
         "witness_application",
         "shared_application",
+        "native_application",
+        "changing_native_application",
     ];
     let mut source = SOURCE.to_owned();
     for n in [2_500, 5_000] {

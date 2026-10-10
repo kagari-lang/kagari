@@ -720,3 +720,66 @@ These timings do not satisfy retained-byte accounting, which remains outstanding
 Final diff/content checks and all 703 local Markdown links pass; no carried build/test
 error remains. No full workspace suite or GitHub CI run was performed. HP01 and all
 later architecture/CI/Lua-parity acceptance gates remain open.
+
+2026-10-10 HP01, generic native application checkpoint (in progress): generic native
+entry now consumes a published `NativeApplication` containing its exact supplying
+member/environment, applied signature, result adapter and selected call facts. The
+existing linked-descriptor protocol validates new edges before publication and retains
+at most 128 native applications across all scopes per member. Keys include import and
+generational environment identity; every lookup still checks runtime/module availability
+and the environment handle. The first preparation checks the template binder contract;
+the unchanged frame-entry contract also checks its supplied environment. Completed
+signatures retain their prepared type arguments instead of discarding scalar-only facts
+and preparing them again through the native signature cell.
+
+`native/selected.rs` now produces resolved executable edges rather than owning host
+roots for internal native preparation. `LinkedCallable` owns their shared traversal,
+also used by `StoredSelection`; explicit escaping typed handles still promote to pinned
+ownership. Before invoking Rust, the native frame publishes its descriptor in the
+existing execution window. Collection traces the window independently of the optional
+program index, so callbacks/reentry can evict an application without invalidating an
+outer call. Window release removes that active edge on ordinary/trapping cleanup.
+The descriptor contains no argument/receiver Values. This replaces per-entry
+`LinkedNativeFunction::apply` and its internal selected-call roots, rather than caching
+those roots and creating an uncollectable program cycle. General active-frame and
+call/return migration remains HP02/HP03 work.
+
+The execution-window ownership test fills 160 distinct preparation scopes, verifies
+that an evicted active descriptor and its otherwise-unrooted selected environment
+survive collection, then verifies reclamation after window release and complete
+environment reclamation after program retirement. Active-root accounting includes the
+single execution window and no extra host root. Existing source-free shared binding
+and typed selected-call GC/reload contracts preserve independently retained host calls.
+
+Diagnostic probes add fixed and changing-receiver/type generic `Vec<T>::push` calls
+outside the frozen benchmark sources. On the documented HP00 machine/toolchain/default
+parallelism, incremental release with diagnostics, fresh runtime per probe, one cold
+call and a measured fourth call after two warmups, both 2,500 and 5,000 iterations give:
+
+| Native probe | Cold method / shared / native preparations | Cold environment allocations | Warm preparations / environment allocations |
+| --- | --- | --- | --- |
+| Fixed receiver and element type | 1 / 1 / 1 | 3 | 0 / 0 |
+| Four receiver/type combinations | 4 / 4 / 4 | 12 | 0 / 0 |
+
+Final counts are in `target/hp01/native-preparation-diagnostics-tracing.log`; compilation
+is excluded. At 5,000 iterations the fixed probe still makes 705,372 warm allocation
+requests and 25,002 graph validations; changing types makes 705,616 and 25,004. Their
+array/iterator values and remaining execution-boundary work still scale with execution.
+These counts establish preparation reuse, not a throughput speedup or isolated retained
+descriptor bytes. Existing fixed/changing/witness/shared probes and all checksums pass.
+
+Focused checks pass: execution windows (6), metadata publication/lifecycle contracts
+(31), VM source-free shared binding (1), typed selected methods including generic object
+results/GC/reload (3), embed generic reload (2), strict runtime/benchmark all-target
+diagnostic-feature Clippy, formatting and structure (996 files, zero violations or
+exceptions). The initial test-location privacy error, root-accounting assertion and
+redundant-field Clippy finding were resolved. The ordinary release binary is restored;
+no carried build/test failure remains. No full workspace/CI matrix or new paired timing
+run is claimed. HP01 still requires scoped/runtime-only layout identity and explicit
+compatibility admission, completion of the remaining preparation-owner audit, and
+isolated descriptor-memory accounting; later phase and Lua-parity gates remain open.
+
+Final ordinary original/source-form checksum checks and all 703 local Markdown links
+pass, as does `git diff --check`. The restored release executable is preserved at
+`target/hp01/native-application-executable`, SHA-256
+`60e9def12e3d8668fef39683ab9667b2cd35e4d75164e68c89117ccfcf06563d`.

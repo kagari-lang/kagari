@@ -11,8 +11,9 @@ use crate::{
         LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner,
         descriptor_index::{DescriptorIndex, Published},
     },
+    native::application::NativeApplication,
 };
-use kagari_bytecode::module::CallableTarget;
+use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::callable::{shared::SharedCall, witness::OperationWitness};
 use std::sync::Arc;
@@ -36,10 +37,17 @@ pub(super) struct LinkedDescriptors {
     applications: DescriptorIndex<(), ApplicationKey, ApplicationId>,
     witnesses: WitnessIndex,
     shared: SharedIndex,
+    native: DescriptorIndex<EnvironmentId, NativeImportId, Arc<NativeApplication>>,
 }
 
 trait Descriptor {
     fn edge(&self) -> MetadataEdge<'_>;
+}
+
+impl Descriptor for Arc<NativeApplication> {
+    fn edge(&self) -> MetadataEdge<'_> {
+        MetadataEdge::NativeApplication(self)
+    }
 }
 
 impl Descriptor for ApplicationId {
@@ -67,7 +75,13 @@ impl LinkedDescriptors {
         pending: &mut Vec<MetadataEdge<'a>>,
     ) {
         // Expiration removes optional retention, not validation of independently
-        // rooted facts. All three graphs are immutable after publication.
+        // rooted facts. These graphs are immutable after publication.
+        pending.extend(
+            self.native
+                .values()
+                .filter(|value| value.is_available(store))
+                .map(|value| value.value.edge()),
+        );
         pending.extend(
             self.applications
                 .values()
@@ -90,6 +104,21 @@ impl LinkedDescriptors {
 }
 
 impl ModuleStore {
+    pub(crate) fn native_application(
+        &self,
+        owner: &LoadedModule,
+        import: NativeImportId,
+        environment: EnvironmentId,
+    ) -> Option<Arc<NativeApplication>> {
+        let records = self.inner.try_borrow().ok()?;
+        let entry = records
+            .resolve(owner)?
+            .descriptors
+            .native
+            .get(&environment, &import)?;
+        entry.is_available(&records).then(|| entry.value.clone())
+    }
+
     pub(crate) fn method_application(
         &self,
         owner: &LoadedModule,
@@ -136,6 +165,18 @@ impl ModuleStore {
 }
 
 impl Runtime {
+    pub(crate) fn publish_native_application(
+        &self,
+        owner: &LoadedModule,
+        import: NativeImportId,
+        prepared: Arc<NativeApplication>,
+    ) -> Result<(), RuntimeError> {
+        let environment = prepared.environment.id;
+        self.publish_descriptor(owner, prepared, |descriptors, value| {
+            descriptors.native.insert(environment, import, value)
+        })
+    }
+
     fn publish_descriptor<T: Descriptor>(
         &self,
         owner: &LoadedModule,

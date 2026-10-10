@@ -2,10 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{
-        TypeEnvironment,
-        arguments::{ScopedSignature, TypeArgument},
-    },
+    frame::types::{TypeEnvironment, arguments::ScopedSignature},
     module::LoadedModule,
     native::{
         catalog::DeclarationCatalog,
@@ -253,8 +250,7 @@ impl LinkedNativeFunction {
                 .collect(),
             result: result.ty().clone(),
         };
-        let scoped_signature = (result.has_origin() || params.iter().any(TypeArgument::has_origin))
-            .then(|| Arc::new(ScopedSignature { params, result }));
+        let scoped_signature = Some(Arc::new(ScopedSignature { params, result }));
         Ok(Self {
             declaration: self.declaration,
             binding: self.binding.clone(),

@@ -1,14 +1,24 @@
 use super::*;
 use crate::{
     Runtime,
+    frame::types::EnvironmentRecord,
     module::execution::{calls::ArgumentTransfer, layout::Location},
+    native::{
+        application::NativeApplication,
+        binding::{Codec, LinkedNativeFunction, NativeBinding},
+        context::{CallableOwner, LinkedCallable, LinkedOperation},
+    },
 };
 use kagari_bytecode::{
-    instruction::Register,
-    module::BytecodeModule,
+    instruction::{NativeImportId, Register},
+    module::{BytecodeModule, CallableTarget},
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_types::scalar::BuiltinType;
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+};
+use kagari_contract::ids::FunctionRef;
+use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
 use std::mem::size_of;
 
 fn module() -> (Runtime, LoadedModule) {
@@ -345,4 +355,120 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
         values.with_value(slots, 0, Value::clone),
         Some(Value::U64(255))
     );
+}
+
+#[test]
+fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
+    let (runtime, loaded) = module();
+    let declaration = runtime
+        .definition_context()
+        .intern(&DefinitionPath {
+            module: ModuleIdentity::single_file("native_window"),
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Function,
+                name: "unused".into(),
+                occurrence: 0,
+            }],
+        })
+        .unwrap();
+    let empty = || {
+        runtime
+            .gc
+            .alloc_environment(
+                EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
+            )
+            .unwrap()
+    };
+    let source = empty();
+    let selected = empty();
+    let selected_id = selected.id;
+    // Isolate the native descriptor's selected-call edge from its source scope.
+    // The selected environment has no other executable parent or owning handle.
+    let application = Arc::new(NativeApplication {
+        owner: loaded.clone(),
+        environment: source.clone(),
+        function: LinkedNativeFunction {
+            declaration,
+            binding: NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
+            signature: Signature {
+                params: vec![],
+                result: Ty::Builtin(BuiltinType::Unit),
+            },
+            scoped_signature: None,
+            prepared_signature: Default::default(),
+            result_adapter: None,
+            selected: vec![LinkedOperation::Ready(LinkedCallable {
+                owner: CallableOwner::Resolved(loaded.clone()),
+                target: CallableTarget::Script(FunctionRef::new(0)),
+                params: Box::new([]),
+                result: Ty::Builtin(BuiltinType::Unit),
+                primitive: None,
+                environment: Some(selected),
+                scoped_signature: None,
+            })]
+            .into_boxed_slice(),
+        },
+    });
+    let import = NativeImportId::new(0);
+    runtime
+        .publish_native_application(&loaded, import, application.clone())
+        .unwrap();
+    let slots = runtime
+        .resources()
+        .frame_values
+        .borrow_mut()
+        .allocate(
+            0,
+            0,
+            &FrameArguments::plain(&[]),
+            loaded.clone(),
+            Some(source),
+            None,
+        )
+        .unwrap();
+    slots
+        .publish_native_application(&runtime.gc, application.clone())
+        .unwrap();
+    assert!(
+        slots
+            .publish_native_application(&runtime.gc, application.clone())
+            .is_err()
+    );
+    let probe = Arc::downgrade(&application);
+    for _ in 0..160 {
+        let mut function = application.function.clone();
+        function.selected = Box::new([]);
+        let next = Arc::new(NativeApplication {
+            owner: loaded.clone(),
+            environment: empty(),
+            function,
+        });
+        runtime
+            .publish_native_application(&loaded, import, next)
+            .unwrap();
+    }
+    drop(application);
+    runtime.collect_garbage().unwrap();
+    // Root accounting includes this one execution window; no host root was added.
+    assert_eq!(runtime.gc.active_roots(), 1);
+    assert!(probe.upgrade().is_some());
+    assert!(runtime.gc.environment(selected_id).is_some());
+    assert_eq!(runtime.gc.stats().environments, 130);
+    runtime
+        .resources()
+        .frame_values
+        .borrow_mut()
+        .release(slots)
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    assert!(probe.upgrade().is_none());
+    assert!(runtime.gc.environment(selected_id).is_none());
+    assert_eq!(runtime.gc.stats().environments, 128);
+    let candidate = runtime
+        .stage_reload_verified_program(&loaded, "windows", loaded.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc.stats().environments, 0);
+    assert_eq!(runtime.gc.active_roots(), 0);
 }

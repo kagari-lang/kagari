@@ -15,6 +15,7 @@ use crate::{
             layout::{FrameLayout, Location},
         },
     },
+    native::application::NativeApplication,
     value::Value,
 };
 use std::{
@@ -34,6 +35,7 @@ pub(crate) struct FrameSlots {
 
 #[derive(Debug)]
 struct Window {
+    native_application: Option<Arc<NativeApplication>>,
     generation: u64,
     ranges: WindowRanges,
     program: LoadedModule,
@@ -198,6 +200,7 @@ impl ExecutionValues {
             },
             program,
             environment,
+            native_application: None,
             registers,
         });
         if slots.index == self.windows.len() {
@@ -486,6 +489,9 @@ impl ExecutionValues {
 
     pub(crate) fn append_metadata(&self, roots: &mut Vec<MetadataRoot>) {
         for window in self.windows.iter().flatten() {
+            if let Some(application) = &window.native_application {
+                roots.push(MetadataRoot::NativeApplication(application.clone()));
+            }
             roots.push(MetadataRoot::Program(window.program.clone()));
             if let Some(environment) = &window.environment {
                 roots.push(MetadataRoot::Environment(environment.id));
@@ -495,6 +501,36 @@ impl ExecutionValues {
 }
 
 impl FrameSlots {
+    pub(crate) fn publish_native_application(
+        self,
+        heap: &GcHeap,
+        application: Arc<NativeApplication>,
+    ) -> Result<(), RuntimeError> {
+        let invalid = || RuntimeError::module_validation("native application window");
+        let mut values = heap
+            .resources()
+            .frame_values
+            .try_borrow_mut()
+            .map_err(|_| invalid())?;
+        let window = values.window(self).ok_or_else(invalid)?;
+        if window.program.program_identity() != application.owner.program_identity()
+            || window.program.key() != application.owner.key()
+            || window
+                .environment
+                .as_ref()
+                .map(|environment| environment.id)
+                != Some(application.environment.id)
+            || window.native_application.is_some()
+        {
+            return Err(invalid());
+        }
+        values.windows[self.index]
+            .as_mut()
+            .ok_or_else(invalid)?
+            .native_application = Some(application);
+        Ok(())
+    }
+
     pub(crate) fn belongs_to(self, heap: &GcHeap) -> bool {
         heap.resources()
             .frame_values

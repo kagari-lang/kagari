@@ -26,10 +26,7 @@ impl StoredSelection {
     }
 
     pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.push(MetadataEdge::Program(&self.owner));
-        if let Some(environment) = &self.callable.environment {
-            pending.push(MetadataEdge::Environment(environment.id));
-        }
+        self.callable.trace(&self.owner, pending);
     }
 
     /// Promote an edge of a currently rooted object to a host-owned call handle.

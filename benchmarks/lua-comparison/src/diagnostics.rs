@@ -119,7 +119,7 @@ fn count(
     );
     let after = runtime.runtime().gc().stats();
     println!(
-        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},shared_preparations={},operation_preparations={},environment_allocations={},metadata_validations={},slow_boundaries={}",
+        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},shared_preparations={},operation_preparations={},native_preparations={},environment_allocations={},metadata_validations={},slow_boundaries={}",
         allocations.requests,
         allocations.requested_bytes,
         allocations.net_bytes,
@@ -131,6 +131,7 @@ fn count(
         execution.method_preparations,
         execution.shared_preparations,
         execution.operation_preparations,
+        execution.native_preparations,
         execution.environment_allocations,
         execution.metadata_validations,
         execution.slow_boundaries,

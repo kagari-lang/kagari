@@ -9,7 +9,6 @@ use kagari_bytecode::{
     instruction::{NativeImportId, Register},
     module::CallableTarget,
 };
-use std::sync::Arc;
 
 impl ExecutionStack<'_> {
     pub fn start_native_entry(
@@ -42,25 +41,31 @@ impl ExecutionStack<'_> {
             .modules
             .native_binding(&loaded, import)
             .ok_or_else(|| RuntimeError::module_validation("unlinked native callable"))?;
-        let function =
+        let application =
             if loaded.bytecode.native_imports[import.index()]
                 .generic
                 .is_some()
             {
-                Arc::new(function.apply(
-                    runtime,
+                Some(runtime.prepare_native_application(
                     &loaded,
+                    import,
                     environment.ok_or_else(|| {
                         RuntimeError::module_validation("shared native environment")
                     })?,
                 )?)
             } else {
-                function
+                None
             };
+        if let Some(application) = &application {
+            roots.publish_native_application(&runtime.gc, application.clone())?;
+        }
+        let function = application
+            .as_ref()
+            .map_or(function.as_ref(), |application| &application.function);
         let mut context = CallContext {
             runtime,
             owner: &loaded,
-            function: &function,
+            function,
             invoke_script,
             arguments: ArgumentView::frame(
                 &runtime.gc,

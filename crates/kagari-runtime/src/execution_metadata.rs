@@ -22,10 +22,10 @@ use crate::{
     frame::types::{TypeEnvironment, operations::OperationBindings},
     gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
     module::LoadedModule,
-    native::stored_selection::StoredSelection,
+    native::{application::NativeApplication, stored_selection::StoredSelection},
     value::Value,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 impl Runtime {
     pub(crate) fn validate_metadata(&self, edge: MetadataEdge<'_>) -> Result<(), RuntimeError> {
@@ -98,6 +98,7 @@ impl Runtime {
 /// The same descriptors inside a heap object are ordinary graph edges.
 #[derive(Debug, Clone)]
 pub(crate) enum MetadataRoot {
+    NativeApplication(Arc<NativeApplication>),
     Program(LoadedModule),
     Environment(EnvironmentId),
     Operation(OperationId),
@@ -108,6 +109,7 @@ pub(crate) enum MetadataRoot {
 impl MetadataRoot {
     pub(crate) fn edge(&self) -> MetadataEdge<'_> {
         match self {
+            Self::NativeApplication(value) => MetadataEdge::NativeApplication(value),
             Self::Program(value) => MetadataEdge::Program(value),
             Self::Environment(value) => MetadataEdge::Environment(*value),
             Self::Operation(value) => MetadataEdge::Operation(*value),
@@ -119,6 +121,7 @@ impl MetadataRoot {
 
 #[derive(Clone, Copy)]
 pub(crate) enum MetadataEdge<'a> {
+    NativeApplication(&'a NativeApplication),
     Program(&'a LoadedModule),
     Environment(EnvironmentId),
     Operation(OperationId),
@@ -135,6 +138,7 @@ pub(crate) enum MetadataEdge<'a> {
 impl MetadataEdge<'_> {
     fn identity(self) -> Option<(u8, usize)> {
         Some(match self {
+            Self::NativeApplication(value) => (8, value as *const _ as usize),
             Self::Program(value) => (0, value as *const _ as usize),
             Self::Environment(_)
             | Self::Operation(_)
@@ -292,6 +296,9 @@ impl<'a> MetadataTrace<'a> {
                 }
                 MetadataEdge::Operations(operations) => {
                     operations.trace_metadata(&mut self.pending)
+                }
+                MetadataEdge::NativeApplication(application) => {
+                    application.trace(&mut self.pending)
                 }
                 MetadataEdge::Selections(selections) => {
                     for selection in selections {

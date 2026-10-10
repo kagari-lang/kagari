@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::{MetadataRoot, groups::OperationId},
+    execution_metadata::groups::OperationId,
     frame::types::{
         EnvironmentRecord, TypeEnvironment,
         arguments::{ScopedSignature, TypeArgument},
@@ -94,15 +94,8 @@ impl LinkedCallable {
             )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("selected operation result"))?;
-        let mut metadata = vec![MetadataRoot::Program(operation.owner.clone())];
-        metadata.extend(
-            environment
-                .iter()
-                .map(|environment| MetadataRoot::Environment(environment.id)),
-        );
-        let roots = runtime.root_metadata(metadata)?;
         Ok(Self {
-            owner: CallableOwner::Pinned(operation.owner.clone(), roots),
+            owner: CallableOwner::Resolved(operation.owner.clone()),
             target: operation.target,
             params: params
                 .iter()

@@ -5,6 +5,7 @@ mod tasks;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
+    execution_metadata::MetadataEdge,
     frame::{
         types::{
             TypeEnvironment,
@@ -124,16 +125,34 @@ pub struct LinkedCallable {
 #[derive(Debug, Clone)]
 pub(crate) enum CallableOwner {
     Program(ModuleRef),
+    /// An executable edge retained by a descriptor or active execution window.
+    Resolved(LoadedModule),
     Pinned(LoadedModule, RootSet),
 }
 
 impl LinkedCallable {
+    pub(crate) fn trace<'a>(
+        &'a self,
+        caller: &'a LoadedModule,
+        pending: &mut Vec<MetadataEdge<'a>>,
+    ) {
+        let owner = match &self.owner {
+            CallableOwner::Program(_) => caller,
+            CallableOwner::Resolved(owner) | CallableOwner::Pinned(owner, _) => owner,
+        };
+        pending.push(MetadataEdge::Program(owner));
+        if let Some(environment) = &self.environment {
+            pending.push(MetadataEdge::Environment(environment.id));
+        }
+    }
+
     pub(crate) fn owner(&self, caller: &LoadedModule) -> NativeResult<LoadedModule> {
         match &self.owner {
             CallableOwner::Program(module) => caller
                 .member(*module)
                 .ok_or_else(|| RuntimeError::module_validation("native callable generation")),
             CallableOwner::Pinned(owner, _retention) => Ok(owner.clone()),
+            CallableOwner::Resolved(owner) => Ok(owner.clone()),
         }
     }
 }
@@ -443,6 +462,8 @@ impl<'call> CallContext<'call> {
         &self.function.signature.result
     }
 
+    /// Borrow checked evidence retained by this call. Escaping typed handles
+    /// explicitly promote the selection to independent ownership.
     pub fn selected(&self, key: &SelectedCall) -> NativeResult<&'call LinkedCallable> {
         self.function.check_requirement(self.owner, key)?;
         self.selected_at(key.slot)

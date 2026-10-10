@@ -559,6 +559,14 @@ guards through completion or failure. Generic execution does not name MapIterato
 ### Prepared native type facts
 
 Runtime-local linked native bindings lazily prepare concrete scoped signatures.
+Generic native applications are published under their linked member, import and
+generational type-environment identity. Their signatures, result adapters and selected
+calls are immutable program edges, retained through the common bounded descriptor
+index. An active native frame window independently traces its application before
+callbacks or collection, so reentry may evict an index entry without invalidating the
+outer call. Selected-call edge tracing is shared with stored native selections;
+escaping typed host handles still explicitly acquire their own roots. Generic entry
+does not recreate native applications or host-style selected-call roots on a hit.
 TypeArgument shares immutable validated type facts, memoized parameters and enum
 layout applications. Caches follow the binding/type descriptor's lifetime and do
 not hold executable leases; nominal provenance retains immutable layout generations.
