@@ -25,31 +25,47 @@ pub mod function;
 pub mod module;
 pub mod storage;
 
-/// Declarations and node storage produced for one logical source module.
-///
-/// [`crate::lower::LoweredModule`] pairs this value with its source and source map.
-/// Plain declaration IDs index the matching collection here; node IDs enter
-/// [`Body`]. A child module declaration is a header, not an embedded child `Module`.
+/// Declaration collections and shared node tables for one logical source module.
 ///
 /// ```text
-/// Module
-/// +-- items: [Function(f), Struct(s), ...]   // declaration order; no use leaves
-/// +-- functions[f.index()] -> Function { params, body: Some(block_id), ... }
-/// +-- structs[s.index()] -> Struct { fields: [Field, ...], ... }
-/// +-- imports: [Import, ...]               // one entry per use-tree leaf
-/// `-- body: Body                           // blocks/expressions/types/... by ID
+/// use pkg::math::sum;
+/// const LIMIT: i32 = 10;
+/// struct Point { val x: i32 }
+/// fn main() -> i32 { sum(LIMIT) }
+///
+/// Module {
+///     items: [Const(c), Struct(s), Function(f)],
+///     functions: [main_function], consts: [limit_constant], structs: [point_struct],
+///     imports: [Import { path: "pkg::math::sum", kind: Named { alias: None }, ... }],
+///     methods: [], modules: [], opaque_types: [], enums: [], traits: [], impls: [],
+///     body: Body { types, exprs, blocks, ... },
+/// }
+/// f -> functions[f.index()]; s -> structs[s.index()]; c -> constant(c)
+/// main_function.body -> BlockId -> body.block -> statements/tail ExprId
 /// ```
 ///
-/// Resolved scope/export candidates belong to the import graph. In particular,
-/// public glob imports are expanded there. This value alone proves neither resolution
-/// nor typing.
+/// Rows/indices above are illustrative and abbreviated where marked. `items`
+/// contains top-level declaration handles in source order, excluding use leaves.
+/// Each separate collection stores payloads of one declaration kind: enum/trait/
+/// impl/type/module syntax populates enums/traits/impls/opaque_types/modules.
+/// Trait/impl methods also allocate function rows and associated constant defaults
+/// allocate constant rows, but do not add top-level Item entries for those members.
+/// Current `methods` is an unpopulated alternative registry, not active method storage.
+///
+/// `body` owns declaration type syntax and all function/constant nodes together;
+/// it is not one Body per function. Child module rows are headers, with their
+/// contents analyzed in separate modules. LoweredModule pairs this record with
+/// source and SourceMap. Resolution/typing consume it and publish separate facts;
+/// allocation does not establish source validity. Resolved scope/export candidates
+/// belong to the import graph, including public glob expansion; there is no
+/// additional export collection here.
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     /// Top-level declaration handles in source order; import leaves are stored separately.
     pub items: ItemBuffer,
     /// Function declarations indexed by `FunctionId`, including trait/impl methods.
     pub functions: FunctionBuffer,
-    /// Method records indexed by `MethodId`; their functions live in `functions`.
+    /// Unpopulated MethodId registry; active methods link from trait/impl records to functions.
     pub methods: MethodBuffer,
     /// Constant declarations indexed by `ConstId`, including associated initializers.
     pub consts: ConstBuffer,
@@ -130,7 +146,24 @@ impl Module {
     }
 }
 
-/// A top-level declaration handle selecting a collection in [`Module`].
+/// A top-level declaration link selecting a payload collection in Module.
+///
+/// | Source declaration | Item | Payload lookup |
+/// | --- | --- | --- |
+/// | `type Handle;` (installed native surface) | `OpaqueType(o)` | `opaque_types[o.index()]` |
+/// | `fn run() {}` | `Function(f)` | `functions[f.index()]` |
+/// | `const N: i32 = 1;` | `Const(c)` | `constant(c)` |
+/// | `mod child;` / `mod child { ... }` | `Module(m)` | `modules[m.index()]`, header only |
+/// | `struct S {}` | `Struct(s)` | `structs[s.index()]` |
+/// | `enum E { A }` | `Enum(e)` | `enums[e.index()]` |
+/// | `trait R { ... }` | `Trait(t)` | `traits[t.index()]` |
+/// | `impl R for S { ... }` | `Impl(i)` | `impls[i.index()]` |
+///
+/// The enclosed IDs are lowering-local, not checked DefinitionIds. Item carries
+/// no declaration body itself; Module.items retains source declaration order
+/// across kinds. Imports are separate leaves, and trait/impl members are not
+/// standalone entries in this vector. SourceMap uses these links for declaration
+/// and name sites; later collection builds semantic declaration identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Item {
     /// An entry in [`Module::opaque_types`], indexed by the enclosed ID.

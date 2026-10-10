@@ -35,6 +35,22 @@ use crate::hir::{
 /// these IDs. Parameters are held by functions and local bindings by statements,
 /// patterns or closure parameters; neither has its own vector in `Body`.
 ///
+/// For the example above, `blocks` contains the function's block, `exprs` contains
+/// both operand occurrences and the addition, `types` contains the parameter and
+/// result i32 syntax, and `stmts`/`places`/`patterns` are empty. Adding `val y = x;`
+/// creates a statement row; `y = x;` creates a place row; `match x { n => n }`
+/// creates pattern rows. Every vector row stores `(allocation_owner, payload)`.
+/// Parameters/locals still live inline in their declaration/statement/pattern/
+/// closure records; their IDs address source-map slots and semantic binding maps.
+///
+/// `arena` is synthesized once for the lowering and shared with SourceMap, not
+/// written in source. `HirOwner::Declaration` marks nodes outside function/constant
+/// construction; `Body(Function(f))` and `Body(Const(c))` mark those allocation
+/// contexts. `index` addresses the whole corresponding vector, not a per-owner
+/// list. Body::expressions reconstructs `(ExprId, &ExprData)` from these rows;
+/// payloads therefore need no self ID. New lowering creates a new arena; retaining
+/// a snapshot retains its matching rows and IDs rather than making IDs persistent.
+///
 /// # Panics
 ///
 /// Node accessors panic for a foreign arena, wrong owner or out-of-range index.

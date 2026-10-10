@@ -46,6 +46,65 @@ module identity is not the same as a physical filename. See
 [source maps](../../crates/kagari-hir/src/source_map.rs) for byte ranges and
 specialized name/member/path sites; synthetic nodes may have empty ranges.
 
+## Mapping source syntax to model fields
+
+Read a model's source fragment together with its expanded payload. For example,
+`type Item;` names a member but leaves its assigned type absent; `type Item = i32;`
+supplies a type-syntax link. A stored ID is an allocated reference, not part of the
+written program. Examples use symbolic IDs, show empty buffers and `None` values,
+and label recovery, synthetic nodes and unpopulated models explicitly. Contextual
+fragments still need suitable declarations and typing; HIR allocation is not proof
+of accepted language semantics.
+
+The complete mappings are beside their owners:
+
+| Source question | Model and field examples |
+| --- | --- |
+| Which declarations does a file contribute, and where are their payloads? | [Module / Item](../../crates/kagari-hir/src/hir/item/mod.rs): source order, per-kind collections, imports and shared body storage. |
+| Which function fields come from `pub`, `async`, generics, parameters, `where`, result and body? | [Function / Param / FunctionKind](../../crates/kagari-hir/src/hir/item/function.rs): full signature expansion, omitted annotations/bodies and method links. |
+| How do field/variant declarations differ from constructor values and patterns? | [Struct / Field / Enum / Variant / OpaqueType](../../crates/kagari-hir/src/hir/item/adt.rs): complete declaration payloads, owner/member slots and native-provider surfaces. |
+| What do trait/impl headers, associated items and generic bounds store? | [TraitDef / Impl / associated members / bounds](../../crates/kagari-hir/src/hir/item/behavior.rs): required versus defined members, member input versus output constraints and function/constant links. |
+| Where do constant initializers, child module bodies and flattened use leaves go? | [Constants](../../crates/kagari-hir/src/hir/item/storage.rs) and [modules/imports](../../crates/kagari-hir/src/hir/item/module.rs): owner context, header-only children, alias/glob and leaf/root source ranges. |
+| Is the final expression also a statement, and how is `+=` represented? | [BlockData / StmtKind](../../crates/kagari-hir/src/hir/stmt.rs): all statement payloads, tail absence, place/loop/pattern links. |
+| How does `object.run(41)` differ from calling a named function or closure? | [ExprKind](../../crates/kagari-hir/src/hir/expr/mod.rs): Call-to-Field links, name qualification versus call type arguments, all expression shapes and inline helper records. |
+| Which parts of `items[next_index()].count` are places and which are expressions? | [PlaceKind](../../crates/kagari-hir/src/hir/place.rs): root and projection expansion, once-only target structure and later validation. |
+| Which names bind in a pattern, and what does shorthand synthesize? | [PatternKind / PatternField / PatternBound](../../crates/kagari-hir/src/hir/pattern.rs): all pattern forms, nested IDs and provisional bindings. |
+| How do generic arguments, associated equalities and projections occupy type fields? | [TypeKind](../../crates/kagari-hir/src/hir/ty.rs): every type form, callable normalization, grouping and invalid argument-order retention. |
+| Are literals, operators or `val`/`var` already runtime facts? | [Literals](../../crates/kagari-hir/src/hir/expr/literal.rs), [operators](../../crates/kagari-hir/src/hir/expr/ops.rs) and [writeability](../../crates/kagari-hir/src/hir/writeability.rs): spelling/category/policy versus later checked behavior. |
+| Who allocates IDs, and can their numerical values change? | [IDs](../../crates/kagari-hir/src/hir/ids.rs) and [Body](../../crates/kagari-hir/src/hir/body.rs): full ID fields, row lookup, validity and fresh-lowering boundaries. |
+
+For a concrete associated-member comparison:
+
+```text
+trait Reader {
+    const LIMIT: i32 = 10;
+    type Item;
+    fn read(self) -> Self::Item;
+}
+struct Number { val value: i32 }
+impl Reader for Number {
+    type Item = i32;
+    fn read(self) -> Self::Item { self.value }
+}
+```
+
+| Fragment | Inline record | Referenced storage |
+| --- | --- | --- |
+| Trait's `const LIMIT: i32 = 10;` | `AssociatedConst { name: "LIMIT", name_ref: n, ty: t, initializer: Some(c) }` | n is a synthetic name-site type node; t is i32 syntax; c selects a ConstItem whose initializer expression spells 10. |
+| Trait's `type Item;` | `AssociatedType { name: "Item", name_ref: n_item, ty: None, generic_params: [], parameter_bounds: [], bounds: [] }` | n_item is a synthetic name-site node; absence of ty requires an implementation definition. |
+| Impl's `type Item = i32;` | Same member fields, with a distinct name_ref and `ty: Some(t_impl)` | t_impl selects i32 type syntax, not the trait member's name node. |
+| Trait's `fn read(self) -> Self::Item;` | `TraitMethod { has_default: false, id: m, name: "read", receiver: Value, function: f_trait }` | f_trait selects Function with kind TraitMethod, a self parameter, result syntax and no body. |
+| Impl's method body | `ImplMethod { name: "read", function: f_impl }` | f_impl selects Function with kind ImplMethod; its body links to a block whose tail is a Field expression for self.value. |
+
+The omitted impl constant uses the checked trait default; it does not create an
+extra impl AssociatedConst record. The expanded impl/trait header, generic family
+and where-clause examples in behavior.rs explain the remaining fields. An
+associated type's optional assigned syntax does not enable trait type defaults:
+current checking rejects them. Likewise, `Method`/`MethodOwner`/`Module.methods`
+and the ADT member-link vectors are documented as unpopulated; current methods
+belong to trait/impl collections. Review candidates remain in [the review](../review.md),
+and documenting their current state does not activate their removal.
+
 ## One function through the tables
 
 ```text

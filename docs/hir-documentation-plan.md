@@ -1,6 +1,7 @@
 # HIR Documentation Completion Plan
 
-Status: complete; HD01-HD07 documentation and focused validation are finished. The
+Status: HD01-HD08 complete within their scopes. The whole-crate missing-docs
+audit has pre-existing imports documentation gaps recorded under HD08 below. The
 [roadmap](implementation-roadmap.md#hir-documentation-completion) owns activation,
 phase order and progress. This plan is executable without the originating conversation.
 
@@ -45,6 +46,12 @@ outside scope; link their owning symbols where a HIR handoff needs explanation.
   as stored IDs, borrowed views, shared `Arc` ownership or computed lookups.
   Mark illustrative indices and collapsed fields; never imply an allocation order
   or field that the implementation does not guarantee.
+- Expand each data model from a concrete source fragment into its actual fields.
+  Show every field, including empty buffers and optional values; identify source
+  syntax, synthesized metadata and ID target storage. Add contrasting examples
+  for required/default/defined members, generic input/output constraints and
+  materially different forms. Label context-dependent fragments and distinguish
+  recoverable/unpopulated models from currently accepted language behavior.
 - Every HIR node family must have a source example and annotated storage/ID diagram.
   Cover materially different forms: declarations versus bodies, expression versus
   place, block statements versus tail expression, binding patterns, calls,
@@ -167,6 +174,7 @@ trailer (list phases together when a checkpoint combines them).
 | HD05 | Complete host/native/language/builtin documentation. Readers can follow registered inputs, generated declarations, language-role validation and the existing syntax bridges into ordinary analysis. No external API redesign. |
 | HD06 | Complete analysis/query/cache and checked-program documentation. Link real entrypoints to declaration/signature/body queries; show retained snapshots, edit/reuse behavior, diagnostics/cancellation and checked handoff. Finish the two cross-linked example traces. |
 | HD07 | Audit all coverage rows, rendered diagrams/links and public docs; perform focused validation below; reconcile architecture and roadmap. No unexplained required coverage or carried documentation failures remain. |
+| HD08 | User-requested follow-up: revise every model family under `hir/` with source-to-field examples and reference targets; update the reading guide. Cover all record fields/enum payloads, distinguish absence/recovery/synthetic metadata and current unused surfaces. Preserve executable definitions; use focused documentation/render/link/structure checks. |
 
 ## Focused validation
 
@@ -225,3 +233,38 @@ it; no new architectural discrepancy requires a separate review entry.
 No local full test suite, Clippy or feature/backend matrix was run. GitHub CI has
 not been run or observed for this local documentation checkpoint. No carried
 documentation failures remain.
+
+## HD08 source-to-field follow-up acceptance (2026-10-10)
+
+At the user's request, all 17 files under `src/hir/` now explain the data models
+through concrete syntax-to-field mappings. Record/enum examples identify generated
+identities, ID target storage, empty buffers, optional syntax, synthetic name nodes
+and recovery. Trait declarations versus impl definitions, member input/output
+bounds, name qualification versus call arguments and expression/place/pattern
+ownership are explicit. Unpopulated method registries/ADT links and rejected type
+defaults are distinguished from accepted language behavior. Offline native type
+examples explicitly require declaration parsing, not ordinary script parsing.
+
+The reading guide indexes these mappings and traces associated constants/types
+and method links. No model cleanup, local-function feature or stable-ID redesign
+was activated. Review findings SA11-SA14 remain deferred. Executable Rust token
+comparison against the pre-HD08 files passes after normalizing an optional
+trailing field comma introduced by formatting; layouts, visibility and behavior
+are unchanged. Existing parser and review-document edits were preserved.
+
+Validation:
+
+- `cargo rustdoc -p kagari-hir --lib -- --document-private-items -D rustdoc::broken_intra_doc_links -D rustdoc::invalid_html_tags` passes. Generated HTML for 16 representative model pages was inspected for example content and consistent table columns, including the escaped pattern-alternative pipe.
+- `cargo test -p kagari-hir --doc` passes all three existing runnable examples.
+- A temporary probe under ignored `target/` verifies 15 documented fragments with the correct parser mode and checks representative associated-member/default and qualified/member/generic-call mappings against lowering. This validates syntax/storage, not full semantic acceptance of every contextual fragment. No permanent tests or dump framework were added.
+- `cargo fmt -p kagari-hir -- --check`, the structure checker (1003 Rust files; zero violations/exceptions), Markdown links/anchors, CRLF preservation and `git diff --check` pass.
+
+The initial whole-crate strict command with `-D missing_docs` fails on unchanged
+imports APIs, including `imports/bindings.rs::PerNamespace`, `LookupOutcome`
+variants and `imports/solver.rs` work/limit records. Newly introduced Rustdoc link
+and HTML markup errors were corrected. The remaining missing-docs findings are
+outside HD08's `hir/` model scope and are not suppressed or claimed as passing.
+Follow-up owner: imports/namespace/solver documentation at its next documentation
+checkpoint. The earlier HD01-HD07 acceptance record is historical, not evidence
+that the current whole-crate missing-docs audit passes. No workspace suite,
+Clippy or CI matrix was run for this documentation-only follow-up.

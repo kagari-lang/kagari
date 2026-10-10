@@ -27,8 +27,37 @@
 //! source unit; they must not index the importing module's vectors. These are not
 //! persistent IDs across reparsing or serialization.
 
+//! # Reading generated ID fields
+//!
+//! ```text
+//! fn add(x: i32) -> i32 { val y = x + 1; y }
+//! id_newtype!(FunctionId)      -> FunctionId(index)
+//! local_id_newtype!(ExprId)    -> ExprId { arena: A, owner: Body(Function(f)), index: k }
+//! local_id_newtype!(ParamId)   -> ParamId { arena: A, owner: Body(Function(f)), index: p }
+//! member_id!(FieldId, StructId)-> FieldId { arena: A, owner: s, slot: j }
+//! ```
+//!
+//! The macros create separate Rust types: FunctionId and StructId cannot be
+//! interchanged even if both contain zero. `index`/`slot` are generated metadata,
+//! never identifier spelling. Plain IDs compare only their local indices: two
+//! different modules' FunctionId(0) values can compare equal, so callers must carry
+//! module context. Qualified IDs compare/hash all fields. `arena` separates fresh
+//! lowerings, `owner` records allocation context, and `index` selects the matching
+//! allocation-wide vector/source-map slot. A FieldId/VariantId instead uses an
+//! enclosing declaration and a member-relative `slot`.
+//!
+//! `id_newtype` exposes an unchecked `new(usize)` using a u32 cast; allocation
+//! callers must bound it. `local_id_newtype` constructors are crate-private and
+//! check the usize-to-u32 conversion; Body/SourceMap accessors check arena and
+//! stored owner on lookup. An ID does not itself borrow or own its target.
+//! Rebuilding after inserting a declaration can shift plain IDs; neither macro
+//! supplies stable declaration identity across edits. These source-analysis
+//! handles are replaced by checked executable identities/operands before execution.
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Generates a typed u32 index; the caller supplies the matching module/container.
+/// See the module examples for FunctionId allocation, lookup and edit validity.
 macro_rules! id_newtype {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -50,7 +79,13 @@ macro_rules! id_newtype {
     };
 }
 
-/// Identity of one immutable lowering, shared only when that lowering is reused.
+/// Identity of one immutable lowering, not a function slot or memory address.
+///
+/// Lowering source containing `fn a() {} fn b() {}` assigns one arena A to both
+/// functions' body-node IDs and the shared Body/SourceMap. Lowering it again
+/// obtains another arena B; cloned/reused lowering retains A. A checked process-
+/// wide counter creates the value. It is allocation metadata with no source token
+/// and no guarantee of persistence across edits, processes or serialized programs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HirArenaId(u64);
 
@@ -65,6 +100,8 @@ impl Default for HirArenaId {
     }
 }
 
+/// Generates an arena/owner-qualified index for body nodes or inline binding records.
+/// The index is allocation-wide; owner tags do not create per-function vectors.
 macro_rules! local_id_newtype {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -102,7 +139,13 @@ macro_rules! local_id_newtype {
     };
 }
 
-/// A function or constant whose body owns a group of lowered nodes.
+/// Function or constant whose construction owns a group of lowered nodes.
+///
+/// `fn run() { 1 }` uses Function(f) for parameter/signature/body node allocation;
+/// `const N: i32 = 1;` uses Const(c) for its initializer. f/c select the matching
+/// Module.functions/consts row. These are plain local declaration IDs, not runtime
+/// frames. An associated constant still uses Const(c), with a separate ConstOwner
+/// linking its declaration to the trait/impl.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BodyOwner {
     /// Nodes belonging to a function, including its parameters and body.
@@ -111,7 +154,19 @@ pub enum BodyOwner {
     Const(ConstId),
 }
 
-/// The allocation context attached to body-local IDs and their storage rows.
+/// Allocation context stored in qualified node IDs and matching vector rows.
+///
+/// | Source being lowered | Owner |
+/// | --- | --- |
+/// | Field type in `struct S { val x: i32 }` | `Declaration` |
+/// | Parameter type/body in `fn f(x: i32) { ... }` | `Body(Function(f_id))` |
+/// | Initializer in `const N: i32 = 1;` | `Body(Const(c_id))` |
+///
+/// Lowering switches context, constructs children, then restores the previous
+/// owner. Declaration is a valid owner, not a missing-function error. Owner tags
+/// partition the shared node vectors logically; their indices are not relative
+/// to that owner. This allocation context is distinct from FieldId/VariantId's
+/// enclosing declaration and ConstItem's trait/impl container.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum HirOwner {
     /// Declaration syntax outside a function/constant body context.
@@ -217,10 +272,16 @@ id_newtype!(
     GenericParamId
 );
 
-/// Selects all function bodies or one function for incremental body checking.
+/// Internal analysis selection, not a source declaration or a runtime function ID.
+///
+/// For `fn a() {} fn b() {}`, All selects both function bodies and Function(a_id)
+/// selects a for a body query; signature/constant prerequisites are prepared
+/// separately. The enclosed FunctionId belongs to the matching module lowering.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum BodySelection {
+    /// Check all function bodies in the prepared module.
     All,
+    /// Check the selected function slot after preparing its analysis prerequisites.
     Function(FunctionId),
 }
 
@@ -230,6 +291,8 @@ impl BodySelection {
     }
 }
 
+/// Generates an arena-qualified member slot with a concrete struct/enum owner ID.
+/// Unlike node indices, slot is relative to the enclosing declaration's member list.
 macro_rules! member_id {
     ($(#[$meta:meta])* $name:ident, $owner:ident) => {
         $(#[$meta])*

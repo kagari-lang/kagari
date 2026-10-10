@@ -5,28 +5,47 @@ use crate::hir::{
     ids::{LocalId, PatternId},
 };
 
-/// A match/binding pattern stored by `PatternId` in the shared body arena.
+/// A pattern row in Body.patterns, addressed by PatternId, with `kind` as payload.
 ///
 /// ```text
-/// (x, _)
-/// PatternKind::Tuple([p0, p1])
-/// +-- p0 -> Name { name: "x", local: l }   // l keys resolution/type facts
-/// `-- p1 -> Wildcard
-///
-/// Point { x } -> Struct { path: "Point", fields: [PatternField { name: "x", pattern: p0 }] }
-/// Choice::Some(x) -> EnumVariant { path: "Choice::Some", fields: [p0] }
+/// match pair { (x, _) => x }
+/// outer -> PatternData { kind: Tuple([p0, p1]) }
+/// p0 -> PatternData { kind: Name { name: "x", local: l } }
+/// p1 -> PatternData { kind: Wildcard }
+/// l -> provisional binding identity used by resolution/type facts
 /// ```
 ///
-/// Fields/alternatives retain source order. Grouping parentheses collapse to their
-/// inner pattern. A bare identifier is initially a `Name`; resolution can distinguish
-/// a binding from a visible enum variant. Recovery may use a `<missing>` name.
+/// Pattern lowering allocates child patterns and local IDs; no checked constructor
+/// or matched-value type lives in this row. Grouping `(x)` collapses to the inner
+/// pattern. Recovery can synthesize a Name with `"<missing>"`. Resolution/checking
+/// decide bindings and constructor meanings; allocation alone is not validation.
 #[derive(Debug, Clone)]
 pub struct PatternData {
     /// Pattern structure and binding IDs, before constructor/type resolution.
     pub kind: PatternKind,
 }
 
-/// Structural pattern forms; nested patterns are stored by ID.
+/// Source patterns and nested pattern links, used by match, for and binding conditions.
+///
+/// | Pattern source | Kind (all payload fields shown) |
+/// | --- | --- |
+/// | `_` | `Wildcard` |
+/// | `1 \| 2` | `Or([one_pattern, two_pattern])` |
+/// | `1..=LIMIT` | `Range { start: Literal(number_one), end: Path("LIMIT"), inclusive: true }` |
+/// | `x` | `Name { name: "x", local: l }` |
+/// | `42` | `Literal(Literal { kind: Number, text: "42" })` |
+/// | `(x, _)` / `()` | `Tuple([x_pattern, wildcard])` / `Tuple([])` |
+/// | `Point { x: n, y }` | `Struct { path: "Point", fields: [PatternField { name: "x", pattern: n_pattern }, PatternField { name: "y", pattern: y_pattern }] }` |
+/// | `Choice::Some(x)` | `EnumVariant { path: "Choice::Some", fields: [x_pattern] }` |
+/// | `Choice::None` | `EnumVariant { path: "Choice::None", fields: [] }` |
+///
+/// Or/Tuple/variant child IDs enter Body.patterns; struct fields are inline
+/// records linking to subpatterns. Range endpoints are inline PatternBound values,
+/// not ExprIds, and `..` sets `inclusive: false`. Bare names receive provisional
+/// LocalIds: a visible unit variant can later resolve as a constructor instead
+/// of a binding. Struct shorthand `y` creates a nested Name { name: "y", local }
+/// pattern. Semantic tables own alternative-binding consistency and constructor
+/// identity; neither is implied by these strings.
 #[derive(Debug, Clone)]
 pub enum PatternKind {
     /// `_`, which matches without introducing a name.
@@ -69,7 +88,13 @@ pub enum PatternKind {
     },
 }
 
-/// A range-pattern endpoint retained before constant evaluation.
+/// An inline range-pattern endpoint before constant evaluation.
+///
+/// `1..=LIMIT` stores `start: Literal(Literal { kind: Number, text: "1" })`
+/// and `end: Path("LIMIT")` in PatternKind::Range. A qualified constant retains
+/// the whole path string; missing recovered endpoints can use `"<missing>"`.
+/// These are spellings, not computed scalar values or expression-table links;
+/// checking resolves/evaluates them under pattern constraints.
 #[derive(Debug, Clone)]
 pub enum PatternBound {
     /// A literal endpoint, such as `1`.
@@ -78,7 +103,19 @@ pub enum PatternBound {
     Path(String),
 }
 
-/// One named struct-pattern field; shorthand creates a nested name pattern.
+/// A named struct-pattern member stored inline in PatternKind::Struct.fields.
+///
+/// ```text
+/// Point { x: n, y }
+/// PatternField { name: "x", pattern: n_pattern }
+/// PatternField { name: "y", pattern: y_pattern }
+/// n_pattern -> Body.pattern -> Name { name: "n", local: n_local }
+/// y_pattern -> Body.pattern -> Name { name: "y", local: y_local } // synthesized shorthand
+/// ```
+///
+/// `name` selects the matched object's field; the nested pattern can bind a
+/// DIFFERENT name, as x/n demonstrates. This record has no FieldId; checking
+/// selects the declaration from the matched type and validates the subpattern.
 #[derive(Debug, Clone)]
 pub struct PatternField {
     /// Field spelling to resolve against the matched struct.

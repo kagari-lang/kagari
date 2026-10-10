@@ -226,3 +226,387 @@ compilation consumes checked calls. SDK preparation checks unused defaults befor
 publishing their source files. Private native helpers and source-free validated
 recipes remain; direct dispatch adds no script frame. Broader CI acceptance is
 reported separately in the plan.
+
+## SA11 HIR declarations and ADT members carry container-derived identities
+
+[Struct](../crates/kagari-hir/src/hir/item/adt.rs) stores its own `StructId`,
+although that ID also identifies its position in `Module.structs`. Consumers such
+as [signature checking](../crates/kagari-hir/src/typeck/check.rs) iterate over
+`&Struct` and use `structure.id` to query semantic declarations and constraints.
+[Item lowering](../crates/kagari-hir/src/lower/item.rs) also uses the stored ID to
+publish `Item::Struct` before appending the declaration row. These are concrete
+convenience uses, not evidence that the identity must live inside the payload.
+
+All five ADT records store a self ID, but their reconstruction contexts differ:
+
+| Record | Stored identity | Container-derived context |
+| --- | --- | --- |
+| `OpaqueType` | `OpaqueTypeId` | Index in `Module.opaque_types`. |
+| `Struct` | `StructId` | Index in `Module.structs`. |
+| `Enum` | `EnumId` | Index in `Module.enums`. |
+| `Field` | `FieldId` | Arena, enclosing `StructId` and field slot. |
+| `Variant` | `VariantId` | Arena, enclosing `EnumId` and variant slot. |
+
+The first three duplicate their declaration-vector index. Fields and variants
+are nested records: a slot alone cannot identify a member across owners. Their
+IDs could also be reconstructed by a container, but only with the full arena,
+owner and slot context. Review these two categories separately, including their
+source-map and semantic-table consumers; this observation does not establish
+that any of the five fields should be removed.
+
+[Function](../crates/kagari-hir/src/hir/item/function.rs) has the same
+container-derived self identity as the top-level ADT declarations above:
+`module.functions[index].id.index() == index`. The
+[source map](../crates/kagari-hir/src/source_map.rs) allocates `FunctionId` from
+its function-span vector, and current item/method lowering appends function
+records in the corresponding order. This applies to free functions and the
+trait/impl methods stored in the same collection.
+
+The field has active consumers: lowering publishes `Item::Function` and links
+trait/impl method records; signature checking uses `function.id` to index typed
+functions and source locations. It is a redundant identity with convenience
+uses, not an unused declaration model like the registry discussed in SA13.
+Review retaining the field versus supplying `(FunctionId, &Function)` from the
+container and passing the identity explicitly to consumers. `FunctionId` itself
+must remain available for method links, name resolution, source maps and
+`BodyOwner::Function`; only its duplication inside `Function` is under review.
+Any change must preserve allocation/storage order and snapshot identity mapping.
+Future local function support (SA14) must also preserve that relationship if
+parent and child declarations are allocated and appended at different times.
+
+Expression storage uses a different interface:
+[Body::expressions](../crates/kagari-hir/src/hir/body.rs) yields `(ExprId,
+&ExprData)`, reconstructing each ID from the container's arena, the row's owner
+and its index. `ExprData` contains no self ID. Both declarations and expressions
+have identities; the difference is where that identity is supplied to consumers.
+
+For structs, the duplicated invariant is
+`module.structs[index].id.index() == index`, with matching source-map slots.
+Reordering rows or changing the stored ID independently can break those links.
+No current invariant violation or measured performance bottleneck was established
+by this review. `StructId` is lowering-local and carries only an index; retaining
+the field does not make it stable across modules, revisions or snapshots.
+
+Follow-up owner: HIR declaration storage and its consumers. Compare retaining
+self IDs with container-owned iteration returning `(ID, &record)` for the five
+ADT records and `Function` above; review other declarations only where the same
+issue applies.
+The identity interface and any field removals remain undecided.
+Preserve item order, source-map alignment, member ownership, semantic declaration
+mapping and snapshot/reuse remapping. Do not conflate inline binding/member IDs
+with redundant self IDs, or widen visibility/add forwarding APIs to hide the
+ownership question. Reuse existing declaration, navigation and snapshot contracts
+if implementation is activated; measure any claimed memory or speed benefit.
+This entry records a design review only and does not activate a migration.
+
+## SA12 HIR receiver category records only one language model
+
+[ReceiverKind](../crates/kagari-hir/src/hir/item/behavior.rs) has only `Value`.
+Both `Method` and `TraitMethod` carry a `receiver: ReceiverKind` field;
+[trait-method lowering](../crates/kagari-hir/src/lower/item.rs) always assigns
+`ReceiverKind::Value`. The inspected handwritten consumers do not select behavior
+based on this category. The enum and fields therefore record a constant policy,
+not a current distinction between receiver forms.
+
+The [receiver contract](spec/traits.md#receiver-model) provides only `self` and
+uses the ordinary parameter value model, without Rust-style `&self` or `&mut self`
+receivers. The [value contract](spec/value-semantics.md#values-and-identity)
+distinguishes value semantics from shared object identity: scalars, strings,
+tuples and enums have value semantics; tuple/enum members retain their own
+semantics. Structs, arrays, maps and sets share identity when passed. GC-backed
+storage alone does not imply mutable identity semantics or a separate receiver
+category. Passing `self` neither deep-copies a shared object nor introduces
+exclusive ownership transfer.
+
+Follow-up owner: HIR method surfaces and lowering. Under the current language
+contract, the enum and both fields are candidates for removal together with their
+imports and constant initialization; no replacement marker or speculative receiver
+variants are needed. Preserve receiver parameters, method selection, ordinary
+argument semantics and writeability checks. Host-boundary passing styles and
+scoped borrow validation have separate responsibilities; retain
+[HostPassingStyle](../crates/kagari-types/src/host_interface/type_declaration.rs)
+and its checked consumers.
+
+Reuse existing method/trait and host-boundary contracts for focused validation
+if removal is activated. No correctness failure or measured performance benefit
+was established here. This entry records the simplification candidate only;
+implementation remains deferred.
+
+## SA13 Unused HIR method registry duplicates the active ownership model
+
+The unified method registry in [behavior.rs](../crates/kagari-hir/src/hir/item/behavior.rs)
+provides `MethodOwner`, `Method` and `MethodBuffer`, with `MethodId` in
+[ids.rs](../crates/kagari-hir/src/hir/ids.rs). [Module.methods](../crates/kagari-hir/src/hir/item/mod.rs)
+and [Struct.methods / Enum.methods](../crates/kagari-hir/src/hir/item/adt.rs)
+expose storage and links for that registry. Repository inspection found no
+construction or consumption of these HIR method records; normal
+[item lowering](../crates/kagari-hir/src/lower/item.rs) leaves both ADT method
+lists empty and does not populate the module registry.
+
+The active model already assigns methods to traits and impls. For example,
+`impl Example { fn run(self) { ... } }` lowers to an `Impl` containing an
+`ImplMethod { name, function }`; its `FunctionId` identifies the signature and
+body in `Module.functions`. Trait declarations similarly contain `TraitMethod`
+records linked to functions, including default bodies. This is the ownership
+model to preserve, including method lookup and trait implementation checking.
+
+This division of responsibilities resembles rustc HIR: its
+[ItemKind](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/enum.ItemKind.html)
+separates struct, trait and impl declarations, and an
+[Impl](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.Impl.html)
+owns associated-item IDs together with its target type and optional trait.
+Kagari currently uses inline trait/impl method records plus `FunctionId`, so the
+storage representations differ. The reason to consider removal is the unused
+parallel model and existing responsibility owner; similarity to Rust is only a
+design reference.
+
+Follow-up owner: HIR method storage and lowering. Consider removing
+`MethodOwner`, `Method`, `MethodBuffer`, `MethodId`, `Module.methods`,
+`Struct.methods` and `Enum.methods` together with their imports and initializers.
+Retain `TraitMethod`, `TraitMethodId`, `ImplMethod`, the active trait/impl method
+collections and their `FunctionId` links. Receiver-category simplification is
+tracked in SA12; removing the unused `Method` record would also remove its
+receiver field. Other crates' runtime/host method models are outside this scope.
+
+Before activating cleanup, reconfirm consumers and update affected documentation;
+use focused existing method/trait contracts and relevant compile/structure checks.
+No behavior defect or measured performance benefit was established here. This
+entry records a future cleanup candidate only; implementation remains deferred.
+
+## SA14 Function bodies cannot declare named local functions
+
+Named functions cannot currently be declared inside another function's body.
+For example, the following requested source form is rejected:
+
+```kagari
+fn outer() -> i32 {
+    fn inner(x: i32) -> i32 { x + 1 }
+    inner(41)
+}
+```
+
+[Block parsing](../crates/kagari-syntax/src/parser/grammar/stmt.rs) accepts
+bindings, control flow and expressions, but has no function-declaration branch.
+[HIR statements](../crates/kagari-hir/src/hir/stmt.rs) and
+[statement lowering](../crates/kagari-hir/src/lower/stmt.rs) likewise have no
+local function declaration form. Both the current
+[syntax specification](spec/syntax.md#blocks-and-statements) and
+[EBNF](kagari.ebnf) exclude function declarations from block statements, so this
+is a missing language capability rather than an implementation violation of the
+current grammar.
+
+A closure binding such as `val inner = |x: i32| x + 1;` is supported, including
+lexical captures, but does not provide the requested named declaration form.
+The user requests that named local function support be added in later work.
+
+Follow-up owner: language syntax, HIR declaration ownership and lexical name
+resolution. Define block visibility, forward references, recursion, shadowing
+and access to enclosing locals/generic parameters before implementation; capture
+behavior must be specified explicitly rather than inferred from closures.
+Extend the grammar, AST, HIR/lowering and declaration/resolution model together,
+then carry checked local callable identities through typing, executable lowering
+and tooling. Local declarations must not leak into module exports. Review whether
+`FunctionKind` and function ownership need changes instead of automatically treating
+local declarations as module-level `User` functions.
+
+When activated, validate the example through execution and add focused coverage
+for the chosen scope, recursion and capture rules, including diagnostics and
+navigation. Preserve existing module functions, methods and closure contracts.
+This entry records the requested future feature only; semantic choices and
+implementation remain deferred, with no change to the currently accepted grammar.
+
+## SA15 HIR import paths should retain segments instead of joined text
+
+The requested follow-up direction is to replace
+[`Import.path: String`](../crates/kagari-hir/src/hir/item/module.rs) with owned
+`segments: Vec<String>`. Implementation remains deferred. For example:
+
+```kagari
+use pkg::math::sum as add;
+```
+
+```text
+Current: Import { path: "pkg::math::sum", kind: Named { alias: Some("add") }, ... }
+Proposed: Import { segments: ["pkg", "math", "sum"],
+                   kind: Named { alias: Some("add") }, ... }
+```
+
+[Item lowering](../crates/kagari-hir/src/lower/item.rs) currently joins syntax
+segments and stores each accumulated prefix with its physical source site in
+[SourceMap](../crates/kagari-hir/src/source_map.rs). Import analysis copies the
+joined path into `ImportDirective`. Its consumers primarily need structure:
+[normalization](../crates/kagari-hir/src/imports/resolve.rs) splits relative paths
+to process `self`, `super` and `crate`; the
+[namespace catalog](../crates/kagari-hir/src/imports/catalog.rs) splits paths for
+package/module/member lookup and dependency-prefix matching. Prefix navigation
+resolves `pkg`, `pkg::math` and `pkg::math::sum` separately. Diagnostics and host
+lookup interfaces also consume complete path text. `ModuleIdentity.path` already
+uses `Vec<String>`; it is a resolved module identity, distinct from written import
+syntax.
+
+Follow-up owner: HIR import syntax/lowering and import analysis. Carry segments
+through the affected `ImportDirective`, normalization, catalog traversal and
+prefix-dependency consumers, with text rendering at diagnostics or existing
+text-based host interfaces. Update `local_name()` to use the terminal segment
+when no alias is written. Adapt source-map prefix sites and navigation together,
+retaining their source-map ownership and exact physical spans. Avoid introducing
+a second complete-path field merely to preserve the former internal API.
+Preserve flattened grouped imports, aliases, glob paths excluding the final `*`,
+relative-path behavior, namespace-specific resolution, visibility checks,
+canonical targets, dependencies and retained-snapshot validity. An omitted alias
+and a glob must keep their existing local-name behavior.
+
+Rust's HIR provides a reference for structured paths:
+[`Path`](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.Path.html)
+stores a slice of path segments, a span and resolution information; each
+[`PathSegment`](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.PathSegment.html)
+retains its identifier and other segment facts. Kagari should keep resolution
+facts under its existing analysis owners rather than copying Rust's entire model.
+Owned `Vec<String>` needs no lifetime parameter. Rust's `'hir` describes borrowed
+HIR storage; its interned `Symbol` is an index without a lifetime parameter.
+Symbol interning is a separate decision and is not part of this follow-up.
+The portable module-identity handle review in SA9 remains separate.
+
+When activated, reuse existing import, relative-path, grouped/alias/glob,
+visibility, dependency and navigation contracts for focused validation. Review
+all affected callers together and update source-to-field documentation. The
+motivation is to retain structure used by current consumers and reduce conversion
+steps; no correctness failure or measured performance bottleneck was established.
+Measure allocations/time before claiming a memory or speed improvement. This
+entry records the future representation change only and does not activate code
+migration.
+
+## SA16 Struct patterns should require explicit omission with `..`
+
+The requested follow-up is to align named-field struct patterns with
+[Rust's field-completeness rule](https://doc.rust-lang.org/reference/patterns.html#struct-patterns):
+without `..`, every field must be listed; with a terminal `..`, unlisted fields
+are ignored. For a `Point` with fields `x` and `y`:
+
+| Pattern | Current Kagari behavior | Requested behavior |
+| --- | --- | --- |
+| `Point { x: n, y: _ }` | Accepted; bind `x`, ignore `y`. | Preserve. |
+| `Point { x: n, .. }` | Rejected by parsing. | Accept; bind `x`, ignore remaining fields. |
+| `Point { x: n }` | Accepted; unlisted fields are implicitly ignored. | Reject because `y` is omitted without `..`. |
+| `Point { .. }` | Rejected by parsing. | Accept; ignore all fields. |
+
+[Struct-pattern parsing](../crates/kagari-syntax/src/parser/grammar/expr.rs)
+and the [EBNF](kagari.ebnf) accept only named fields or named subpatterns.
+The [AST view](../crates/kagari-syntax/src/ast/expr.rs),
+[pattern lowering](../crates/kagari-hir/src/lower/expr/pattern.rs) and
+[`PatternKind::Struct`](../crates/kagari-hir/src/hir/pattern.rs) have no rest marker.
+[Pattern checking](../crates/kagari-hir/src/typeck/body/patterns.rs) validates
+listed fields and subpatterns but does not check for omitted fields. This is a
+requested syntax and checking change, not just an additional spelling of the
+currently accepted pattern.
+
+Follow-up owner: syntax/AST, HIR pattern lowering and pattern checking. Accept
+at most one `..`, at the end of a named-field struct pattern; retain its presence
+in HIR, for example with `has_rest: bool`. The exact field name and source-site
+representation can be chosen during implementation. The marker belongs to the
+whole struct pattern, not to `PatternField` and not to a synthesized wildcard
+subpattern. It may ignore zero remaining fields. Without the marker, diagnose
+missing fields against the resolved struct declaration. Update the EBNF,
+syntax specification and source-to-field documentation together.
+
+Preserve shorthand `y` as `y: y`, nested subpatterns, existing unknown/duplicate
+field diagnostics, field-access rules, binding types and checked field identities.
+The rest marker creates no bindings or extra field reads. Carry checked pattern
+facts through existing analysis/executable lowering and tooling consumers as
+needed. This scope does not adopt Rust borrowing, moves or unrelated slice/tuple
+rest patterns.
+
+When activated, reuse existing pattern contracts and add focused coverage where
+absent for complete fields, explicit omission, missing-field diagnostics, empty
+and nested rest patterns, and malformed duplicate/nonterminal markers. Check
+accepted examples through executable lowering as well as analysis. This entry
+records the future rule alignment only; implementation remains deferred.
+
+## SA17 Ordinary `val`/`var` declarations should support destructuring patterns
+
+The agreed follow-up design generalizes a local declaration to
+`val/var pattern [: Type] = expression;`. Ordinary declarations currently accept
+only one identifier: [binding parsing](../crates/kagari-syntax/src/parser/grammar/stmt.rs)
+reads a name, and [`StmtKind::Binding`](../crates/kagari-hir/src/hir/stmt.rs)
+retains one `name`/`LocalId`. Patterns already exist for match arms, loops and
+binding conditions, but this does not provide ordinary destructuring declarations.
+
+Proposed source forms (not currently accepted as ordinary declarations):
+
+```kagari
+val (x, y) = pair;
+var Point { x, y } = point;
+val Point { x: n, .. } = point;
+val (id, Point { x, .. }) = result;
+val (x, y): (i32, String) = make_pair();
+```
+
+Use one pattern-based binding model for simple and destructuring declarations:
+
+```text
+Binding {
+    pattern: PatternId,
+    writeability: Writeability,
+    ty: Option<TypeRefId>,
+    initializer: ExprId,
+}
+
+val Point { x: n, .. } = make_point();
+statement -> Binding { pattern: p0, writeability: Val, ty: None, initializer: call }
+p0 -> Struct { path: "Point", fields: [PatternField { name: "x", pattern: p1 }],
+               has_rest: true } // illustrative rest-marker name; see SA16
+p1 -> Name { name: "n", local: n_local }
+```
+
+The leaf patterns retain each binding's name and `LocalId`; replace the statement's
+single-name fields rather than keeping a parallel simple-binding implementation.
+`val n = 1;` becomes the same binding record with a `Name` pattern. Bind names
+according to the declaration context and preserve constructor resolution where
+appropriate; do not treat every provisional pattern name as an established binding
+before resolution and checking.
+
+The initial contract is:
+
+- The outer `val` or `var` applies to every local introduced by the pattern.
+  Mixed per-leaf writeability is outside this scope. `var` permits rebinding the
+  extracted locals, not assignment back into the original object's fields.
+- A type annotation describes the complete initializer value; member types
+  determine the leaf binding types. Require an initializer for destructuring.
+- Ordinary declarations require an irrefutable pattern after type and constructor
+  checking. Reuse/review existing pattern classification rather than introducing
+  runtime match-failure traps. Reject refutable literal/variant subpatterns;
+  existing `if val`/`while val` and `match` handle conditional matching. A new
+  declaration `else` form is outside this scope.
+- Evaluate the initializer exactly once in the existing scope, then extract
+  required members in pattern source order. `_` and `..` create no bindings and
+  cause no extra reads of ignored members. New locals become visible after the
+  declaration; `val (x, y) = (x + 1, 3);` uses the previous `x` on the RHS when
+  shadowing an existing binding. Retain completed effects and existing trap/root
+  cleanup if initialization or a required host read fails.
+- Preserve Kagari's value and shared-object identity semantics. Binding an integer
+  copies its value; binding a shared object preserves identity. `val` does not
+  freeze objects, and destructuring adds no Rust move/borrow or `ref` semantics.
+- Apply SA16's explicit `..` and field-completeness rules recursively to struct
+  subpatterns. Preserve field access and unknown/duplicate-field checks, and
+  reject duplicate local names within a single declaration.
+
+The structural model, whole-value annotation and ordinary irrefutability rule are
+similar to [Rust let statements](https://doc.rust-lang.org/reference/statements.html#let-statements).
+Rust allows per-binding `mut`; the proposed Kagari form applies `val`/`var` to the
+whole declaration and keeps its existing GC-backed value model.
+
+Follow-up owner: binding syntax/AST, HIR lowering, lexical resolution and typing,
+then checked executable lowering and tooling. Update the EBNF/specification and
+model examples together. Reuse pattern traversal/type facts, assign declared
+writeability to every bound local, preserve source-map identity/navigation and
+closure capture behavior, and carry checked member identities to executable
+lowering. Backends must not resolve source names or infer the pattern again.
+
+When activated, reuse existing pattern/value/assignment/scope contracts and add
+focused missing coverage for nested tuple/struct binding, annotations, both
+writeability forms, refutability diagnostics, duplicate names, shadowing and
+once-only initializer effects. Validate shared identity, ignored fields and
+checked host reads where applicable through execution, with navigation/capture
+coverage at their existing owners. Coordinate with SA16 without expanding into
+slice patterns, tuple rest syntax or unrelated pattern features. This entry records
+the agreed future design only; implementation remains deferred.

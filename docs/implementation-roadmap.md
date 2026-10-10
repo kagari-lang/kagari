@@ -215,6 +215,15 @@ storage/IDs, lowering, resolution, semantic facts, provider inputs and query reu
 Strict Rustdoc, runnable examples, rendered-page review and lightweight checks
 passed. The [documentation contract](hir-documentation-plan.md) remains useful.
 
+HD08 is complete within its documentation scope: all 17 `hir/` model files now
+map concrete syntax to fields, synthesized IDs and reference targets; the reading
+guide indexes the examples. Rustdoc link/HTML checks, three existing doctests,
+15 syntax/storage probes, rendered-table inspection and lightweight checks pass.
+The whole-crate `-D missing_docs` audit still fails on unchanged imports APIs;
+[HD08 acceptance](hir-documentation-plan.md#hd08-source-to-field-follow-up-acceptance-2026-10-10)
+records that separate documentation gap. Model cleanup remains deferred in the
+existing review; no implementation behavior changed.
+
 ### Syntax documentation completion
 
 SD01-SD05 are complete. [Syntax architecture](architecture/syntax.md), AST Rustdoc,
