@@ -18,6 +18,7 @@ use {
 use crate::{
     DiagnosticBuffer, TokenBuffer,
     kind::SyntaxKind,
+    parser::ParseLimits,
     syntax_node::KagariLanguage,
     token::{Token, TokenKind},
 };
@@ -50,7 +51,7 @@ pub(crate) struct Parser<'a> {
     /// Whether a following `{` can begin a struct expression in this context.
     allow_struct_literals: bool,
     /// Caller-selected diagnostic, recursive-entry and completed-depth thresholds.
-    limits: super::ParseLimits,
+    limits: ParseLimits,
     /// Sticky stop flag after a parser limit; remaining input is retained as error text.
     exhausted: bool,
     /// Number of active guarded recursive grammar entries, not tree depth.
@@ -70,7 +71,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn new(
         text: &'a str,
         tokens: TokenBuffer,
-        limits: super::ParseLimits,
+        limits: ParseLimits,
         cancel: CancellationToken,
     ) -> Self {
         Self {
