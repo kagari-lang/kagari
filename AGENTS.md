@@ -1,317 +1,229 @@
 # Agent Instructions
 
-Kagari is a statically typed, GC-backed scripting language implemented in Rust.
-Its priorities include host embedding, explicit execution semantics, tooling and
-hot reload. This document defines repository-wide engineering and workflow rules.
+Kagari is a statically typed, GC-backed scripting language in Rust, prioritizing
+host embedding, explicit execution semantics, tooling and hot reload. These rules
+apply repository-wide.
 
 ## Early Development Policy
 
-Kagari is currently unpublished and in early development. Prioritize fast,
-working implementation with a clear architecture. Do not apply release engineering
-or compatibility workflows without an actual released consumer or an explicit
-user requirement. This policy supersedes older plan requirements for routine
-version bumps, repeated artifact regeneration and exhaustive checkpoint validation.
+Kagari is unpublished. Prioritize working implementation and clear architecture;
+use release/compatibility workflows only for released consumers or explicit user
+requirements. This policy supersedes older plans' routine version bumps, repeated
+artifact regeneration and exhaustive checkpoint validation.
 
-- Replace internal APIs and data models directly. Do not preserve obsolete
-  callers, formats or artifacts for hypothetical compatibility.
-- Keep format and runtime ABI identifiers, but do not increment them for each
-  unpublished internal API or schema change. Establish a version boundary when
-  publishing or making an explicit compatibility commitment, or when requested
-  by the user. Ordinary native function additions and Rust implementation changes
-  do not automatically require a format or ABI version bump.
-- Treat development artifacts and caches as disposable. Invalidate or regenerate
-  affected products when their layout or contracts change; do not add old-format
-  readers. Batch necessary fixture updates at a coherent checkpoint instead of
-  rebuilding all products after every incremental edit. Preserve meaningful
-  source-free and behavioral coverage.
-- During feature iteration and bug fixes, run only a small set of tests directly
-  affected by the change. A local full-workspace test run is allowed at final
-  acceptance after a large task is complete, not after each edit or intermediate
-  phase. Batch that validation at the end; do not repeat unchanged successful
-  checks. Complete feature/backend matrices remain a GitHub CI responsibility.
-- Keep the authorized scope finite. Do not silently expand a library task into
-  unrelated architecture migration or continually add checklist items. Implement
-  shared capabilities only for concrete requirements; record material gaps
-  concisely in the existing plan and make substantial scope changes explicit.
-- Keep correctness, static typing, ABI/schema validation, declared access, bounds,
-  roots, cleanup and generation checks. Faster development does not permit fake
-  success, weakened assertions or executing unvalidated input.
+- Replace obsolete internal APIs/models directly. Do not retain old callers,
+  formats/readers, compatibility aliases, forwarding crates, duplicate public
+  entrypoints or second semantic implementations for hypothetical compatibility.
+- Keep format/runtime ABI identifiers, but bump them only for publication, an
+  explicit compatibility commitment or a user request. Unpublished API/schema
+  changes, ordinary native additions and Rust changes do not require a bump.
+- Treat development artifacts/caches as disposable. Invalidate or regenerate affected
+  products when layouts/contracts change; batch fixture updates at coherent checkpoints
+  and preserve meaningful source-free and behavioral coverage.
+- Keep scope finite: build shared capabilities for concrete requirements, record gaps
+  in the existing plan and make substantial scope changes explicit. Do not silently
+  expand tasks into unrelated migrations or continually add checklist items.
+- Follow the focused/local-final/CI split under Verification and Tooling. Faster
+  development never permits weaker correctness, validation or assertions.
 
 ## Authority and Task Context
 
-- Follow the user's current instructions and previously authorized scope. When
-  they conflict with repository workflow defaults, the user's instructions win.
-- Use [docs/project_goal.md](docs/project_goal.md) for product direction,
-  [docs/architecture.md](docs/architecture.md) for architecture, and
-  [docs/implementation-roadmap.md](docs/implementation-roadmap.md) to find the
-  active execution plan. The relevant `docs/spec/` files define language behavior.
-- The active execution plan owns phase order, scope, acceptance criteria and the
-  progress ledger. Keep phase-specific instructions in that plan.
-- Read the relevant documents when starting a task or changing direction. Reuse
-  that context during the same task; reread when documents change or an unresolved
-  design decision requires it. Inspect `git status` and the relevant diff before
-  editing, and preserve unrelated user work.
-- Inspect relevant implementation and tests before selecting a concrete unit of
-  work. For bug fixes, use an existing failure or a focused reproduction when
-  practical. Do not require a failing test for documentation or mechanical edits.
-- Use the active plan's ledger and commit history when resuming work.
+- User instructions and previously authorized scope override repository defaults.
+- [Project goals](docs/project_goal.md) define direction, [architecture](docs/architecture.md)
+  defines ownership, [roadmap](docs/implementation-roadmap.md) locates the active plan,
+  and `docs/spec/` defines language behavior. The active plan owns phase order, scope,
+  acceptance, phase-specific instructions and the progress ledger.
+- Read relevant documents at task start or direction changes; reuse context unless
+  documents change or unresolved design questions require rereading. Before editing,
+  inspect `git status` and relevant diffs; preserve unrelated work.
+- Inspect implementation/tests before selecting work. For bugs, reuse a failure or
+  focused reproduction when practical; documentation/mechanical edits need no failing
+  test. Resume from the plan's ledger and commit history.
 
 ## Engineering Priorities
 
-Correctness and observable semantics come first, followed by testability, host
-boundary safety, hot reload correctness, maintainability and measured performance.
-Prefer cohesive, reviewable changes with explicit responsibility boundaries.
-For structural migrations, follow the active plan's phase size and intermediate
-build policy.
+Order: correctness/observable semantics, testability, host boundary safety, hot reload
+correctness, maintainability, measured performance. Make cohesive, reviewable changes
+with explicit responsibilities; follow the active plan's migration size/build policy.
 
 ### Architecture Before Optimization and Feature Changes
 
-- Before recommending or implementing a performance optimization or feature change,
-  review the affected architecture and existing implementation. Trace responsibility
-  boundaries, data flow, ownership/lifetimes, invariant enforcement and execution
-  paths. Identify whether the problem comes from the architecture, its implementation
-  or an unavoidable semantic cost; do not start with a list of local patches.
-- When a boundary or data model is unsuitable, prioritize a coherent replacement
-  over adding caches, special cases, adapters or parallel paths around it. Review
-  earlier optimizations and workarounds on the affected paths too: retain sound
-  foundations, merge overlapping mechanisms and remove superseded ones as part of
-  the replacement. A previous benchmark improvement does not exempt a design from
-  this review. Temporary migration bridges need an explicit removal checkpoint.
-- Where useful, consult mature language/runtime architectures and their primary
-  documentation or source. Explain which ideas fit Kagari's static typing, GC,
-  host boundaries, hot reload and execution semantics, and which assumptions differ.
-  Treat these designs as references, not authority for copying an incompatible model
-  or claiming an unmeasured performance benefit.
-- Ground recommendations in the reviewed architecture and evidence. State the root
-  cause or remaining uncertainty, the intended responsibility/data-model change,
-  affected existing mechanisms and how correctness and improvement will be verified.
-  A missed performance target calls for renewed architectural diagnosis before
-  proposing another local optimization.
-- Caches and specialized paths are appropriate only with a clear semantic owner,
-  validity/lifetime contract and measured or otherwise concrete justification. They
-  must not conceal repeated preparation, duplicate semantics or misplaced validation.
-  Preserve required correctness guarantees while changing where they are established.
-- Scale the review to the task. If the architecture is sound and the defect is local,
-  make the focused fix and explain why it belongs there. Architecture-first work does
-  not justify speculative abstraction, empty future-use crates or unrelated rewrites.
-  Keep migrations finite and record material decisions in the existing active plan.
+- Before recommending or implementing optimizations/features, review architecture and
+  implementation: responsibilities, data flow, ownership/lifetimes, invariants and
+  execution paths. Distinguish architectural defects, local defects and unavoidable
+  semantic costs before proposing fixes.
+- Replace unsuitable boundaries/models coherently. Review earlier optimizations on
+  affected paths: retain sound foundations, merge overlaps and remove superseded
+  workarounds. Prior benchmark wins grant no exemption; temporary migration bridges
+  need a removal checkpoint.
+- Where useful, consult mature language/runtime designs through primary documentation
+  or source. Explain their fit and differing assumptions for Kagari's typing, GC,
+  host boundaries, reload and execution semantics; do not copy incompatible models
+  or infer unmeasured speedups.
+- Recommendations must state evidence, root cause/uncertainty, intended ownership/model
+  changes, affected mechanisms and correctness/performance validation. Missed performance
+  targets require renewed architectural diagnosis before more local optimization.
+- Caches/specialized paths require a semantic owner, validity/lifetime contract and
+  measured or concrete justification. They must not conceal repeated preparation,
+  duplicate semantics or misplaced validation. Preserve guarantees when relocating checks.
+- Scale review to the task: when architecture is sound, explain and make the local fix.
+  Avoid speculative abstractions, empty future-use crates and unrelated rewrites;
+  keep migrations finite and material decisions in the existing plan.
 
 ### Explaining Problems and Design Changes
 
-- When a concrete example would clarify an explanation, include one. Assume the
-  reader has not read the source or has seen only a small part of it. Explain the
-  relevant context and causal chain without requiring them to reconstruct the
-  architecture from file links, function names or isolated implementation details.
-- Prefer a small representative scenario: show the input or operation, what happens
-  through the relevant layers, and the observable result or cost. For a proposed
-  change, use the same scenario to explain current versus intended behavior and
-  which guarantees remain. Short code, pseudocode or a diagram can support the
-  explanation; clearly label simplifications and hypothetical numbers.
-- Keep examples focused and proportional to the question. Connect each example
-  back to the underlying reason; an analogy alone is not an explanation or evidence.
-  Source references support the explanation but do not replace it.
+- Include concrete examples when helpful. Assume readers have not read the source
+  or have seen only fragments; explain context and causality without requiring them
+  to reconstruct the architecture from names, links or isolated details.
+- Use a small scenario: input/operation, steps through relevant layers, result/cost.
+  Compare current/proposed behavior and preserved guarantees using the same example.
+  Short code, pseudocode or diagrams may help; label simplifications/hypothetical
+  numbers. Keep examples proportional and connect them to the reason. Analogies and
+  source references support explanation, not replace it or serve as proof alone.
 
 ### Code Structure
 
-- Split code by crate and module responsibility. Keep `lib.rs` and facades focused
-  on public entrypoints and orchestration, not accumulated feature implementations.
-- Use 1200 effective lines of code (LOC) as the default Rust file size threshold.
-  Exclude blank lines and comment-only lines, including Rust documentation comments
-  and block comments. Count a line
-  containing both code and a comment once. Recognize comments lexically: comment
-  markers inside string literals are not comments. Do not use raw file line counts
-  as effective LOC.
-- Split oversized files at meaningful responsibility boundaries. A cohesive
-  exhaustive table, generated source or fixture may justify keeping a larger file
-  if splitting would reduce clarity or correctness. Document that reasoning and a
-  bounded LOC exception under the structure-check policy; size alone is not proof
-  that a split improves the design. Tests and tracked generated sources are checked.
-- Review affected files as their responsibilities change and record unresolved
-  structural debt in the active plan. Keep unrelated refactoring outside task scope.
-- Use normal Rust `mod` boundaries for handwritten source. Reserve `include!` for
-  generated code and `#[path]` for justified test or cross-target sharing.
-- Follow the import/path rules and structural review below for handwritten Rust.
-- Separate adjacent definitions with at least one blank line: functions/methods,
-  structs, enums, unions, traits, impl blocks, inline modules and extern blocks.
-  Include trait signatures and tests. Place the blank line before the next item's
-  attached comments and attributes; blank lines inside them do not count. Compact
-  import, out-of-line module, type alias and constant groups may remain contiguous.
-- Split functions when control flow or ownership becomes difficult to follow.
-  Group growing argument sets into cohesive parameter types where that clarifies
-  the contract. Prefer explicit enums and focused handlers over conditional chains
-  that mix unrelated policies.
-- Keep feature-specific policy out of generic execution loops. Do not move mixed
-  responsibilities into `common` merely to make a dependency cycle disappear.
-- Write source comments, API documentation and repository documents in English.
-  Use the user's language for conversation and progress updates.
+- Split by crate/module responsibility. Keep `lib.rs`/facades for public entrypoints
+  and orchestration. Keep feature policy out of generic loops; do not move mixed
+  responsibilities into `common` merely to break a dependency cycle.
+- Default Rust limit: 1200 effective LOC, including tests/tracked generated source.
+  Exclude blank/comment-only lines (including doc/block comments); count mixed
+  code/comment lines once. Parse comments lexically: markers in strings are not
+  comments. Raw line counts are not effective LOC.
+- Split oversized files at meaningful boundaries. Cohesive exhaustive tables,
+  generated source or fixtures may warrant a documented, bounded LOC exception when
+  splitting harms clarity/correctness; size alone does not prove a better design.
+  Review changed responsibilities, record structural debt in the active plan and
+  keep unrelated refactoring out of scope.
+- Use ordinary Rust modules; handwritten `include!` is forbidden. Reserve `include!`
+  for generated code and `#[path]` for justified test/cross-target sharing.
+- Separate adjacent definitions with a blank line: functions/methods, trait signatures,
+  structs/enums/unions/traits/impls, inline modules, extern blocks and tests. Put it
+  before the next item's attached comments/attributes; internal blanks do not count.
+  Compact import, out-of-line module, type-alias and constant groups may be contiguous.
+- Split functions when control flow/ownership is hard to follow. Group growing arguments
+  into cohesive parameter types when useful; prefer explicit enums/focused handlers
+  over conditional chains mixing policies.
+- Write comments, API docs and repository docs in English; use the user's language
+  for conversation/progress. Handwritten Rust follows the import/review rules below.
 
 ### Imports and Module Paths
 
-- Declare dependencies through explicit `use` statements at module scope. Import
-  the type/function or a short, meaningful module name instead of repeating long
-  `crate::...`, external-crate or `std::...` paths in signatures and function bodies.
-  For example, import `std::sync::Arc` and `crate::error::RuntimeError`, then write
-  `Arc<RuntimeError>` rather than
-  `std::sync::Arc<crate::error::RuntimeError>` throughout the implementation.
-- Group related imports from the same crate or module with nested braces, such as
-  `use kagari_common::{Span, host_interface::HostTypeDeclaration};`, instead of
-  repeating the same prefix in separate statements. Preserve distinct scopes,
-  conditional attributes and comments when grouping; keep every imported item explicit.
-- Root-qualified paths in imports are encouraged: `use crate::module::Type;` makes
-  ownership clear. This rule limits verbose paths at use sites, not explicit paths
-  in the import declarations themselves.
-- Short qualification such as `fmt::Display`, `io::Result` or `hir::Expr` is useful
-  when it clarifies ownership. Resolve collisions with meaningful aliases or module
-  imports; do not replace one unreadable path with an opaque abbreviation.
-- Do not use wildcard imports in production, including `use module::*`, grouped
-  glob imports, function-local `use Enum::*`, and `pub use module::*`. Explicitly
-  list imported/re-exported items; keep enum variants qualified where helpful.
-- Test-only scopes may use wildcard imports, such as `use super::*` inside a
-  `#[cfg(test)]` module or a dedicated integration-test target. Compiling ordinary
-  production code with `cargo test` does not make its imports test-only. Examples
-  and benchmarks should follow the production import style.
-- Do not use repeated parent traversal such as `super::super::` or longer chains
-  in production imports, signatures or bodies. Use an explicit `crate::...` import
-  for the owning module instead. A single `super::` is acceptable for a direct
-  parent relationship; tests should avoid deep traversal as well.
-- Keep normal imports at module scope. Function-local imports need a concrete
-  reason, such as feature/configuration scoping, rather than hiding a function's
-  dependency list or enabling wildcard matching.
-- Qualification required for correctness is allowed: ambiguous trait calls such
-  as `<Type as Trait>::method`, macro hygiene, and clearly scoped derive/attribute
-  paths such as `thiserror::Error`. Generated code may require absolute paths.
-  These exceptions do not justify routine fully qualified paths in handwritten
-  implementation code.
-- Do not introduce forwarding modules, broad re-exports, widened visibility or
-  compatibility aliases just to shorten imports. Import from the actual owner or
-  fix the responsibility boundary. Keep intentional public facades explicit.
-- Re-exports (`pub use`, including restricted visibility and test-only scopes)
-  are forbidden by default. An intentional API boundary requires an exact
-  file/declaration whitelist entry under `reexport-whitelist` in
-  `scripts/structure-exceptions.toml`, with reviewed consumer/ownership evidence.
-  Library roots and `mod.rs` receive no automatic exemption. Import from the
-  actual owner; do not add forwarding modules or aliases to shorten paths.
+- Use explicit module-scope imports of types/functions or meaningful short module
+  names; avoid long qualified paths in signatures/bodies. For example, import `Arc`
+  and `RuntimeError`, then use `Arc<RuntimeError>`. Root-qualified imports such as
+  `use crate::module::Type;` are encouraged.
+- Group related imports with nested braces, preserving distinct scopes, conditional
+  attributes and comments; list each item explicitly. Use short qualification such
+  as `fmt::Display` and meaningful aliases for collisions, not opaque abbreviations.
+- No production globs, including grouped globs, local `use Enum::*` or `pub use module::*`.
+  Test-only scopes (`#[cfg(test)]` modules/integration tests) may use globs; building
+  production code with `cargo test` does not exempt it. Examples/benchmarks follow
+  production rules.
+- No repeated `super::super::` traversal in production imports/signatures/bodies;
+  import from the owner through `crate::...`. One `super::` may name a direct parent;
+  tests should also avoid deep traversal.
+- Function-local imports need a concrete reason, such as configuration scoping.
+  Correctness-required qualification (ambiguous trait calls, macro hygiene, derive/
+  attribute paths like `thiserror::Error`) and generated absolute paths are allowed;
+  they do not justify routine long paths in handwritten code.
+- Do not add forwarding modules, broad re-exports, widened visibility or compatibility
+  aliases to shorten paths. Import the actual owner or fix the boundary; keep
+  intentional public facades explicit.
+- All `pub use`, including restricted/test-only re-exports, require an exact file/
+  declaration entry under `reexport-whitelist` in `scripts/structure-exceptions.toml`
+  with reviewed consumer/ownership evidence. Library roots and `mod.rs` are not exempt.
 
 ### Structural Review at Checkpoints
 
-Review changed handwritten Rust modules before each implementation checkpoint:
+Before each implementation checkpoint, review changed handwritten Rust:
 
-1. Check production `use` and `pub use` declarations, including nested/local
-   imports, for globs. Classify test-only/generated code explicitly rather than
-   treating the entire file as exempt because it contains tests.
-2. Check for repeated `super::` traversal and long qualified paths at use sites;
-   replace them with explicit imports or short module qualification as appropriate.
-3. Check module ownership, visibility/re-export growth, handwritten `include!`,
-   unjustified `#[path]`, effective LOC and large functions mixing responsibilities.
-4. Run `uv run --locked scripts/check_structure.py`. Record existing debt in the
-   active plan with its reason and follow-up owner. The check covers the whole
-   repository without a grandfathering baseline. Resolve findings or justify a
-   narrowly scoped LOC/re-export exception with evidence in code review; a generic
-   debt entry is not an exemption. Never use blanket allowances to make CI green.
+1. Check all production imports/re-exports (including nested/local scopes) for globs;
+   classify test/generated scopes explicitly, not whole files containing tests.
+2. Replace repeated parent traversal/long use-site paths with explicit imports or
+   short qualification. Review ownership, visibility/re-exports, `include!`, `#[path]`,
+   effective LOC and functions mixing responsibilities.
+3. Run `uv run --locked scripts/check_structure.py`. It checks the whole repository
+   without a grandfathering baseline. Resolve findings or justify narrow LOC/re-export
+   exceptions with review evidence. Record debt's reason/follow-up owner in the plan;
+   a debt entry is not an exemption. Never add blanket allowances to pass CI.
 
-The [structure checker](docs/structure-checks.md) parses Rust syntax and checks
-imports, paths, the re-export whitelist and effective LOC without building the
-workspace. Its documented scope excludes macro expansion and semantic name
-resolution. Review macro token trees, module ownership and unnecessary public
-surface manually; a passing syntax check does not replace architectural review.
-The [exception policy](scripts/structure-exceptions.toml) records justified cases;
-the checker validates scope and limits but cannot prove the design rationale.
-When changing the checker, run its `--self-test` suite as well.
+The [checker](docs/structure-checks.md) parses imports, paths, re-export whitelists and
+LOC without building; it excludes macro expansion/semantic name resolution. Review
+macro tokens, ownership and unnecessary public surface manually. A passing check or
+validated [exception](scripts/structure-exceptions.toml) does not prove architectural
+soundness. Run the checker's `--self-test` suite when changing it.
 
 ### Replacement and Migration
 
-- Replace obsolete internal models directly. Do not add compatibility aliases,
-  forwarding crates, duplicate public entrypoints, old artifact readers or a second
-  semantic implementation solely to preserve superseded callers.
-- Keep runtime ABI, schema, version, declared-access, bounds and handle checks. Removing
-  compatibility support does not permit executing unvalidated input.
-- Update examples, consumers and tests to the intended model. Preserve meaningful
-  behavioral coverage; do not remove tests or weaken assertions to conceal failures.
-- Follow the active plan's policy on intermediate compilation/test failures.
-  Record the command, representative diagnostics, cause and owning follow-up phase
-  in its ledger; disclose a broken build in the commit body.
-- Resolve integration errors through the intended architecture. Do not introduce
-  fake success, disabled validation or production `todo!()` stubs to pass checks.
-- Final acceptance requires all carried build/test errors to be resolved and all
-  documented checks to pass in their designated local or GitHub CI scope. Report
-  local validation separately from CI acceptance; never claim unrun CI checks pass.
-  Track phase scope separately from build status.
+- Preserve ABI/schema/version, declared-access, bounds and handle validation while
+  replacing obsolete models. Update examples/consumers/tests; never remove meaningful
+  coverage or weaken assertions to hide failures.
+- Follow the plan's intermediate build/test policy. Record failing commands,
+  representative diagnostics, cause and owning follow-up phase in its ledger;
+  disclose broken builds in commit bodies. Attempt relevant checks at intermediate
+  architecture boundaries; run focused tests when affected units build. Do not
+  repeat unchanged known failures pending their owning phase.
+- Resolve integration errors through the intended architecture, never fake success,
+  disabled validation, unvalidated input or production `todo!()` stubs.
+- Final acceptance requires all carried errors resolved and documented checks passing
+  in their designated local/CI scope. Track phase scope separately from build status;
+  never equate local validation with unrun CI acceptance.
 
 ## Kagari Semantic Boundaries
 
-- Preserve existing static typing, generics, traits, checked numeric behavior,
-  shared object semantics and Result/Option propagation under their specifications.
-- Host-owned Rust state remains outside the script heap. Script access uses the
-  installed host interfaces and typed paths; never expose unrestricted Rust
-  references through script values or bypass scoped borrow validation.
-- Preserve left-to-right, once-only evaluation, mutation commit guarantees, trap
-  order and already-completed side effects. A readonly view does not prove that
-  another alias cannot modify its referent.
+- Preserve specified static typing, generics/traits, checked numeric behavior, shared
+  object semantics and Result/Option propagation.
+- Host Rust state stays outside the script heap. Use installed interfaces/typed paths;
+  never expose unrestricted Rust references or bypass scoped borrow validation.
+- Preserve left-to-right once-only evaluation, mutation commits, trap order and
+  completed side effects. Readonly views do not prevent mutation through another alias.
 - Keep runtime ownership/generation checks, explicit roots and cleanup on traps,
-  cancellation, call-depth exhaustion and synchronous host reentry.
-- Preserve generation-pinned calls and dependency versions across hot reload.
-  Reflection must remain within declared metadata and member access rules, without runtime
-  type mutation or monkey-patching that bypasses versioned publication.
-- Preserve cooperative cancellation through loops, calls and long native operations.
+  cancellation, depth exhaustion and synchronous host reentry.
+- Preserve generation-pinned calls/dependencies across reload. Reflection stays within
+  declared metadata/member access; no runtime type mutation or monkey-patching around
+  versioned publication.
+- Preserve cooperative cancellation in loops, calls and long native operations.
   Do not reintroduce execution charging or generic permission matrices; the active
   execution-policy plan defines the trusted-script boundary.
-- Follow the active plan's production dependency constraints: executable contracts
-  must not depend on source analysis, and backends must consume checked facts
-  rather than resolve syntax or infer types again.
-- Implement features within the active task's scope and the roadmap's sequencing.
+- Follow the plan's production dependency constraints: executable contracts cannot
+  depend on source analysis; backends consume checked facts instead of resolving
+  syntax or inferring types again. Follow task scope and roadmap sequencing.
 
 ## Verification and Tooling
 
-- Tests are organized around language grammar, static typing, observable execution
-  semantics and core boundaries: artifact/ABI validation, GC ownership and cleanup,
-  host borrowing, cancellation and generation-pinned reload. A feature addition,
-  bug fix or internal migration does not automatically require a new test.
-- First locate the existing contract owner and reuse or update its fixtures. Add
-  a test or matrix row only for a distinct, previously uncovered grammar rule,
-  semantic rule or core boundary. A historical bug, changed function or alternate
-  spelling alone is not a reason to retain another regression case. Temporary
-  reproductions may be discarded after the existing contract coverage is checked.
-- Remove duplicate smoke tests, obsolete migration checks and assertions that only
-  mirror private implementation structure. Consolidate equivalent cases at their
-  semantic owner; do not merely hide an ever-growing case list in one test. Keep
-  separate backend, source-free or ownership checks when they establish a distinct
-  core contract. Do not use test counts or coverage percentages as growth targets.
-- Run checks appropriate to the change. Reuse valuable subsystem and conformance
-  tests. Documentation-only edits need link/content and diff checks, not a full
-  workspace rebuild.
-- Run focused tests when affected units build. At intermediate architecture
-  boundaries, attempt relevant checks and record failures honestly; avoid repeating
-  unchanged known failures while their owning migration step is still pending.
-- Feature iterations, bug fixes and phase follow-ups use only a small set of
-  affected contract tests and lightweight checks. Do not run `cargo test --workspace`
-  or equivalent full suites split across commands for routine changes or each
-  incremental checkpoint.
-- Once a large task's entire agreed scope is implemented, local final acceptance
-  may include `cargo test --workspace` and relevant workspace-wide checks. Examples
-  include a completed multi-phase feature or architecture migration; finishing one
-  intermediate phase does not qualify. Batch the full run at this final checkpoint.
-  If it finds failures, use focused tests while fixing them and repeat the full run
-  only when needed to establish final acceptance, not after every fix. Do not rerun
-  an unchanged successful full suite.
-- Complete feature/backend matrices remain in GitHub CI. This local validation
-  policy supersedes older plans' blanket bans on local full-workspace tests as well
-  as their unconditional full-suite command lists. Report focused local checks,
-  any final local full run and GitHub CI status separately.
-- Use the build profiles defined in the workspace `Cargo.toml`, the default
-  `target` directory and Cargo's default build parallelism.
-- Python is managed through `uv`; use `uv run python` when Python is needed.
-- Store temporary logs and generated measurement output under ignored `target/`.
-  Record durable conclusions, reproduction commands and known errors in the active
-  plan or relevant docs so cache cleanup does not erase resumption state.
-- For performance work, record toolchain, machine, profile, features, parallelism,
-  cache state and workload. Separate compilation time from execution time and
-  avoid speed claims unsupported by measurements.
+- Organize tests by grammar, static typing, observable semantics and core boundaries:
+  artifact/ABI validation, GC ownership/cleanup, host borrowing, cancellation and pinned
+  reload. Changes do not automatically need new tests. Reuse the existing contract
+  owner/fixtures; add cases only for distinct uncovered rules/boundaries, not merely a
+  past bug, changed function or alternate spelling. Discard temporary reproductions
+  after checking existing coverage where appropriate.
+- Remove duplicate smoke tests, obsolete migration checks and assertions mirroring
+  private structure. Consolidate equivalent cases at their semantic owner, without
+  hiding a growing duplicate list in one test. Keep backend/source-free/ownership
+  cases that establish distinct contracts; counts/coverage percentages are not targets.
+- Routine feature iteration, bug fixes and phase follow-ups run a small affected
+  contract-test set and lightweight checks. Reuse subsystem/conformance tests; do not
+  run full workspace suites, even split across commands, at incremental checkpoints.
+  Documentation-only edits need content/link/diff checks, not workspace builds.
+- Local full-workspace validation is allowed only after an entire large task (such
+  as a multi-phase feature/migration), not a single intermediate phase. Batch it at
+  final acceptance; fix failures with focused tests and repeat the full run only to
+  establish acceptance, never after every fix or after unchanged successful checks.
+- GitHub CI owns complete architecture and feature/backend acceptance. This policy
+  overrides both older blanket bans on local full runs and unconditional full-suite
+  lists. Report focused local checks, final local runs and CI status separately.
+- Use workspace Cargo profiles, the default `target` and default build parallelism.
+  Use `uv run python` for Python. Put temporary logs/measurements under ignored
+  `target/`; retain conclusions, reproduction commands and known errors in the active
+  plan/relevant docs so cleanup does not erase resumption state.
+- Performance reports record toolchain, machine, profile, features, parallelism,
+  cache state and workload; separate compilation/execution and make only measured
+  speed claims.
 
-GitHub CI owns full architecture acceptance, including the plan's complete
-feature/behavior matrix and the checks below. These checks may also be used for
-local final acceptance of a completed large task under the policy above. They are
-not a routine local feature-iteration command list. A passing local full run does
-not establish that GitHub CI or its complete feature/backend matrix passed.
+CI checks below may also serve local final acceptance of a completed large task;
+they are not a routine iteration checklist. A local pass does not establish CI or
+its full feature/backend matrix passed.
 
 ```text
 uv run --locked scripts/check_structure.py
@@ -321,25 +233,20 @@ cargo test --workspace
 git diff --check
 ```
 
-Use `git diff --check` at every checkpoint and preserve repository line-ending
-conventions.
+Run `git diff --check` at every checkpoint; preserve repository line endings.
 
 ## Progress and Commits
 
-- Update the active plan's checklist and ledger when implementation advances,
-  a design decision changes, or validation discovers a carried error. Use existing
-  documents rather than creating parallel progress/decision queues.
-- At task completion, state what changed, validation actually performed, and any
-  remaining limitations. Do not report a goal complete while its required work or
-  final integration failures remain.
+- Update the active plan's checklist/ledger when implementation, design decisions or
+  carried errors change; do not create parallel progress/decision queues.
+- On completion, report changes, actual validation and remaining limits. Do not mark
+  goals complete with required work or final integration failures outstanding.
 - Commit coherent authorized checkpoints using Conventional Commits:
-  `<type>(optional-scope): <description>`. Prefer imperative subjects under 72
-  characters, with `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`
-  or `chore` as appropriate.
-- Mark breaking API/format changes with `!` and explain their impact. Use the
-  phase trailers required by the active plan on implementation checkpoints.
-- Keep unrelated changes out of the checkpoint. Do not amend or rewrite user
-  commits unless requested.
+  `<type>(optional-scope): <description>`. Prefer imperative subjects under 72 characters
+  and `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci` or `chore`.
+- Mark breaking API/format changes with `!`, explain their impact and include active
+  plan phase trailers on implementation checkpoints. Exclude unrelated changes;
+  never amend/rewrite user commits unless requested.
 
 ## Task Description Template
 
