@@ -118,7 +118,7 @@ fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_cac
     let args = [Ty::Builtin(BuiltinType::I32)];
     let layout = runtime
         .modules
-        .applied_struct_layout(&loaded, id, &args)
+        .applied_struct_layout(&loaded, id, &args, None)
         .unwrap();
     let cache_probe = Arc::downgrade(layout.applied.as_ref().unwrap());
     drop(layout);
@@ -151,11 +151,11 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
     let enum_id = generic_enum(&loaded);
     let first = runtime
         .modules
-        .applied_struct_layout(&loaded, id, &args)
+        .applied_struct_layout(&loaded, id, &args, None)
         .unwrap();
     let second = runtime
         .modules
-        .applied_struct_layout(&loaded, id, &args)
+        .applied_struct_layout(&loaded, id, &args, None)
         .unwrap();
     assert!(Arc::ptr_eq(
         first.applied.as_ref().unwrap(),
@@ -163,11 +163,11 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
     ));
     let variant = runtime
         .modules
-        .applied_enum_variant(&loaded, enum_id, &args, 0)
+        .applied_enum_variant(&loaded, enum_id, &args, 0, None)
         .unwrap();
     let other = runtime
         .modules
-        .applied_enum_variant(&loaded, enum_id, &args, 1)
+        .applied_enum_variant(&loaded, enum_id, &args, 1, None)
         .unwrap();
     assert!(Arc::ptr_eq(
         variant.applied.as_ref().unwrap(),
@@ -176,7 +176,7 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
     assert!(
         runtime
             .modules
-            .applied_enum_variant(&loaded, enum_id, &args, u32::MAX)
+            .applied_enum_variant(&loaded, enum_id, &args, u32::MAX, None)
             .is_none()
     );
     let owner = native_owner(&loaded);
@@ -210,12 +210,12 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
     assert!(runtime.validate_loaded_module(&latest).is_ok());
     let retained = runtime
         .modules
-        .applied_struct_layout(&loaded, id, &args)
+        .applied_struct_layout(&loaded, id, &args, None)
         .unwrap();
     assert!(retained.matches(&first));
     let retained = runtime
         .modules
-        .applied_enum_variant(&loaded, enum_id, &args, 0)
+        .applied_enum_variant(&loaded, enum_id, &args, 0, None)
         .unwrap();
     assert!(retained.matches_layout(&variant));
 }
@@ -252,13 +252,21 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
     assert!(Arc::ptr_eq(&scope, &other));
     let first = runtime
         .modules
-        .applied_struct_layout(&loaded, id, slice::from_ref(&ty))
+        .applied_struct_layout(&loaded, id, slice::from_ref(&ty), None)
         .unwrap();
+    let initial_identity = first.canonical.unwrap();
+    let initial_scope = scope.id_for(&loaded).unwrap();
     let layout_probe = Arc::downgrade(first.applied.as_ref().unwrap());
     drop(first);
     let first_enum = runtime
         .modules
-        .applied_enum_variant(&loaded, generic_enum(&loaded), slice::from_ref(&ty), 0)
+        .applied_enum_variant(
+            &loaded,
+            generic_enum(&loaded),
+            slice::from_ref(&ty),
+            0,
+            None,
+        )
         .unwrap();
     let enum_probe = Arc::downgrade(first_enum.applied.as_ref().unwrap());
     drop(first_enum);
@@ -278,11 +286,11 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
             .unwrap();
         runtime
             .modules
-            .applied_struct_layout(&loaded, id, slice::from_ref(&ty))
+            .applied_struct_layout(&loaded, id, slice::from_ref(&ty), None)
             .unwrap();
         runtime
             .modules
-            .applied_enum_variant(&loaded, generic_enum(&loaded), &[ty], 0)
+            .applied_enum_variant(&loaded, generic_enum(&loaded), &[ty], 0, None)
             .unwrap();
     }
     assert!(scope_probe.upgrade().is_none());
@@ -293,6 +301,12 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
         .prepare_layout_scope(&loaded, declaration, &arguments)
         .unwrap()
         .unwrap();
+    let rebuilt = runtime
+        .modules
+        .applied_struct_layout(&loaded, id, slice::from_ref(&ty), None)
+        .unwrap();
+    assert_ne!(rebuilt.canonical, Some(initial_identity));
+    assert_ne!(retained.id_for(&loaded), Some(initial_scope));
     let candidate = runtime
         .stage_reload_program(&loaded, "records", code)
         .unwrap();
@@ -317,9 +331,13 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
             .all(|member| collected.reclaimed_modules.contains(&member.key()))
     );
     assert!(runtime.validate_loaded_module(&loaded).is_err());
-    assert_eq!(retained.resolve(&parameter.as_type()).unwrap(), ty);
+    assert_eq!(
+        retained.bindings().resolve(&parameter.as_type()).unwrap(),
+        ty
+    );
     assert_eq!(
         old_scope
+            .bindings()
             .argument(&declaration, 0)
             .unwrap()
             .identity(&latest),
@@ -329,7 +347,10 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
         .prepare_layout_scope(&loaded, declaration, &arguments)
         .unwrap()
         .unwrap();
-    assert_eq!(detached.resolve(&parameter.as_type()).unwrap(), ty);
+    assert_eq!(
+        detached.bindings().resolve(&parameter.as_type()).unwrap(),
+        ty
+    );
     let (foreign_runtime, foreign_owner, _) = fixture();
     let foreign_ty = Ty::Struct(NominalTy {
         declaration: foreign_owner.bytecode.structures[generic_structure(&foreign_owner).index()]
@@ -386,6 +407,31 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
             code.modules[index].enumerations.push(enumeration.clone());
         }
     }
+    let struct_template = code.modules[source]
+        .structures
+        .iter()
+        .find(|layout| !layout.arguments.iter().all(Ty::is_concrete))
+        .unwrap()
+        .clone();
+    let enum_template = code.modules[source]
+        .enumerations
+        .iter()
+        .find(|layout| !layout.arguments.iter().all(Ty::is_concrete))
+        .unwrap()
+        .clone();
+    let linked_argument = Ty::Struct(NominalTy {
+        declaration: structure.declaration.clone(),
+        arguments: args.to_vec(),
+        associated_types: Default::default(),
+    });
+    code.modules[target].structures.push(
+        struct_template
+            .apply(slice::from_ref(&linked_argument), &Default::default())
+            .unwrap()
+            .into_owned(),
+    );
+    code.modules[target].structures.push(struct_template);
+    code.modules[target].enumerations.push(enum_template);
     let candidate = runtime
         .stage_reload_program(&previous, "records", code)
         .unwrap();
@@ -396,11 +442,11 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
     let enum_id = generic_enum(&loaded);
     let structure = runtime
         .modules
-        .applied_struct_layout(&loaded, struct_id, &args)
+        .applied_struct_layout(&loaded, struct_id, &args, None)
         .unwrap();
     let enumeration = runtime
         .modules
-        .applied_enum_variant(&loaded, enum_id, &args, 0)
+        .applied_enum_variant(&loaded, enum_id, &args, 0, None)
         .unwrap();
     let other_structure = other
         .bytecode
@@ -424,25 +470,141 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
     assert_eq!(enumeration.canonical, enum_alias.canonical);
     assert!(enumeration.matches_layout(&enum_alias));
     assert!(!enumeration.matches_layout(&enum_alias.with_variant(1).unwrap()));
+    let linked_argument = Ty::Struct(NominalTy {
+        declaration: structure.layout().declaration,
+        arguments: args.to_vec(),
+        associated_types: Default::default(),
+    });
+    let linked_args = runtime
+        .resolve_type_arguments(&loaded, slice::from_ref(&linked_argument))
+        .unwrap();
+    let linked_scope = runtime
+        .prepare_layout_scope(&loaded, structure.layout().declaration, &linked_args)
+        .unwrap();
+    let scoped_linked = runtime
+        .modules
+        .applied_struct_layout(
+            &loaded,
+            struct_id,
+            slice::from_ref(&linked_argument),
+            linked_scope,
+        )
+        .unwrap();
+    let linked_slot = other
+        .bytecode
+        .structures
+        .iter()
+        .position(|layout| layout == scoped_linked.layout())
+        .unwrap();
+    let linked_consumer = other.struct_layout(StructId::new(linked_slot)).unwrap();
+    assert!(scoped_linked.same_instance(&linked_consumer));
+    // This nested application is absent from the linked concrete layout tables.
+    let nominal = Ty::Struct(NominalTy {
+        declaration: structure.layout().declaration,
+        arguments: vec![Ty::Builtin(BuiltinType::I64)],
+        associated_types: Default::default(),
+    });
+    let scoped_args = runtime
+        .resolve_type_arguments(&loaded, slice::from_ref(&nominal))
+        .unwrap();
+    let scope = runtime
+        .prepare_layout_scope(&loaded, structure.layout().declaration, &scoped_args)
+        .unwrap();
+    let dynamic = runtime
+        .modules
+        .applied_struct_layout(&loaded, struct_id, slice::from_ref(&nominal), scope.clone())
+        .unwrap();
+    let dynamic_alias = runtime
+        .modules
+        .applied_struct_layout(
+            &other,
+            generic_structure(&other),
+            slice::from_ref(&nominal),
+            scope,
+        )
+        .unwrap();
+    assert!(dynamic.canonical.is_some());
+    assert!(dynamic.same_instance(&dynamic_alias));
+    let unscoped = runtime
+        .modules
+        .applied_struct_layout(
+            &other,
+            generic_structure(&other),
+            slice::from_ref(&nominal),
+            None,
+        )
+        .unwrap();
+    assert!(dynamic.same_instance(&unscoped));
+    let enum_scope = runtime
+        .prepare_layout_scope(&loaded, enumeration.layout().declaration, &scoped_args)
+        .unwrap();
+    let dynamic_enum = runtime
+        .modules
+        .applied_enum_variant(
+            &loaded,
+            enum_id,
+            slice::from_ref(&nominal),
+            0,
+            enum_scope.clone(),
+        )
+        .unwrap();
+    let dynamic_enum_alias = runtime
+        .modules
+        .applied_enum_variant(
+            &other,
+            generic_enum(&other),
+            slice::from_ref(&nominal),
+            0,
+            enum_scope,
+        )
+        .unwrap();
+    assert!(dynamic_enum.canonical.is_some());
+    assert_eq!(dynamic_enum.canonical, dynamic_enum_alias.canonical);
+    assert!(dynamic_enum.matches_layout(&dynamic_enum_alias));
     let candidate = runtime
         .stage_reload_verified_program(&loaded, "records", loaded.verified_program().clone())
         .unwrap();
     let latest = runtime.publish_staged_reload(candidate).unwrap();
     let fresh = runtime
         .modules
-        .applied_struct_layout(&latest, struct_id, &args)
+        .applied_struct_layout(&latest, struct_id, &args, None)
         .unwrap();
     assert!(!structure.same_instance(&fresh));
     assert!(structure.matches(&fresh));
     let fresh_enum = runtime
         .modules
-        .applied_enum_variant(&latest, enum_id, &args, 0)
+        .applied_enum_variant(&latest, enum_id, &args, 0, None)
         .unwrap();
     assert!(enumeration.matches_layout(&fresh_enum));
+    // The same printed argument from a new generation cannot inherit an old proof.
+    let latest_args = runtime
+        .resolve_type_arguments(&latest, slice::from_ref(&nominal))
+        .unwrap();
+    let changed_scope = runtime
+        .prepare_layout_scope(&loaded, structure.layout().declaration, &latest_args)
+        .unwrap();
+    let changed = runtime
+        .modules
+        .applied_struct_layout(&loaded, struct_id, slice::from_ref(&nominal), changed_scope)
+        .unwrap();
+    assert!(!dynamic.same_instance(&changed));
+    assert!(dynamic.matches(&changed));
+    // A scope prepared for another binder must be rejected before publication.
+    let wrong_scope = runtime
+        .prepare_layout_scope(&loaded, enumeration.layout().declaration, &scoped_args)
+        .unwrap();
+    assert!(
+        runtime
+            .modules
+            .applied_struct_layout(&loaded, struct_id, slice::from_ref(&nominal), wrong_scope)
+            .is_none()
+    );
     runtime.collect_garbage().unwrap();
     assert!(runtime.validate_loaded_module(&loaded).is_err());
     // Canonical type facts do not root executable instances and remain readable.
     assert!(enumeration.matches_layout(&enum_alias));
+    assert!(dynamic.same_instance(&dynamic_alias));
+    assert!(dynamic_enum.matches_layout(&dynamic_enum_alias));
     assert!(structure.same_instance(&alias));
 }
 
@@ -485,7 +647,8 @@ fn link_lookup_checks_runtime_version_bounds_and_store_borrows() {
             .applied_struct_layout(
                 &loaded,
                 generic_structure(&loaded),
-                &[Ty::Builtin(BuiltinType::I32)]
+                &[Ty::Builtin(BuiltinType::I32)],
+                None
             )
             .is_some()
     );
@@ -579,11 +742,11 @@ fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor(
     let args = [Ty::Builtin(BuiltinType::I32)];
     let cached = runtime
         .modules
-        .applied_struct_layout(&loaded, id, &args)
+        .applied_struct_layout(&loaded, id, &args, None)
         .unwrap();
     let detached = runtime
         .modules
-        .applied_struct_layout(&forged, id, &args)
+        .applied_struct_layout(&forged, id, &args, None)
         .unwrap();
     assert!(!Arc::ptr_eq(
         cached.applied.as_ref().unwrap(),

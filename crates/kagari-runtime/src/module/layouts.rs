@@ -3,30 +3,48 @@ use crate::{
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     module::{
         EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef,
-        descriptor_index::DescriptorIndex, layout_identity::LayoutIdentity,
-        layout_scope::LayoutScopes,
+        applied_layout_identity::AppliedIdentities,
+        descriptor_index::DescriptorIndex,
+        layout_identity::{LayoutIdentity, ProgramLayouts},
+        layout_scope::{LayoutScope, LayoutScopes},
     },
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::{NominalTy, Ty};
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 type LayoutApplications<Id, Layout> =
-    DescriptorIndex<Id, Arc<[Ty<DefinitionId>]>, AppliedLayout<Layout>>;
+    DescriptorIndex<(Id, Option<NonZeroUsize>), Arc<[Ty<DefinitionId>]>, AppliedLayout<Layout>>;
 
 #[derive(Debug)]
 struct AppliedLayout<L> {
-    layout: Arc<L>,
+    layout: Option<Arc<L>>,
     canonical: Option<LayoutIdentity>,
+    scope: Option<Arc<LayoutScope>>,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct LayoutCache {
     structures: LayoutApplications<StructId, StructLayout<DefinitionId>>,
     enumerations: LayoutApplications<EnumId, EnumLayout<DefinitionId>>,
+}
+
+/// Created lazily on the program-root record; members own only their applications.
+#[derive(Debug)]
+pub(super) struct ProgramLayoutCache {
     pub(super) scopes: LayoutScopes,
+    identities: AppliedIdentities,
+}
+
+impl ProgramLayoutCache {
+    pub(super) fn new(layouts: &ProgramLayouts) -> Self {
+        Self {
+            scopes: Default::default(),
+            identities: AppliedIdentities::new(layouts),
+        }
+    }
 }
 
 impl LoadedModule {
@@ -98,7 +116,7 @@ impl LoadedModule {
                     .applied_structure(layout, &self.program.code.modules),
             },
             applied,
-            environment: None,
+            scope: None,
         })
     }
 
@@ -135,7 +153,7 @@ impl LoadedModule {
                     .applied_enumeration(layout, &self.program.code.modules),
             },
             applied,
-            environment: None,
+            scope: None,
         })
     }
 }
@@ -146,34 +164,69 @@ impl ModuleStore {
         owner: &LoadedModule,
         id: StructId,
         arguments: &[Ty<DefinitionId>],
+        scope: Option<Arc<LayoutScope>>,
     ) -> Option<StructLayoutRef> {
-        let mut records = self.inner.try_borrow_mut().ok();
-        let Some(record) = records
-            .as_deref_mut()
-            .and_then(|records| records.resolve_mut(owner))
-        else {
-            // Detached type provenance remains readable without executable storage.
-            return owner.applied_struct_layout(id, arguments);
+        let cache_key = match &scope {
+            Some(scope) => scope.id_for(owner).map(|scope| (id, Some(scope))),
+            None => Some((id, None)),
         };
-        if let Some(applied) = record.layouts.structures.get(&id, arguments) {
+        let mut records = self.inner.try_borrow_mut().ok();
+        if let Some(applied) = records
+            .as_deref()
+            .and_then(|records| records.resolve(owner))
+            .and_then(|record| record.layouts.structures.get(&cache_key?, arguments))
+        {
             return Some(StructLayoutRef {
                 module: owner.clone(),
                 id,
-                applied: Some(applied.layout.clone()),
+                applied: applied.layout.clone(),
                 canonical: applied.canonical,
-                environment: None,
+                scope: applied.scope.clone(),
             });
         }
-        let layout = owner.applied_struct_layout(id, arguments)?;
-        // Retention is optional: allocation failure leaves the complete immutable
-        // descriptor usable by its caller, without changing existing entries.
-        if let Some(applied) = &layout.applied {
+        let mut layout = owner.applied_struct_layout(id, arguments)?;
+        if scope
+            .as_ref()
+            .is_some_and(|scope| !scope.accepts(layout.layout().declaration, arguments))
+        {
+            return None;
+        }
+        layout.scope = scope;
+        if layout.scope.is_some() || layout.canonical.is_none() {
+            let linked = layout.canonical;
+            // A canonical identity always describes both physical shape and scope.
+            // Detached/borrowed-store preparation keeps full checks as its fallback.
+            layout.canonical = records
+                .as_deref_mut()
+                .and_then(|records| records.resolve_mut(&owner.program_root()))
+                .and_then(|record| record.program_layouts())
+                .and_then(|layouts| {
+                    layouts.identities.structures.prepare(
+                        owner,
+                        layout
+                            .applied
+                            .clone()
+                            .unwrap_or_else(|| Arc::new(layout.layout().clone())),
+                        arguments,
+                        layout.scope.as_deref(),
+                        linked,
+                    )
+                });
+        }
+        if (layout.applied.is_some() || layout.scope.is_some())
+            && let Some((record, key)) = records
+                .as_deref_mut()
+                .and_then(|records| records.resolve_mut(owner))
+                .zip(cache_key)
+        {
+            // Optional retention cannot invalidate a complete immutable descriptor.
             let _ = record.layouts.structures.insert(
-                id,
+                key,
                 Arc::from(arguments),
                 AppliedLayout {
-                    layout: applied.clone(),
+                    layout: layout.applied.clone(),
                     canonical: layout.canonical,
+                    scope: layout.scope.clone(),
                 },
             );
         }
@@ -186,35 +239,76 @@ impl ModuleStore {
         id: EnumId,
         arguments: &[Ty<DefinitionId>],
         variant: u32,
+        scope: Option<Arc<LayoutScope>>,
     ) -> Option<EnumVariantRef> {
-        let mut records = self.inner.try_borrow_mut().ok();
-        let Some(record) = records
-            .as_deref_mut()
-            .and_then(|records| records.resolve_mut(owner))
-        else {
-            return owner.applied_enum_variant(id, arguments, variant);
+        let cache_key = match &scope {
+            Some(scope) => scope.id_for(owner).map(|scope| (id, Some(scope))),
+            None => Some((id, None)),
         };
-        if let Some(applied) = record.layouts.enumerations.get(&id, arguments) {
-            applied.layout.variants.get(variant as usize)?;
+        let mut records = self.inner.try_borrow_mut().ok();
+        if let Some(applied) = records
+            .as_deref()
+            .and_then(|records| records.resolve(owner))
+            .and_then(|record| record.layouts.enumerations.get(&cache_key?, arguments))
+        {
+            applied
+                .layout
+                .as_deref()
+                .unwrap_or(&owner.bytecode.enumerations[id.index()])
+                .variants
+                .get(variant as usize)?;
             return Some(EnumVariantRef {
                 module: owner.clone(),
                 id,
                 variant,
-                applied: Some(applied.layout.clone()),
+                applied: applied.layout.clone(),
                 canonical: applied.canonical,
-                environment: None,
+                scope: applied.scope.clone(),
             });
         }
-        let layout = owner.applied_enum_variant(id, arguments, variant)?;
-        // Retention is optional: allocation failure leaves the complete immutable
-        // descriptor usable by its caller, without changing existing entries.
-        if let Some(applied) = &layout.applied {
+        let mut layout = owner.applied_enum_variant(id, arguments, variant)?;
+        if scope
+            .as_ref()
+            .is_some_and(|scope| !scope.accepts(layout.layout().declaration, arguments))
+        {
+            return None;
+        }
+        layout.scope = scope;
+        if layout.scope.is_some() || layout.canonical.is_none() {
+            let linked = layout.canonical;
+            // A canonical identity always describes both physical shape and scope.
+            // Detached/borrowed-store preparation keeps full checks as its fallback.
+            layout.canonical = records
+                .as_deref_mut()
+                .and_then(|records| records.resolve_mut(&owner.program_root()))
+                .and_then(|record| record.program_layouts())
+                .and_then(|layouts| {
+                    layouts.identities.enumerations.prepare(
+                        owner,
+                        layout
+                            .applied
+                            .clone()
+                            .unwrap_or_else(|| Arc::new(layout.layout().clone())),
+                        arguments,
+                        layout.scope.as_deref(),
+                        linked,
+                    )
+                });
+        }
+        if (layout.applied.is_some() || layout.scope.is_some())
+            && let Some((record, key)) = records
+                .as_deref_mut()
+                .and_then(|records| records.resolve_mut(owner))
+                .zip(cache_key)
+        {
+            // Optional retention cannot invalidate a complete immutable descriptor.
             let _ = record.layouts.enumerations.insert(
-                id,
+                key,
                 Arc::from(arguments),
                 AppliedLayout {
-                    layout: applied.clone(),
+                    layout: layout.applied.clone(),
                     canonical: layout.canonical,
+                    scope: layout.scope.clone(),
                 },
             );
         }
@@ -223,6 +317,10 @@ impl ModuleStore {
 }
 
 impl StructLayoutRef {
+    pub(crate) fn type_bindings(&self) -> Option<&Arc<TypeBindings>> {
+        self.scope.as_ref().map(|scope| scope.bindings())
+    }
+
     pub(crate) fn template(&self) -> &StructLayout<DefinitionId> {
         &self.module.bytecode.structures[self.id.index()]
     }
@@ -230,7 +328,7 @@ impl StructLayoutRef {
     pub(crate) fn type_expression(&self) -> Ty<DefinitionId> {
         Ty::Struct(NominalTy {
             declaration: self.layout().declaration,
-            arguments: if self.environment.is_some() {
+            arguments: if self.scope.is_some() {
                 self.template().arguments.clone()
             } else {
                 self.layout().arguments.clone()
@@ -248,7 +346,7 @@ impl StructLayoutRef {
         TypeView::new(
             &self.type_expression(),
             &self.module,
-            self.environment.as_deref(),
+            self.type_bindings().map(Arc::as_ref),
         )
         .compatible(TypeView::new(ty, owner, environment))
     }
@@ -257,16 +355,23 @@ impl StructLayoutRef {
         &self,
         slot: usize,
     ) -> Option<(&Ty<DefinitionId>, Option<&TypeBindings>)> {
-        let layout = if self.environment.is_some() {
+        let layout = if self.scope.is_some() {
             &self.module.bytecode.structures[self.id.index()]
         } else {
             self.layout()
         };
-        Some((&layout.fields.get(slot)?.ty, self.environment.as_deref()))
+        Some((
+            &layout.fields.get(slot)?.ty,
+            self.type_bindings().map(Arc::as_ref),
+        ))
     }
 }
 
 impl EnumVariantRef {
+    pub(crate) fn type_bindings(&self) -> Option<&Arc<TypeBindings>> {
+        self.scope.as_ref().map(|scope| scope.bindings())
+    }
+
     /// Reuse prepared layout and payload scope for another checked member.
     pub(crate) fn with_variant(&self, variant: u32) -> Option<Self> {
         self.layout().variants.get(variant as usize)?;
@@ -279,7 +384,7 @@ impl EnumVariantRef {
     fn type_expression(&self) -> Ty<DefinitionId> {
         Ty::Enum(NominalTy {
             declaration: self.layout().declaration,
-            arguments: if self.environment.is_some() {
+            arguments: if self.scope.is_some() {
                 self.module.bytecode.enumerations[self.id.index()]
                     .arguments
                     .clone()
@@ -299,7 +404,7 @@ impl EnumVariantRef {
         TypeView::new(
             &self.type_expression(),
             &self.module,
-            self.environment.as_deref(),
+            self.type_bindings().map(Arc::as_ref),
         )
         .compatible(TypeView::new(ty, owner, environment))
     }
@@ -322,7 +427,7 @@ impl EnumVariantRef {
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                 _ => false,
             }
-            && match (&self.environment, &other.environment) {
+            && match (&self.scope, &other.scope) {
                 (None, None) => true,
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                 _ => false,
@@ -335,15 +440,13 @@ impl EnumVariantRef {
         if Arc::ptr_eq(&self.module.program, &other.module.program)
             && self.canonical.is_some()
             && self.canonical == other.canonical
-            && self.environment.is_none()
-            && other.environment.is_none()
         {
             return true;
         }
         self.matches_type(
             &other.type_expression(),
             &other.module,
-            other.environment.as_deref(),
+            other.type_bindings().map(Arc::as_ref),
         )
     }
 
@@ -351,7 +454,7 @@ impl EnumVariantRef {
         &self,
         slot: usize,
     ) -> Option<(&Ty<DefinitionId>, Option<&TypeBindings>)> {
-        let layout = if self.environment.is_some() {
+        let layout = if self.scope.is_some() {
             &self.module.bytecode.enumerations[self.id.index()]
         } else {
             self.layout()
@@ -362,7 +465,7 @@ impl EnumVariantRef {
                 .get(self.variant as usize)?
                 .payload
                 .get(slot)?,
-            self.environment.as_deref(),
+            self.type_bindings().map(Arc::as_ref),
         ))
     }
 }

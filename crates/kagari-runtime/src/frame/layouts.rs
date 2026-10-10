@@ -2,12 +2,9 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{
-        ExecutionFrame,
-        types::{arguments::TypeArgument, bindings::TypeBindings},
-    },
+    frame::{ExecutionFrame, types::arguments::TypeArgument},
     gc::HeapObjectId,
-    module::{EnumVariantRef, StructLayoutRef},
+    module::{EnumVariantRef, StructLayoutRef, layout_scope::LayoutScope},
     native::storage_type::StorageType,
     value::Value,
 };
@@ -93,7 +90,7 @@ impl ExecutionFrame {
         runtime: &Runtime,
         declaration: &DefinitionId,
         arguments: &[Ty<DefinitionId>],
-    ) -> Result<Option<Arc<TypeBindings>>, RuntimeError> {
+    ) -> Result<Option<Arc<LayoutScope>>, RuntimeError> {
         if arguments.iter().all(Ty::is_concrete) {
             return Ok(None);
         }
@@ -112,13 +109,17 @@ impl ExecutionFrame {
         id: StructId,
         arguments: &[Ty<DefinitionId>],
     ) -> Result<StructLayoutRef, RuntimeError> {
-        let mut layout = runtime
-            .modules
-            .applied_struct_layout(self.loaded(), id, &self.layout_arguments(arguments)?)
+        let template = self
+            .loaded()
+            .bytecode
+            .structures
+            .get(id.index())
             .ok_or_else(|| RuntimeError::module_validation("invalid struct layout application"))?;
-        layout.environment =
-            self.layout_environment(runtime, &layout.layout().declaration, arguments)?;
-        Ok(layout)
+        let scope = self.layout_environment(runtime, &template.declaration, arguments)?;
+        runtime
+            .modules
+            .applied_struct_layout(self.loaded(), id, &self.layout_arguments(arguments)?, scope)
+            .ok_or_else(|| RuntimeError::module_validation("invalid struct layout application"))
     }
 
     pub fn enum_variant(
@@ -128,17 +129,22 @@ impl ExecutionFrame {
         arguments: &[Ty<DefinitionId>],
         variant: u32,
     ) -> Result<EnumVariantRef, RuntimeError> {
-        let mut layout = runtime
+        let template = self
+            .loaded()
+            .bytecode
+            .enumerations
+            .get(id.index())
+            .ok_or_else(|| RuntimeError::module_validation("invalid enum layout application"))?;
+        let scope = self.layout_environment(runtime, &template.declaration, arguments)?;
+        runtime
             .modules
             .applied_enum_variant(
                 self.loaded(),
                 id,
                 &self.layout_arguments(arguments)?,
                 variant,
+                scope,
             )
-            .ok_or_else(|| RuntimeError::module_validation("invalid enum layout application"))?;
-        layout.environment =
-            self.layout_environment(runtime, &layout.layout().declaration, arguments)?;
-        Ok(layout)
+            .ok_or_else(|| RuntimeError::module_validation("invalid enum layout application"))
     }
 }

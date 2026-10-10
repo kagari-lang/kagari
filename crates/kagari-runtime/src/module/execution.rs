@@ -101,7 +101,7 @@ impl PreparedField {
             id: self.structure,
             applied: None,
             canonical: Some(owner.program.layouts.structure(owner.slot, self.structure)),
-            environment: None,
+            scope: None,
         }
     }
 }

@@ -78,11 +78,8 @@ impl Runtime {
             .ok_or_else(|| {
                 RuntimeError::module_validation("missing executable struct application")
             })?;
-        let mut layout = self
-            .modules
-            .applied_struct_layout(&member, id, &types)
-            .ok_or_else(|| RuntimeError::module_validation("invalid struct application"))?;
-        for (compiled, supplied) in layout.template().arguments.iter().zip(arguments) {
+        let template = &member.bytecode.structures[id.index()];
+        for (compiled, supplied) in template.arguments.iter().zip(arguments) {
             if compiled.is_concrete()
                 && !supplied
                     .view(owner)
@@ -93,8 +90,11 @@ impl Runtime {
                 ));
             }
         }
-        layout.environment =
-            self.prepare_layout_scope(&member, layout.layout().declaration, arguments)?;
+        let scope = self.prepare_layout_scope(&member, template.declaration, arguments)?;
+        let layout = self
+            .modules
+            .applied_struct_layout(&member, id, &types, scope)
+            .ok_or_else(|| RuntimeError::module_validation("invalid struct application"))?;
         let result = self.retain_object_type(layout)?;
         if !result.0.public {
             return Err(RuntimeError::module_validation("object type is not public"));
@@ -118,7 +118,7 @@ impl Runtime {
         let argument = self
             .type_arguments(
                 layout.module(),
-                layout.environment.clone(),
+                layout.type_bindings().cloned(),
                 &[layout.type_expression()],
             )?
             .pop()

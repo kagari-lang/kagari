@@ -16,9 +16,18 @@ use std::{
 };
 
 /// Meaningful only within the same program descriptor and aggregate kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct LayoutIdentity {
     slot: NonZeroUsize,
+}
+
+impl LayoutIdentity {
+    pub(super) fn next(counter: &mut usize) -> Option<Self> {
+        *counter = counter.checked_add(1)?;
+        Some(Self {
+            slot: NonZeroUsize::new(*counter)?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -106,6 +115,13 @@ impl ProgramLayouts {
                     .collect::<Vec<_>>(),
             ),
         }
+    }
+
+    pub(super) fn counts(&self) -> (usize, usize) {
+        (
+            self.structures.locations.len(),
+            self.enumerations.locations.len(),
+        )
     }
 
     pub(super) fn structure(&self, member: ModuleRef, id: StructId) -> LayoutIdentity {

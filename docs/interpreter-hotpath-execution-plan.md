@@ -847,3 +847,72 @@ these cold checks are not throughput samples. The executable is preserved at
 `target/hp01/layout-scope-executable`, SHA-256
 `f4b8fb1ced68b8314fb724e242b8e8ec9d3de5abb4e9553867ccd1350ccfa84d`.
 No carried build/test error remains; no full workspace or GitHub CI run was performed.
+
+2026-10-10 HP01, complete applied-layout identity checkpoint (in progress): layout
+applications now prepare physical shape and immutable lexical scope together. The
+old writable `StructLayoutRef`/`EnumVariantRef` environment fields are removed;
+interpreter, native enum and host object consumers receive complete descriptors and
+read-only type bindings. The per-member application key includes the exact immutable
+scope ID, so warm hits also reuse the prepared canonical identity.
+
+The program-root record lazily owns scope preparation and complete applied-identity
+normalization; other members carry only their application indexes. Normalization keys
+include the entire applied layout and every scoped argument's type/provenance identity.
+A scoped application reuses a linked ID only if its arguments exactly match the linked
+scope, including nominal supplying versions. Runtime-only equivalent shapes normalize
+across members, including equivalent scoped and unscoped preparations. The program
+retains 128 normalization entries per aggregate kind in addition to its 128 scopes;
+each member retains 128 complete applications per kind. No receiver values, executable
+leases or hidden GC edges are introduced.
+
+Dynamic layout IDs start beyond the immutable linked table; scope/layout counters
+never recycle IDs after eviction. Checked counter exhaustion falls back to complete
+compatibility without wrapping. Borrowed stores and retired records retain detached
+readability. The removed unscoped-only fast-path guards are justified by the now-sealed
+complete identity: scope cannot change after preparation, changed supplying versions
+have different keys, and same-ID comparison still requires the exact program descriptor
+(and the enum variant). Without that proof, full `TypeView` checks remain. Genuine
+cross-generation compatibility admission is still outstanding HP01/HP05 work.
+
+The existing layout identity/lifetime contracts now verify a scoped producer against
+a linked concrete consumer, runtime-only nested applications through two members,
+scoped/unscoped identity agreement, changed supplying generations, wrong-binder rejection,
+non-reuse of IDs after 160 applications, and readability after executable retirement.
+This extends the relevant contracts rather than adding parallel smoke tests.
+
+Under the same recorded HP00 machine/toolchain/default parallelism, incremental release
+diagnostics, fresh runtime per probe, one cold call and a measured fourth call after
+two warmups, the unchanged nested generic probes compare with the preceding checkpoint:
+
+| Warm probe | Previous allocation requests | Current allocation requests | Current GC objects |
+| --- | ---: | ---: | ---: |
+| Fixed nominal, 2,500 iterations | 2,080,627 | 1,055,627 | 7,501 |
+| Alternating nominals, 2,500 iterations | 2,080,616 | 1,055,616 | 7,501 |
+| Fixed nominal, 5,000 iterations | 4,161,197 | 2,111,197 | 15,001 |
+| Alternating nominals, 5,000 iterations | 4,161,171 | 2,111,171 | 15,001 |
+
+The difference is 410 allocation requests per iteration; object counts and checksums
+are unchanged. Cold scope preparation remains two/four records for fixed/changing types
+at either loop length, and zero when warm. At 5,000 iterations both probes still perform
+20,002 metadata validations and 60,003 slow boundaries. Input resolution, remaining type
+checks and execution protocols are not eliminated by layout identity. Final evidence:
+`target/hp01/applied-layout-identity-diagnostics.log`; the preceding checkpoint's log
+remains preserved. These are allocation counts, not throughput or isolated descriptor
+retained bytes; compilation is excluded. No new Lua timing claim is made.
+
+Focused checks pass: module identity/lifetime (7, including the final root-store ownership
+change), VM native enums (6), embed enum payloads (4), source-free native enums (2),
+generic reload (2), host nominal applied fields (1), strict runtime/benchmark all-target
+Clippy with diagnostics, formatting, structure (998 files, zero violations/exceptions),
+all 703 local Markdown links and diff checks. An intermediate unused import was removed.
+No carried build/test error remains. HP01 still needs explicit compatibility admission,
+completion of the preparation-owner audit and isolated descriptor-memory accounting.
+No full workspace or GitHub CI matrix has run; later phases and Lua parity remain open.
+
+The ordinary release executable is restored and preserved at
+`target/hp01/applied-layout-identity-executable`, SHA-256
+`1e4bf43f04bfcf2813733636b92dc05bf0d2e1ec3f861e2de475b342ff9501bc`.
+Original/source-form checksum checks pass. These are cold correctness checks, not
+throughput measurements; the frozen benchmark definitions remain unchanged.
+The focused associated-type family/GC-object/default-method execution contract also
+passes against the final implementation. Final worktree diff checks pass.

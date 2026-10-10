@@ -92,7 +92,7 @@ impl Runtime {
         let argument = self
             .type_arguments(
                 layout.module(),
-                layout.environment.clone(),
+                layout.type_bindings().cloned(),
                 slice::from_ref(ty),
             )?
             .pop()

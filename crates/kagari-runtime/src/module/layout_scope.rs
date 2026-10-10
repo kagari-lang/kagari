@@ -8,11 +8,51 @@ use crate::{
     module::{LoadedModule, descriptor_index::DescriptorIndex},
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_types::ty::GenericParam;
-use std::sync::Arc;
+use kagari_types::ty::{GenericParam, Ty};
+use std::{num::NonZeroUsize, sync::Arc};
 
-pub(super) type LayoutScopes =
-    DescriptorIndex<DefinitionId, Arc<[Arc<TypeIdentity>]>, Arc<TypeBindings>>;
+#[derive(Debug)]
+pub(crate) struct LayoutScope {
+    owner: LoadedModule,
+    id: Option<NonZeroUsize>,
+    bindings: Arc<TypeBindings>,
+    arguments: Arc<[Arc<TypeIdentity>]>,
+}
+
+impl LayoutScope {
+    pub(crate) fn bindings(&self) -> &Arc<TypeBindings> {
+        &self.bindings
+    }
+
+    pub(super) fn id_for(&self, owner: &LoadedModule) -> Option<NonZeroUsize> {
+        Arc::ptr_eq(&self.owner.program, &owner.program)
+            .then_some(self.id)
+            .flatten()
+    }
+
+    pub(super) fn accepts(
+        &self,
+        declaration: DefinitionId,
+        arguments: &[Ty<DefinitionId>],
+    ) -> bool {
+        self.arguments.len() == arguments.len()
+            && arguments.iter().enumerate().all(|(position, ty)| {
+                self.bindings
+                    .argument(&declaration, position)
+                    .is_some_and(|argument| argument.ty() == ty)
+            })
+    }
+
+    pub(super) fn arguments(&self) -> &Arc<[Arc<TypeIdentity>]> {
+        &self.arguments
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct LayoutScopes {
+    entries: DescriptorIndex<DefinitionId, Arc<[Arc<TypeIdentity>]>, Arc<LayoutScope>>,
+    next: usize,
+}
 
 impl Runtime {
     /// Layout callers check template compatibility before installing this scope.
@@ -22,7 +62,7 @@ impl Runtime {
         owner: &LoadedModule,
         declaration: DefinitionId,
         arguments: &[TypeArgument],
-    ) -> Result<Option<Arc<TypeBindings>>, RuntimeError> {
+    ) -> Result<Option<Arc<LayoutScope>>, RuntimeError> {
         if !owner.belongs_to(self.host.owner()) {
             return Err(RuntimeError::module_validation("foreign layout scope"));
         }
@@ -45,10 +85,11 @@ impl Runtime {
         let scopes = records
             .as_deref_mut()
             .and_then(|records| records.resolve_mut(&root))
-            .map(|record| &mut record.layouts.scopes);
+            .and_then(|record| record.program_layouts())
+            .map(|layouts| &mut layouts.scopes);
         if let Some(scope) = scopes
             .as_ref()
-            .and_then(|scopes| scopes.get(&declaration, identities.as_slice()))
+            .and_then(|scopes| scopes.entries.get(&declaration, identities.as_slice()))
         {
             return Ok(Some(scope.clone()));
         }
@@ -60,16 +101,30 @@ impl Runtime {
                 position,
             })
             .collect();
-        let scope = Arc::new(TypeBindings::new(
+        let bindings = Arc::new(TypeBindings::new(
             self.definition_context(),
             parameters,
             arguments.to_vec(),
         )?);
+        let mut scope = LayoutScope {
+            owner: root,
+            id: None,
+            bindings,
+            arguments: identities.into(),
+        };
         if let Some(scopes) = scopes {
-            // Optional bounded retention must not turn pure type provenance into
-            // a program/environment lease. Detached reads also use this path.
-            let _ = scopes.insert(declaration, identities.into(), scope.clone());
+            // IDs are never recycled, even after optional retention is evicted.
+            // Exhaustion loses reuse, not correctness or detached readability.
+            if let Some(next) = scopes.next.checked_add(1) {
+                scopes.next = next;
+                scope.id = NonZeroUsize::new(next);
+            }
+            let scope = Arc::new(scope);
+            let _ = scopes
+                .entries
+                .insert(declaration, scope.arguments.clone(), scope.clone());
+            return Ok(Some(scope));
         }
-        Ok(Some(scope))
+        Ok(Some(Arc::new(scope)))
     }
 }

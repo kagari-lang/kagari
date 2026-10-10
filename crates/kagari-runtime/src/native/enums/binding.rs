@@ -154,7 +154,7 @@ impl Runtime {
             payload.push(
                 self.type_arguments(
                     member.layout.module(),
-                    member.layout.environment.clone(),
+                    member.layout.type_bindings().cloned(),
                     slice::from_ref(ty),
                 )?
                 .pop()

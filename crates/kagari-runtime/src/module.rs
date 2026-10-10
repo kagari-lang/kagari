@@ -1,10 +1,11 @@
+mod applied_layout_identity;
 pub(crate) mod collection;
 mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
 pub mod execution;
 mod layout_identity;
-mod layout_scope;
+pub(crate) mod layout_scope;
 mod layouts;
 mod records;
 pub mod retention;
@@ -13,12 +14,12 @@ mod state;
 use crate::{
     cache::ReloadDependencySnapshot,
     error::RuntimeError,
-    frame::types::bindings::TypeBindings,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
     module::{
         execution::ExecutionModule,
         layout_identity::{LayoutIdentity, ProgramLayouts},
+        layout_scope::LayoutScope,
         records::ModuleRecord,
         retention::{ProgramLease, Retentions},
         staging::StagedProgram,
@@ -436,7 +437,7 @@ pub struct EnumVariantRef {
     variant: u32,
     applied: Option<Arc<EnumLayout<DefinitionId>>>,
     canonical: Option<LayoutIdentity>,
-    pub(crate) environment: Option<Arc<TypeBindings>>,
+    scope: Option<Arc<LayoutScope>>,
 }
 
 impl EnumVariantRef {
@@ -475,7 +476,7 @@ pub struct StructLayoutRef {
     id: StructId,
     applied: Option<Arc<StructLayout<DefinitionId>>>,
     canonical: Option<LayoutIdentity>,
-    pub(crate) environment: Option<Arc<TypeBindings>>,
+    scope: Option<Arc<LayoutScope>>,
 }
 
 impl StructLayoutRef {
@@ -485,8 +486,6 @@ impl StructLayoutRef {
         if Arc::ptr_eq(&self.module.program, &other.module.program)
             && self.canonical.is_some()
             && self.canonical == other.canonical
-            && self.environment.is_none()
-            && other.environment.is_none()
         {
             return true;
         }
@@ -499,7 +498,7 @@ impl StructLayoutRef {
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                 _ => false,
             }
-            && match (&self.environment, &other.environment) {
+            && match (&self.scope, &other.scope) {
                 (None, None) => true,
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                 _ => false,
@@ -522,7 +521,7 @@ impl StructLayoutRef {
                 && self.matches_type(
                     &other.type_expression(),
                     &other.module,
-                    other.environment.as_deref(),
+                    other.type_bindings().map(Arc::as_ref),
                 ))
     }
 }

@@ -570,23 +570,30 @@ does not recreate native applications or host-style selected-call roots on a hit
 TypeArgument shares immutable validated type facts, memoized parameters, exact
 type/provenance identities and enum layout applications. Interpreter aggregate
 construction, native enum preparation and host object binding share one layout-scope
-preparer. Its program-root record retains at most 128 declaration/argument scopes;
-each member separately retains at most 128 struct and 128 enum applications. These
-use the same bounded index as executable descriptors, with distinct ownership rules:
+preparer. Its lazily created program-root store retains at most 128 declaration/argument
+scopes and 128 complete applied identities per aggregate kind; each member separately
+retains at most 128 struct and 128 enum applications, including their immutable scopes.
+These use the same bounded index as executable descriptors, with distinct ownership rules:
 layout facts own immutable provenance and no executable leases or GC edges. Cache
 eviction, store borrowing or retirement can require preparation again; existing
 descriptors remain readable. Supplying versions remain part of the exact identity.
 At linking, equivalent struct/enum layouts across members of one pinned program
 receive a canonical identity. An applied template resolves that identity during
 preparation when a matching linked layout exists; the application cache retains
-the result. Identity tables retain locations in immutable bytecode, not duplicated
+the result. Linked identity tables retain locations in immutable bytecode, not duplicated
 layouts, native links, Values or executable leases. Complete equality establishes
-identity; a hash only selects candidates. Unscoped accesses compare program and
-canonical identity instead of whole layouts. Repeated scoped applications share their
-prepared bindings and can use the existing exact-descriptor check. Different layouts
-or generations retain complete compatibility checks; the active HP plan owns dynamic
-cross-member normalization and explicit compatibility admission. Operand resolution
-and lookup still occur at execution sites until the prepared-operation migration.
+identity; a hash only selects candidates. Runtime-only applications normalize complete
+shape and scoped argument identities under the same program. A scoped application may
+reuse a linked identity only when every argument has the same supplying provenance.
+Application preparation seals scope and identity together; consumers cannot modify the
+scope afterward. Dynamic IDs start after linked IDs and are never recycled on eviction;
+scope IDs are also monotonic within their exact program. Exhaustion, detached facts or
+a borrowed store retain full compatibility checks when no prepared proof is available.
+Same-program accesses compare complete canonical identities instead of whole layouts,
+including equivalent scoped/unscoped producers and consumers across members. Genuine
+cross-generation compatibility retains full checks pending explicit admission in the
+active HP plan. Operand resolution and lookup still occur at execution sites until the
+prepared-operation migration.
 Every value access continues to validate heap ownership, slot generation and access.
 
 Typed callbacks borrow their enclosing synchronous call's program retention.

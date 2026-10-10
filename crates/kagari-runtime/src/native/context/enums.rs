@@ -57,27 +57,36 @@ impl Runtime {
         if template.variants.is_empty() {
             return Ok(Vec::new());
         }
-        let mut layout = self
-            .modules
-            .applied_enum_variant(&owner, id, &nominal.arguments, 0)
-            .ok_or_else(|| RuntimeError::module_validation("native enum layout application"))?;
         let arguments = (0..nominal.arguments.len())
             .map(|position| applied.parameter(self, fallback, position))
             .collect::<NativeResult<Vec<_>>>()?;
-        if arguments.iter().any(TypeArgument::has_origin) {
-            if !template.arguments.iter().enumerate().all(|(position, ty)| {
-                matches!(ty, Ty::Parameter { owner, position: slot } if *owner == nominal.declaration && *slot == position)
-            }) {
-                if template.arguments.iter().zip(&arguments).all(|(compiled, supplied)| {
-                    compiled.is_concrete() && supplied.view(fallback).compatible(TypeView::new(compiled, &owner, None))
-                }) {
-                    return enum_variants(&layout);
-                }
-                return Err(RuntimeError::module_validation("scoped enum payload differs from its concrete layout"));
+        let generic = template.arguments.iter().enumerate().all(|(position, ty)| {
+            matches!(ty, Ty::Parameter { owner, position: slot } if *owner == nominal.declaration && *slot == position)
+        });
+        let scope = if arguments.iter().any(TypeArgument::has_origin) && !generic {
+            if !template
+                .arguments
+                .iter()
+                .zip(&arguments)
+                .all(|(compiled, supplied)| {
+                    compiled.is_concrete()
+                        && supplied
+                            .view(fallback)
+                            .compatible(TypeView::new(compiled, &owner, None))
+                })
+            {
+                return Err(RuntimeError::module_validation(
+                    "scoped enum payload differs from its concrete layout",
+                ));
             }
-            layout.environment =
-                self.prepare_layout_scope(&owner, nominal.declaration, &arguments)?;
-        }
+            None
+        } else {
+            self.prepare_layout_scope(&owner, nominal.declaration, &arguments)?
+        };
+        let layout = self
+            .modules
+            .applied_enum_variant(&owner, id, &nominal.arguments, 0, scope)
+            .ok_or_else(|| RuntimeError::module_validation("native enum layout application"))?;
         enum_variants(&layout)
     }
 

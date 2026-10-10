@@ -2,7 +2,8 @@
 use crate::{
     module::{
         LoadedModule, ModuleInstance, ModuleStore, ModuleStoreInner,
-        descriptors::LinkedDescriptors, layouts::LayoutCache,
+        descriptors::LinkedDescriptors,
+        layouts::{LayoutCache, ProgramLayoutCache},
     },
     native::binding::LinkedNativeFunction,
     value::Value,
@@ -18,6 +19,7 @@ pub(super) struct ModuleRecord {
     pub(super) constants: Vec<Option<Value>>,
     pub(super) descriptors: LinkedDescriptors,
     native: Vec<Arc<LinkedNativeFunction>>,
+    program_layouts: Option<Box<ProgramLayoutCache>>,
 }
 
 impl ModuleRecord {
@@ -25,11 +27,23 @@ impl ModuleRecord {
         Self {
             instance: ModuleInstance::new(&module),
             constants: vec![None; module.bytecode.constants.len()],
+            layouts: LayoutCache::default(),
+            program_layouts: None,
             module,
             native,
-            layouts: LayoutCache::default(),
             descriptors: LinkedDescriptors::default(),
         }
+    }
+
+    pub(super) fn program_layouts(&mut self) -> Option<&mut ProgramLayoutCache> {
+        if self.module.slot != self.module.program.root {
+            return None;
+        }
+        Some(
+            self.program_layouts.get_or_insert_with(|| {
+                Box::new(ProgramLayoutCache::new(&self.module.program.layouts))
+            }),
+        )
     }
 
     pub(super) fn matches(&self, module: &LoadedModule) -> bool {
