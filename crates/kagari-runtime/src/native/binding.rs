@@ -8,6 +8,7 @@ use crate::{
         catalog::DeclarationCatalog,
         context::{CallContext, LinkedCallable, LinkedOperation},
         declarations::SelectedCall,
+        primitive::NativePrimitive,
         result::LinkedResultAdapter,
     },
     value::Value,
@@ -117,9 +118,16 @@ impl Codec {
 pub struct NativeBinding {
     pub(crate) arguments: Box<[Codec]>,
     pub(crate) result: Codec,
-    pub(crate) entry: Arc<NativeEntry>,
+    pub(crate) entry: BindingEntry,
     pub(crate) converted_result: bool,
     pub(crate) requirement_owner: Option<DefinitionPath>,
+}
+
+/// Primitive authority owns the implementation; a callback cannot claim its effects.
+#[derive(Clone)]
+pub(crate) enum BindingEntry {
+    Callback(Arc<NativeEntry>),
+    Primitive(NativePrimitive),
 }
 
 impl fmt::Debug for NativeBinding {
@@ -145,7 +153,7 @@ impl NativeBinding {
         Self {
             arguments: arguments.into(),
             result,
-            entry: Arc::new(entry),
+            entry: BindingEntry::Callback(Arc::new(entry)),
             converted_result: false,
             requirement_owner: None,
         }
@@ -298,7 +306,12 @@ impl LinkedNativeFunction {
         }
         context.poll()?;
         let signature = self.type_signature()?;
-        let result = (self.binding.entry)(context);
+        let result = match &self.binding.entry {
+            BindingEntry::Callback(entry) => entry(context),
+            BindingEntry::Primitive(primitive) => context
+                .argument(0)
+                .and_then(|value| primitive.execute(context.heap(), value)),
+        };
         context.poll()?;
         let value = result?;
         if (!self.binding.converted_result || self.result_adapter.is_some())

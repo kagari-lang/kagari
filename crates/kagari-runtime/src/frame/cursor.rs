@@ -14,6 +14,7 @@ use std::ptr;
 mod indices;
 pub mod kernel;
 mod objects;
+mod primitives;
 mod scalars;
 #[cfg(test)]
 mod tests;

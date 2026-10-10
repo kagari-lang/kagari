@@ -7,6 +7,7 @@ use kagari_runtime::{
         catalog::DeclarationCatalog,
         context::CallContext,
         conversion::KagariType,
+        primitive::NativePrimitive,
         scalar::NativeScalar,
     },
     value::Value,
@@ -20,7 +21,7 @@ pub(super) fn binding(
 ) -> NativeResult<Option<NativeBinding>> {
     let string = BuiltinType::String;
     let binding = match name {
-        "$foundation_string_len" => method::<usize>(catalog, &[string], length),
+        "$foundation_string_len" => Ok(NativeBinding::primitive(NativePrimitive::StringByteLength)),
         "$foundation_string_is_empty" => method::<bool>(catalog, &[string], is_empty),
         "$foundation_string_contains" => method::<bool>(catalog, &[string, string], contains),
         "$foundation_string_starts_with" => method::<bool>(catalog, &[string, string], starts_with),
@@ -65,10 +66,6 @@ fn text<'a>(cx: &'a CallContext<'_>, index: usize) -> NativeResult<Ref<'a, str>>
     cx.heap()
         .string(id)
         .ok_or_else(|| RuntimeError::module_validation("invalid string argument"))
-}
-
-fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    Ok(text(cx, 0)?.len().encode())
 }
 
 fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {

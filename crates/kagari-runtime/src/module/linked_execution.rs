@@ -1,4 +1,5 @@
 //! Runtime-local execution links are admitted with their supplying program.
+mod primitives;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -7,8 +8,11 @@ use crate::{
         call_contracts::{InterfaceCallSite, ScopedInterfaceCall},
     },
     module::{
-        LoadedModule, ModuleStore, constants::ConstantPool, execution::calls::PreparedCallTarget,
+        LoadedModule, ModuleStore,
+        constants::ConstantPool,
+        execution::{calls::PreparedCallTarget, layout::Location},
     },
+    native::primitive::NativePrimitive,
 };
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::identity::table::DefinitionId;
@@ -21,6 +25,7 @@ pub(crate) struct LinkedFunction {
     pub(crate) constants: Arc<ConstantPool>,
     calls: Box<[Option<Arc<ScopedInterfaceCall>>]>,
     fields: Box<[Option<LinkedField>]>,
+    primitives: Box<[Option<LinkedPrimitive>]>,
 }
 
 #[derive(Debug)]
@@ -28,7 +33,18 @@ struct LinkedField {
     arguments: Box<[Ty<DefinitionId>]>,
 }
 
+#[derive(Debug)]
+pub(crate) struct LinkedPrimitive {
+    pub(crate) operation: NativePrimitive,
+    pub(crate) source: Location,
+    pub(crate) destination: Option<Location>,
+}
+
 impl LinkedFunction {
+    pub(crate) fn primitive(&self, index: usize) -> Option<&Option<LinkedPrimitive>> {
+        self.primitives.get(index)
+    }
+
     pub(crate) fn field_arguments(&self, index: usize) -> Option<&[Ty<DefinitionId>]> {
         Some(&self.fields.get(index)?.as_ref()?.arguments)
     }
@@ -137,6 +153,7 @@ impl Runtime {
                 Box::default()
             };
             functions.push(Some(Arc::new(LinkedFunction {
+                primitives: self.link_primitives(owner, function, prepared)?,
                 fields,
                 constants: constants.clone(),
                 calls: calls.into_boxed_slice(),

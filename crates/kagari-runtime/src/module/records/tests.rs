@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeErrorKind,
     module::{LinkedModule, ModuleEpochRetention, ProgramDescriptor, VerifiedProgram},
     native::{
-        binding::{Codec, NativeBinding},
+        binding::{BindingEntry, Codec, NativeBinding},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         declarations::FunctionDecl,
@@ -154,7 +154,10 @@ fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_cac
         .native_binding(&native_owner(&loaded), NativeImportId::new(0))
         .unwrap();
     let function_probe = Arc::downgrade(&function);
-    let entry_probe = Arc::downgrade(&function.binding.entry);
+    let BindingEntry::Callback(entry) = &function.binding.entry else {
+        panic!("fixture installs a callback");
+    };
+    let entry_probe = Arc::downgrade(entry);
     drop(function);
     let id = generic_structure(&loaded);
     let args = [Ty::Builtin(BuiltinType::I32)];

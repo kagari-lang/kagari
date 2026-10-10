@@ -872,7 +872,8 @@ the scalar loop prevents their storage checks from changing its inlining budget;
 the handoff retains original logical PC and instruction-slice accounting.
 `PreparedManagedOperation` is an opaque sealed record shared by instructions and
 this handoff. Its internal variants cover physical value copies, linked constant loads,
-managed returns and ordinals into prepared field/index tables. It cannot represent a scalar opcode
+managed returns, field/index ordinals and runtime-linked native operation ordinals.
+It cannot represent a scalar opcode
 or require an unreachable generic-operation arm. Managed local/register copies use
 prepared physical locations and the ordinary bank read/write representation rules,
 retaining heap owner/generation/kind validation without repeating public frame
@@ -902,6 +903,18 @@ the active frame keeps both operands rooted. Completion rereads those physical
 operands, copies immutable membership and publishes the new tuple before the next
 safepoint. No callback, collection or observation intervenes between cursor exit and
 operand acquisition. There is no extra logical PC or instruction-slice charge.
+NativeBinding distinguishes callback bodies from runtime-owned NativePrimitive
+implementations. Selecting a primitive installs its fixed kernel and exact codecs;
+a callback cannot assert a purity flag. StringByteLength reads immutable UTF-8
+storage and returns usize through the same kernel in both scoped native invocation
+and the prepared cursor. Linking admits it only from the actual installed binding,
+an already prepared exact signature and absence of selected operations/result
+adapters. Shared verified instructions contain only native-call ordinals; runtime
+links hold physical operands and the body kind, with no additional GC edges.
+Arbitrary callbacks and adapters keep the native boundary. Both native cancellation
+polls, current heap identity checks and physical result admission are preserved.
+No method-name recognition, source analysis or per-call descriptor allocation is
+involved. The stdlib's former separate string length body is removed.
 Each scalar segment splits the admitted Rust borrow into an immutable code slice,
 mutable logical-PC fields and bounded scalar/initialization slices. Fetch borrows
 one immutable instruction; dispatch then reads only its selected payload rather

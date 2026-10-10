@@ -151,6 +151,13 @@ impl ExecutionCursor<'_> {
                         return Ok(exit);
                     }
                 }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Native {
+                    index,
+                })) => {
+                    if let Some(exit) = self.execute_native(index)? {
+                        return Ok(exit);
+                    }
+                }
             }
             // The operation's PC and slice unit were consumed before the handoff.
             // Its successor still needs the normal logical boundary checks.

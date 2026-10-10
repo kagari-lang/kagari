@@ -22,7 +22,9 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BinaryOp, BytecodeInstruction, ConstantOperand, JumpTarget, Register, UnaryOp},
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Register, UnaryOp,
+    },
     module::BytecodeModule,
     suspension::AwaitLiveness,
 };
@@ -114,6 +116,7 @@ pub(crate) struct ExecutionFunction {
     pub calls: BTreeMap<usize, PreparedCall>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
+    pub native_calls: usize,
     pub interface_calls: usize,
     pub has_closed_interface_calls: bool,
     has_linked_constants: bool,
@@ -122,7 +125,10 @@ pub(crate) struct ExecutionFunction {
 
 impl ExecutionFunction {
     pub(crate) fn needs_runtime_links(&self) -> bool {
-        self.has_closed_interface_calls || self.has_linked_constants || self.has_scoped_fields
+        self.has_closed_interface_calls
+            || self.has_linked_constants
+            || self.has_scoped_fields
+            || self.native_calls != 0
     }
 }
 
@@ -162,6 +168,7 @@ impl ExecutionModule {
                         .collect();
                     let mut fields = Vec::new();
                     let mut indices = Vec::new();
+                    let mut native_calls = 0;
                     let instructions: Box<[_]> = function
                         .instructions
                         .iter()
@@ -174,6 +181,7 @@ impl ExecutionModule {
                                 module,
                                 &mut fields,
                                 &mut indices,
+                                &mut native_calls,
                             )
                         })
                         .collect();
@@ -193,6 +201,7 @@ impl ExecutionModule {
                         has_scoped_fields: fields.iter().any(|field| !field.concrete),
                         fields: fields.into_boxed_slice(),
                         indices: indices.into_boxed_slice(),
+                        native_calls,
                         interface_calls: 0,
                         has_closed_interface_calls: false,
                     }
@@ -210,6 +219,7 @@ impl ExecutionInstruction {
         module: &BytecodeModule<DefinitionId>,
         fields: &mut Vec<PreparedFieldOperation>,
         indices: &mut Vec<PreparedIndexOperation>,
+        native_calls: &mut usize,
     ) -> Self {
         let location = |register: Register| {
             registers
@@ -240,6 +250,14 @@ impl ExecutionInstruction {
         };
 
         match *instruction {
+            BytecodeInstruction::Call {
+                callee: CallTarget::Native(_),
+                ..
+            } => {
+                let index = *native_calls;
+                *native_calls += 1;
+                Self::managed(ManagedOperation::Native { index })
+            }
             BytecodeInstruction::LoadConst { dst, constant } => {
                 let value = match module.constants[constant.index()] {
                     ConstantOperand::Unit => Value::Unit,
@@ -390,13 +408,17 @@ mod tests {
             ExecutionFrame,
             cursor::kernel::{RegionError, RegionExit},
         },
-        module::linked_execution::LinkedFunction,
+        module::linked_execution::{LinkedFunction, LinkedPrimitive},
     };
     use std::{mem::size_of, sync::OnceLock};
 
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
+        eprintln!(
+            "linked primitive slot bytes={}",
+            size_of::<Option<LinkedPrimitive>>()
+        );
         eprintln!(
             "region bytes: error={}, exit={}, result={}",
             size_of::<RegionError>(),

@@ -13,4 +13,5 @@ pub(crate) enum ManagedOperation {
     Return { value: OperandSlot },
     Field { index: usize },
     Index { index: usize },
+    Native { index: usize },
 }

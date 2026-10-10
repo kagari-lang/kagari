@@ -5,6 +5,7 @@ mod interface_methods;
 mod method_applications;
 mod methods;
 mod native_boxing;
+mod primitives;
 mod script_values;
 mod selected_methods;
 mod shared_application;

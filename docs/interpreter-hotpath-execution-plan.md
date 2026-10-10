@@ -2845,3 +2845,133 @@ and metadata, then proceed to HP05 applied-layout/enum admission and HP06 retire
 and final acceptance. No architecture-completion or Lua-parity claim is made.
 Use target/hp04/indices/prepared-executable as the next ordinary baseline;
 target/release/kagari-lua-benchmark currently contains the diagnostic build.
+
+
+2026-10-10 HP04, native primitive implementation authority (in progress):
+NativeBinding now owns either a Rust callback or a finite NativePrimitive body.
+The public primitive constructor installs the runtime's fixed implementation and
+exact codecs; it cannot annotate an arbitrary callback as pure. The initial body is
+StringByteLength: immutable UTF-8 read, no script allocation or callback, String ->
+usize. The stdlib length binding selects this body and its separate length function
+is removed. Native invocation, including host-retained native function handles, and
+prepared interpreter execution call the same runtime-owned kernel.
+
+Shared verified instructions retain only a dense native-call ordinal. Linking uses
+the exact installed LinkedNativeFunction, requires an already prepared signature,
+checks exact String/usize types and excludes selected operations/result adapters.
+The runtime-local LinkedPrimitive record retains physical input/destination
+locations and the operation kind. Names and equal signatures alone confer no
+primitive authority. Ordinary callbacks and adapters remain explicit native
+boundaries; no lookup by $foundation_string_len appears in the interpreter/linker.
+The stdlib's declaration-to-body registration still uses its ordinary binding name.
+
+Frame/program roots pin the immutable linked implementation. Primitive records add
+no heap, environment or callable edges and cannot retain another runtime. Heap
+owner/generation/kind is checked by the shared string view; destination
+representation/semantic width remains checked. Both native cancellation polls are
+preserved, including the second poll before propagating a kernel error. No observer,
+GC or callback crosses the bounded string borrow. Prepared execution consumes one
+original logical PC/slice unit and the discarded-result case still executes the body.
+The exact fixed result type proves the former per-call signature-result comparison;
+an adapter or unprepared signature prevents admission to this path.
+
+A new source-free native-boundary contract reuses one VerifiedProgram across two
+runtimes with identical declaration names/signatures: one installs the primitive,
+the other an observable callback returning 41. Direct script calls, a script closure
+and a host-bound native entry return their respective bodies' results; the callback
+runs exactly four times, including a discarded-result call. UTF-8 inputs distinguish
+bytes from characters. Binding
+i32 input or u64 result (same integer storage as usize) is rejected. This is a new
+implementation-authority contract, not a benchmark-specific regression fixture.
+The initial test attempted unsupported native function-as-value syntax; it now uses
+an ordinary script closure plus the supported native function handle.
+
+Focused checks pass: the new authority contract; seven native_boundary_control
+contracts (cancellation polls/observation, completed effects, depth cleanup, trap
+origins, host reentry and generation-pinned closures); two owned_drive contracts;
+physical instruction budget and immutable native-link lifetime. The existing
+lifetime probe now extracts the Callback variant before taking its Weak pointer;
+its retention assertions are unchanged. Its initial compile error was resolved.
+Affected-target all-target Clippy with diagnostics and warnings denied passes, as
+does structure review (1,020 Rust files, zero violations/exceptions). No carried
+build/test failure remains. Performance and integrated acceptance are below.
+
+Metadata: instructions remain 24 bytes, frames 264, region error/result 24/32.
+ExecutionFunction grows 120 -> 128 bytes for the native ordinal count; LinkedFunction
+40 -> 56 bytes for a boxed native-operation table. Each table slot is 16 bytes,
+including an ordinary-callback None. Only native-call sites receive slots; functions
+with native calls now retain runtime execution links. These bounded setup costs
+must be measured along with throughput; no per-call descriptor allocation occurs.
+
+
+Native primitive checkpoint measurements use cdda1912's preserved ordinary baseline
+(SHA-256 3241faf78f6b4a035b85469dc3d03f32df5b5a8ba2820e46dd48fcff83138c6b).
+Candidate: target/hp04/primitives/prepared-executable, SHA-256
+457da165a899ae3d77123449e7930a08f11590d960692ea458853f4bf081558e.
+Both paired JSONs record these exact hashes: target/lua-comparison/
+20261010T081139Z-forms-paired/results.json and 20261010T081313Z-paired/results.json.
+Builds 21.259/0.085 s are excluded. All checksums pass. Same M1 Max/32 GiB/10
+logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8, vendored PUC Lua 5.4.8,
+workspace release/default Cargo parallelism, ordinary allocator and normal GC.
+Fresh baseline/candidate/candidate/baseline processes run sequentially, three
+warmups and 22 pooled samples per variant. No build/test/profile overlaps timing;
+diagnostics are built and run afterward. Frozen workload sources and inputs remain
+unchanged. Entry and host/native adapters remain outside the 16-workload parity gate.
+
+| Workload | Candidate / index baseline | Lua control | Candidate VM / Lua |
+| --- | ---: | ---: | ---: |
+| byte_state | 0.9848 | 1.0114 | 14.53 |
+| capture_cell | 0.9920 | 0.9807 | 45.39 |
+| concrete_generic | 1.0019 | 0.9703 | 25.73 |
+| direct | 0.9963 | 0.9976 | 3.52 |
+| field | 1.0104 | 1.0007 | 14.49 |
+| helper | 1.0015 | 0.9911 | 18.38 |
+| host_callback | 1.0169 | 0.9962 | 6.07 |
+| interface | 1.0060 | 1.0002 | 33.84 |
+| native | 1.0153 | 1.0038 | 10.77 |
+| shared_generic | 1.0022 | 0.9820 | 53.15 |
+| string_calls | 0.7590 | 0.9827 | 27.05 |
+| string_constants | 0.4346 | 1.0159 | 11.95 |
+| arithmetic | 0.9886 | 0.9897 | 5.00 |
+| arrays | 1.0014 | 1.0134 | 26.85 |
+| branches | 0.9874 | 1.0126 | 2.88 |
+| calls | 1.0000 | 0.9936 | 23.13 |
+| entry | 1.0029 | 0.9920 | 47.43 |
+| fibonacci | 1.0085 | 1.0238 | 30.04 |
+| maps | 1.0065 | 1.0226 | 65.06 |
+
+String constants/calls improve 56.54%/24.10% in raw duration. Lua controls are
+1.0159/0.9827; the benefit is not explained by a uniform host timing shift. Original
+arrays/calls/maps remain near the baseline (1.0014/1.0000/1.0065), while native and
+host-callback source forms increase 1.53%/1.69%. These small changes are not proof
+of zero callback overhead. The added fallback classification and descriptor memory
+remain explicit costs. Prior field/branch/helper regressions remain unresolved for
+integrated HP04 acceptance; this checkpoint is not an architectural or parity gate.
+
+Source-form setup baseline/candidate medians (two samples per variant, ms): source
+1193.390/1200.333, preparation 266.765/269.769, runtime init 113.726/113.337 and
+linking 3.063/3.134. Original-suite setup medians (six samples per workload/variant):
+runtime_init 109.353–110.436 versus 109.147–110.613 ms.
+program_link 2.440–2.671 versus 2.480–2.717 ms.
+These setup medians include unrelated initialization and do not isolate descriptor
+construction cost. Bounded table storage is reported separately above.
+
+Final diagnostic comparison to cdda1912: all 72 source-form/scaling rows match
+except string-constant cold/warm slow boundaries 5,000 -> 0 and string-call boundaries
+10,000 -> 5,000. All allocation/byte, heap object, GC, metadata preparation/admission
+and driver counters are unchanged; warm string cases still request seven allocations
+and no new heap objects. The remaining string-call boundaries are ordinary helper
+calls. All 14 original-suite rows match exactly. Diagnostics and logs are under
+target/hp04/primitives/; ordinary timing uses the separately preserved executable.
+
+Final validation includes the authority test's discarded-return case (four callback
+effects), earlier focused control/drive/lifetime checks, strict affected-target
+Clippy, formatting, structure and local documentation/diff checks. No full-workspace
+test or complete CI matrix ran, and no known build/test error is carried.
+
+HP04 remains in progress for remaining Vec native index/access contracts, retirement
+of superseded collection binding shortcuts and integrated performance/setup/metadata
+acceptance, including the already recorded control regressions. HP05 type/layout and
+enum migration, HP06 retrospective/final integration, CI and Lua parity remain open.
+Next ordinary baseline: target/hp04/primitives/prepared-executable; target/release
+currently contains the diagnostic build. Do not time that instrumented executable.
