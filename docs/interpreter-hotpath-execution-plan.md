@@ -2670,3 +2670,178 @@ Track the field/shared-generic regressions above in that acceptance; HP05 must s
 address applied-layout/type admission. HP05–HP06, complete CI and Lua parity remain
 open. Use target/hp04/fields/prepared-executable as the next ordinary baseline;
 target/release currently contains the final diagnostic build, not a timing binary.
+
+
+2026-10-10 HP04, prepared aggregate index ownership (in progress):
+The frozen byte-state workload executes 10,000 ReadAggregateIndex and 5,000
+WriteAggregateIndex instructions; original arrays executes 4,000/2,000, plus 2,001
+calls. These are the HP00 observer counts in the separately captured profiles,
+not new timing instrumentation. The principal indexed path is portable aggregate
+bytecode, not the native List/Index binding. It therefore belongs to the prepared
+operation layer; native primitive binding authority remains a separate HP04 item.
+
+Every verified aggregate index now retains physical base/index/read destination or
+write value locations in a dense immutable per-function table. Execution consumes
+that contract directly, and the VM canonical read/write handlers are removed.
+No runtime identities or type trees enter the shared portable descriptor. Current
+array and tuple identity, bounds, write access, default-storable payload and element
+type remain enforced. Array access uses the same GcHeap array_get/array_set kernels
+as SDK/native adapters. Their nominal type checks can still allocate Rust scratch
+metadata; they cannot grow the script heap, collect or invoke user code. Replacing
+that type admission is HP05 work, not a claim of this checkpoint.
+
+Tuple writes still copy immutable membership and allocate a new tuple, sharing its
+members. They leave the borrowed operand region before allocation and publish the
+new frame root before the successor safepoint. Neither transition introduces a new
+logical PC or slice unit. Index conversions and trap categories/order are preserved;
+RegionError adds InvalidIndex and the VM maps it back to the original category.
+This extends a public Rust enum and requires downstream exhaustive matches to be
+updated; the unpublished portable artifact/ABI identifiers remain unchanged.
+
+Focused checks pass: VM array filter (four), owned_drive (two), debugger (six),
+interpreter_conformance_classifies_failure_paths (one); runtime physical instruction
+budget and operand-borrow quarantine (one each). A temporary focused probe reused
+five existing language_contract fixtures: tuple-copy-commit, tuple-in-array-commit,
+compound-reads-current-tuple, compound-captures-index and compound-keeps-root-identity.
+All pass with expected values 44/42/32/32/3100 and retired call depth. The probe was
+removed after checking the existing contract owner rather than retaining duplicate
+fixtures or running the complete language/backend matrix at this intermediate step.
+Reproduce those source expressions from runtime/language_contract.rs; its full
+route matrix remains final/CI acceptance. Logs are under target/hp04/indices/.
+
+Measured metadata: ExecutionInstruction remains 24 bytes, ExecutionFrame 264,
+LinkedFunction 40; PreparedIndexOperation is 28 bytes. ExecutionFunction is 120
+bytes, including a new 16-byte boxed-table header; only indexed functions allocate
+table entries. This is bounded preparation storage, not per-index allocation.
+Initial affected-target strict Clippy and structure review pass (1,016 Rust files,
+zero violations/exceptions). Timing/control review below is still in progress.
+
+
+Rejected intermediate representations (same fixed workloads and field baseline
+167ce4e9, ordinary release, diagnostics disabled):
+
+- A value-bearing tuple transition packet, retained in
+  target/hp04/indices/payload-executable (SHA-256
+  a6e8e7576691d732ec11e66ef56714266dfa4d456433651ef49373b4292f3146),
+  improves byte-state by 60.23% and arrays by 32.01%, but regresses field/string
+  constants by 15.13%/14.50% and arithmetic/branches by 8.63%/10.18%.
+  Results are target/lua-comparison/20261010T074744Z-forms-paired/results.json
+  and 20261010T074841Z-paired/results.json; builds 21.317/21.337 s excluded.
+  Both suites pass checksums. These regressions are not accepted.
+- Replacing copied tuple/value operands with a prepared operation ordinal and
+  validated index leaves operands in their existing rooted frame. It reduces the
+  common entry from 759 to 722 disassembled instructions and dynamic stack space
+  from 0x210 to 0x1f0 (excluding saved registers), but does not recover the field or
+  string regressions: candidate/baseline 1.1552/1.1499 for field/string constants;
+  byte-state 0.3935. Lua controls for those cases are 1.0021/1.0022/1.0101.
+  Results: target/lua-comparison/20261010T075132Z-forms-paired/results.json;
+  build 20.775 s excluded, all checksums pass. The compact frame-owned request is
+  retained as the correct ownership model, not claimed as the performance fix.
+
+The scalar loop remains 456 instructions with a 0xd0 stack allocation in baseline,
+payload and compact builds; normalized disassembly differs only in relocated
+anonymous constant names. The region error/result still occupies 72 bytes even
+though a successful RegionExit is 24 bytes. Adding an index failure changes common
+result movement/code generation without increasing the overall measured size.
+Instruction/stack counts alone do not prove timing causation. The next experiment
+keeps detailed runtime failures as cold boxed data in RegionError, while retaining
+exact VM error categories and traces; no failure is moved into a success variant.
+Its runtime failure path adds one Rust allocation, and successful execution must
+show unchanged allocation counters. This decision still requires control measurements.
+
+
+Final index checkpoint keeps the compact frame-owned tuple request and boxes only
+RegionError::Runtime. Measured RegionError shrinks from 72 to 24 bytes, and
+Result<RegionExit, RegionError> from 72 to 32; RegionExit remains 24. The VM unwraps
+the box without changing RuntimeError contents, traces or failure categories.
+The public Runtime variant now carries Box<RuntimeError>, in addition to the new
+InvalidIndex variant. This is an intentional unpublished Rust API replacement.
+The five tuple/compound probes, failure classification, physical instruction budget
+and operand-borrow quarantine checks pass again after these changes.
+
+Final ordinary release executable: target/hp04/indices/prepared-executable, SHA-256
+3241faf78f6b4a035b85469dc3d03f32df5b5a8ba2820e46dd48fcff83138c6b.
+Both final throughput JSONs record this hash and the unchanged baseline
+8f3ecc8c03094a78972fd9713325067f0a2628e1497690f653ae26777cec23a0.
+Source forms: target/lua-comparison/20261010T075415Z-forms-paired/results.json;
+original seven: target/lua-comparison/20261010T075502Z-paired/results.json.
+Builds 20.204/0.086 s are excluded. All checksums pass. Same M1 Max/32 GiB/10
+logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8, vendored PUC Lua 5.4.8,
+workspace release/default Cargo parallelism, diagnostics off and normal GC.
+Fresh processes run baseline/candidate/candidate/baseline sequentially, three
+warmups and 22 pooled samples per variant; no build/test/profile overlaps timing.
+Workload sources, inputs and repetition settings are unchanged.
+
+| Workload | Candidate / field baseline | Lua control | Candidate VM / Lua |
+| --- | ---: | ---: | ---: |
+| byte_state | 0.4009 | 1.0141 | 14.63 |
+| capture_cell | 1.0026 | 0.9854 | 43.52 |
+| concrete_generic | 1.0045 | 1.0010 | 25.42 |
+| direct | 1.0095 | 1.0016 | 3.51 |
+| field | 1.0478 | 0.9993 | 14.38 |
+| helper | 1.0236 | 1.0035 | 18.52 |
+| host_callback | 0.9967 | 1.0119 | 5.92 |
+| interface | 1.0020 | 0.9810 | 33.74 |
+| native | 0.9988 | 1.0149 | 10.59 |
+| shared_generic | 0.9820 | 1.0115 | 52.99 |
+| string_calls | 0.9717 | 1.0194 | 34.86 |
+| string_constants | 0.9835 | 1.0013 | 27.93 |
+| arithmetic | 1.0048 | 0.9935 | 5.08 |
+| arrays | 0.6280 | 0.9533 | 26.90 |
+| branches | 1.0268 | 1.0082 | 2.94 |
+| calls | 1.0070 | 0.9993 | 23.26 |
+| entry | 1.0054 | 0.9913 | 47.50 |
+| fibonacci | 1.0014 | 1.0032 | 30.32 |
+| maps | 0.9922 | 0.9961 | 65.31 |
+
+Byte-state improves 59.91% and arrays 37.20% in raw candidate/baseline duration.
+The arrays Lua control also improves 4.67%; do not attribute all host timing drift
+to this migration. Scalar arithmetic is near the baseline (+0.48%). The initial
+large string regressions are recovered, with string constants/calls -1.65%/-2.83%.
+Field remains +4.78%, branches +2.68% and helper +2.36%; these are unresolved
+integrated HP04 controls, alongside the preceding checkpoint's field/shared-generic
+increases. The current shared-generic ratio of 0.9820 does not erase that history.
+No aggregate speedup or Lua parity is claimed. Entry and host/native adapters are
+reported separately from the 16-workload parity gate.
+
+Setup remains outside execution: source-form baseline/candidate medians (two samples
+per variant, ms) source-to-artifact 1169.435/1157.929, preparation 264.615/264.197,
+runtime init 110.742/113.125, linking 2.831/3.174. Original-suite runtime-init medians
+(six samples per workload/variant) span 109.566–111.573 versus 109.063–111.113 ms;
+linking 2.476–2.696 versus 2.434–2.798 ms. These noisy setup medians do not establish
+zero or isolated descriptor preparation cost; table size is accounted above.
+
+
+Final diagnostics pass in target/hp04/indices/{final,original}-diagnostics.log.
+Compared with the field checkpoint, all 72 source-form/scaling rows are identical
+except byte-state cold/warm canonical slow boundaries: 15,001 -> 1. Allocation
+requests/bytes, heap objects, collection cadence, application/layout preparations,
+metadata validation and driver admissions are unchanged. Warm byte-state has 38
+requests/3,096 requested bytes, one heap object/collection and one driver admission.
+Warm string constants/calls still request seven allocations and zero new heap
+objects. This validates the absence of added successful-path error-box allocation;
+it does not claim all generic storage compatibility is allocation-free.
+Original warm arrays records 12,059 requests/180,266 requested bytes, one heap
+object, two collections, 2,002 canonical boundaries and three driver admissions.
+Its 2,000 push calls remain native boundaries; index migration does not remove their
+conversion/application costs. Do not infer those remaining allocation sources solely
+from this counter. Warm maps remains 2,001 heap objects/five collections; HP05 still
+owns enum/type admission and snapshot removal.
+
+Final validation: affected runtime/VM/benchmark all-target Clippy with diagnostics
+and warnings denied, formatting, structure checker (1,016 files, zero violations or
+exceptions), 41 local document links and diff checks pass. Manual review covers
+module ownership, explicit imports, no re-export/visibility bypass and checked
+heap/transition roots. No build/test failure is carried. No full-workspace test or
+CI matrix ran at this intermediate checkpoint. The temporary probe is removed;
+ordinary timing executable is preserved separately before building diagnostics.
+
+HP04 remains in progress. Next: exact native primitive binding/effect/access
+contracts for String byte length and any remaining Vec index native route, sharing
+kernels with SDK adapters and retiring superseded per-binding shortcuts. Ordinary
+host/custom callbacks must never be classified by a method name or a claimed purity
+flag. Resolve integrated field/branch/helper and earlier controls, account for setup
+and metadata, then proceed to HP05 applied-layout/enum admission and HP06 retirement
+and final acceptance. No architecture-completion or Lua-parity claim is made.
+Use target/hp04/indices/prepared-executable as the next ordinary baseline;
+target/release/kagari-lua-benchmark currently contains the diagnostic build.

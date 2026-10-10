@@ -11,6 +11,7 @@ use crate::{
 };
 use std::ptr;
 
+mod indices;
 pub mod kernel;
 mod objects;
 mod scalars;

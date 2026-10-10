@@ -49,8 +49,9 @@ impl From<BuiltinError> for VmError {
 impl From<RegionError> for VmError {
     fn from(error: RegionError) -> Self {
         match error {
-            RegionError::Runtime(error) => Self::RuntimeError(error),
+            RegionError::Runtime(error) => Self::RuntimeError(*error),
             RegionError::TypeMismatch(reason) => Self::TypeMismatch(reason),
+            RegionError::InvalidIndex(index) => Self::InvalidIndex(index),
         }
     }
 }

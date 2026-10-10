@@ -4,6 +4,7 @@
 pub(crate) mod allocation;
 pub(crate) mod calls;
 pub(crate) mod fields;
+pub(crate) mod indices;
 pub(crate) mod layout;
 pub mod managed;
 
@@ -12,6 +13,7 @@ use crate::{
     module::execution::{
         calls::PreparedCall,
         fields::PreparedFieldOperation,
+        indices::{IndexAccess, PreparedIndexOperation},
         layout::{FrameLayout, Location, scalar_type},
         managed::{ManagedOperation, PreparedManagedOperation},
     },
@@ -111,6 +113,7 @@ pub(crate) struct ExecutionFunction {
     pub awaits: BTreeMap<usize, Box<[u64]>>,
     pub calls: BTreeMap<usize, PreparedCall>,
     pub fields: Box<[PreparedFieldOperation]>,
+    pub indices: Box<[PreparedIndexOperation]>,
     pub interface_calls: usize,
     pub has_closed_interface_calls: bool,
     has_linked_constants: bool,
@@ -158,6 +161,7 @@ impl ExecutionModule {
                         })
                         .collect();
                     let mut fields = Vec::new();
+                    let mut indices = Vec::new();
                     let instructions: Box<[_]> = function
                         .instructions
                         .iter()
@@ -169,6 +173,7 @@ impl ExecutionModule {
                                 &registers,
                                 module,
                                 &mut fields,
+                                &mut indices,
                             )
                         })
                         .collect();
@@ -187,6 +192,7 @@ impl ExecutionModule {
                         calls: BTreeMap::new(),
                         has_scoped_fields: fields.iter().any(|field| !field.concrete),
                         fields: fields.into_boxed_slice(),
+                        indices: indices.into_boxed_slice(),
                         interface_calls: 0,
                         has_closed_interface_calls: false,
                     }
@@ -203,6 +209,7 @@ impl ExecutionInstruction {
         registers: &FrameLayout,
         module: &BytecodeModule<DefinitionId>,
         fields: &mut Vec<PreparedFieldOperation>,
+        indices: &mut Vec<PreparedIndexOperation>,
     ) -> Self {
         let location = |register: Register| {
             registers
@@ -288,6 +295,26 @@ impl ExecutionInstruction {
                 };
                 scalar(dst, operand, operand, kernel)
             }
+            BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
+                let ordinal = indices.len();
+                indices.push(PreparedIndexOperation {
+                    base: location(base),
+                    index: location(index),
+                    access: IndexAccess::Read { dst: location(dst) },
+                });
+                Self::managed(ManagedOperation::Index { index: ordinal })
+            }
+            BytecodeInstruction::WriteAggregateIndex { base, index, value } => {
+                let ordinal = indices.len();
+                indices.push(PreparedIndexOperation {
+                    base: location(base),
+                    index: location(index),
+                    access: IndexAccess::Write {
+                        value: location(value),
+                    },
+                });
+                Self::managed(ManagedOperation::Index { index: ordinal })
+            }
             BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
                 let kernel = match op {
                     BinaryOp::Numeric(operation) => {
@@ -358,18 +385,32 @@ impl ExecutionInstruction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{frame::ExecutionFrame, module::linked_execution::LinkedFunction};
+    use crate::{
+        frame::{
+            ExecutionFrame,
+            cursor::kernel::{RegionError, RegionExit},
+        },
+        module::linked_execution::LinkedFunction,
+    };
     use std::{mem::size_of, sync::OnceLock};
 
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
         eprintln!(
-            "execution metadata bytes: instruction={}, frame={}, linked_function={}, field_operation={}, constant_cell={}, previous_constant_cell={}",
+            "region bytes: error={}, exit={}, result={}",
+            size_of::<RegionError>(),
+            size_of::<RegionExit>(),
+            size_of::<Result<RegionExit, RegionError>>()
+        );
+        eprintln!(
+            "execution metadata bytes: instruction={}, frame={}, linked_function={}, field_operation={}, index_operation={}, execution_function={}, constant_cell={}, previous_constant_cell={}",
             size_of::<ExecutionInstruction>(),
             size_of::<ExecutionFrame>(),
             size_of::<LinkedFunction>(),
             size_of::<PreparedFieldOperation>(),
+            size_of::<PreparedIndexOperation>(),
+            size_of::<ExecutionFunction>(),
             size_of::<OnceLock<Value>>(),
             size_of::<Option<Value>>()
         );

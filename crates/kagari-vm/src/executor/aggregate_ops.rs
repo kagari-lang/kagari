@@ -1,10 +1,7 @@
 use crate::{error::VmError, executor::Executor};
 use kagari_bytecode::instruction::{EnumId, Register, StructId};
 use kagari_common::identity::table::DefinitionId;
-use kagari_runtime::{
-    error::RuntimeErrorKind,
-    value::{EnumTag, Value},
-};
+use kagari_runtime::value::{EnumTag, Value};
 use kagari_types::ty::Ty;
 
 impl Executor<'_> {
@@ -148,97 +145,5 @@ impl Executor<'_> {
             .alloc_struct(layout, fields)
             .map_err(VmError::RuntimeError)?;
         Ok(Value::Struct(handle))
-    }
-
-    pub(crate) fn read_index(&self, base: Register, index: Register) -> Result<Value, VmError> {
-        let base = self.current_frame()?.read_register(self.runtime, base)?;
-        let index = self.current_frame()?.read_register(self.runtime, index)?;
-        let index = match index {
-            Value::I32(index) if index >= 0 => index as usize,
-            Value::I64(index) if index >= 0 => index as usize,
-            Value::U64(index) => index as usize,
-            _ => {
-                return Err(VmError::TypeMismatch(
-                    "read_index expects non-negative integer index",
-                ));
-            }
-        };
-
-        match base {
-            Value::Array(handle) => self
-                .runtime
-                .gc()
-                .array_get(handle, index)
-                .ok_or(VmError::InvalidIndex(index)),
-            Value::Tuple(elements) => self
-                .runtime
-                .gc()
-                .tuple(elements)
-                .and_then(|values| values.get(index).copied())
-                .ok_or(VmError::InvalidIndex(index)),
-            _ => Err(VmError::TypeMismatch(
-                "read_index expects array or tuple value",
-            )),
-        }
-    }
-
-    pub(crate) fn write_index(
-        &mut self,
-        base: Register,
-        index: Register,
-        value: Register,
-    ) -> Result<(), VmError> {
-        let base_value = self.current_frame()?.read_register(self.runtime, base)?;
-        let index_value = self.current_frame()?.read_register(self.runtime, index)?;
-        let value = self.current_frame()?.read_register(self.runtime, value)?;
-        let index = match index_value {
-            Value::I32(index) if index >= 0 => index as usize,
-            Value::I64(index) if index >= 0 => index as usize,
-            Value::U64(index) => index as usize,
-            _ => {
-                return Err(VmError::TypeMismatch(
-                    "write_index expects non-negative integer index",
-                ));
-            }
-        };
-
-        match base_value {
-            Value::Array(handle) => {
-                if !value.is_default_heap_payload(self.runtime.gc()) {
-                    return Err(VmError::TypeMismatch(
-                        "write_index expects default-storable value",
-                    ));
-                }
-                self.runtime
-                    .gc()
-                    .array_set(handle, index, value)
-                    .map_err(|error| {
-                        if error.kind() == RuntimeErrorKind::IndexOutOfBounds {
-                            VmError::InvalidIndex(index)
-                        } else {
-                            VmError::from(error)
-                        }
-                    })
-            }
-            Value::Tuple(id) => {
-                let mut elements = self
-                    .runtime
-                    .gc()
-                    .tuple(id)
-                    .ok_or(VmError::InvalidIndex(index))?
-                    .to_vec();
-                let Some(slot) = elements.get_mut(index) else {
-                    return Err(VmError::InvalidIndex(index));
-                };
-                *slot = value;
-                let tuple = self.runtime.gc().alloc_tuple(elements)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, base, tuple)?;
-                Ok(())
-            }
-            _ => Err(VmError::TypeMismatch(
-                "write_index expects array or tuple value",
-            )),
-        }
     }
 }

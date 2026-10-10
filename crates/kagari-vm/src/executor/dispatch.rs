@@ -377,14 +377,6 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
-            BytecodeInstruction::ReadAggregateIndex { dst, base, index } => {
-                let value = self.read_index(base, index)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
-            }
-            BytecodeInstruction::WriteAggregateIndex { base, index, value } => {
-                self.write_index(base, index, value)?;
-            }
             BytecodeInstruction::ReadPath {
                 dst,
                 root_or_view,
@@ -483,6 +475,8 @@ impl<'a> Executor<'a> {
             }
             BytecodeInstruction::ReadAggregateField { .. }
             | BytecodeInstruction::WriteAggregateField { .. }
+            | BytecodeInstruction::ReadAggregateIndex { .. }
+            | BytecodeInstruction::WriteAggregateIndex { .. }
             | BytecodeInstruction::LoadConst { .. }
             | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. }

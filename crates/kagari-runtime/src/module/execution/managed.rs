@@ -12,4 +12,5 @@ pub(crate) enum ManagedOperation {
     Copy { dst: Location, src: Location },
     Return { value: OperandSlot },
     Field { index: usize },
+    Index { index: usize },
 }

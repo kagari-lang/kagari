@@ -26,14 +26,18 @@ pub enum RegionExit {
 #[derive(Debug, thiserror::Error)]
 pub enum RegionError {
     #[error(transparent)]
-    Runtime(RuntimeError),
+    // Detailed runtime failures are cold, owned data. Keep their message/trace
+    // payload out of every successful region return and managed-operation result.
+    Runtime(Box<RuntimeError>),
     #[error("{0}")]
     TypeMismatch(&'static str),
+    #[error("invalid index: {0}")]
+    InvalidIndex(usize),
 }
 
 impl From<RuntimeError> for RegionError {
     fn from(error: RuntimeError) -> Self {
-        Self::Runtime(error)
+        Self::Runtime(Box::new(error))
     }
 }
 
@@ -45,6 +49,7 @@ pub(super) enum CursorExit {
 pub(super) enum PreparedTransition {
     Constant { dst: Location, constant: ConstantId },
     Field { index: usize },
+    TupleWrite { operation: usize, index: usize },
 }
 
 impl ExecutionCursor<'_> {
@@ -136,6 +141,13 @@ impl ExecutionCursor<'_> {
                     index,
                 })) => {
                     if let Some(exit) = self.execute_field(index)? {
+                        return Ok(exit);
+                    }
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Index {
+                    index,
+                })) => {
+                    if let Some(exit) = self.execute_index(index)? {
                         return Ok(exit);
                     }
                 }

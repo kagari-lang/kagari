@@ -872,13 +872,13 @@ the scalar loop prevents their storage checks from changing its inlining budget;
 the handoff retains original logical PC and instruction-slice accounting.
 `PreparedManagedOperation` is an opaque sealed record shared by instructions and
 this handoff. Its internal variants cover physical value copies, linked constant loads,
-managed returns and ordinals into the prepared field table. It cannot represent a scalar opcode
+managed returns and ordinals into prepared field/index tables. It cannot represent a scalar opcode
 or require an unreachable generic-operation arm. Managed local/register copies use
 prepared physical locations and the ordinary bank read/write representation rules,
 retaining heap owner/generation/kind validation without repeating public frame
 admission. Both slots remain traced in the admitted window. Managed returns carry
 the rooted value to common frame retirement; there is no separate VM return decoder.
-The previous VM LoadConst/LoadLocal/StoreLocal/Move/Return and aggregate field handlers
+The previous VM LoadConst/LoadLocal/StoreLocal/Move/Return and aggregate field/index handlers
 are removed, along with the cursor's logical-register mapping helpers. SDK/reflection
 field access still uses the same checked GC storage kernels.
 Scalar exits explicitly distinguish boundary, slice, safepoint, return and managed
@@ -886,11 +886,22 @@ operation. The region reconstructs payload-free exits directly; only returns and
 managed operations carry data across that internal boundary. A cold constant miss
 additionally carries its destination and ordinal out of the complete cursor, where
 allocation runs after all transient borrows end. PreparedTransition describes the
-constant-materialization and scoped-field requests; a separate non-inlined completion
-handler owns their allocating work. Ordinary region admission does not contain those preparation bodies, and the completion
-path cannot accept an already-finished region as a request. Field failures travel
+constant-materialization, scoped-field and tuple-update requests; a separate
+non-inlined completion handler owns their allocating work. Ordinary region admission
+does not contain those preparation bodies, and the completion
+path cannot accept an already-finished region as a request. Operation failures travel
 through RegionError, separate from successful RegionExit values; the VM maps runtime
-faults and type mismatches to their original error categories before trap observation.
+faults, type mismatches and invalid indices to their original error categories before
+trap observation. Detailed RuntimeError data is boxed only on failure, keeping its
+message/trace payload out of ordinary successful region and object-handler results.
+Index descriptors retain physical base/index/access locations without runtime
+identities. Array reads/writes use the checked heap kernels shared with SDK/native
+adapters, retaining current bounds, access, element type and generation checks.
+Tuple writes exit through a compact prepared-operation ordinal and validated index;
+the active frame keeps both operands rooted. Completion rereads those physical
+operands, copies immutable membership and publishes the new tuple before the next
+safepoint. No callback, collection or observation intervenes between cursor exit and
+operand acquisition. There is no extra logical PC or instruction-slice charge.
 Each scalar segment splits the admitted Rust borrow into an immutable code slice,
 mutable logical-PC fields and bounded scalar/initialization slices. Fetch borrows
 one immutable instruction; dispatch then reads only its selected payload rather
