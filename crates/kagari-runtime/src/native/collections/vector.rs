@@ -200,18 +200,12 @@ impl<T> ScriptVec<T> {
 impl<T: FromKagari> ScriptVec<T> {
     pub fn get(&self, cx: &mut NativeContext<'_>, index: usize) -> NativeResult<Option<T>> {
         let id = self.id(cx, false)?;
-        // A detached edit buffer is unavailable, not an empty collection.
-        if index >= self.len(cx)? {
-            return Ok(None);
-        }
-        let value = cx
-            .runtime()
+        cx.poll()?;
+        cx.runtime()
             .gc()
-            .array_get(id, index)
-            .ok_or_else(|| RuntimeError::module_validation("array handle access"))?;
-        cx.conversion
-            .decode_prepared(&self.element, &value)
-            .map(Some)
+            .array_element(id, index)?
+            .map(|value| cx.conversion.decode_prepared(&self.element, &value))
+            .transpose()
     }
 
     pub fn pop(&self, cx: &mut NativeContext<'_>) -> NativeResult<Option<T>> {
@@ -257,10 +251,7 @@ impl<T: FromKagari> ScriptVec<T> {
 impl<T: IntoKagari> ScriptVec<T> {
     pub fn set(&self, cx: &mut NativeContext<'_>, index: usize, value: T) -> NativeResult<()> {
         let id = self.id(cx, true)?;
-        cx.runtime().gc().ensure_callback_mutable(id)?;
-        if index >= self.len(cx)? {
-            return Err(RuntimeError::module_validation("array set index"));
-        }
+        cx.runtime().gc().check_array_replacement(id, index)?;
         cx.conversion.argument_scope(|cx| {
             let value = cx.encode_prepared(&self.element, value)?;
             cx.runtime().gc().array_set(id, index, value)

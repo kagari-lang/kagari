@@ -1,8 +1,10 @@
 //! Checked allocation, storage leases and selected call inspection for native libraries.
 use crate::{
+    Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{HeapObjectId, custom_keys::KeyLookupGuard},
+    module::LoadedModule,
     native::{
         binding::NativeResult,
         context::{CallContext, LinkedCallable},
@@ -58,26 +60,9 @@ impl<'call> CallContext<'call> {
             .params
             .get(index)
             .ok_or_else(|| RuntimeError::module_validation("native array argument slot"))?;
-        let Ty::Array(_, access) = expected.ty() else {
-            return Err(RuntimeError::module_validation(
-                "native array argument type",
-            ));
-        };
-        if writable && *access != CollectionAccess::Mutable {
-            return Err(RuntimeError::module_validation(
-                "collection view is read-only",
-            ));
-        }
-        let value = self.argument(index)?;
-        if !expected.matches(self.runtime, &value, self.owner) {
-            return Err(RuntimeError::module_validation(
-                "native argument differs from its declared type",
-            ));
-        }
-        let Value::Array(id) = value else {
-            return Err(RuntimeError::module_validation("native array argument"));
-        };
-        Ok(id)
+        check_array_argument(self.runtime, self.owner, expected, writable, || {
+            self.argument(index)
+        })
     }
 
     /// Copy sequence storage while preserving its checked element contract.
@@ -118,4 +103,34 @@ impl<'call> CallContext<'call> {
         };
         result.parameter(self.runtime, &owner, index)
     }
+}
+
+/// Shared admission for rooted native arguments and closed primitive operands.
+pub(crate) fn check_array_argument(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    expected: &TypeArgument,
+    writable: bool,
+    argument: impl FnOnce() -> NativeResult<Value>,
+) -> NativeResult<HeapObjectId> {
+    let Ty::Array(_, access) = expected.ty() else {
+        return Err(RuntimeError::module_validation(
+            "native array argument type",
+        ));
+    };
+    if writable && *access != CollectionAccess::Mutable {
+        return Err(RuntimeError::module_validation(
+            "collection view is read-only",
+        ));
+    }
+    let value = argument()?;
+    if !expected.matches(runtime, &value, owner) {
+        return Err(RuntimeError::module_validation(
+            "native argument differs from its declared type",
+        ));
+    }
+    let Value::Array(id) = value else {
+        return Err(RuntimeError::module_validation("native array argument"));
+    };
+    Ok(id)
 }

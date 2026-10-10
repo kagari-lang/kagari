@@ -906,15 +906,32 @@ operand acquisition. There is no extra logical PC or instruction-slice charge.
 NativeBinding distinguishes callback bodies from runtime-owned NativePrimitive
 implementations. Selecting a primitive installs its fixed kernel and exact codecs;
 a callback cannot assert a purity flag. StringByteLength reads immutable UTF-8
-storage and returns usize through the same kernel in both scoped native invocation
-and the prepared cursor. Linking admits it only from the actual installed binding,
-an already prepared exact signature and absence of selected operations/result
-adapters. Shared verified instructions contain only native-call ordinals; runtime
-links hold physical operands and the body kind, with no additional GC edges.
+storage; VecIndex and VecSet/VecSetFluent read or replace checked array elements.
+Both scoped native invocation and the prepared cursor use these fixed kernels.
+Registration checks the exact parameter/result relationships, including the Vec
+element type and mutable access for replacement. Linking requires the actual
+installed body, an already prepared exact signature and absence of selected
+operations/result adapters. Shared verified instructions contain only native-call
+ordinals; runtime links hold operation-specific facts. String length needs only
+its physical source; Vec operations also retain argument locations and the
+supplying record's immutable native signature. Its closed type provenance belongs
+to the already pinned program; no new heap value or type environment is retained.
 Arbitrary callbacks and adapters keep the native boundary. Both native cancellation
 polls, current heap identity checks and physical result admission are preserved.
 No method-name recognition, source analysis or per-call descriptor allocation is
-involved. The stdlib's former separate string length body is removed.
+involved. Fixed kernels return a compact Value-or-boxed-error result; detailed
+diagnostics occupy storage only on failure, and the cursor transfers that error
+box into RegionError. The ordinary native callback API keeps its existing error
+type. Private kernel instantiations retain each operation's result facts through
+publication while sharing cancellation, error propagation and destination checks;
+String's scalar result is not merged with Vec's general result before writing it.
+The stdlib's separate string length/index bodies and owning Vec setter
+adapters are removed. SDK and native adapters share checked array reads and setter
+preflight/commit kernels. Detached storage remains unavailable, not an empty array;
+callbacks, readonly access, bounds and current element contracts remain checked.
+The fixed setter copies an already rooted Value without a Rust conversion or heap
+growth. SDK conversions still retain their own roots, limits and safepoints because
+they may allocate or reenter; committing afterward rechecks the actual storage.
 Each scalar segment splits the admitted Rust borrow into an immutable code slice,
 mutable logical-PC fields and bounded scalar/initialization slices. Fetch borrows
 one immutable instruction; dispatch then reads only its selected payload rather

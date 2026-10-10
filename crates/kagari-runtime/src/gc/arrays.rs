@@ -153,6 +153,34 @@ impl GcHeap {
         self.with_array(id, |values| values.get(index)).flatten()
     }
 
+    /// Distinguish absence from unavailable storage, including a detached edit buffer.
+    pub fn array_element(
+        &self,
+        id: HeapObjectId,
+        index: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        self.with_array(id, |values| values.get(index))
+            .ok_or_else(|| RuntimeError::module_validation("array handle length"))
+    }
+
+    /// Shared SDK/native setter preflight. A later conversion may reenter, so
+    /// array_set must still validate the actual assignment afterward.
+    pub(crate) fn check_array_replacement(
+        &self,
+        id: HeapObjectId,
+        index: usize,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_callback_mutable(id)?;
+        self.resources.poll_execution()?;
+        let length = self
+            .array_len(id)
+            .ok_or_else(|| RuntimeError::module_validation("array handle length"))?;
+        if index >= length {
+            return Err(RuntimeError::module_validation("array set index"));
+        }
+        Ok(())
+    }
+
     pub(crate) fn array_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
         let objects = self.objects.borrow();
         let HeapObject::Native(object) = self.readable_object(&objects, id)? else {

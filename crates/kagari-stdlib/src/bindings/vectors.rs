@@ -1,13 +1,14 @@
 //! Concrete Vec operations borrow call roots; callback algorithms retain SDK handles.
 use crate::bindings::{Entry, option};
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         collections::vector::ScriptVec,
         context::CallContext,
         declarations::SelectedCall,
         function_handle::PinnedFunction,
+        primitive::NativePrimitive,
         scalar::NativeScalar,
         typed::NativeContext,
         value_handle::ScriptValue,
@@ -32,13 +33,7 @@ pub(super) fn binding(
             ],
             get,
         ),
-        "$foundation_list_index" => scoped(
-            vec![
-                Codec::Sequence,
-                Codec::Scalar(Ty::Builtin(BuiltinType::USize)),
-            ],
-            index,
-        ),
+        "$foundation_list_index" => NativeBinding::primitive(NativePrimitive::VecIndex),
         "$foundation_list_push" => scoped(vec![Codec::MutableSequence, Codec::Value], push),
         "$foundation_list_push_fluent" => {
             scoped(vec![Codec::MutableSequence, Codec::Value], push_fluent)
@@ -67,19 +62,8 @@ pub(super) fn binding(
                 Ok(values)
             },
         ),
-        "$foundation_list_set" => NativeBinding::declared(
-            declaration,
-            |cx: &mut NativeContext<'_>, (values, index, value): (Vector, usize, ScriptValue)| {
-                values.set(cx, index, value)
-            },
-        ),
-        "$foundation_list_set_fluent" => NativeBinding::declared(
-            declaration,
-            |cx: &mut NativeContext<'_>, (values, index, value): (Vector, usize, ScriptValue)| {
-                values.set(cx, index, value)?;
-                Ok(values)
-            },
-        ),
+        "$foundation_list_set" => NativeBinding::primitive(NativePrimitive::VecSet),
+        "$foundation_list_set_fluent" => NativeBinding::primitive(NativePrimitive::VecSetFluent),
         "$foundation_list_retain" => NativeBinding::declared(
             declaration,
             |cx: &mut NativeContext<'_>,
@@ -125,31 +109,11 @@ fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 fn element(cx: &CallContext<'_>) -> NativeResult<Option<Value>> {
     let id = cx.array_argument(0, false)?;
     let index = usize::decode(cx.argument(1)?)?;
-    // A detached edit buffer is unavailable, not an empty collection.
-    let length = cx
-        .heap()
-        .array_len(id)
-        .ok_or_else(|| RuntimeError::module_validation("array handle length"))?;
-    if index >= length {
-        return Ok(None);
-    }
-    cx.heap()
-        .array_get(id, index)
-        .map(Some)
-        .ok_or_else(|| RuntimeError::module_validation("array handle access"))
+    cx.heap().array_element(id, index)
 }
 
 fn get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     option(cx, element(cx)?)
-}
-
-fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    element(cx)?.ok_or_else(|| {
-        RuntimeError::new(
-            RuntimeErrorKind::IndexOutOfBounds,
-            "list index is out of bounds",
-        )
-    })
 }
 
 fn push(cx: &mut CallContext<'_>) -> NativeResult<Value> {

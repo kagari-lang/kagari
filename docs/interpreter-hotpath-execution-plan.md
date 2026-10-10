@@ -2975,3 +2975,196 @@ acceptance, including the already recorded control regressions. HP05 type/layout
 enum migration, HP06 retrospective/final integration, CI and Lua parity remain open.
 Next ordinary baseline: target/hp04/primitives/prepared-executable; target/release
 currently contains the diagnostic build. Do not time that instrumented executable.
+
+
+2026-10-10 HP04, Vec native operation contracts (in progress):
+NativePrimitive now owns VecIndex, VecSet and VecSetFluent alongside String byte
+length. Registration validates the relationship between the array element, input
+value and result, not only their codecs. Setters require a mutable view; the fluent
+result must be that same array type. Closed linking retains the exact installed
+body and prepared signature; generic applications/adapters still use the ordinary
+boundary and the same kernel. No arbitrary Rust callback receives primitive authority.
+The stdlib's standalone index body and owning setter closures are removed.
+
+CallContext and fixed kernels share typed array argument admission. SDK/stdlib
+reads share array_element, which distinguishes an absent index from invalid or
+leased storage. SDK and primitive replacement share preflight and the existing
+checked array_set commit. The SDK must recheck after conversion because conversion
+can reenter; the fixed body cannot allocate script objects or call foreign code.
+It copies Values from already rooted arguments, preserving aliases and completed
+writes without constructing ScriptVec/ScriptValue handles or conversion root sets.
+Heap owner/generation, element type, access, current bounds, callback exclusion and
+cancellation remain checked. Conversion-only safepoints/limits remain on actual
+Rust conversions; no heap growth or root gap is introduced by this fixed copy.
+Index absence still reports IndexOutOfBounds; setter preflight retains its existing
+ModuleValidation failure and message. Post-body cancellation still precedes kernel
+error propagation. No logical PC, slice unit or observer boundary is added.
+
+Linked records carry operation-specific facts: String needs a physical source;
+Vec additionally needs parameter locations and the supplying record's immutable
+native signature. Closed signature provenance comes from the pinned program and
+its existing dependency graph. It adds no heap value, generic environment or
+executable retention lease; callbacks cannot be captured in this fixed-body record.
+The initial all-body argument table/signature wrapper regressed String constants
+14.75% (Lua 0.9997) and String calls 4.57% (Lua 1.0018) against 5c2527f2 in
+20261010T083852Z-forms-paired. Its original-suite companion is
+20261010T083927Z-paired. All checksums passed; these are rejected intermediate
+measurements, not accepted performance results.
+
+Separating String/Vec records alone left String constants +11.54%, calls +4.34%
+in 20261010T084359Z-forms-paired; isolating Vec argument setup also left a material
+String regression in 20261010T084632Z-forms-paired. Assembly showed the combined
+native handler's stack growing from 304 to 352 bytes while the String kernel
+itself remained almost identical (69/68 disassembly lines). The next correction
+extends the existing cold-error representation policy to the fixed kernel boundary:
+PrimitiveResult boxes detailed RuntimeError only on failure. Ordinary callback APIs
+still return their original errors; the cursor transfers the box into RegionError.
+No code alignment, compiler-profile change, removed validation or benchmark-specific
+body is used. Final measurements and metadata accounting follow below.
+
+New source-free native-boundary coverage checks exact element/result/access
+relationships, alias identity, fluent results, read/write error categories,
+completed writes after failure and rejection of a readonly host view. Existing
+callback-alias/detached-buffer and SDK collection contracts pass. The String
+implementation-authority contract also passes after representation changes.
+This does not close HP04: integrated controls/setup/metadata, earlier field/helper
+regressions and remaining obsolete-path review still require explicit acceptance.
+HP05/HP06, final integration, CI and Lua parity remain open.
+
+
+Vec diagnostic scaling uses the source-free primitive contract fixture, with a
+retained two-element Vec<i32> and a script loop calling replace, replace_fluent and
+read once each. The loop sums i; warm n=2,500/5,000 results are checked. With the
+opt-in allocation/operation counters, requests are 22,684/45,184 and requested bytes
+318,008/618,008. Both runs allocate zero script objects, perform zero collections
+and report one driver admission, zero slow boundaries and zero metadata preparation/
+validation counters. The 2x iteration increment still adds exactly nine Rust
+allocations and 120 requested bytes per iteration; zero preparation counters do
+not prove that all type-admission work disappeared.
+
+The source path accounts for that slope: each check_array_argument calls the shared
+value/type predicate; matches_type creates one Vec<(Value, &Ty)> worklist, and the
+array element StorageType comparison calls TypeView::closed twice, each invoking
+Ty::is_concrete's Vec<&Ty> worklist even for i32. Three array checks therefore create
+nine lists (3 * (24 + 8 + 8) requested bytes). Preserve those checks while HP05
+unifies admitted type/layout facts and removes repeated preparation across consumers;
+do not introduce another Vec-only cache or claim this primitive migration is
+allocation-free. Its closed cursor transition and SDK handle removal are distinct
+from type-compatibility admission. The temporary probe is removed; its source/helper
+and output are under target/hp04/vec-primitives/probe.py and test-scaling-probe.log.
+Reproduce with the existing primitive fixture plus the loop above and
+cargo test --locked -p kagari-vm --features kagari-runtime/execution-diagnostics
+--test native_boundary vector_primitives_preserve_element_access_aliases_and_bounds
+-- --nocapture, using DEVELOPER_DIR as for the other local checks.
+
+Compact error results alone did not recover String performance: the paired source
+forms in 20261010T084922Z-forms-paired still show constants +13.11% and calls +6.36%
+(Lua 1.0006/0.9874). Stack usage falls to 272 bytes, so stack size alone is not the
+cause. Its original-suite companion is 20261010T085135Z-paired. Further disassembly
+finds that the old fixed String kernel is inlined into execute_native, whereas the
+extracted shared string_byte_length remained an out-of-line call. The final body
+marks that small kernel inline; Vec admission stays in its own non-inlined handler.
+This restores the intended small shared-kernel boundary rather than specializing by
+workload or duplicating string semantics. Final paired evidence follows.
+
+
+Vec contract checkpoint final measurements (performance acceptance remains open):
+Baseline is the accepted String checkpoint 5c2527f2, SHA-256
+457da165a899ae3d77123449e7930a08f11590d960692ea458853f4bf081558e.
+Candidate is target/hp04/vec-primitives/prepared-executable, SHA-256
+ab86ccb4d3b3b338054dfecae2df93b8c849239a2b996ce52c298cc82041006f.
+Both paired JSONs record these hashes: target/lua-comparison/
+20261010T090036Z-forms-paired/results.json and 20261010T090110Z-paired/results.json.
+Builds 20.736/0.085 s are excluded. All checksums pass. Same M1 Max/32 GiB/10 logical
+CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8, vendored PUC Lua 5.4.8, workspace
+release/default parallelism, ordinary allocator/normal GC, diagnostics off. Fresh
+processes run baseline/candidate/candidate/baseline sequentially, with three warmups
+and 22 pooled samples per variant. No compilation, profiling or diagnostics overlaps
+with throughput. Frozen sources and inputs are unchanged; adapter/entry workloads
+remain outside the 16-workload parity gate. The earlier plain/forced inline trials
+(20261010T085607Z-forms-paired and the forms-paired-kernel.log output) also retained
+the regression; no isolated kernel/stack hypothesis has explained it completely.
+The final private execute_primitive instantiations share poll/error/publication logic
+while keeping each body's result facts through publication; the Vector-only execution
+wrapper is removed. This is a contract cleanup, not a demonstrated speedup.
+
+| Workload | Candidate / String baseline | Lua control | Candidate VM / Lua |
+| --- | ---: | ---: | ---: |
+| byte_state | 0.9892 | 0.9290 | 14.66 |
+| capture_cell | 1.0090 | 0.9809 | 43.53 |
+| concrete_generic | 1.0300 | 1.0212 | 25.67 |
+| direct | 0.9828 | 0.9837 | 3.52 |
+| field | 0.9875 | 0.9828 | 14.66 |
+| helper | 1.0269 | 0.9991 | 18.78 |
+| host_callback | 1.0063 | 0.9850 | 6.14 |
+| interface | 1.0098 | 0.9894 | 34.12 |
+| native | 1.0217 | 1.0098 | 10.97 |
+| shared_generic | 1.0112 | 0.9890 | 53.45 |
+| string_calls | 1.0510 | 1.0031 | 27.96 |
+| string_constants | 1.1264 | 1.0094 | 13.67 |
+| arithmetic | 1.0275 | 1.0082 | 5.05 |
+| arrays | 1.0165 | 1.0074 | 27.13 |
+| branches | 0.9924 | 0.9951 | 2.87 |
+| calls | 1.0254 | 0.9887 | 23.61 |
+| entry | 1.0043 | 0.9842 | 47.78 |
+| fibonacci | 1.0176 | 0.9779 | 31.42 |
+| maps | 0.9964 | 0.9854 | 66.49 |
+
+String constants/calls remain 12.64%/5.10% slower than the String baseline; Lua
+controls 1.0094/1.0031 do not explain that regression. Helper/concrete-generic and
+original arithmetic/calls also increase 2.69%/3.00% and 2.75%/2.54%. The byte-state
+Lua control moves to 0.9290, so its raw VM decrease is not evidence of a VM speedup.
+All these controls, including earlier field/shared-generic regressions, remain open.
+
+Source-form setup baseline/candidate medians (two samples each, ms): source
+1156.954/1170.138, preparation 268.575/264.221, runtime init 112.179/110.959, link
+2.952/3.002. Original runtime init ranges 108.994–110.520 versus 109.717–110.918 ms;
+link ranges 2.507–2.742 versus 2.478–2.682 ms (six setup samples per workload/variant).
+These include surrounding setup and do not isolate the cost of native descriptors.
+
+Metadata: native slots grow 16 -> 40 bytes, including callback None slots. Only Vec
+primitive sites additionally allocate their 8-byte physical parameter locations
+(16/24 bytes for index/set); String needs no argument box or signature Arc. The
+fixed-kernel result is 16 bytes. Instructions/frame/linked-function/execution-function
+remain 24/264/56/128 bytes; region error/exit/result remain 24/24/32. No per-call
+descriptor allocation is introduced, but the Vec type-worklist allocations above
+are still real and are not hidden by that statement.
+
+Final diagnostics match all 72 existing source-form/scaling and 14 original rows
+exactly against 5c2527f2. In particular, String loops still allocate no string heap
+objects and have unchanged protocol/GC/allocation counts. The frozen workloads do
+not by themselves prove a gain on the newly migrated Vec native setter/index route.
+
+Independent ordinary execution profiles use --source-forms --profile=string_constants
+and /usr/bin/sample PID 5 1 after PROFILE_READY. Sampling and instruction observation
+are separate from timing. Both binaries execute 100,012 Kagari / 52,506 Lua logical
+instructions, with no heap object allocation or collection during the sampling window.
+Collapsed leaf samples: scalar execute 1,689 -> 1,482; execute_region 635 -> 959;
+native execute 116 -> 6 plus 92 in the candidate's primitive helper. These samples
+point toward the surrounding region/continuation protocol, not increased native
+body work; they do not establish causality or replace the paired measurements.
+
+Next HP04 unit: inspect and narrow the fixed native continuation contract. These
+operations can complete or fall back to a native boundary, yet execute_native
+currently returns Result<Option<CursorExit>, RegionError>, whose payload also admits
+unrelated returns/preparation transitions. Check the generated caller and preserve
+original PC, polls, failure order and callback behavior while removing unneeded
+protocol states if that audit confirms them. Do not continue tuning only the String
+body. The shared type-worklist problem belongs to the planned HP05 admission model,
+with HP04's allocation/admission acceptance carried explicitly into that integration.
+Keep the accepted String executable as the regression reference; the Vec candidate
+is a separately preserved, functionally checked migration checkpoint, not a new
+performance acceptance baseline. HP04–HP06, CI and Lua parity remain open.
+
+Final local validation: both source-free primitive contracts, seven native control
+contracts, callback alias/detached storage guards, two SDK collection contracts,
+dynamic iteration with nominal values/GC/mutation guards, three list failure/cleanup
+contracts and the physical metadata budget pass. Strict all-target Clippy for the
+affected runtime/VM/stdlib/benchmark with diagnostics, formatting, structure review
+(1,020 Rust files, zero violations/exceptions), local document links and diff checks
+pass. The temporary allocation probe is removed. No build/test failure is carried;
+performance acceptance failures are listed above. No full-workspace test or CI
+matrix ran at this intermediate checkpoint. NativePrimitive gains public enum
+variants, so exhaustive Rust matches must be updated; unpublished artifact/ABI
+identifiers are unchanged. target/release currently contains the diagnostic build;
+use the separately preserved ordinary executables for subsequent timing.

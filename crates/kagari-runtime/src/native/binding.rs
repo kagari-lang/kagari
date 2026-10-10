@@ -176,6 +176,13 @@ impl NativeBinding {
                 "native codec does not match the Kagari declaration",
             ));
         }
+        if let BindingEntry::Primitive(primitive) = self.entry
+            && !primitive.accepts_signature(signature)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "native primitive signature relationship",
+            ));
+        }
         Ok(())
     }
 }
@@ -308,9 +315,11 @@ impl LinkedNativeFunction {
         let signature = self.type_signature()?;
         let result = match &self.binding.entry {
             BindingEntry::Callback(entry) => entry(context),
-            BindingEntry::Primitive(primitive) => context
-                .argument(0)
-                .and_then(|value| primitive.execute(context.heap(), value)),
+            BindingEntry::Primitive(primitive) => primitive
+                .execute(context.runtime, context.owner, signature, |index| {
+                    context.argument(index)
+                })
+                .map_err(|error| *error),
         };
         context.poll()?;
         let value = result?;

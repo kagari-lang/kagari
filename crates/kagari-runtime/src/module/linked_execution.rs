@@ -12,7 +12,7 @@ use crate::{
         constants::ConstantPool,
         execution::{calls::PreparedCallTarget, layout::Location},
     },
-    native::primitive::NativePrimitive,
+    native::{binding::LinkedNativeFunction, primitive::NativePrimitive},
 };
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::identity::table::DefinitionId;
@@ -35,9 +35,21 @@ struct LinkedField {
 
 #[derive(Debug)]
 pub(crate) struct LinkedPrimitive {
-    pub(crate) operation: NativePrimitive,
-    pub(crate) source: Location,
+    pub(crate) body: LinkedPrimitiveBody,
     pub(crate) destination: Option<Location>,
+}
+
+#[derive(Debug)]
+pub(crate) enum LinkedPrimitiveBody {
+    StringByteLength(Location),
+    Vector(LinkedVectorPrimitive),
+}
+
+#[derive(Debug)]
+pub(crate) struct LinkedVectorPrimitive {
+    pub(crate) operation: NativePrimitive,
+    pub(crate) arguments: Box<[Location]>,
+    pub(crate) function: Arc<LinkedNativeFunction>,
 }
 
 impl LinkedFunction {

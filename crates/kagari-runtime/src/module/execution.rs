@@ -409,6 +409,7 @@ mod tests {
             cursor::kernel::{RegionError, RegionExit},
         },
         module::linked_execution::{LinkedFunction, LinkedPrimitive},
+        native::primitive::PrimitiveResult,
     };
     use std::{mem::size_of, sync::OnceLock};
 
@@ -416,8 +417,10 @@ mod tests {
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
         eprintln!(
-            "linked primitive slot bytes={}",
-            size_of::<Option<LinkedPrimitive>>()
+            "linked primitive bytes: slot={}, operand={}, result={}",
+            size_of::<Option<LinkedPrimitive>>(),
+            size_of::<Location>(),
+            size_of::<PrimitiveResult>()
         );
         eprintln!(
             "region bytes: error={}, exit={}, result={}",

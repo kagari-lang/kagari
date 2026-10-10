@@ -2,7 +2,12 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    module::{LoadedModule, execution::ExecutionFunction, linked_execution::LinkedPrimitive},
+    module::{
+        LoadedModule,
+        execution::ExecutionFunction,
+        linked_execution::{LinkedPrimitive, LinkedPrimitiveBody, LinkedVectorPrimitive},
+    },
+    native::primitive::NativePrimitive,
 };
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, Register},
@@ -36,12 +41,11 @@ impl Runtime {
                     let Some(operation) = binding.closed_primitive() else {
                         return Ok(None);
                     };
-                    // The fixed body has one String input and a usize result. No
-                    // metadata/heap edges or callable capture survive in this record;
-                    // the admitted program root pins the exact installed binding.
-                    let [source] = args.as_slice() else {
+                    // The supplying record already owns this exact closed native
+                    // signature. Its type provenance belongs to the pinned program.
+                    if args.len() != binding.signature.params.len() {
                         return Err(RuntimeError::module_validation("primitive call arity"));
-                    };
+                    }
                     let location = |register: Register| {
                         prepared
                             .registers
@@ -50,9 +54,26 @@ impl Runtime {
                                 RuntimeError::module_validation("primitive operand location")
                             })
                     };
+                    let body = match operation {
+                        NativePrimitive::StringByteLength => {
+                            LinkedPrimitiveBody::StringByteLength(location(args[0])?)
+                        }
+                        NativePrimitive::VecIndex
+                        | NativePrimitive::VecSet
+                        | NativePrimitive::VecSetFluent => {
+                            LinkedPrimitiveBody::Vector(LinkedVectorPrimitive {
+                                operation,
+                                arguments: args
+                                    .iter()
+                                    .copied()
+                                    .map(location)
+                                    .collect::<Result<_, _>>()?,
+                                function: binding,
+                            })
+                        }
+                    };
                     Ok(Some(LinkedPrimitive {
-                        operation,
-                        source: location(*source)?,
+                        body,
                         destination: dst.map(location).transpose()?,
                     }))
                 })())
