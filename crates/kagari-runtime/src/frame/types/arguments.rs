@@ -16,7 +16,7 @@ use crate::{
     gc::GcHeap,
     module::{EnumVariantRef, LoadedModule},
     value::Value,
-    value_check::matches_type_in,
+    value_check,
 };
 use kagari_types::{declaration::verify::types_in_scope_in, ty::Ty};
 use std::{
@@ -60,12 +60,13 @@ pub(crate) struct ScopedSignature {
 impl TypeArgument {
     pub(crate) fn view<'a>(&'a self, owner: &'a LoadedModule) -> TypeView<'a> {
         match &self.data.origin {
-            Some(origin) => TypeView::new(
+            Some(origin) => TypeView::prepared(
                 &origin.expression,
+                &self.data.ty,
                 &origin.scope.owner,
                 origin.scope.environment.as_deref(),
             ),
-            None => TypeView::new(&self.data.ty, owner, None),
+            None => TypeView::prepared(&self.data.ty, &self.data.ty, owner, None),
         }
     }
 
@@ -83,8 +84,7 @@ impl TypeArgument {
         if let Some(matches) = self.matches_prepared_enum(heap, value) {
             return matches;
         }
-        let view = self.view(owner);
-        matches_type_in(heap, value, view.ty, view.owner, view.environment)
+        value_check::matches_view(heap, value, self.view(owner))
     }
 
     pub(crate) fn derive(
@@ -203,16 +203,7 @@ impl TypeArgument {
         if let Some(matches) = self.matches_prepared_enum(&runtime.gc, value) {
             return matches;
         }
-        if let Some(origin) = &self.data.origin {
-            runtime.matches_type_in(
-                value,
-                &origin.expression,
-                &origin.scope.owner,
-                origin.scope.environment.as_deref(),
-            )
-        } else {
-            runtime.matches_interface_method_abi(value, &self.data.ty, owner)
-        }
+        runtime.matches_type_view(value, self.view(owner))
     }
 }
 
@@ -374,31 +365,41 @@ impl Runtime {
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
+        self.matches_type_view(value, TypeView::new(ty, owner, environment))
+    }
+
+    pub(crate) fn matches_type_view(&self, value: &Value, view: TypeView<'_>) -> bool {
         if !self.gc.validate_value(value) {
             return false;
         }
         if let Ty::Parameter {
             owner: binder,
             position,
-        } = ty
+        } = view.ty
         {
-            return environment
+            return view
+                .environment
                 .and_then(|environment| environment.argument(binder, *position))
-                .is_some_and(|argument| argument.matches(self, value, owner));
+                .is_some_and(|argument| argument.matches(self, value, view.owner));
         }
-        if let (Value::Tuple(id), Ty::Tuple(types)) = (value, ty) {
+        let Some(view) = view.normalized() else {
+            return false;
+        };
+        if let (Value::Tuple(id), Ty::Tuple(types)) = (value, view.ty) {
             let Some(values) = self.gc.tuple(*id) else {
                 return false;
             };
             return values.len() == types.len()
-                && values
-                    .iter()
-                    .zip(types)
-                    .all(|(value, ty)| self.matches_type_in(value, ty, owner, environment));
+                && values.iter().enumerate().all(|(index, value)| {
+                    view.parameter(index)
+                        .is_some_and(|view| self.matches_type_view(value, view))
+                });
         }
-        if matches!(ty, Ty::Host(_)) {
-            return self.matches_interface_method_abi(value, ty, owner);
+        if let (Value::HostRoot(root), Ty::Host(id)) = (value, view.ty) {
+            return self.gc.host_root(*root).is_some_and(|root| {
+                self.host.matches_root(root) && view.owner.host_type(*id) == Some(root.type_id())
+            });
         }
-        matches_type_in(&self.gc, value, ty, owner, environment)
+        value_check::matches_view(&self.gc, value, view)
     }
 }

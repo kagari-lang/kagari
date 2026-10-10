@@ -574,7 +574,20 @@ outer call. Selected-call edge tracing is shared with stored native selections;
 escaping typed host handles still explicitly acquire their own roots. Generic entry
 does not recreate native applications or host-style selected-call roots on a hit.
 TypeArgument shares immutable validated type facts, memoized parameters, exact
-type/provenance identities and enum layout applications. Interpreter aggregate
+type/provenance identities and enum layout applications. Its borrowed type view carries
+the checked closed result alongside the original expression and supplying scope.
+Container/tuple projections preserve both trees; arbitrary lexical children inherit
+closed evidence only when they belong to the checked closed tree. Storage contracts
+establish heap-type validity before exposing this evidence. Compatibility reuses the
+closed result while still checking nominal provenance and genuine layout differences.
+Debug builds assert that supplied closed facts contain no unresolved types.
+One value matcher serves raw and prepared views, preserving facts through array, map,
+set and iterator admission. Tuple descent follows the bounded checked type tree;
+matching no longer creates a worklist for every scalar or container. Runtime admission
+adds live-value/host-root checks, including nested tuples; heap storage keeps its
+host-free contract. Collection commit compares complete source/target contracts.
+These views add a transient borrowed pointer, without new retained descriptors, frame
+fields, type caches or executable roots. Interpreter aggregate
 construction, native enum preparation and host object binding share one layout-scope
 preparer. Its lazily created program-root store retains at most 128 declaration/argument
 scopes and 128 complete applied identities per aggregate kind; each member separately
@@ -606,8 +619,9 @@ producer's code or runtime resources alive. A lazy mutex protects optional evide
 type facts cross threads; graph comparison runs outside the lock. Missing identities,
 eviction or unavailable cache access retain full checks. A new version cannot inherit an
 old proof, and a proof never authorizes execution, a heap handle or mutable access.
-Raw type-expression checks outside prepared operands still need shared validated
-type facts; that migration remains in the active HP plan.
+Raw type-expression checks retain full resolution and graph-comparison fallbacks.
+Repeated nominal preparation outside admitted layout operands remains an active-plan
+review item; a borrowed closed spelling does not replace a complete layout proof.
 Every value access continues to validate heap ownership, slot generation and access.
 Enum variant comparison goes directly through this shared admission policy after
 runtime/variant checks; the older same-member/Arc shortcut is removed. Interpreter

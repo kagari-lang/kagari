@@ -3579,3 +3579,132 @@ Do not add a Vec-specific exception or continue scalar tuning in place of this r
 migration. Ordinary Option representation evaluation, HP06 retirement/memory accounting,
 final local integration and complete CI remain outstanding. Raw checks, diagnostics and
 disassembly are under target/hp05/scalar-loop/. target/release holds the ordinary build.
+
+
+2026-10-10 HP05, preserve prepared type facts through value/storage admission:
+TypeArgument's borrowed TypeView now carries its already-validated closed Ty alongside
+the original expression, module and lexical environment. StorageType establishes
+heap-type validity before exposing the same evidence. Container/tuple parameter views
+project the source and closed trees together. Arbitrary comparison children inherit
+closure evidence only when the source pointer names that checked closed tree; this is
+not a layout-compatibility shortcut. Otherwise full resolution remains available.
+Debug builds assert concrete prepared types. No owner/generation, nominal compatibility,
+payload, numeric, access, alias, bounds, root or mutation checks are removed.
+
+The shared value matcher replaces separate closed/scoped dispatch trees and per-value
+Vec worklists. Raw expressions enter without evidence; prepared arguments/collection
+contracts preserve evidence through array, map, set and iterator matching. Struct/enum
+comparison accepts the view instead of discarding it into raw Ty arguments. Tuple
+matching descends the checked bounded type tree (type depth limit 64); each runtime
+boundary retains live-value and nested host-root validation, while heap storage remains
+host-free. The obsolete matches_interface_method_abi implementation and raw StorageType
+matches/matches_scoped adapters are removed. Selected calls and host methods use the
+common runtime admission. Prepared collection replacement compares complete source and
+target storage contracts, including their scopes, rather than the target's raw spelling.
+
+For example, a native Vec<i32> parameter previously lost its admitted type before value
+matching: one Value/Ty worklist and two is_concrete worklists were rebuilt for the array
+check. The argument's projected i32 and stored element contract now retain their closed
+facts. Comparison still checks type equality and supplying scope; the live array handle,
+write permission and storage bounds are checked at their original boundaries. The same
+mechanism serves other containers and scoped tuples, without a Vec-only cache/body.
+
+TypeView adds one optional borrowed pointer (five pointer-sized fields on this 64-bit
+target); temporary application vectors containing views also carry that pointer. There
+are no new retained TypeArgument/StorageType fields, frame fields, cache entries, owning
+references or executable roots. Raw nominal graph fallbacks still allocate and compare
+full layouts; closed evidence does not establish a cross-generation compatibility proof.
+Those remaining preparations are the next HP05 review, not hidden by this checkpoint.
+
+Focused checks: four type-scope/lifetime/Send-Sync contracts; two native primitive body/
+access/alias/bounds contracts; eight shared generic/provenance contracts (the shared_
+filter also ran two existing shared-object tests); six native-enum contracts; five embed
+collection-access contracts; the nested associated-type family contract; typed host
+composite conversion; primitive/comparator collection commit; heap/metadata rejection
+contracts (15 matching rejects_). Strict runtime/VM all-target Clippy with diagnostics,
+formatting, structure (1,021 files, zero violations/exceptions), links and diff checks
+pass. Removing the raw StorageType adapter initially exposed its multiline collection-
+commit caller; that caller now compares full contracts. All compilation/test failures
+are resolved. No full workspace or complete GitHub CI run is claimed.
+
+Separate diagnostic builds complete all 72 source-form/scaling and 14 original rows.
+Every pre-existing non-allocation counter is unchanged: objects, collection counts,
+environments, applications, preparations, layout comparisons, driver/canonical boundaries
+and metadata validations. Representative warm totals versus 054e2811:
+
+| Workload | Rust requests before -> after | Requested bytes before -> after |
+| --- | ---: | ---: |
+| original arrays (2,000 elements) | 12,059 -> 59 | 180,266 -> 20,266 |
+| original maps (1,000 keys) | 14,183 -> 2,178 | 1,150,848 -> 1,022,792 |
+| field (5,000 iterations) | 5,009 -> 8 | 40,231 -> 223 |
+| interface (5,000) | 10,040 -> 5,039 | 83,840 -> 43,832 |
+| shared_generic (5,000) | 10,051 -> 5,050 | 84,793 -> 44,785 |
+| scoped_layout (2,500) | 810,676 -> 568,175 | 78,197,515 -> 54,677,507 |
+| scoped_layout (5,000) | 1,621,291 -> 1,136,290 | 156,387,115 -> 109,347,107 |
+| changing_scoped_layout (5,000) | 1,621,465 -> 1,136,464 | 156,426,012 -> 109,386,004 |
+| native_application (5,000) | 500,391 -> 385,373 | 30,698,229 -> 29,458,021 |
+| changing_native_application (5,000) | 500,611 -> 385,575 | 30,799,206 -> 29,558,790 |
+
+Map loses 12,005 requests/128,056 bytes in both cold and warm runs; it still allocates
+2,001 ordinary objects and collects five times warm. Scoped-layout warm savings scale
+as 97*n+1 requests and 9,408*n+8 bytes, including changing scopes. Cold scoped net bytes
+decrease 192 (fixed) or 384 (changing), independent of 2,500/5,000 iterations; this is an
+execution delta, not isolated cache retention or peak memory. Other net-byte rows are
+unchanged. No reduction in allocation is treated as proof of lower elapsed time.
+
+The earlier temporary source-free Vec primitive scaling probe is replayed with release
+assertions off and execution-diagnostics on. Its replace/replace_fluent/read cycle now
+uses exactly 164 requests/17,816 bytes for both n=2,500 and n=5,000, versus the earlier
+22,684/318,008 and 45,184/618,008. Zero objects/collections, one driver admission and
+zero slow boundaries or preparation counters remain. The nine allocations/120 bytes
+per added iteration are gone; the whole typed host call still has fixed allocation
+cost. Results equal n*(n-1)/2. The existing primitive fixture's source was restored
+byte-for-byte after this temporary diagnostic; no redundant permanent test was added.
+Probe source/backup/output are under target/hp05/type-views/. It is not throughput data.
+
+Ordinary comparison uses 054e2811's preserved executable at
+ target/hp05/type-views/baseline-executable, SHA-256
+28d0c43e49576bb54871530e9d0463cd9764e5b6c178a8bb8315da35afb6e46e.
+Candidate: target/hp05/type-views/prepared-executable, SHA-256
+f69eedd6986a8e2efbea756550ef4c063099e09940e41efe22d0cc2fb254af0e.
+Paired results under target/lua-comparison/: 20261010T103048Z-forms-paired,
+20261010T103122Z-paired, 20261010T103451Z-forms-paired and 20261010T103504Z-paired.
+Same M1 Max/32 GiB/ten logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8,
+vendored PUC Lua 5.4.8, default workspace release/target/parallelism, warm build cache,
+normal GC and allocator, diagnostics off. Frozen inputs/checksums are unchanged.
+Commands: benchmark_lua.py --interpreter-only [--source-forms] --baseline-executable
+with the reference above and documented DEVELOPER_DIR prefix. Three warmups/22 pooled
+samples per route, serial B/C/C/B; no build/test/profile overlaps timing. Excluded
+builds: 20.988/0.117/0.091/0.080 seconds. All checksums and candidate hashes agree.
+
+| Workload | Candidate / 054e2811 | Lua control | Repeat candidate / 054e2811 | Repeat Lua control |
+| --- | ---: | ---: | ---: | ---: |
+| arithmetic | 0.9740 | 1.0136 | 1.0007 | 1.0074 |
+| arrays | 0.8763 | 1.0006 | 0.8895 | 1.0081 |
+| branches | 1.0046 | 1.0023 | 1.0004 | 1.0054 |
+| calls | 1.0208 | 0.9962 | 1.0193 | 1.0034 |
+| entry | 1.0044 | 0.9978 | 0.9931 | 0.9920 |
+| fibonacci | 1.0144 | 1.0064 | 1.0131 | 1.0021 |
+| maps | 0.9429 | 0.9785 | 0.9290 | 0.9608 |
+| byte_state | 1.0303 | 1.0129 | 1.0328 | 0.9977 |
+| capture_cell | 1.0049 | 0.9422 | 1.0105 | 1.0338 |
+| concrete_generic | 1.0089 | 1.0072 | 1.0177 | 1.0139 |
+| direct | 1.0386 | 1.0003 | 1.0319 | 1.0300 |
+| field | 0.9198 | 0.9915 | 0.9337 | 1.0005 |
+| helper | 1.0099 | 0.9896 | 1.0093 | 0.9854 |
+| host_callback | 0.9989 | 1.0123 | 1.0017 | 1.0085 |
+| interface | 1.0101 | 0.9950 | 1.0201 | 1.0017 |
+| native | 0.9953 | 1.0023 | 1.0051 | 0.9950 |
+| shared_generic | 0.9967 | 1.0162 | 1.0040 | 1.0314 |
+| string_calls | 1.0044 | 1.0154 | 1.0176 | 1.0121 |
+| string_constants | 1.0004 | 0.9994 | 1.0039 | 0.9984 |
+
+Array and field reductions repeat. Map also decreases in both comparisons, but its Lua
+control moves and it remains 55.04/54.88x Lua; arrays remain 23.23/23.55x. Interface
+allocation savings do not establish a throughput win. Byte-state regresses roughly 3%
+in both pairs, and direct's roughly 3–4% shift has a moving Lua control on the repeat;
+retain these observations for HP06's complete evaluation. No new >5% control regression
+is established, but this is not blanket performance acceptance. Earlier HP04 regressions,
+remaining repeated nominal graph work, ordinary Option representation evaluation, HP06
+retirement/memory accounting/final integration, CI and all-workload parity remain open.
+Raw logs are under target/hp05/type-views/; target/release holds the ordinary benchmark.

@@ -64,9 +64,7 @@ impl GcHeap {
             }
             let payload = original.payload::<SequencePayload>()?;
             if payload.values.len() < input.len()
-                || !input_payload
-                    .contract
-                    .matches(&payload.element, &payload.contract.owner)
+                || !input_payload.contract.same_type(&payload.contract)
             {
                 return Err(invalid());
             }

@@ -21,7 +21,6 @@ use crate::{
     objects::invocation::MethodInvocation,
     value,
     value::{EnumTag, Value},
-    value_check::matches_type,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::CallableTarget;
@@ -843,29 +842,5 @@ impl Runtime {
         result: &value::Value,
     ) -> Result<(), RuntimeError> {
         method.view(self)?.validate_result(self, result)
-    }
-
-    pub(super) fn matches_interface_method_abi(
-        &self,
-        value: &value::Value,
-        ty: &Ty<DefinitionId>,
-        implementation: &LoadedModule,
-    ) -> bool {
-        if !self.gc.validate_value(value) {
-            return false;
-        }
-        match (value, ty) {
-            (Value::Tuple(id), Ty::Tuple(types)) => self.gc.tuple(*id).is_some_and(|values| {
-                values.len() == types.len()
-                    && values.iter().zip(types).all(|(value, ty)| {
-                        self.matches_interface_method_abi(value, ty, implementation)
-                    })
-            }),
-            (Value::HostRoot(root), Ty::Host(id)) => self.gc.host_root(*root).is_some_and(|root| {
-                self.host.matches_root(root)
-                    && implementation.host_type(*id) == Some(root.type_id())
-            }),
-            _ => matches_type(&self.gc, value, ty, implementation),
-        }
     }
 }

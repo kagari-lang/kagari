@@ -124,7 +124,7 @@ impl LinkedCallable {
             None => self
                 .params
                 .get(index)
-                .is_some_and(|ty| runtime.matches_interface_method_abi(value, ty, owner)),
+                .is_some_and(|ty| runtime.matches_type_in(value, ty, owner, None)),
         }
     }
 
@@ -136,7 +136,7 @@ impl LinkedCallable {
     ) -> bool {
         match &self.scoped_signature {
             Some(signature) => signature.result.matches(runtime, value, owner),
-            None => runtime.matches_interface_method_abi(value, &self.result, owner),
+            None => runtime.matches_type_in(value, &self.result, owner, None),
         }
     }
 }

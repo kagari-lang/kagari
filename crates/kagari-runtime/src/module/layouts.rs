@@ -344,12 +344,16 @@ impl StructLayoutRef {
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
+        self.matches_view(TypeView::new(ty, owner, environment))
+    }
+
+    pub(crate) fn matches_view(&self, expected: TypeView<'_>) -> bool {
         TypeView::new(
             &self.type_expression(),
             &self.module,
             self.type_bindings().map(Arc::as_ref),
         )
-        .compatible(TypeView::new(ty, owner, environment))
+        .compatible(expected)
     }
 
     pub(crate) fn field_type(
@@ -402,12 +406,16 @@ impl EnumVariantRef {
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
+        self.matches_view(TypeView::new(ty, owner, environment))
+    }
+
+    pub(crate) fn matches_view(&self, expected: TypeView<'_>) -> bool {
         TypeView::new(
             &self.type_expression(),
             &self.module,
             self.type_bindings().map(Arc::as_ref),
         )
-        .compatible(TypeView::new(ty, owner, environment))
+        .compatible(expected)
     }
 
     /// Pattern access requires the concrete payload contract, not only a tag identity.

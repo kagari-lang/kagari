@@ -1,7 +1,7 @@
-//! Runtime value/type compatibility consumes checked layouts and selected scopes.
+//! Runtime value/type compatibility consumes checked layouts and lexical type facts.
 //! Heap storage supplies descriptors; the collector does not resolve type policy.
 use crate::{
-    frame::types::bindings::TypeBindings,
+    frame::types::{bindings::TypeBindings, compatibility::TypeView},
     gc::GcHeap,
     module::LoadedModule,
     numeric,
@@ -17,50 +17,7 @@ pub(crate) fn matches_type(
     ty: &Ty<DefinitionId>,
     owner: &LoadedModule,
 ) -> bool {
-    if let Ty::Builtin(kind) = ty {
-        return if kind.integer_layout().is_some() {
-            numeric::read_integer(*kind, value).is_ok()
-        } else {
-            value.has_representation(semantic_representation(ty))
-        };
-    }
-    let mut pending = vec![(*value, ty)];
-    while let Some((value, ty)) = pending.pop() {
-        let matches = match (value, ty) {
-            (value, Ty::Builtin(_)) => matches_type(heap, &value, ty, owner),
-            (Value::Range(value), Ty::Range(_, _)) => heap.range(value).is_some_and(|range| range.matches(ty)),
-            (Value::Closure(id), Ty::Function { params, result }) => heap
-                .closure_snapshot(id)
-                .is_some_and(|snapshot| snapshot.matches_function(params, result, owner, None)),
-            (Value::Tuple(id), Ty::Tuple(types)) => {
-                let Some(values) = heap.tuple(id) else { return false; };
-                if values.len() != types.len() { return false; }
-                pending.extend(values.iter().copied().zip(types));
-                true
-            }
-            (Value::Struct(id), Ty::Struct(expected)) => heap.struct_layout(id).is_some_and(|layout| {
-                owner.find_struct_layout(expected).is_some_and(|current| layout.matches(&current))
-            }),
-            (Value::Enum(id), Ty::Enum(_)) => heap.enum_view(id).is_some_and(|value| {
-                matches!(&value.tag, EnumTag::Declared(layout) if layout.matches_type(ty, owner, None))
-            }),
-            (Value::Interface(id), Ty::Trait(_)) => heap.interface_snapshot(id)
-                .is_some_and(|value| value.matches_type(ty, owner, None)),
-            (Value::GcHandle(id), Ty::NativeObject(_)) => heap.matches_native_type(id, ty, owner, None),
-            (Value::GcHandle(id), Ty::Iter(element)) => heap.matches_iter_type(id, element, owner, None),
-            (Value::Array(id), Ty::Array(element, _)) => heap.array_contract(id)
-                .is_some_and(|contract| contract.matches(element, owner)),
-            (Value::Map(id), Ty::Map { key, value, .. }) => heap.map_contract(id)
-                .is_some_and(|(a, b, _)| a.matches(key, owner) && b.matches(value, owner)),
-            (Value::Set(id), Ty::Set(element, _)) => heap.set_contract(id)
-                .is_some_and(|(contract, _)| contract.matches(element, owner)),
-            _ => false,
-        };
-        if !matches {
-            return false;
-        }
-    }
-    true
+    matches_view(heap, value, TypeView::new(ty, owner, None))
 }
 
 pub(crate) fn matches_type_in(
@@ -70,71 +27,88 @@ pub(crate) fn matches_type_in(
     owner: &LoadedModule,
     environment: Option<&TypeBindings>,
 ) -> bool {
-    if ty.is_concrete() {
-        return matches_type(heap, value, ty, owner);
+    matches_view(heap, value, TypeView::new(ty, owner, environment))
+}
+
+/// One matcher for raw lexical expressions and admitted closed type facts. Project
+/// container children without discarding their closed result or supplying scope.
+/// Tuple descent follows the checked type tree; no per-value worklist is needed.
+pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> bool {
+    if let Ty::Parameter { owner, position } = view.ty {
+        return view
+            .environment
+            .and_then(|environment| environment.argument(owner, *position))
+            .is_some_and(|argument| argument.matches_heap(heap, value, view.owner));
     }
-    if let Ty::Parameter {
-        owner: binder,
-        position,
-    } = ty
-    {
-        return environment
-            .and_then(|environment| environment.argument(binder, *position))
-            .is_some_and(|argument| argument.matches_heap(heap, value, owner));
-    }
-    if let (Value::Tuple(id), Ty::Tuple(types)) = (value, ty) {
-        let Some(values) = heap.tuple(*id) else {
-            return false;
-        };
-        return values.len() == types.len()
-            && values
-                .iter()
-                .zip(types)
-                .all(|(value, ty)| matches_type_in(heap, value, ty, owner, environment));
-    }
-    if let (Value::Closure(id), Ty::Function { params, result }) = (value, ty) {
-        return heap
-            .closure_snapshot(*id)
-            .is_some_and(|closure| closure.matches_function(params, result, owner, environment));
-    }
-    if let (Value::Interface(id), Ty::Trait(_)) = (value, ty) {
-        return heap
+    let Some(view) = view.normalized() else {
+        return false;
+    };
+    match (value, view.ty) {
+        (value, Ty::Builtin(kind)) => {
+            if kind.integer_layout().is_some() {
+                numeric::read_integer(*kind, value).is_ok()
+            } else {
+                value.has_representation(semantic_representation(view.ty))
+            }
+        }
+        (Value::Range(id), Ty::Range(_, _)) => heap
+            .range(*id)
+            .is_some_and(|range| view.closed().is_some_and(|ty| range.matches(&ty))),
+        (Value::Closure(id), Ty::Function { params, result }) => {
+            heap.closure_snapshot(*id).is_some_and(|snapshot| {
+                snapshot.matches_function(params, result, view.owner, view.environment)
+            })
+        }
+        (Value::Tuple(id), Ty::Tuple(types)) => heap.tuple(*id).is_some_and(|values| {
+            values.len() == types.len()
+                && values.iter().enumerate().all(|(index, value)| {
+                    view.parameter(index)
+                        .is_some_and(|view| matches_view(heap, value, view))
+                })
+        }),
+        (Value::Struct(id), Ty::Struct(expected)) => {
+            heap.struct_layout(*id).is_some_and(|actual| {
+                if view.environment.is_none() {
+                    view.owner
+                        .find_struct_layout(expected)
+                        .is_some_and(|current| actual.matches(&current))
+                } else {
+                    actual.matches_view(view)
+                }
+            })
+        }
+        (Value::Enum(id), Ty::Enum(_)) => heap.enum_view(*id).is_some_and(
+            |value| matches!(&value.tag, EnumTag::Declared(actual) if actual.matches_view(view)),
+        ),
+        (Value::Interface(id), Ty::Trait(_)) => heap
             .interface_snapshot(*id)
-            .is_some_and(|actual| actual.matches_type(ty, owner, environment));
-    }
-    if let (Value::GcHandle(id), Ty::Iter(element)) = (value, ty) {
-        return heap.matches_iter_type(*id, element, owner, environment);
-    }
-    if let (Value::GcHandle(id), Ty::NativeObject(_)) = (value, ty) {
-        return heap.matches_native_type(*id, ty, owner, environment);
-    }
-    if let (Value::Map(id), Ty::Map { key, value, .. }) = (value, ty) {
-        return heap.map_contract(*id).is_some_and(|(a, b, _)| {
-            a.matches_scoped(key, owner, environment) && b.matches_scoped(value, owner, environment)
-        });
-    }
-    if let (Value::Set(id), Ty::Set(element, _)) = (value, ty) {
-        return heap
-            .set_contract(*id)
-            .is_some_and(|(contract, _)| contract.matches_scoped(element, owner, environment));
-    }
-    if let (Value::Array(id), Ty::Array(element, _)) = (value, ty) {
-        return heap
-            .array_contract(*id)
-            .is_some_and(|contract| contract.matches_scoped(element, owner, environment));
-    }
-    if let (Value::Struct(id), Ty::Struct(_)) = (value, ty) {
-        return heap
-            .struct_layout(*id)
-            .is_some_and(|actual| actual.matches_type(ty, owner, environment));
-    }
-    if let (Value::Enum(id), Ty::Enum(_)) = (value, ty) {
-        return heap.enum_view(*id).is_some_and(|view| matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_type(ty, owner, environment)));
-    }
-    match environment {
-        Some(environment) => environment
-            .resolve(ty)
-            .is_ok_and(|ty| matches_type(heap, value, &ty, owner)),
-        None => matches_type(heap, value, ty, owner),
+            .is_some_and(|actual| actual.matches_type(view.ty, view.owner, view.environment)),
+        (Value::GcHandle(id), Ty::NativeObject(_)) => {
+            heap.matches_native_type(*id, view.ty, view.owner, view.environment)
+        }
+        (Value::GcHandle(id), Ty::Iter(_)) => view
+            .parameter(0)
+            .is_some_and(|element| heap.matches_iter_type(*id, element)),
+        (Value::Array(id), Ty::Array(_, _)) => heap.array_contract(*id).is_some_and(|contract| {
+            view.parameter(0)
+                .is_some_and(|element| contract.matches_view(element))
+        }),
+        (Value::Map(id), Ty::Map { .. }) => {
+            heap.map_contract(*id).is_some_and(|(key, value, _)| {
+                view.parameter(0)
+                    .is_some_and(|expected| key.matches_view(expected))
+                    && view
+                        .parameter(1)
+                        .is_some_and(|expected| value.matches_view(expected))
+            })
+        }
+        (Value::Set(id), Ty::Set(_, _)) => heap.set_contract(*id).is_some_and(|(contract, _)| {
+            view.parameter(0)
+                .is_some_and(|element| contract.matches_view(element))
+        }),
+        (_, Ty::Projection { .. } | Ty::SelfType(_)) => view
+            .closed()
+            .is_some_and(|ty| matches_type(heap, value, &ty, view.owner)),
+        _ => false,
     }
 }

@@ -49,10 +49,11 @@ impl MethodView<'_> {
                 Some(signature) => {
                     signature.params[index].matches(runtime, value, self.implementation())
                 }
-                None => runtime.matches_interface_method_abi(
+                None => runtime.matches_type_in(
                     value,
                     &self.parameter_types()[index],
                     self.implementation(),
+                    None,
                 ),
             })?
         {
@@ -74,11 +75,9 @@ impl MethodView<'_> {
                 Some(signature) => signature
                     .result
                     .matches(runtime, result, self.implementation()),
-                None => runtime.matches_interface_method_abi(
-                    result,
-                    self.return_type(),
-                    self.implementation(),
-                ),
+                None => {
+                    runtime.matches_type_in(result, self.return_type(), self.implementation(), None)
+                }
             }
         {
             return Err(RuntimeError::new(

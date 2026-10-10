@@ -1,6 +1,6 @@
 //! Compare complete reified layout graphs while preserving lexical type scopes.
 use crate::{
-    frame::types::bindings::TypeBindings,
+    frame::types::{arguments::type_parameter, bindings::TypeBindings},
     host::HostRegistryId,
     module::{LoadedModule, ModuleKey},
 };
@@ -14,6 +14,7 @@ pub(crate) struct TypeView<'a> {
     pub(crate) owner: &'a LoadedModule,
     pub(crate) environment: Option<&'a TypeBindings>,
     application: Option<&'a Application<'a>>,
+    prepared: Option<&'a Ty<DefinitionId>>,
 }
 
 struct Application<'a> {
@@ -38,11 +39,46 @@ impl<'a> TypeView<'a> {
             owner,
             environment,
             application: None,
+            prepared: None,
         }
     }
 
+    /// Carry the closed result already checked by a type argument or storage
+    /// contract. Keep the source expression and its lexical provenance for layout
+    /// comparison; a closed spelling alone does not identify a nominal generation.
+    pub(crate) fn prepared(
+        expression: &'a Ty<DefinitionId>,
+        closed: &'a Ty<DefinitionId>,
+        owner: &'a LoadedModule,
+        environment: Option<&'a TypeBindings>,
+    ) -> Self {
+        debug_assert!(closed.is_concrete());
+        Self {
+            prepared: Some(closed),
+            ..Self::new(expression, owner, environment)
+        }
+    }
+
+    pub(crate) fn parameter(self, index: usize) -> Option<Self> {
+        Some(Self {
+            ty: type_parameter(self.ty, index)?,
+            prepared: self.prepared.and_then(|ty| type_parameter(ty, index)),
+            ..self
+        })
+    }
+
     fn child(self, ty: &'a Ty<DefinitionId>) -> Self {
-        Self { ty, ..self }
+        // An arbitrary lexical child has no parallel closed operand. Inherit
+        // evidence only when the source itself is the checked closed tree.
+        let prepared = self
+            .prepared
+            .filter(|closed| ptr::eq(*closed, self.ty))
+            .map(|_| ty);
+        Self {
+            ty,
+            prepared,
+            ..self
+        }
     }
 
     pub(crate) fn normalized(mut self) -> Option<Self> {
@@ -84,7 +120,13 @@ impl<'a> TypeView<'a> {
     }
 
     pub(crate) fn closed(self) -> Option<Cow<'a, Ty<DefinitionId>>> {
+        if let Some(ty) = self.prepared {
+            return Some(Cow::Borrowed(ty));
+        }
         let view = self.normalized()?;
+        if let Some(ty) = view.prepared {
+            return Some(Cow::Borrowed(ty));
+        }
         if view.ty.is_concrete() {
             return Some(Cow::Borrowed(view.ty));
         }
@@ -194,6 +236,7 @@ impl<'a> TypeView<'a> {
                 owner: a_owner,
                 environment: None,
                 application: Some(&left),
+                prepared: None,
             }
             .compare(
                 TypeView {
@@ -201,6 +244,7 @@ impl<'a> TypeView<'a> {
                     owner: b_owner,
                     environment: None,
                     application: Some(&right),
+                    prepared: None,
                 },
                 visited,
             )
@@ -277,6 +321,7 @@ impl<'a> TypeView<'a> {
                     owner,
                     environment: None,
                     application: Some(&application),
+                    prepared: None,
                 }
                 .check_heap_type(visited)
             };

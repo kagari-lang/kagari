@@ -1,7 +1,7 @@
 use super::string_iter::StringTraversal;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    frame::types::{arguments::TypeArgument, bindings::TypeBindings},
+    frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::{
         GcHeap, GcObjectKind, HeapObjectId,
         leases::{LeaseScope, OwnedLease},
@@ -182,15 +182,9 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn matches_iter_type(
-        &self,
-        id: HeapObjectId,
-        element: &Ty<DefinitionId>,
-        owner: &LoadedModule,
-        environment: Option<&TypeBindings>,
-    ) -> bool {
+    pub(crate) fn matches_iter_type(&self, id: HeapObjectId, element: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
-        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_scoped(element, owner, environment)))
+        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
     }
 
     pub(crate) fn new_iter(
