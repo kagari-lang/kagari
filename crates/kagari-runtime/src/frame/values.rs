@@ -8,7 +8,7 @@ use crate::{
     error::RuntimeError,
     execution_metadata::MetadataRoot,
     frame::{
-        arguments::FrameArguments,
+        arguments::{ArgumentSource, FrameArguments},
         types::TypeEnvironment,
         values::operands::{read_operand, write_operand},
     },
@@ -133,33 +133,23 @@ impl ExecutionValues {
         };
         // Admission is transactional: reject an invalid argument before growing
         // any bank or publishing a frame window. No partial roots can escape.
-        if let Some((source, operands)) = arguments.window() {
-            for transfer in operands {
-                let target = transfer.target;
-                let capacity = if target.operand.managed() {
-                    managed_count
-                } else {
-                    scalar_count
-                };
-                if target.operand.index() >= capacity
-                    || !self.admits_transfer(source, transfer.source, target)
-                {
-                    return Err(RuntimeError::module_validation(
-                        "invalid frame argument type or window",
-                    ));
+        for (index, source) in arguments.iter().enumerate() {
+            let target = destination(argument_offset + index).expect("checked argument range");
+            let capacity = if target.operand.managed() {
+                managed_count
+            } else {
+                scalar_count
+            };
+            let admitted = match source {
+                ArgumentSource::Value(value) => registers.is_none() || target.admits(value),
+                ArgumentSource::Window(slots, location) => {
+                    self.admits_transfer(slots, location, target)
                 }
-            }
-        } else {
-            for (index, value) in arguments.iter().enumerate() {
-                if registers.is_some()
-                    && !destination(argument_offset + index)
-                        .expect("checked argument range")
-                        .admits(value)
-                {
-                    return Err(RuntimeError::module_validation(
-                        "invalid frame argument type or range",
-                    ));
-                }
+            };
+            if target.operand.index() >= capacity || !admitted {
+                return Err(RuntimeError::module_validation(
+                    "invalid frame argument type or window",
+                ));
             }
         }
         let generation = self
@@ -214,27 +204,34 @@ impl ExecutionValues {
             self.windows[slots.index] = window;
         }
         self.allocation_order.push(slots.index);
-        if let Some((source, operands)) = arguments.window() {
-            let ranges = self.ranges(slots).expect("published window");
-            for transfer in operands {
-                // Indices survive bank growth; source and destination are disjoint.
-                if let Some((_, bits)) = self.scalar_location(source, transfer.source)
-                    && let Some(target) = transfer.target.operand.scalar()
-                {
-                    self.write_payload(&ranges, target, bits)
-                        .expect("admitted scalar transfer");
-                } else {
-                    let value = self
-                        .with_location(source, transfer.source, Value::clone)
-                        .expect("checked source window");
-                    self.set_location(slots, transfer.target, value)
+        let ranges = self.ranges(slots).expect("published window");
+        for (index, source) in arguments.iter().enumerate() {
+            // This newly published window cannot be retired or replaced while
+            // allocate holds exclusive storage access.
+            let target = self.windows[slots.index]
+                .as_ref()
+                .and_then(|window| window.location(argument_offset + index))
+                .expect("admitted argument destination");
+            match source {
+                ArgumentSource::Value(value) => {
+                    self.set_location(slots, target, *value)
                         .expect("admitted argument");
                 }
-            }
-        } else {
-            for (index, value) in arguments.iter().enumerate() {
-                self.set(slots, argument_offset + index, *value)
-                    .expect("admitted argument");
+                ArgumentSource::Window(source, location) => {
+                    // Indices survive bank growth; source and destination are disjoint.
+                    if let Some((_, bits)) = self.scalar_location(source, location)
+                        && let Some(target) = target.operand.scalar()
+                    {
+                        self.write_payload(&ranges, target, bits)
+                            .expect("admitted scalar transfer");
+                    } else {
+                        let value = self
+                            .with_location(source, location, Value::clone)
+                            .expect("checked source window");
+                        self.set_location(slots, target, value)
+                            .expect("admitted argument");
+                    }
+                }
             }
         }
         Ok(slots)

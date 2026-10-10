@@ -561,7 +561,7 @@ impl<'a> Executor<'a> {
         }
         if matches!(
             callee,
-            CallTarget::Function(_) | CallTarget::ModuleFunction { .. }
+            CallTarget::Function(_) | CallTarget::ModuleFunction { .. } | CallTarget::Shared { .. }
         ) {
             return self
                 .stack
@@ -575,14 +575,11 @@ impl<'a> Executor<'a> {
             .collect::<Result<Vec<_>, _>>()?;
 
         match *callee {
-            CallTarget::Shared { .. } => self
-                .stack
-                .push_shared_call(self.runtime, &arg_values, dst)
-                .map(|()| InstructionProgress::Call)
-                .map_err(VmError::RuntimeError),
             CallTarget::Native(_) => unreachable!("native calls execute before argument packing"),
-            CallTarget::ModuleFunction { .. } | CallTarget::Function(_) => {
-                unreachable!("direct script calls use frame windows")
+            CallTarget::ModuleFunction { .. }
+            | CallTarget::Function(_)
+            | CallTarget::Shared { .. } => {
+                unreachable!("statically selected calls use frame windows")
             }
             CallTarget::InterfaceMethod { ref contract, .. } => {
                 let receiver = arg_values.first().unwrap_or(&Value::Unit);

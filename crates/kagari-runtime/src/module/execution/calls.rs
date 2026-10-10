@@ -1,63 +1,45 @@
-//! Physical transfers derived from the caller and callee's sealed frame layouts.
-use crate::module::execution::{
-    ExecutionModule,
-    layout::{FrameLayout, Location},
-};
+//! Physical argument sources from sealed call sites; callee layouts own placement.
+use crate::module::execution::{ExecutionModule, layout::Location};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
-    module::BytecodeModule,
+    module::{BytecodeModule, CallableTarget},
     program::ModuleRef,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::ids::FunctionRef;
-use std::sync::Arc;
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ArgumentTransfer {
-    pub source: Location,
-    pub target: Location,
-}
 
 #[derive(Debug)]
-pub(crate) struct PreparedScriptCall {
+pub(crate) struct PreparedCall {
     pub module: ModuleRef,
-    pub function: FunctionRef,
-    pub registers: Arc<FrameLayout>,
-    pub arguments: Box<[ArgumentTransfer]>,
+    pub target: CallableTarget,
+    pub shared: bool,
+    pub arguments: Box<[Location]>,
     pub destination: Option<Location>,
 }
 
 impl ExecutionModule {
     /// Module slots refer to the containing verified program. Activation binds
     /// them through the caller's pinned descriptor, never the latest publication.
-    pub(crate) fn prepare_calls(
-        &mut self,
-        slot: ModuleRef,
-        module: &BytecodeModule<DefinitionId>,
-        layouts: &[Vec<Arc<FrameLayout>>],
-    ) {
+    pub(crate) fn prepare_calls(&mut self, slot: ModuleRef, module: &BytecodeModule<DefinitionId>) {
         for (prepared, function) in self.functions.iter_mut().zip(&module.functions) {
             for (pc, instruction) in function.instructions.iter().enumerate() {
                 let BytecodeInstruction::Call { dst, callee, args } = instruction else {
                     continue;
                 };
-                let (module, function) = match *callee {
-                    CallTarget::Function(function) => (slot, function),
-                    CallTarget::ModuleFunction { module, function } => (module, function),
+                let (module, target) = match *callee {
+                    CallTarget::Function(function) => (slot, CallableTarget::Script(function)),
+                    CallTarget::ModuleFunction { module, function } => {
+                        (module, CallableTarget::Script(function))
+                    }
+                    CallTarget::Shared { module, target, .. } => (module, target),
                     _ => continue,
                 };
-                let registers = layouts[module.index()][function.index()].clone();
                 let arguments = args
                     .iter()
-                    .enumerate()
-                    .map(|(index, register)| ArgumentTransfer {
-                        source: prepared
+                    .map(|register| {
+                        prepared
                             .registers
                             .location(register.index())
-                            .expect("sealed caller operand"),
-                        target: registers
-                            .location(registers.register_count + index)
-                            .expect("sealed callee parameter"),
+                            .expect("sealed caller operand")
                     })
                     .collect();
                 let destination = dst.map(|register| {
@@ -68,10 +50,10 @@ impl ExecutionModule {
                 });
                 prepared.calls.insert(
                     pc,
-                    PreparedScriptCall {
+                    PreparedCall {
                         module,
-                        function,
-                        registers,
+                        target,
+                        shared: matches!(callee, CallTarget::Shared { .. }),
                         arguments,
                         destination,
                     },

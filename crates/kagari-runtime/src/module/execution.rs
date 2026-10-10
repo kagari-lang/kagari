@@ -10,7 +10,7 @@ use crate::{
     module::{
         LoadedModule, StructLayoutRef,
         execution::{
-            calls::PreparedScriptCall,
+            calls::PreparedCall,
             layout::{FrameLayout, scalar_type},
         },
     },
@@ -106,6 +106,21 @@ impl PreparedField {
     }
 }
 
+/// The same sealed field description serves preparation and the scalar/object handoff.
+#[derive(Debug, Clone, Copy)]
+pub enum PreparedFieldOperation {
+    Read {
+        dst: Register,
+        base: Register,
+        field: PreparedField,
+    },
+    Write {
+        base: Register,
+        value: Register,
+        field: PreparedField,
+    },
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ExecutionInstruction {
     Constant {
@@ -128,16 +143,7 @@ pub enum ExecutionInstruction {
         then_target: JumpTarget,
         else_target: JumpTarget,
     },
-    ReadField {
-        dst: Register,
-        base: Register,
-        field: PreparedField,
-    },
-    WriteField {
-        base: Register,
-        value: Register,
-        field: PreparedField,
-    },
+    Field(PreparedFieldOperation),
     Return {
         value: Option<OperandSlot>,
         representation: ValueType,
@@ -160,7 +166,7 @@ pub(crate) struct ExecutionFunction {
     /// Managed physical locations retained immediately before an await. Slot
     /// coalescing may share a location: any live logical alias keeps it alive.
     pub awaits: BTreeMap<usize, Box<[u64]>>,
-    pub calls: BTreeMap<usize, PreparedScriptCall>,
+    pub calls: BTreeMap<usize, PreparedCall>,
 }
 
 impl ExecutionModule {
@@ -282,14 +288,15 @@ impl ExecutionInstruction {
                 dst,
                 base,
                 ref field,
-            } => PreparedField::prepare(module, field)
-                .map_or(Self::Boundary, |field| Self::ReadField { dst, base, field }),
+            } => PreparedField::prepare(module, field).map_or(Self::Boundary, |field| {
+                Self::Field(PreparedFieldOperation::Read { dst, base, field })
+            }),
             BytecodeInstruction::WriteAggregateField {
                 base,
                 value,
                 ref field,
             } => PreparedField::prepare(module, field).map_or(Self::Boundary, |field| {
-                Self::WriteField { base, value, field }
+                Self::Field(PreparedFieldOperation::Write { base, value, field })
             }),
             BytecodeInstruction::Unary { dst, op, operand } => {
                 let ty = scalar_type(location(operand).representation);

@@ -1,6 +1,6 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP02 are complete; HP03 is next.
+Status: active, authorized by the user on 2026-10-10; HP00–HP02 are complete; HP03 is in progress.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -1419,3 +1419,150 @@ The default release executable is also ordinary. Link checks cover all 76 local 
 in the three changed architecture/roadmap/plan documents. Next is HP03: unify prepared
 call ownership and physical argument/result transfers, starting from the retained
 interface/shared packing and owning method-handle paths.
+
+2026-10-10 HP03, common argument-source protocol (in progress):
+`PreparedCall` replaces concrete-only `PreparedScriptCall` and covers statically
+selected script plus shared script/native targets. Call sites retain sealed physical
+argument sources and return destinations; the selected callee's layout owns parameter
+placement. The duplicate callee-layout reference and source/target-pair table are gone,
+including the temporary cross-module layout matrix used while preparing calls.
+
+`FrameArguments` now iterates borrowed values/captures or checked window locations.
+One admission/publication loop consumes these sources, validating every argument before
+bank growth and frame publication. Complete scalar payloads still transfer directly
+between scalar banks; managed destinations materialize Values through the existing bank
+access rules. Window owner/generation, initialization, bounds, numeric domains, heap and
+candidate ownership, arity, call depth and cleanup remain checked. Existing relocation,
+reordering, repeated-source, stale-window and transactional rejection tests now use the
+callee-owned destination layout, preserving their behavioral assertions.
+
+VM direct/shared dispatch enters `push_prepared_call` without packing arguments. The old
+public `push_shared_call` slice API is removed. Shared targets still resolve through the
+caller's pinned program and HP01 environment descriptor, validate caller-scoped semantic
+arguments and validate the adapted result before publishing it into the caller's physical
+destination. Concrete calls do not decode a shared contract. Host/native selected calls
+and closures consume the same storage protocol; their selection/validation and existing
+external argument API remain. No second call cache or unchecked public entry was added.
+
+Focused checks pass: runtime frame/window/type contracts (11), VM shared/generation
+contracts (10), native allocation contracts (2), generic native application contracts
+(4), source-free shared application retention (1) and embed generic reload (2). Strict
+runtime/VM/benchmark all-target Clippy with diagnostics passes; structure checks 1,006
+Rust files with zero violations/exceptions. No carried build/test error or new test
+matrix is introduced. Full workspace and GitHub CI remain unrun at this checkpoint.
+
+All 64 diagnostic cold/warm rows pass. Shared script forwarding and fixed/alternating
+native application probes each lose exactly one 64-byte allocation request per shared
+call: 2,500 calls remove 2,500 requests/160,000 requested bytes; 5,000 remove 5,000/320,000.
+For example, `shared_application_5000` changes 535,466 to 530,466 requests and
+`native_application_5000` changes 705,360 to 700,360. Driver transitions, metadata
+validation counts and heap object counts remain unchanged. These are allocation counts,
+not throughput claims; raw evidence is `target/hp03/argument-source-diagnostics.log`, compared
+with `target/hp02/driver-diagnostics.log`.
+
+The `shared_generic`/`fixed_application` workload names describe generic interface method
+calls, not the bytecode Shared target migrated here. Their 155,050 requests at 5,000 calls
+remain unchanged. HP03 is not accepted: interface selection/owning method roots, closure
+packing, remaining scoped type preparation and graph validation, and unified return
+retirement still require migration. The next ownership change must separate host-retained
+method leases from active call descriptors while reusing this argument-source protocol.
+
+The first parameter-source implementation kept independent value/window fields and
+chained their iterators. Two paired ordinary source-form runs showed repeatable
+regressions, including helper 9.16% and concrete generic 11.41% in the first run, plus
+string constants 9.18% despite no shared call in that loop. Results are retained in
+`target/lua-comparison/20261010T041659Z-forms-paired/results.json` and
+`target/lua-comparison/20261010T041833Z-forms-paired/results.json`; the initial executable
+is `target/hp03/argument-initial-executable`, SHA-256
+`2a891fbf922b56a0740e4c9ebe0b3cd76719671aaa699676371026326a4a2bc2`.
+
+Independent macOS sampling reused `scripts/profile_lua_macos.py::sample` for helper and
+string_constants against both preserved binaries (5 s, 1 ms, within each warmed 10 s
+execution window). Helper's collapsed top samples for the two argument admission
+instantiations rise from 28/14 to 70/53; region-exit samples rise 125 to 396. String
+constants' region-exit samples rise 159 to 375. These are incomplete optimized-stack
+attribution, not isolated CPU costs. Instruction counts remain 105,012/100,012 and
+Value/instruction/prepared-operation/return-packet sizes remain 16/136/24/24 bytes.
+Arm64 disassembly shows the unchanged region source producing a 1,356-byte body versus
+1,096, with a 368-byte stack frame versus 304 and additional aggregate moves. This
+supports sensitivity of the remaining region handoff to code generation; it does not
+prove that all regression originates in the argument protocol. Samples, hashes and
+disassembly are in `target/hp03/argument-profiles/`.
+
+The revised model makes explicit values and frame locations mutually exclusive under
+one enum and uses one indexed source iterator, eliminating invalid combinations and
+stacked iterator branches. Publication accesses its newly created destination window
+under exclusive storage ownership; it does not re-admit that same window per argument.
+All caller-window and destination bounds/domain checks remain. Storage contracts (6),
+native allocation contracts (2), generic native applications (4), strict Clippy,
+structure and formatting pass again after this change. All 64 diagnostic rows pass;
+warm request/byte/object counts and driver/metadata counts match the first candidate.
+No alignment directives, compiler-profile overrides or reduced validation were added.
+
+That simplification alone did not resolve the timing regression: helper/concrete-generic
+remain 1.0967/1.1153 times HP02, and string constants 1.1230, in
+`target/lua-comparison/20261010T042435Z-forms-paired/results.json`. Original calls/fibonacci
+are 1.1093/1.0928 in `target/lua-comparison/20261010T042528Z-paired/results.json`. This
+intermediate ordinary executable is `target/hp03/argument-source-executable`, SHA-256
+`b0a1bef42c9e1f79f45262d5320514330d58aa66a85be757d3ebd5c3261007bb`.
+
+The regression audit therefore revisits the retained VE07/HP02 scalar/object handoff:
+it accepted every `ExecutionInstruction` although only two field operations were legal.
+`PreparedFieldOperation` now owns that exact read/write description and is reused by
+both sealed instructions and the handoff. This removes the broad instruction payload
+and unreachable non-field branch without a second operation implementation, another
+decode, changed polling or new managed-operation support. It is a repair of the existing
+boundary exposed by this migration; the remaining HP04 operation migration stays in its
+planned phase. Field/nominal/reflection checks (6) pass after the repair.
+
+The precise field payload alone still leaves helper/concrete generic at 1.0837/1.0945
+times HP02, string constants at 1.0609, and original calls/fibonacci at 1.1040/1.0912.
+Evidence is `target/lua-comparison/20261010T043108Z-forms-paired/results.json` and
+`target/lua-comparison/20261010T043207Z-paired/results.json`; the ordinary executable
+is `target/hp03/field-handoff-executable`, SHA-256
+`a694400f7097e0727b969e9ae132b844bbcc3700a5ac35ce733164e75b569367`.
+Region disassembly also shows whole nested-exit forwarding on payload-free exits.
+The internal `ScalarExit` now names boundary/slice/safepoint/return/field directly;
+the region constructs each exit explicitly, forwarding a payload only where needed.
+Field/reflection contracts (6), owned-drive slicing/reentry contracts (2), strict
+diagnostic Clippy and structure checks pass after this change. All 64 diagnostic
+rows exactly match the preceding candidate, including allocation and execution
+counters (`target/hp03/flat-transition-diagnostics.log`).
+
+The flattened-transition source-form comparison is
+`target/lua-comparison/20261010T043747Z-forms-paired/results.json`. Candidate/HP02
+ratios are direct 0.9300, helper 1.0209, concrete generic 1.0380, string constants
+1.0006, string calls 1.0224, field 1.0238, interface 1.0054, shared generic 0.9908,
+capture 1.0204, native 1.0128, byte state 0.9912 and host callback 0.9966. Lua control
+ratios range 0.9712–1.0091; small changes must not be overinterpreted. All checksums
+pass. This narrows the initial regression but does not establish HP03 acceptance.
+The ordinary executable is `target/hp03/flat-transition-executable`, SHA-256
+`2a53c4767a28dbda05c0d04e7afd0403bd49abc35d1d37318d502b3049a38f8c`.
+The same M1 Max/macOS 26.6.2/rustc 1.98.1 setup, default release profile and Cargo
+parallelism are used. Processes run sequentially baseline/candidate/candidate/baseline,
+with three warmups and 22 pooled samples per variant; incremental build time (21.328 s)
+is excluded from execution timing. Diagnostic features are disabled for throughput.
+The kernel body/stack are 1,372/384 bytes; the improvement does not imply smaller
+overall generated code or prove a single source of all remaining regression.
+
+The next HP03 checkpoint owns the remaining call transition, rather than further
+incidental code-layout tuning. Separate the selected invocation descriptor from the
+host's `RootedInterfaceMethod` lease. Publish selection/application/environment edges
+with the callee's traced window before releasing any host lease, and use the existing
+method view/application and result-adapter semantics for both entries. Internal calls
+must not rely on the receiver register remaining live after publication. Extend the
+common argument sources for the receiver/capture inputs, then retire packing and
+redundant graph admission under that ownership contract. Existing host handle checks
+and generation validation remain boundary obligations. Remaining call regressions
+belong to HP03 integration and managed-boundary costs to HP04; neither is accepted
+or hidden by this partial checkpoint.
+
+The final original-seven paired run also passes all checksums:
+`target/lua-comparison/20261010T043850Z-paired/results.json`, same candidate hash,
+0.089 s incremental build excluded. Candidate/HP02 is arithmetic 0.9564, branches
+0.9557, calls 1.0379, fibonacci 1.0090, entry 1.0100, arrays 0.9987 and maps 0.9923;
+Lua control ratios are 0.9911–1.0202. Calls still regress 3.79%, so the new common
+protocol has not earned performance acceptance. VM/Lua remains 6.04/3.45/23.68/30.39/
+47.09/57.85/74.63 respectively; Lua parity is open. The partial checkpoint carries
+no build/test error. Formatting, all 76 local links in the three changed documents
+and `git diff --check` pass; no full-workspace or GitHub CI run was performed.

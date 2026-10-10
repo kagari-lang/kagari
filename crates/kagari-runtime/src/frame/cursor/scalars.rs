@@ -2,11 +2,8 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::{
-        cursor::{ExecutionCursor, kernel::RegionExit},
-        transfer::ReturnValue,
-    },
-    module::execution::{ExecutionInstruction, ScalarSlot},
+    frame::{cursor::ExecutionCursor, transfer::ReturnValue},
+    module::execution::{ExecutionInstruction, PreparedFieldOperation, ScalarSlot},
     session::SessionState,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -22,15 +19,18 @@ pub(super) struct ScalarCursor<'a> {
 }
 
 pub(super) enum ScalarExit {
-    Region(RegionExit),
-    Object(ExecutionInstruction),
+    Slice,
+    Safepoint,
+    Boundary,
+    Return(ReturnValue),
+    Object(PreparedFieldOperation),
 }
 
 enum CursorProgress {
     Continue,
     Boundary,
     Return(ReturnValue),
-    Object(ExecutionInstruction),
+    Object(PreparedFieldOperation),
 }
 
 impl ExecutionCursor<'_> {
@@ -77,10 +77,10 @@ impl ScalarCursor<'_> {
     ) -> Result<ScalarExit, RuntimeError> {
         loop {
             if !first && *remaining == Some(0) {
-                return Ok(ScalarExit::Region(RegionExit::Slice));
+                return Ok(ScalarExit::Slice);
             }
             if !first && self.prepare_instruction(collection_due)? {
-                return Ok(ScalarExit::Region(RegionExit::Safepoint));
+                return Ok(ScalarExit::Safepoint);
             }
             first = false;
             if let Some(remaining) = remaining {
@@ -88,9 +88,9 @@ impl ScalarCursor<'_> {
             }
             match self.execute_next()? {
                 CursorProgress::Continue => {}
-                CursorProgress::Boundary => return Ok(ScalarExit::Region(RegionExit::Boundary)),
+                CursorProgress::Boundary => return Ok(ScalarExit::Boundary),
                 CursorProgress::Return(value) => {
-                    return Ok(ScalarExit::Region(RegionExit::Return(value)));
+                    return Ok(ScalarExit::Return(value));
                 }
                 CursorProgress::Object(instruction) => return Ok(ScalarExit::Object(instruction)),
             }
@@ -154,9 +154,8 @@ impl ScalarCursor<'_> {
                 };
                 return Ok(CursorProgress::Return(value));
             }
-            instruction @ (ExecutionInstruction::ReadField { .. }
-            | ExecutionInstruction::WriteField { .. }) => {
-                return Ok(CursorProgress::Object(instruction));
+            ExecutionInstruction::Field(operation) => {
+                return Ok(CursorProgress::Object(operation));
             }
             ExecutionInstruction::Boundary => return Ok(CursorProgress::Boundary),
         };

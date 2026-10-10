@@ -8,7 +8,7 @@ use crate::{
     module::{
         LoadedModule,
         execution::{
-            calls::PreparedScriptCall,
+            calls::PreparedCall,
             layout::{FrameLayout, Location},
         },
     },
@@ -263,40 +263,44 @@ impl<'runtime> ExecutionStack<'runtime> {
             .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?;
         let all = FrameArguments::captured(&closure.captures, args)?;
         if all.len() != function.metadata.params.len()
-            || !all
-                .iter()
-                .zip(&function.metadata.params)
-                .all(|(value, ty)| value.has_representation(*ty))
+            || !all.all(runtime, |index, value| {
+                value.has_representation(function.metadata.params[index])
+            })?
         {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "closure call contract mismatch",
             ));
         }
-        if let Some(environment) = &closure.environment {
-            for (index, value) in all.iter().enumerate() {
-                if let Some(ty) = function.metadata.semantic.params.get(&index)
-                    && !(if index < closure.captures.len() {
-                        runtime.matches_capture_type(
-                            value,
-                            ty,
-                            &closure.implementation,
-                            &environment.types,
-                        )
-                    } else {
-                        runtime.matches_type_in(
-                            value,
-                            ty,
-                            &closure.implementation,
-                            Some(&environment.types),
-                        )
+        if let Some(environment) = &closure.environment
+            && !all.all(runtime, |index, value| {
+                function
+                    .metadata
+                    .semantic
+                    .params
+                    .get(&index)
+                    .is_none_or(|ty| {
+                        if index < closure.captures.len() {
+                            runtime.matches_capture_type(
+                                value,
+                                ty,
+                                &closure.implementation,
+                                &environment.types,
+                            )
+                        } else {
+                            runtime.matches_type_in(
+                                value,
+                                ty,
+                                &closure.implementation,
+                                Some(&environment.types),
+                            )
+                        }
                     })
-                {
-                    return Err(RuntimeError::module_validation(
-                        "closure semantic argument mismatch",
-                    ));
-                }
-            }
+            })?
+        {
+            return Err(RuntimeError::module_validation(
+                "closure semantic argument mismatch",
+            ));
         }
         self.push_arguments(
             runtime,
@@ -516,7 +520,7 @@ enum FrameEntry {
 }
 
 struct FrameDispatch<'call> {
-    prepared: Option<&'call PreparedScriptCall>,
+    prepared: Option<&'call PreparedCall>,
     entry: FrameEntry,
     interface_method: Option<RootedInterfaceMethod>,
     environment: Option<TypeEnvironment>,
@@ -588,13 +592,9 @@ impl ExecutionFrame {
                     ));
                 }
                 let register_count = usize::from(metadata.register_count);
-                let registers = prepared
-                    .map(|call| call.registers.clone())
-                    .unwrap_or_else(|| {
-                        loaded.execution().functions[function.index()]
-                            .registers
-                            .clone()
-                    });
+                let registers = loaded.execution().functions[function.index()]
+                    .registers
+                    .clone();
                 (
                     register_count,
                     register_count + usize::from(metadata.local_count),

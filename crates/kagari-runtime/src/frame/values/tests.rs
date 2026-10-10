@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     Runtime,
     frame::types::EnvironmentRecord,
-    module::execution::{calls::ArgumentTransfer, layout::Location},
+    module::execution::layout::Location,
     native::{
         application::NativeApplication,
         binding::{Codec, LinkedNativeFunction, NativeBinding},
@@ -159,18 +159,12 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
     let registers = [Register::new(1), Register::new(0), Register::new(1)];
     let transfers = registers
         .iter()
-        .enumerate()
-        .map(|(index, register)| ArgumentTransfer {
-            source: values
+        .map(|register| {
+            values
                 .window(caller)
                 .unwrap()
                 .location(register.index())
-                .unwrap(),
-            target: Location {
-                operand: OperandSlot::new(4096 + index, true),
-                representation: ValueType::Generic,
-                semantic: None,
-            },
+                .unwrap()
         })
         .collect::<Vec<_>>();
     let arguments = FrameArguments::frame(caller, &transfers);
@@ -313,10 +307,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     );
     let mut narrow = scalar_layout();
     Arc::get_mut(&mut narrow).unwrap().locations[0].semantic = Some(BuiltinType::U8);
-    let transfers = [ArgumentTransfer {
-        source: scalar_layout().location(0).unwrap(),
-        target: narrow.location(0).unwrap(),
-    }];
+    let transfers = [scalar_layout().location(0).unwrap()];
     assert!(
         values
             .allocate(

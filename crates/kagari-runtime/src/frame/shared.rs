@@ -14,10 +14,7 @@ use crate::{
     native::context::LinkedCallable,
     value::Value,
 };
-use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, Register},
-    module::CallableTarget,
-};
+use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::callable::shared::SharedCall;
 
@@ -50,76 +47,6 @@ impl ExecutionStack<'_> {
                 entry: FrameEntry::Call,
                 interface_method: None,
                 environment: selected.environment.clone(),
-            },
-        )
-    }
-
-    pub fn push_shared_call(
-        &self,
-        runtime: &Runtime,
-        args: &[Value],
-        return_dst: Option<Register>,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        let invalid = || RuntimeError::module_validation("invalid shared call entry");
-        let (loaded, target, environment) = {
-            let caller = self.current()?;
-            let Some(BytecodeInstruction::Call {
-                dst,
-                callee:
-                    CallTarget::Shared {
-                        module,
-                        target,
-                        contract,
-                    },
-                ..
-            }) = caller
-                .function()
-                .and_then(|function| function.instructions.get(caller.instruction_offset()))
-            else {
-                return Err(invalid());
-            };
-            if *dst != return_dst {
-                return Err(invalid());
-            }
-            let loaded = caller.loaded().member(*module).ok_or_else(invalid)?;
-            runtime.validate_loaded_module(&loaded)?;
-            let environment = runtime.prepare_shared_environment(
-                caller.loaded(),
-                caller.environment(),
-                &loaded,
-                *target,
-                contract,
-            )?;
-            if args.len() != contract.signature.params.len() {
-                return Err(invalid());
-            }
-            for (value, ty) in args.iter().zip(&contract.signature.params) {
-                if !runtime.matches_type_in(
-                    value,
-                    ty,
-                    caller.loaded(),
-                    caller
-                        .environment()
-                        .as_ref()
-                        .map(|environment| environment.types.as_ref()),
-                ) {
-                    return Err(invalid());
-                }
-            }
-            (loaded, *target, environment)
-        };
-        self.push_arguments(
-            runtime,
-            loaded,
-            target,
-            FrameArguments::plain(args),
-            return_dst,
-            FrameDispatch {
-                prepared: None,
-                entry: FrameEntry::Call,
-                interface_method: None,
-                environment: Some(environment),
             },
         )
     }

@@ -171,18 +171,8 @@ impl VerifiedProgram {
                 )
             })
             .collect();
-        let layouts = execution
-            .iter()
-            .map(|module| {
-                module
-                    .functions
-                    .iter()
-                    .map(|function| function.registers.clone())
-                    .collect()
-            })
-            .collect::<Vec<Vec<_>>>();
         for (index, prepared) in execution.iter_mut().enumerate() {
-            prepared.prepare_calls(ModuleRef::new(index), &modules[index], &layouts);
+            prepared.prepare_calls(ModuleRef::new(index), &modules[index]);
         }
         Self {
             execution: execution.into(),

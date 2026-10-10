@@ -8,7 +8,7 @@ use crate::{
         cursor::{ExecutionCursor, scalars::ScalarExit},
         transfer::ReturnValue,
     },
-    module::execution::ExecutionInstruction,
+    module::execution::PreparedFieldOperation,
 };
 
 pub enum RegionExit {
@@ -37,28 +37,28 @@ impl ExecutionCursor<'_> {
         let mut first = true;
         loop {
             match self.scalars()?.execute(remaining, collection_due, first)? {
-                ScalarExit::Region(exit) => {
+                ScalarExit::Slice => return Ok(RegionExit::Slice),
+                ScalarExit::Safepoint => return Ok(RegionExit::Safepoint),
+                ScalarExit::Return(value) => return Ok(RegionExit::Return(value)),
+                ScalarExit::Boundary => {
                     #[cfg(feature = "execution-diagnostics")]
-                    if matches!(exit, RegionExit::Boundary) {
-                        diagnostics::record(Event::SlowBoundary);
-                    }
-                    return Ok(exit);
+                    diagnostics::record(Event::SlowBoundary);
+                    return Ok(RegionExit::Boundary);
                 }
-                ScalarExit::Object(ExecutionInstruction::ReadField { dst, base, field }) => {
+                ScalarExit::Object(PreparedFieldOperation::Read { dst, base, field }) => {
                     if !self.read_field(dst, base, field)? {
                         #[cfg(feature = "execution-diagnostics")]
                         diagnostics::record(Event::SlowBoundary);
                         return Ok(RegionExit::Boundary);
                     }
                 }
-                ScalarExit::Object(ExecutionInstruction::WriteField { base, value, field }) => {
+                ScalarExit::Object(PreparedFieldOperation::Write { base, value, field }) => {
                     if !self.write_field(base, value, field)? {
                         #[cfg(feature = "execution-diagnostics")]
                         diagnostics::record(Event::SlowBoundary);
                         return Ok(RegionExit::Boundary);
                     }
                 }
-                ScalarExit::Object(_) => unreachable!("sealed object operation"),
             }
             // The field's PC and slice unit were consumed before the handoff.
             // Its successor still needs the normal logical boundary checks.

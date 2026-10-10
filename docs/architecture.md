@@ -750,15 +750,20 @@ incoming representations/domains. Unavailable scalar inspection produces Unit;
 executing an uninitialized operand quarantines. Frame entry reserves both banks
 before copying arguments; release clears managed roots and initialization state.
 
-Concrete script arguments transfer complete payloads directly between disjoint
-frame banks, using sealed source/destination locations and destination semantic
-admission. Window identity and initialization are checked before transactional
-frame publication. Scalar-only sources skip heap-reference walks. Concrete scalar
+Statically selected script and shared script/native calls transfer arguments directly
+between disjoint frame banks. Sealed call sites own physical source locations and the
+return destination; the selected callee's layout owns parameter placement and semantic
+admission. There is no duplicate per-call-site callee layout or source/target-pair table.
+Borrowed host values, captures and window sources feed the same argument iterator,
+transactional admission and frame publication; shared calls do not pack a temporary
+Value vector. Window identity, initialization, bounds and scalar domains are checked
+before growing the banks. Scalar-only sources skip heap-reference walks. Concrete scalar
 returns use an opaque packet until the caller slot or public host boundary;
 shared environments and interface adapters retain their full return validation.
-Concrete Function/ModuleFunction call sites prepare the callee layout, physical
-argument transfers and return destination once. The executing canonical PC selects
-the record; module slots bind through the caller's pinned program descriptor.
+Function/ModuleFunction and Shared call sites prepare physical arguments and return
+destinations once. The executing canonical PC selects the record; module slots bind
+through the caller's pinned program descriptor. Shared calls select their HP01-owned
+environment and retain caller-scoped semantic argument checks before common admission.
 Shared verified records contain no runtime-local identities. Admission reuses one
 session/scope check until frame creation, while retaining dynamic argument, depth
 and cancellation checks. Scalar returns without environment/interface adaptation
@@ -792,6 +797,12 @@ The scalar loop hands prepared field operations back to the cursor's object
 handlers without releasing its frame/window access. Keeping those handlers outside
 the scalar loop prevents their storage checks from changing its inlining budget;
 the handoff retains original logical PC and instruction-slice accounting.
+`PreparedFieldOperation` is shared by sealed instructions and this handoff. The
+handoff carries only a field read/write, not an arbitrary `ExecutionInstruction`;
+it cannot represent a scalar opcode or require an unreachable generic-operation arm.
+Scalar exits explicitly distinguish boundary, slice, safepoint, return and field
+operation. The region reconstructs payload-free exits directly; only returns and
+field operations carry data across that internal boundary.
 Each scalar segment splits the admitted Rust borrow into an immutable code slice,
 mutable logical-PC fields and bounded scalar/initialization slices. Instructions
 still check operand bounds and initialization, but no longer recover the loaded
