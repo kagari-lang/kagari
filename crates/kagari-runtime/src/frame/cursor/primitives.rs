@@ -5,22 +5,24 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{
-        cursor::{
-            ExecutionCursor,
-            kernel::{CursorExit, RegionError, RegionExit},
-        },
+        cursor::{ExecutionCursor, kernel::RegionError},
         values::operands::OperandWindow,
     },
     module::{execution::layout::Location, linked_execution::LinkedPrimitiveBody},
     native::primitive::{PrimitiveResult, string_byte_length},
 };
 
+pub(super) enum NativeContinuation {
+    Complete,
+    Boundary,
+}
+
 impl ExecutionCursor<'_> {
     #[inline(never)]
     pub(super) fn execute_native(
         &mut self,
         index: usize,
-    ) -> Result<Option<CursorExit>, RegionError> {
+    ) -> Result<NativeContinuation, RegionError> {
         let operation = self
             .frame
             .links
@@ -32,7 +34,7 @@ impl ExecutionCursor<'_> {
             // invocation. Names and argument representations confer no authority.
             #[cfg(feature = "execution-diagnostics")]
             diagnostics::record(Event::SlowBoundary);
-            return Ok(Some(CursorExit::Region(RegionExit::Boundary)));
+            return Ok(NativeContinuation::Boundary);
         };
         let runtime = self.runtime;
         match &operation.body {
@@ -63,7 +65,8 @@ impl ExecutionCursor<'_> {
                     )
                 })
             }
-        }
+        }?;
+        Ok(NativeContinuation::Complete)
     }
 }
 
@@ -76,7 +79,7 @@ fn execute_primitive(
     values: &mut OperandWindow<'_>,
     destination: Option<Location>,
     kernel: impl FnOnce(&OperandWindow<'_>) -> PrimitiveResult,
-) -> Result<Option<CursorExit>, RegionError> {
+) -> Result<(), RegionError> {
     runtime.resources().poll_execution()?;
     let result = kernel(values);
     // Preserve post-body cancellation precedence, including on kernel failure.
@@ -90,7 +93,7 @@ fn execute_primitive(
             .write_location(destination, value)
             .ok_or_else(|| invalid_operand(runtime))?;
     }
-    Ok(None)
+    Ok(())
 }
 
 fn invalid_operand(runtime: &Runtime) -> RuntimeError {

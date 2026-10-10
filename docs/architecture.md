@@ -925,6 +925,9 @@ box into RegionError. The ordinary native callback API keeps its existing error
 type. Private kernel instantiations retain each operation's result facts through
 publication while sharing cancellation, error propagation and destination checks;
 String's scalar result is not merged with Vec's general result before writing it.
+Native execution reports only completion or a native boundary; the region owns
+general exit construction. A fixed kernel cannot request unrelated preparation
+transitions or script returns through its continuation type.
 The stdlib's separate string length/index bodies and owning Vec setter
 adapters are removed. SDK and native adapters share checked array reads and setter
 preflight/commit kernels. Detached storage remains unavailable, not an empty array;

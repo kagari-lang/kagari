@@ -5,7 +5,7 @@ use crate::diagnostics::{self, Event};
 use crate::{
     error::RuntimeError,
     frame::{
-        cursor::{ExecutionCursor, scalars::ScalarExit},
+        cursor::{ExecutionCursor, primitives::NativeContinuation, scalars::ScalarExit},
         transfer::ReturnValue,
     },
     module::execution::{
@@ -154,8 +154,8 @@ impl ExecutionCursor<'_> {
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Native {
                     index,
                 })) => {
-                    if let Some(exit) = self.execute_native(index)? {
-                        return Ok(exit);
+                    if let NativeContinuation::Boundary = self.execute_native(index)? {
+                        return Ok(CursorExit::Region(RegionExit::Boundary));
                     }
                 }
             }

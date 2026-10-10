@@ -3168,3 +3168,65 @@ matrix ran at this intermediate checkpoint. NativePrimitive gains public enum
 variants, so exhaustive Rust matches must be updated; unpublished artifact/ABI
 identifiers are unchanged. target/release currently contains the diagnostic build;
 use the separately preserved ordinary executables for subsequent timing.
+
+
+2026-10-10 HP04, bounded native continuation:
+Fixed native execution now returns NativeContinuation::{Complete, Boundary}; the
+private kernel runner returns unit after publication. It cannot manufacture script
+returns, field/constant preparation or tuple replacement transitions. The region owns
+the translation to its general exit protocol. Both native polls, error precedence,
+checked destinations, original PC/slice accounting and ordinary callback fallback
+are unchanged. This removes invalid protocol states, not any runtime validation.
+
+Paired source forms against the accepted 5c2527f2 String baseline are recorded in
+target/lua-comparison/20261010T091107Z-forms-paired/results.json
+Candidate: target/hp04/native-continuation/prepared-executable, SHA-256
+4e81e21b1063aaa99d279eb68886022b66570d3d8696c3760696eb45c1024313.
+Build 20.537 s is excluded. Same documented M1 Max/32 GiB, macOS 26.6.2 arm64, rustc
+1.98.1/LLVM 22.1.8, PUC Lua 5.4.8, workspace release/default parallelism, normal GC
+and allocator; diagnostics off. Frozen inputs, three warmups, 22 pooled samples and
+serial baseline/candidate/candidate/baseline process order are unchanged. All checksums
+pass. No compilation/test/profile overlaps timing.
+
+| Workload | Candidate / String baseline | Lua control |
+| --- | ---: | ---: |
+| byte_state | 1.0404 | 1.0149 |
+| capture_cell | 1.0208 | 1.0453 |
+| concrete_generic | 1.0253 | 1.0069 |
+| direct | 1.0007 | 0.9989 |
+| field | 1.0222 | 1.0037 |
+| helper | 1.0312 | 0.9935 |
+| host_callback | 1.0203 | 1.0069 |
+| interface | 1.0254 | 0.9926 |
+| native | 1.0239 | 0.9979 |
+| shared_generic | 1.0173 | 1.0045 |
+| string_calls | 1.0676 | 0.9823 |
+| string_constants | 1.1334 | 1.0245 |
+
+The 13.34%/6.76% String constants/calls regression remains (Lua 1.0245/0.9823). This
+is a protocol correctness/maintainability cleanup, not a speedup. It does not validate
+the earlier hypothesis that the broad continuation packet caused the regression.
+Do not add further String-specific branches or select a favorable earlier sample.
+HP04 implementation of the planned common operations is present, but its performance
+gate remains unmet; shared type-admission costs require HP05. Continue the existing
+phase sequence into layout admission while retaining HP04 acceptance as open.
+
+HP05 entry audit: HP01 already supplies complete canonical aggregate identities and
+bounded weak cross-program compatibility admission. EnumVariantRef::matches_layout
+still precedes that owner with the VE09 same-program/member/Arc special case; remove
+it and use the shared admission policy after variant/runtime checks. Existing layout
+contracts cover equivalent module slots, changing nested arguments, reload generations,
+bounded retention and metadata surviving executable retirement. Next replace repeated
+frame enum/layout reconstruction with facts owned by the exact function/type application,
+and move enum tag/payload reads to rooted storage access. TypeArgument/StorageType
+matching must consume prepared type facts rather than rebuilding Ty worklists; this
+is shared type/layout work, not a new Vec-only cache. Native snapshot/ordinary Option
+allocation, scoped fields, VE09 retirement and integrated controls remain separate
+acceptance items. HP04 is not silently declared complete and HP06 remains pending.
+
+Validation: both primitive contracts and seven native control contracts pass;
+all 72 source-form/scaling and 14 original diagnostic rows match dbd83f82 exactly.
+Affected runtime/VM all-target Clippy with diagnostics and warnings denied, formatting,
+structure review (1,020 files, zero violations/exceptions) and diff checks pass.
+No carried build/test error, full-workspace run or CI claim. The ordinary binary is
+preserved separately; target/release now contains diagnostics again.
