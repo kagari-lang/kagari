@@ -198,14 +198,13 @@ impl EntryEvidence {
             .shared
             .as_ref()
             .map(|(carrier, contract)| {
-                let environment = runtime.prepare_shared_environment(
+                runtime.prepare_shared_environment(
                     carrier,
                     None,
                     &self.owner,
                     self.key.target,
                     contract,
-                )?;
-                runtime.gc.alloc_environment(environment)
+                )
             })
             .transpose()?;
         let owner = if let Some(environment) = &environment {

@@ -62,14 +62,14 @@ pub fn normalize_requirement(
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum NativeCallableOrigin {
     Implementation,
     /// A checked language protocol is materialized as an ordinary function.
     ProtocolAdapter,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"

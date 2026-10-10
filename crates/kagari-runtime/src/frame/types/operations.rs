@@ -23,48 +23,55 @@ pub(crate) enum OperationSegment {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct OperationBindings {
-    segments: Vec<OperationSegment>,
+    segments: Option<Arc<Vec<OperationSegment>>>,
     // Type-only facts remain available without borrowing executable group storage.
-    associated: Arc<Vec<AssociatedInterface>>,
+    associated: Option<Arc<Vec<AssociatedInterface>>>,
 }
 
 impl OperationBindings {
-    pub(crate) fn identity(&self) -> &[OperationSegment] {
-        &self.segments
+    pub(crate) fn identity(&self) -> Option<Arc<Vec<OperationSegment>>> {
+        self.segments.clone()
+    }
+
+    fn segments(&self) -> &[OperationSegment] {
+        self.segments
+            .as_deref()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     pub(crate) fn validate(&self, heap: &GcHeap) -> bool {
-        self.segments.iter().all(|segment| match segment {
+        self.segments().iter().all(|segment| match segment {
             OperationSegment::Selected(id) => heap.bound_operation(*id).is_some(),
             OperationSegment::Receiver(id) => heap.operation_group(*id).is_some(),
         })
     }
 
     pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
-        pending.extend(self.segments.iter().map(|segment| match segment {
+        pending.extend(self.segments().iter().map(|segment| match segment {
             OperationSegment::Selected(operation) => MetadataEdge::Operation(*operation),
             OperationSegment::Receiver(group) => MetadataEdge::Group(*group),
         }));
     }
 
     pub(crate) fn associated_interfaces(&self) -> Arc<Vec<AssociatedInterface>> {
-        self.associated.clone()
+        self.associated.clone().unwrap_or_default()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.segments.is_empty()
+        self.segments().is_empty()
     }
 
     pub(crate) fn push(&mut self, heap: &GcHeap, id: OperationId) -> Result<(), RuntimeError> {
         let operation = heap
             .bound_operation(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid selected operation"))?;
-        Arc::make_mut(&mut self.associated).push(AssociatedInterface {
+        Arc::make_mut(self.associated.get_or_insert_default()).push(AssociatedInterface {
             receiver: operation.requirement.receiver.clone(),
             interface: operation.associated_interface.clone(),
             owner: operation.owner.clone(),
         });
-        self.segments.push(OperationSegment::Selected(id));
+        Arc::make_mut(self.segments.get_or_insert_default()).push(OperationSegment::Selected(id));
         Ok(())
     }
 
@@ -76,14 +83,24 @@ impl OperationBindings {
         let group = heap
             .operation_group(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid receiver group"))?;
-        Arc::make_mut(&mut self.associated).extend(group.associated_interfaces());
-        self.segments.push(OperationSegment::Receiver(id));
+        Arc::make_mut(self.associated.get_or_insert_default())
+            .extend(group.associated_interfaces());
+        Arc::make_mut(self.segments.get_or_insert_default()).push(OperationSegment::Receiver(id));
         Ok(())
     }
 
     pub(crate) fn extend(&mut self, other: Self) {
-        self.segments.extend(other.segments);
-        Arc::make_mut(&mut self.associated).extend(other.associated.iter().cloned());
+        if other.is_empty() {
+            return;
+        }
+        if self.is_empty() {
+            *self = other;
+            return;
+        }
+        Arc::make_mut(self.segments.get_or_insert_default())
+            .extend(other.segments().iter().cloned());
+        Arc::make_mut(self.associated.get_or_insert_default())
+            .extend(other.associated_interfaces().iter().cloned());
     }
 
     pub(crate) fn operation_slot(
@@ -93,7 +110,7 @@ impl OperationBindings {
         interface: &NominalTy<DefinitionId>,
         slot: u32,
     ) -> Option<OperationId> {
-        self.segments.iter().find_map(|segment| match segment {
+        self.segments().iter().find_map(|segment| match segment {
             OperationSegment::Selected(id) => {
                 let operation = heap.bound_operation(*id)?;
                 (operation.slot == slot
@@ -112,7 +129,7 @@ impl OperationBindings {
         heap: &GcHeap,
         required: &NativeCallableRequirement<DefinitionId>,
     ) -> Option<OperationId> {
-        self.segments.iter().find_map(|segment| match segment {
+        self.segments().iter().find_map(|segment| match segment {
             OperationSegment::Selected(id) => {
                 let operation = heap.bound_operation(*id)?;
                 operation.matches_requirement(required).then_some(*id)

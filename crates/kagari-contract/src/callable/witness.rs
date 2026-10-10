@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 /// A concrete selection is checked against the supplying program. Forwarding
 /// retains the caller's existing selection and its generation; it never resolves
 /// a trait again at execution time.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
@@ -43,7 +43,7 @@ pub enum OperationWitness<I = DefinitionPath> {
 
 /// Select the implementation table once; method-local arguments are supplied by
 /// each checked call into that table's shared entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"

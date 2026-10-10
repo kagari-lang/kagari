@@ -584,3 +584,73 @@ formatting; structure (993 files, no violations/exceptions); 703 local Markdown 
 `git diff --check`. Old-cell test compile errors and one probe type annotation were
 resolved; no carried build/test error remains. Full workspace/CI checks are reserved
 for their designated acceptance scope and were not run. HP01 stays in progress.
+
+2026-10-10 HP01, witness/shared preparation checkpoint (in progress): applied methods,
+operation witnesses and shared-call environments now use one linked-program publication
+and retention protocol (`module/descriptors.rs`, replacing `module/applications.rs`).
+Each index retains at most 128 entries across all lexical scopes. Publication validates
+immutable dependency graphs before installing an edge; eviction and abandoned-provider
+expiration only remove optional retention, preserving independent roots. Recoverable
+reservation failures leave no partial descriptor or accumulating empty scope.
+
+Witness keys include the supplying member, lexical environment identity and the complete
+checked witness facts. Shared environments additionally distinguish target owner/entry
+and the complete checked call contract. Borrowed lookups avoid cloning these contracts
+on hits. Generational environment checks reject stale/foreign scopes before lookup;
+the index does not itself root a caller merely because its ID is in a key. Immutable
+operation bindings share their storage, with copy-on-write only during preparation.
+`bind_operations_in` no longer resolves targets and allocates groups for identical
+applications; `prepare_shared_environment` owns environment allocation/publication for
+both bytecode entry and source-free host function binding. Neither index stores receivers
+or script Values. Hash derives for checked contracts change no serialized schema.
+
+Diagnostic evidence uses the HP00 machine/toolchain/profile/default parallelism above,
+an incremental release build with `diagnostics`, a fresh loaded runtime per probe,
+one cold call, two warmups and a measured fourth call. Compilation is excluded. The
+frozen Lua workloads are unchanged. A separate `shared_application` probe adds a generic
+method forwarding to a generic comparison function; all results check the independent
+integer checksum. Both 2,500 and 5,000 iterations give the following preparation counts:
+
+| Probe | Cold method / shared / witness preparations | Cold environment allocations | Warm preparations / environment allocations |
+| --- | --- | --- | --- |
+| Fixed unconstrained application | 1 / 0 / 0 | 2 | 0 / 0 |
+| Four receiver/type combinations | 4 / 0 / 0 | 8 | 0 / 0 |
+| Constrained comparison application | 1 / 0 / 1 | 2 | 0 / 0 |
+| Shared comparison application | 1 / 1 / 2 | 3 | 0 / 0 |
+
+At 5,000 warm constrained calls, allocation requests fall from the previous checkpoint's
+1,110,956 to 495,466; graph validation entries fall from 30,002 to 25,002. The new shared
+probe still makes 535,466 allocation requests and 30,002 graph validations. Frozen
+shared-generic identity makes 155,050 requests (previously 160,050) and still 20,002
+graph validations. These are protocol/allocation counts, not throughput improvements.
+Internal root/frame admission and enum materialization still scale with execution and
+remain HP02/HP03/HP05 work. Cold net bytes include execution stacks, collection capacity
+and live Values; they do not establish isolated descriptor memory acceptance. Logs:
+`target/hp01/witness-shared-diagnostics.log` and `witness-shared-build-final.log`.
+
+The existing source-free shared-function contract now checks reuse without environment
+growth, invocation after reload and complete environment reclamation when the retired
+owner loses its last callable root. Its former immediate-reclamation assertion failed
+because the current program now owns preparation; the test was updated to require
+retired-owner reclamation rather than dropping that guarantee. The witness lifecycle
+contract checks three reload/retirement cycles, bounded retention across 160 lexical
+scopes, survival of independently rooted evicted operations and rejection of a stale
+scope even when its key remains indexed.
+
+Remaining HP01 scope: normalized applied layout identity/admission, consolidation of
+native type preparation and remaining publication consumers, and isolated retained-byte
+accounting. Internal host-style call roots remain scheduled for HP02/HP03. No phase,
+architecture, CI or Lua-parity acceptance is claimed by this checkpoint.
+
+Checkpoint validation passes: runtime application/publication contracts (13), followed
+by the strengthened bounded-scope/three-retirement contract; type provenance (4);
+embed generic-associated-types (12) and serialized/source-free generic reload (2);
+VM interface allocation/cleanup (3) and source-free shared function binding (1).
+Strict all-target Clippy passes for types/contract/runtime/benchmark with diagnostics,
+and final runtime/VM Clippy covers the changed lifecycle tests. Formatting, structure
+(994 files, zero violations/exceptions), 703 local Markdown links and `git diff --check`
+pass. Ordinary release is restored, and original interpreter-only plus frozen
+source-form checksum checks pass. No carried build/test failures remain. No full
+workspace suite, GitHub CI matrix or new paired throughput run was performed.
+The ordinary executable is preserved as `target/hp01/witness-shared-executable`, SHA-256
+`904289770aa24ee12440c19acd5b5f7f22a6508f1670bfbaddcf2e264fa89346`.

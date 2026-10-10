@@ -1,7 +1,8 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
-    frame::types::operations::OperationBindings,
+    execution_metadata::MetadataRoot,
+    frame::types::{EnvironmentRecord, operations::OperationBindings},
     module::LoadedModule,
     native::{
         binding::{Codec, NativeBinding},
@@ -13,6 +14,7 @@ use crate::{
     },
     value::Value,
 };
+use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_common::identity::table::DefinitionId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
@@ -436,5 +438,92 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
         drop(root);
         runtime.collect_garbage().unwrap();
         assert!(runtime.gc.method_application(application).is_none());
+    }
+}
+
+#[test]
+fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() {
+    let (runtime, mut loaded) = load_source(
+        r#"
+        trait Read { fn read(self) -> i32; }
+        impl Read for i32 { fn read(self) -> i32 { self } }
+        trait Forward { fn forward<T: Read>(self, value: T) -> i32 { value.read() } }
+        impl Forward for i32 {}
+        fn main() -> i32 { val receiver: Forward = 0; receiver.forward(7) }
+        "#,
+        None,
+    );
+    for _ in 0..3 {
+        let witnesses = loaded
+            .bytecode
+            .functions
+            .iter()
+            .flat_map(|function| &function.instructions)
+            .find_map(|instruction| match instruction {
+                BytecodeInstruction::Call {
+                    callee: CallTarget::InterfaceMethod { contract, .. },
+                    ..
+                } if !contract.operations.is_empty() => Some(&contract.operations),
+                _ => None,
+            })
+            .unwrap();
+        let first = runtime
+            .bind_operations_in(&loaded, None, witnesses)
+            .unwrap();
+        let second = runtime
+            .bind_operations_in(&loaded, None, witnesses)
+            .unwrap();
+        assert_eq!(first.identity(), second.identity());
+        assert!(!first.is_empty());
+        runtime.collect_garbage().unwrap();
+        assert!(first.validate(&runtime.gc));
+        // A caller-owned environment roots the selected old provider independently
+        // of the optional program index. Retiring the index must not break it.
+        let mut record =
+            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        record.extend_operations(first.clone());
+        let environment = runtime.gc.alloc_environment(record).unwrap();
+        let root = runtime
+            .root_metadata(vec![MetadataRoot::Environment(environment.id)])
+            .unwrap();
+        // The bound applies across lexical scopes, not separately to each scope.
+        // The explicitly rooted first selection survives eviction from the index.
+        let mut last_scope = None;
+        for _ in 0..160 {
+            let scope = runtime
+                .gc
+                .alloc_environment(
+                    EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
+                )
+                .unwrap();
+            let operations = runtime
+                .bind_operations_in(&loaded, Some(scope.clone()), witnesses)
+                .unwrap();
+            assert_ne!(first.identity(), operations.identity());
+            last_scope = Some(scope);
+        }
+        runtime.collect_garbage().unwrap();
+        let groups = runtime.gc.stats().operation_groups;
+        assert_eq!(groups, 129);
+        assert!(first.validate(&runtime.gc));
+        // Retaining an index key cannot resurrect a stale caller environment.
+        assert!(
+            runtime
+                .bind_operations_in(&loaded, last_scope, witnesses)
+                .is_err()
+        );
+        let candidate = runtime
+            .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+            .unwrap();
+        loaded = runtime.publish_staged_reload(candidate).unwrap();
+        runtime.collect_garbage().unwrap();
+        assert!(first.validate(&runtime.gc));
+        drop(root);
+        let collected = runtime.collect_garbage().unwrap();
+        assert_eq!(collected.reclaimed_operation_groups, groups);
+        assert_eq!(runtime.gc.stats().operation_groups, 0);
+        assert_eq!(runtime.gc.stats().environments, 0);
+        assert!(!first.validate(&runtime.gc));
+        assert!(!runtime.is_quarantined());
     }
 }

@@ -51,15 +51,7 @@ impl ProgramGraph<'_> {
         }
         for member in program.members() {
             let record = self.store.records.get(&member.key())?;
-            // Expired candidate dependencies invalidate only optional cached facts.
-            // Independently rooted active facts still undergo full graph validation.
-            metadata.extend(
-                record
-                    .applications
-                    .values()
-                    .filter(|application| application.is_available(&self.store))
-                    .map(|application| MetadataEdge::Application(application.id)),
-            );
+            record.descriptors.trace(&self.store, metadata);
             record
                 .constants
                 .iter()

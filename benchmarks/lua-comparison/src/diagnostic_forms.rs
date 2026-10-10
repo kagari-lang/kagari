@@ -13,6 +13,13 @@ impl Forward for i32 {}
 impl Forward for i64 {}
 trait Compare { fn less<T: Ord>(self, a: T, b: T) -> bool { a.cmp(b) == Ordering::Less } }
 impl Compare for i32 {}
+fn less<T: Ord>(a: T, b: T) -> bool { a.cmp(b) == Ordering::Less }
+trait Relay { fn relay<T: Ord>(self, a: T, b: T) -> bool { less(a, b) } }
+impl Relay for i32 {}
+fn shared_application(n: i32) -> i32 {
+    val receiver: Relay = 0; var sum = 0; var i = 0;
+    while i < n { if receiver.relay(i, i + 1) { sum += i; } i += 1; } sum
+}
 fn witness_application(n: i32) -> i32 {
     val receiver: Compare = 0; var sum = 0; var i = 0;
     while i < n { if receiver.less(i, i + 1) { sum += i; } i += 1; } sum
@@ -51,6 +58,7 @@ pub(super) fn run() {
         "fixed_application",
         "changing_application",
         "witness_application",
+        "shared_application",
     ];
     let mut source = SOURCE.to_owned();
     for n in [2_500, 5_000] {

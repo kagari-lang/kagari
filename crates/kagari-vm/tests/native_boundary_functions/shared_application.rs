@@ -114,6 +114,8 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
         7
     );
     vm.runtime().collect_garbage().unwrap();
+    let prepared_environments = vm.runtime().gc().stats().environments;
+    assert!(prepared_environments > 0);
     let argument = ConversionContext::new(vm.runtime(), &owner)
         .unwrap()
         .type_for::<i32>()
@@ -131,6 +133,10 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
         .bind_function_application_declaration::<(i32,), i32>(&owner, &declaration, &[argument])
         .unwrap();
     vm.runtime().collect_garbage().unwrap();
+    assert_eq!(
+        vm.runtime().gc().stats().environments,
+        prepared_environments
+    );
     assert_eq!(vm.call(&identity, (41,)).unwrap(), 41);
     drop(identity);
     vm.runtime().collect_garbage().unwrap();
@@ -146,8 +152,22 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
             .unwrap(),
         43
     );
+    // The linked program retains shared preparation after transient handles go
+    // away. Reload retires that owner, while the old callable still pins it.
+    let candidate = vm
+        .runtime()
+        .stage_reload_verified_program(
+            &owner,
+            "shared-application",
+            owner.verified_program().clone(),
+        )
+        .unwrap();
+    vm.runtime().publish_staged_reload(candidate).unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(vm.call(&boxed, (45,)).unwrap(), 45);
     drop(boxed);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.live_objects, 0);
     assert!(collected.reclaimed_environments > 0);
+    assert_eq!(vm.runtime().gc().stats().environments, 0);
 }

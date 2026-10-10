@@ -27,7 +27,7 @@ impl Default for MethodPolicy {
 
 /// A requirement has no executable entry until implementation selection resolves
 /// it. Script bodies and registered Rust entries are executable targets.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
@@ -41,7 +41,7 @@ pub enum CallableImplementation<I = DefinitionPath> {
     NativeDefault(NativeDefaultApplication<I>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
@@ -92,7 +92,7 @@ impl<I: DefinitionReference> CallableImplementation<I> {
 mod mapping;
 
 /// Parameter and result semantics, independent of an executable target.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"

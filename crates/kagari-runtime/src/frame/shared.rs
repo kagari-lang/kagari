@@ -10,7 +10,7 @@ use crate::{
         arguments::FrameArguments,
         types::{EnvironmentRecord, TypeEnvironment},
     },
-    module::LoadedModule,
+    module::{LoadedModule, descriptors::SharedScope},
     native::context::LinkedCallable,
     value::Value,
 };
@@ -107,7 +107,7 @@ impl ExecutionStack<'_> {
                     return Err(invalid());
                 }
             }
-            (loaded, *target, runtime.gc.alloc_environment(environment)?)
+            (loaded, *target, environment)
         };
         self.push_arguments(
             runtime,
@@ -133,11 +133,28 @@ impl Runtime {
         owner: &LoadedModule,
         target: CallableTarget,
         contract: &SharedCall<DefinitionId>,
-    ) -> Result<EnvironmentRecord, RuntimeError> {
-        #[cfg(feature = "execution-diagnostics")]
-        diagnostics::record(Event::SharedPreparation);
+    ) -> Result<TypeEnvironment, RuntimeError> {
         self.validate_loaded_module(caller)?;
         self.validate_loaded_module(owner)?;
+        let scope = SharedScope {
+            environment: caller_environment
+                .as_ref()
+                .map(|environment| environment.id),
+            target_owner: owner.key(),
+            target,
+        };
+        if let Some(id) = scope.environment
+            && self.gc.environment(id).is_none()
+        {
+            return Err(RuntimeError::module_validation(
+                "invalid shared preparation scope",
+            ));
+        }
+        if let Some(prepared) = self.modules.shared_environment(caller, &scope, contract) {
+            return Ok(prepared);
+        }
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::SharedPreparation);
         let body = match target {
             CallableTarget::Script(target) => owner
                 .bytecode
@@ -168,6 +185,8 @@ impl Runtime {
             caller_environment,
             &contract.operations,
         )?);
-        Ok(environment)
+        let prepared = self.gc.alloc_environment(environment)?;
+        self.publish_shared_environment(caller, scope, contract, prepared.clone())?;
+        Ok(prepared)
     }
 }

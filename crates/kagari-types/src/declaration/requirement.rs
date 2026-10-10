@@ -10,7 +10,7 @@ use kagari_common::{
 use serde::{Deserialize, Serialize};
 
 mod mapping;
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"

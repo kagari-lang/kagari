@@ -1,6 +1,7 @@
-mod applications;
 pub(crate) mod collection;
 mod constants;
+mod descriptor_index;
+pub(crate) mod descriptors;
 pub mod execution;
 mod layouts;
 mod records;

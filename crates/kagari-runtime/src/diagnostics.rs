@@ -6,6 +6,7 @@ use std::cell::Cell;
 pub struct ExecutionCounts {
     pub method_preparations: u64,
     pub shared_preparations: u64,
+    pub operation_preparations: u64,
     pub environment_allocations: u64,
     pub metadata_validations: u64,
     pub slow_boundaries: u64,
@@ -14,6 +15,7 @@ pub struct ExecutionCounts {
 pub(crate) enum Event {
     MethodPreparation,
     SharedPreparation,
+    OperationPreparation,
     EnvironmentAllocation,
     MetadataValidation,
     SlowBoundary,
@@ -31,6 +33,7 @@ pub(crate) fn record(event: Event) {
         let counter = match event {
             Event::MethodPreparation => &mut counts.method_preparations,
             Event::SharedPreparation => &mut counts.shared_preparations,
+            Event::OperationPreparation => &mut counts.operation_preparations,
             Event::EnvironmentAllocation => &mut counts.environment_allocations,
             Event::MetadataValidation => &mut counts.metadata_validations,
             Event::SlowBoundary => &mut counts.slow_boundaries,

@@ -19,7 +19,7 @@ use crate::{
         groups::{OperationGroupId, OperationGroupStore, OperationId},
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
-    frame::types::TypeEnvironment,
+    frame::types::{TypeEnvironment, operations::OperationBindings},
     gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
     module::LoadedModule,
     native::stored_selection::StoredSelection,
@@ -129,6 +129,7 @@ pub(crate) enum MetadataEdge<'a> {
     Binding(&'a InterfaceResultBinding),
     Closure(&'a ClosureValueSnapshot),
     Selections(&'a [StoredSelection]),
+    Operations(&'a OperationBindings),
 }
 
 impl MetadataEdge<'_> {
@@ -145,7 +146,7 @@ impl MetadataEdge<'_> {
             Self::InterfaceView(value) => (4, value as *const _ as usize),
             Self::Binding(value) => (6, value as *const _ as usize),
             Self::Closure(value) => (7, value as *const _ as usize),
-            Self::Selections(_) => return None,
+            Self::Selections(_) | Self::Operations(_) => return None,
         })
     }
 }
@@ -288,6 +289,9 @@ impl<'a> MetadataTrace<'a> {
                 MetadataEdge::Binding(binding) => {
                     self.pending.push(MetadataEdge::Program(&binding.owner));
                     self.environment(binding.environment.as_ref());
+                }
+                MetadataEdge::Operations(operations) => {
+                    operations.trace_metadata(&mut self.pending)
                 }
                 MetadataEdge::Selections(selections) => {
                     for selection in selections {

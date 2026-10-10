@@ -2,7 +2,7 @@
 use crate::{
     module::{
         LoadedModule, ModuleInstance, ModuleStore, ModuleStoreInner,
-        applications::ApplicationCache, layouts::LayoutCache,
+        descriptors::LinkedDescriptors, layouts::LayoutCache,
     },
     native::binding::LinkedNativeFunction,
     value::Value,
@@ -16,7 +16,7 @@ pub(super) struct ModuleRecord {
     pub(super) instance: ModuleInstance,
     pub(super) layouts: LayoutCache,
     pub(super) constants: Vec<Option<Value>>,
-    pub(super) applications: ApplicationCache,
+    pub(super) descriptors: LinkedDescriptors,
     native: Vec<Arc<LinkedNativeFunction>>,
 }
 
@@ -28,7 +28,7 @@ impl ModuleRecord {
             module,
             native,
             layouts: LayoutCache::default(),
-            applications: ApplicationCache::default(),
+            descriptors: LinkedDescriptors::default(),
         }
     }
 

@@ -1,7 +1,7 @@
 use crate::standard::RuntimePrimitive;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EffectSet {
     pub reads_local: bool,
     pub writes_local: bool,

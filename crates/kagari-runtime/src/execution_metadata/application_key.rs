@@ -14,6 +14,7 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum MethodIdentity {
@@ -42,7 +43,7 @@ pub(crate) struct ApplicationKey {
     method: MethodIdentity,
     arguments: Vec<TypeIdentity>,
     receiver_operations: Option<OperationGroupId>,
-    operations: Vec<OperationSegment>,
+    operations: Option<Arc<Vec<OperationSegment>>>,
 }
 
 impl ApplicationKey {
@@ -65,7 +66,7 @@ impl ApplicationKey {
                 })
                 .collect::<Result<_, _>>()?,
             receiver_operations,
-            operations: operations.identity().to_vec(),
+            operations: operations.identity(),
         })
     }
 }

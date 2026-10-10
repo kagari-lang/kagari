@@ -1,4 +1,7 @@
 //! Generic calls retain selections from the supplying generation.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
@@ -191,6 +194,26 @@ impl Runtime {
         environment: Option<TypeEnvironment>,
         witnesses: &[OperationWitness<DefinitionId>],
     ) -> Result<OperationBindings, RuntimeError> {
+        if witnesses.is_empty() {
+            return Ok(OperationBindings::default());
+        }
+        self.validate_loaded_module(owner)?;
+        let environment_id = environment.as_ref().map(|environment| environment.id);
+        if let Some(id) = environment_id
+            && self.gc.environment(id).is_none()
+        {
+            return Err(RuntimeError::module_validation(
+                "invalid operation preparation scope",
+            ));
+        }
+        if let Some(prepared) = self
+            .modules
+            .operation_bindings(owner, environment_id, witnesses)
+        {
+            return Ok(prepared);
+        }
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::OperationPreparation);
         let scope = OperationScope { owner, environment };
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         let mut operations = OperationBindings::default();
@@ -323,6 +346,7 @@ impl Runtime {
             };
             operations.push(&self.gc, operation)?;
         }
+        self.publish_operation_bindings(owner, environment_id, witnesses, operations.clone())?;
         Ok(operations)
     }
 }
