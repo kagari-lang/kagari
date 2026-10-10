@@ -129,7 +129,6 @@ fn shared_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Pha
                 let ty: Ty<DefinitionId> = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
                 let arguments = runtime.resolve_type_arguments(&loaded, &[ty]).unwrap();
                 runtime
-                    .gc
                     .alloc_environment(
                         EnvironmentRecord::new(
                             runtime.definition_context(),
@@ -202,7 +201,6 @@ fn witness_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Ph
         let inputs = (0..count)
             .map(|_| {
                 runtime
-                    .gc
                     .alloc_environment(
                         EnvironmentRecord::new(runtime.definition_context(), vec![], vec![])
                             .unwrap(),

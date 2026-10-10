@@ -95,7 +95,7 @@ impl Runtime {
                 continue;
             }
             visited.push(key);
-            let environment = self.gc.alloc_environment(EnvironmentRecord::new(
+            let environment = self.alloc_environment(EnvironmentRecord::new(
                 self.definition_context(),
                 template.generic_params.clone(),
                 arguments,

@@ -42,7 +42,7 @@ impl LinkedCallable {
                 arguments,
             )?;
             binders.include(generic.receiver_environment.clone())?;
-            let binders = runtime.gc.alloc_environment(binders)?;
+            let binders = runtime.alloc_environment(binders)?;
             let environment = if generic.entry_parameters.is_empty() {
                 None
             } else {
@@ -73,7 +73,7 @@ impl LinkedCallable {
                         .operations()
                         .clone(),
                 );
-                Some(runtime.gc.alloc_environment(environment)?)
+                Some(runtime.alloc_environment(environment)?)
             };
             (Some(binders), environment)
         } else {

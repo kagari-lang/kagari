@@ -444,7 +444,6 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
         .unwrap();
     let empty = || {
         runtime
-            .gc
             .alloc_environment(
                 EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
             )

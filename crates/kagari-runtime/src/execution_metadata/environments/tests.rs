@@ -1,10 +1,7 @@
 use super::*;
 use crate::{
-    Runtime, RuntimeConfig,
-    error::RuntimeErrorKind,
-    execution_metadata::{MetadataEdge, MetadataRoot},
-    frame::types::operations::OperationBindings,
-    value::Value,
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, execution_metadata::MetadataRoot,
+    frame::types::operations::OperationBindings, value::Value,
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::map::DefinitionContext;
@@ -15,22 +12,26 @@ fn empty(runtime: &Runtime) -> EnvironmentRecord {
 }
 
 fn extend(
-    heap: &GcHeap,
+    runtime: &Runtime,
     environment: &TypeEnvironment,
     operations: OperationBindings,
 ) -> Result<TypeEnvironment, RuntimeError> {
-    let mut record = heap
+    let mut record = runtime
+        .gc
         .environment(environment.id)
         .ok_or_else(|| RuntimeError::module_validation("expired test environment"))?
         .clone();
     record.extend_operations(operations);
-    heap.alloc_environment(record)
+    runtime.alloc_environment(record)
 }
 
 #[test]
 fn foreign_stale_out_of_bounds_and_exhausted_ids_cannot_alias() {
     let definitions = DefinitionContext::new().unwrap();
-    let record = || EnvironmentRecord::new(&definitions, vec![], vec![]).unwrap();
+    let record = || PublishedEnvironment {
+        record: EnvironmentRecord::new(&definitions, vec![], vec![]).unwrap(),
+        dependencies: vec![],
+    };
     let mut store = EnvironmentStore::new(1);
     let mut other = EnvironmentStore::new(2);
     let old = store.insert(record()).unwrap();
@@ -60,31 +61,29 @@ fn foreign_stale_out_of_bounds_and_exhausted_ids_cannot_alias() {
 #[test]
 fn roots_trace_parents_but_retained_handles_do_not_prevent_reclamation() {
     let runtime = Runtime::default();
-    let parent = runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+    let parent = runtime.alloc_environment(empty(&runtime)).unwrap();
     let mut child = empty(&runtime);
     child.include(Some(parent.clone())).unwrap();
-    let child = runtime.gc.alloc_environment(child).unwrap();
+    let child = runtime.alloc_environment(child).unwrap();
     let root = runtime
         .root_metadata(vec![MetadataRoot::Environment(child.id)])
         .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_environments, 0);
     assert!(runtime.gc.environment(parent.id).is_some());
     assert!(runtime.gc.environment(child.id).is_some());
+    runtime.validate_environment(child.id).unwrap();
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_environments, 2);
     assert!(runtime.gc.environment(parent.id).is_none());
     assert!(runtime.gc.environment(child.id).is_none());
-    let replacement = runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+    let replacement = runtime.alloc_environment(empty(&runtime)).unwrap();
     assert_eq!(child.id.slot, replacement.id.slot);
     assert_ne!(child.id.generation, replacement.id.generation);
     assert_eq!(
-        runtime
-            .validate_metadata(MetadataEdge::Environment(child.id))
-            .unwrap_err()
-            .kind(),
+        runtime.validate_environment(child.id).unwrap_err().kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert!(extend(&runtime.gc, &child, OperationBindings::default()).is_err());
+    assert!(extend(&runtime, &child, OperationBindings::default()).is_err());
     assert!(runtime.gc.environment(replacement.id).is_some());
     assert!(!runtime.is_quarantined());
 }
@@ -93,7 +92,7 @@ fn roots_trace_parents_but_retained_handles_do_not_prevent_reclamation() {
 fn publication_rejects_expired_or_foreign_edges_without_allocating_records() {
     let runtime = Runtime::default();
     let foreign = Runtime::default();
-    let parent = runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+    let parent = runtime.alloc_environment(empty(&runtime)).unwrap();
     let mut pending = empty(&runtime);
     pending.include(Some(parent.clone())).unwrap();
     // Deliberately retain a draft across collection: publication must recheck its IDs.
@@ -102,27 +101,28 @@ fn publication_rejects_expired_or_foreign_edges_without_allocating_records() {
     selected.add_receiver(&runtime.gc, group).unwrap();
     runtime.collect_garbage().unwrap();
     let before = runtime.gc.stats();
-    assert!(runtime.gc.alloc_environment(pending).is_err());
-    assert!(runtime.gc.alloc_environment(selected).is_err());
+    assert!(runtime.alloc_environment(pending).is_err());
+    assert!(runtime.alloc_environment(selected).is_err());
     assert_eq!(runtime.gc.stats(), before);
     assert!(foreign.gc.environment(parent.id).is_none());
-    let local = runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+    assert!(foreign.validate_environment(parent.id).is_err());
+    let local = runtime.alloc_environment(empty(&runtime)).unwrap();
     // Even with matching definition provenance, table ownership is independent.
     let mut foreign_record = empty(&runtime);
     foreign_record.include(Some(local)).unwrap();
     let before = foreign.gc.stats();
-    assert!(foreign.gc.alloc_environment(foreign_record).is_err());
+    assert!(foreign.alloc_environment(foreign_record).is_err());
     assert_eq!(foreign.gc.stats(), before);
 }
 
 #[test]
 fn extensions_publish_a_new_record_and_do_not_change_existing_handles() {
     let runtime = Runtime::default();
-    let original = runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+    let original = runtime.alloc_environment(empty(&runtime)).unwrap();
     let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut operations = OperationBindings::default();
     operations.receiver(&runtime.gc, group).unwrap();
-    let extended = extend(&runtime.gc, &original, operations).unwrap();
+    let extended = extend(&runtime, &original, operations).unwrap();
     assert_ne!(original.id, extended.id);
     assert!(!Arc::ptr_eq(&original.types, &extended.types));
     assert!(
@@ -158,11 +158,11 @@ fn borrowed_view_rejects_allocation_and_sweeping_before_any_detachment() {
         .gc
         .alloc_cell(ValueType::I32, Value::I32(7))
         .unwrap();
-    let environment = runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+    let environment = runtime.alloc_environment(empty(&runtime)).unwrap();
     let view = runtime.gc.environment(environment.id).unwrap();
     let before = runtime.gc.stats();
-    assert!(runtime.gc.alloc_environment(empty(&runtime)).is_err());
-    assert!(extend(&runtime.gc, &environment, OperationBindings::default()).is_err());
+    assert!(runtime.alloc_environment(empty(&runtime)).is_err());
+    assert!(extend(&runtime, &environment, OperationBindings::default()).is_err());
     assert_eq!(runtime.gc.stats(), before);
     assert_eq!(
         runtime.collect_garbage().unwrap_err().kind(),
@@ -181,7 +181,7 @@ fn environment_growth_reaches_safepoints_without_value_allocations() {
         config.gc.collection_threshold = threshold;
         let runtime = Runtime::new(config);
         for _ in 0..64 {
-            runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+            runtime.alloc_environment(empty(&runtime)).unwrap();
             runtime.gc_safepoint().unwrap();
             if threshold.is_some() {
                 assert!(runtime.gc.stats().environments < 4);
@@ -199,15 +199,11 @@ fn environment_growth_reaches_safepoints_without_value_allocations() {
 #[test]
 fn a_retained_environment_handle_does_not_own_runtime_storage() {
     let runtime = Runtime::default();
-    let handle = runtime.gc.alloc_environment(empty(&runtime)).unwrap();
+    let handle = runtime.alloc_environment(empty(&runtime)).unwrap();
     let owner = runtime.resources().lifetime_probe();
     drop(runtime);
     assert!(owner.upgrade().is_none());
     let foreign = Runtime::default();
     assert!(foreign.gc.environment(handle.id).is_none());
-    assert!(
-        foreign
-            .validate_metadata(MetadataEdge::Environment(handle.id))
-            .is_err()
-    );
+    assert!(foreign.validate_environment(handle.id).is_err());
 }

@@ -19,7 +19,7 @@ use crate::{
         groups::{OperationGroupId, OperationGroupStore, OperationId},
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
-    frame::types::{TypeEnvironment, operations::OperationBindings},
+    frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
     gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
     module::LoadedModule,
     native::{application::NativeApplication, stored_selection::StoredSelection},
@@ -124,6 +124,7 @@ pub(crate) enum MetadataEdge<'a> {
     NativeApplication(&'a NativeApplication),
     Program(&'a LoadedModule),
     Environment(EnvironmentId),
+    EnvironmentView(&'a EnvironmentRecord),
     Operation(OperationId),
     Group(OperationGroupId),
     Interface(InterfaceSnapshotId),
@@ -139,6 +140,7 @@ impl MetadataEdge<'_> {
     fn identity(self) -> Option<(u8, usize)> {
         Some(match self {
             Self::NativeApplication(value) => (8, value as *const _ as usize),
+            Self::EnvironmentView(value) => (9, value as *const _ as usize),
             Self::Program(value) => (0, value as *const _ as usize),
             Self::Environment(_)
             | Self::Operation(_)
@@ -230,6 +232,7 @@ impl<'a> MetadataTrace<'a> {
                         self.environments.get(id)?.trace_metadata(&mut self.pending);
                     }
                 }
+                MetadataEdge::EnvironmentView(record) => record.trace_metadata(&mut self.pending),
                 MetadataEdge::Group(id) => {
                     if self.live_groups.insert(id) {
                         self.groups.get(id)?.trace_metadata(&mut self.pending);

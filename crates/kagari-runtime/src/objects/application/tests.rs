@@ -444,11 +444,31 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
             .prepare_interface_method_slot(&value, &interface, 0, &arguments, operations)
             .unwrap();
         let application = method.invocation.application.unwrap();
+        let environment = runtime
+            .gc
+            .method_application(application)
+            .unwrap()
+            .environment
+            .clone()
+            .unwrap();
+        let pending = runtime.gc.environment(environment.id).unwrap().clone();
+        runtime.validate_environment(environment.id).unwrap();
         drop(method);
         if publish {
             runtime.publish_staged_reload(candidate).unwrap();
         } else {
             drop(candidate);
+        }
+        // A still-live environment ID must not admit an abandoned transitive
+        // witness provider. Re-publication must reject it before installing an ID.
+        assert_eq!(
+            runtime.validate_environment(environment.id).is_ok(),
+            publish
+        );
+        let before = runtime.gc.stats();
+        assert_eq!(runtime.alloc_environment(pending).is_ok(), publish);
+        if !publish {
+            assert_eq!(runtime.gc.stats(), before);
         }
         runtime.collect_garbage().unwrap();
         assert_eq!(
@@ -503,7 +523,7 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         let mut record =
             EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
         record.extend_operations(first.clone());
-        let environment = runtime.gc.alloc_environment(record).unwrap();
+        let environment = runtime.alloc_environment(record).unwrap();
         let root = runtime
             .root_metadata(vec![MetadataRoot::Environment(environment.id)])
             .unwrap();
@@ -512,7 +532,6 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         let mut last_scope = None;
         for _ in 0..160 {
             let scope = runtime
-                .gc
                 .alloc_environment(
                     EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
                 )

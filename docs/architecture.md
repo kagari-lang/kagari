@@ -774,8 +774,17 @@ register replacement. Retirement releases these edges with the window.
 `RootedInterfaceMethod` is the host-retained wrapper around the same descriptor. Host
 entry validates its lease and keeps it alive until window publication; internal dispatch
 does not construct that wrapper or refresh a host root container. Host/internal arguments
-and results use the same method-view signature checks and result adapters. Frame-entry
-environment graph validation and scoped application-key preparation remain migration work.
+and results use the same method-view signature checks and result adapters. Scoped
+application-key preparation remains migration work.
+Executable environments are published by the runtime after validating their complete
+parent/operation graph. The central environment record retains a flat list of exact
+program dependencies alongside its immutable edges. Frame entry checks the environment's
+owner/slot/generation and current program availability without rebuilding graph traversal
+sets. Abandoned candidate leases can invalidate a dependency even before collection, so
+availability checks remain mandatory. Environment extensions publish new records; GC
+still traces the original edges and atomically validates the graph before detachment.
+The dependency list creates no host lease or independent root and does not prevent
+reclamation of unrooted environments, operation groups or old programs.
 Closure selection and signature admission belong to the runtime call transition. It
 borrows the closure once, compares physical parameters without temporary representation
 vectors, then supplies captures as the same borrowed prefix used for method receivers.

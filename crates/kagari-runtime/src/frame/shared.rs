@@ -112,7 +112,7 @@ impl Runtime {
             caller_environment,
             &contract.operations,
         )?);
-        let prepared = self.gc.alloc_environment(environment)?;
+        let prepared = self.alloc_environment(environment)?;
         self.publish_shared_environment(caller, scope, contract, prepared.clone())?;
         Ok(prepared)
     }

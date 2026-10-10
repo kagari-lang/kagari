@@ -35,7 +35,6 @@ fn fixture() -> (Runtime, LoadedModule, PreparedClosure) {
     let loaded = runtime.load_program("callback", program).unwrap();
     assert_eq!(loaded.bytecode.functions.len(), 1);
     let environment = runtime
-        .gc
         .alloc_environment(
             EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
         )

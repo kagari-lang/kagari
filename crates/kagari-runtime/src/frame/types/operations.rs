@@ -40,6 +40,7 @@ impl OperationBindings {
             .unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub(crate) fn validate(&self, heap: &GcHeap) -> bool {
         self.segments().iter().all(|segment| match segment {
             OperationSegment::Selected(id) => heap.bound_operation(*id).is_some(),

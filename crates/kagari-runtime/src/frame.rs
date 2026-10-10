@@ -554,7 +554,7 @@ impl ExecutionFrame {
         }
         runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
         if let Some(environment) = &environment {
-            runtime.validate_metadata(MetadataRoot::Environment(environment.id).edge())?;
+            runtime.validate_environment(environment.id)?;
         }
         let slots = resources
             .frame_values

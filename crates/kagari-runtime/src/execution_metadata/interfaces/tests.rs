@@ -398,7 +398,6 @@ fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown
     drop(view);
     // An empty scope adds no substitutions; its checked ID observes record disposal.
     let environment = runtime
-        .gc
         .alloc_environment(
             EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
         )

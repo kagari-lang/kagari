@@ -141,11 +141,11 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
     )
     .unwrap();
     parent.add_receiver(&runtime.gc, group).unwrap();
-    let parent = runtime.gc.alloc_environment(parent).unwrap();
+    let parent = runtime.alloc_environment(parent).unwrap();
     let parent_id = parent.id;
     let mut child = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
     child.include(Some(parent.clone())).unwrap();
-    let child = runtime.gc.alloc_environment(child).unwrap();
+    let child = runtime.alloc_environment(child).unwrap();
     let child_id = child.id;
     let expression = Ty::Tuple(vec![parameter.as_type()]);
     let retained = runtime

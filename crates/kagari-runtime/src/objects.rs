@@ -189,7 +189,7 @@ impl Runtime {
         let environment = if template.generic_params.is_empty() {
             None
         } else {
-            Some(self.gc.alloc_environment(EnvironmentRecord::new(
+            Some(self.alloc_environment(EnvironmentRecord::new(
                 self.definition_context(),
                 template.generic_params.clone(),
                 arguments.to_vec(),

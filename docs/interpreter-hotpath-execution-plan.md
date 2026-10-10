@@ -1788,3 +1788,98 @@ pass. This checkpoint completes closure packing removal and common frame retirem
 not HP03 or the overall goal. Scoped type/application preparation and environment
 graph admission remain the next architectural work; full-workspace and CI acceptance
 remain deferred to their designated checkpoints.
+
+2026-10-10 HP03, environment publication and frame admission (in progress):
+Environment allocation now belongs to Runtime, which can validate executable program
+availability as well as heap identities. Before a new EnvironmentId is installed, the
+existing metadata tracer checks the complete draft parent/operation graph and produces
+its deduplicated exact program dependencies. The central environment store owns those
+dependencies beside the immutable record. Environment/group/operation edges reachable
+from this record are immutable; extension constructs and publishes a new record.
+Frame entry now checks owner/slot/generation and the saved programs' current availability
+instead of allocating graph traversal sets for the unchanged environment. The former
+heap-only immediate-edge publication check and frame-entry graph walk are removed.
+All environment producers, including native application/selection and interface receiver
+construction, use this publication boundary; no alternative unvalidated allocator remains.
+
+This is a proof owned by the environment store, not a per-callsite cache or host root.
+GC still traces the original edges, checks the entire graph before any store detaches,
+and reclaims environments with their unreachable dependencies. Saved LoadedModule facts
+do not acquire ProgramLeases. Availability cannot be inferred solely from environment
+liveness: a candidate program lease can expire before GC, so each admission still checks
+every saved program. Existing optional application-retention coverage now exercises that
+case through a transitive witness provider: a live environment rejects admission after
+abandonment, and a retained draft cannot publish a fresh ID. Publishing the candidate
+keeps both operations valid. Foreign/stale environment, parent tracing, immutable
+extension, borrowed-store failure and collection tests now exercise the new boundary.
+
+Focused runtime metadata contracts (31), method application/lifetime contracts (5) and
+VM native function boundary contracts (38, including source-free shared applications,
+scoped native closures, reentry/GC, cancellation/depth cleanup and reload) pass. Structure
+review checks 1,008 Rust files with zero violations/exceptions. An initial dead-code
+warning identified the old immediate operation-edge helper; it is now test-only.
+HP03 remains open for invocation-scaled scoped type/application-key preparation and
+previously recorded execution regressions. Measurements and final checks follow below.
+
+All 72 diagnostic source-form rows pass in
+`target/hp03/environment-admission-diagnostics.log`, compared with the preceding
+closure/return checkpoint; complete deltas are in
+`target/hp03/environment-admission-diagnostic-delta.json`. Warm fixed generic application
+graph validations fall N+2 to 2; alternating applications fall N+4 to 4. Fixed and
+alternating applications remove exactly two allocation requests/268 requested bytes
+per call (5,000 fixed calls: 75,050 to 65,050 requests; 6,184,525 to 4,844,525 bytes).
+Nested witness applications remove six requests/864 bytes per call and shared witness
+applications twelve/1,728; their graph validations also become constant. Native generic
+applications remove four requests/536 bytes per call. Scoped layout probes remove the
+same two/268 environment costs but retain their much larger layout/type preparation
+costs. Heap objects, collections, preparation counts and logical driver/slow-boundary
+counts are unchanged in every warm row. Ordinary interface, scalar, closure and string
+warm counts are unchanged.
+
+Publication intentionally does more work once. For example the cold fixed-application
+probe now performs five graph validations at both N and 2N, compared with N+3 before,
+and retains 96 additional net bytes. The cold shared-witness probe retains 224 additional
+net bytes. These are allocator measurements, including environment storage capacity,
+not estimates of a universal per-environment size or throughput improvements. Substantial
+invocation-scaled allocation remains: the fixed-application case still requests 13
+allocations per call plus entry overhead. Resolving scoped types/application keys remains
+required before HP03 can be accepted.
+
+Paired ordinary source forms are in
+`target/lua-comparison/20261010T052043Z-forms-paired/results.json`; all checksums pass.
+Baseline is `target/hp03/closure-return-executable` (hash above); candidate is preserved
+as `target/hp03/environment-admission-executable`, SHA-256
+`dc4f586c939bd1fb84200c784a280e3918eea119cb2070dca32c188156d4334c`.
+Candidate/baseline ratios are direct 0.9216, helper 0.9975, concrete generic 0.9516,
+interface 0.9845, shared generic 0.9532, capture cell 1.0142, field 0.9682,
+native 0.9944, byte state 1.0225, host callback 0.9924, string constants 1.0073
+and string calls 1.0176. Lua controls range 0.9747–1.0076. The shared-generic
+4.68% reduction accompanies a 2.53% Lua control reduction; do not attribute the entire
+timing difference to environment admission. Its VM/Lua ratio remains 92.16. Scalar
+improvements on paths without environments also cannot establish an environment cost.
+Byte-state/string/capture regressions and prior call-heavy regressions remain visible;
+this checkpoint does not establish whole-interpreter performance acceptance.
+
+Measurements use the same M1 Max (32 GiB, 10 logical CPUs), macOS 26.6.2 arm64,
+rustc 1.98.1/LLVM 22.1.8, workspace release profile and default Cargo parallelism.
+Fresh single-threaded processes run sequentially baseline/candidate/candidate/baseline,
+with three warmups and 22 pooled samples per variant. Normal GC is included; diagnostics
+are disabled for timing. The 19.857 s incremental build is excluded, and no matched
+workload, compiler flag or alignment setting changed. Diagnostic runs, builds/tests
+and throughput are sequential.
+
+The original-seven paired run also passes every checksum:
+`target/lua-comparison/20261010T052145Z-paired/results.json`, same executable hashes
+and environment, 0.078 s incremental build excluded. Candidate/baseline ratios are
+entry 0.9953, arithmetic 0.9256, branches 0.9395, calls 0.9908, fibonacci 0.9972,
+arrays 0.9845 and maps 0.9943; Lua controls range 0.9847–1.0167. Calls remain
+23.68 times Lua. Its 0.92% reduction against the immediately preceding checkpoint
+does not resolve that checkpoint's 7.08% regression. No Lua parity or general
+architectural/performance acceptance is claimed.
+
+Strict affected-target Clippy (runtime, VM and benchmark, all targets with execution
+diagnostics), formatting, all 84 local document links and final diff checks pass.
+No build/test error remains. No full-workspace suite or GitHub CI run was performed.
+Next HP03 work is the still-repeated scoped call contract/type argument/application-key
+preparation; it must reuse linked descriptor ownership rather than add a competing
+per-callsite semantic implementation. HP03–HP06 and full-goal acceptance remain open.

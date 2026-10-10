@@ -156,7 +156,6 @@ fn native_lifecycle(
                     Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); index + 1]);
                 let arguments = runtime.resolve_type_arguments(&owner, &[ty]).unwrap();
                 runtime
-                    .gc
                     .alloc_environment(
                         EnvironmentRecord::new(
                             runtime.definition_context(),

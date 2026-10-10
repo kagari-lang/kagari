@@ -3,9 +3,12 @@
 use crate::diagnostics::{self, Event};
 
 use crate::{
+    Runtime,
     error::RuntimeError,
+    execution_metadata::MetadataEdge,
     frame::types::{EnvironmentRecord, TypeEnvironment},
     gc::GcHeap,
+    module::LoadedModule,
 };
 use std::{
     cell::Ref,
@@ -22,7 +25,15 @@ pub(crate) struct EnvironmentId {
 #[derive(Debug)]
 struct Slot {
     generation: u64,
-    environment: Option<EnvironmentRecord>,
+    environment: Option<PublishedEnvironment>,
+}
+
+/// Publication proves the immutable executable graph. Dependencies are availability
+/// checks, not roots; collection still traces the record's original edges.
+#[derive(Debug)]
+pub(crate) struct PublishedEnvironment {
+    record: EnvironmentRecord,
+    dependencies: Vec<LoadedModule>,
 }
 
 #[derive(Debug)]
@@ -43,9 +54,9 @@ impl EnvironmentStore {
         }
     }
 
-    pub(crate) fn insert(
+    fn insert(
         &mut self,
-        environment: EnvironmentRecord,
+        environment: PublishedEnvironment,
     ) -> Result<EnvironmentId, TryReserveError> {
         let slot = match self.free.pop() {
             Some(slot) => slot,
@@ -70,6 +81,10 @@ impl EnvironmentStore {
     }
 
     pub(crate) fn get(&self, id: EnvironmentId) -> Option<&EnvironmentRecord> {
+        Some(&self.published(id)?.record)
+    }
+
+    fn published(&self, id: EnvironmentId) -> Option<&PublishedEnvironment> {
         if id.owner != self.owner {
             return None;
         }
@@ -84,7 +99,7 @@ impl EnvironmentStore {
     }
 
     /// The whole graph has been marked and validated before any store detaches.
-    pub(crate) fn detach(&mut self, live: &HashSet<EnvironmentId>) -> Vec<EnvironmentRecord> {
+    pub(crate) fn detach(&mut self, live: &HashSet<EnvironmentId>) -> Vec<PublishedEnvironment> {
         let mut retired = Vec::new();
         for (index, slot) in self.slots.iter_mut().enumerate() {
             let id = EnvironmentId {
@@ -107,27 +122,52 @@ impl EnvironmentStore {
     }
 }
 
-impl GcHeap {
+impl Runtime {
     pub(crate) fn alloc_environment(
         &self,
         record: EnvironmentRecord,
     ) -> Result<TypeEnvironment, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::EnvironmentAllocation);
-        self.ensure_execution_allowed()?;
-        if !record.validate(self) {
-            return Err(RuntimeError::module_validation("invalid environment edges"));
-        }
+        self.gc.ensure_execution_allowed()?;
+        // Validate before installing any identity. Environment, group and operation
+        // edges are immutable; extensions must publish a new environment record.
+        let dependencies = self.metadata_dependencies(MetadataEdge::EnvironmentView(&record))?;
         let types = record.types.clone();
         let id = self
+            .gc
             .environments
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("environment store is borrowed"))?
-            .insert(record)
-            .map_err(|_| self.resource_limit("environment storage"))?;
+            .insert(PublishedEnvironment {
+                record,
+                dependencies,
+            })
+            .map_err(|_| self.gc.resource_limit("environment storage"))?;
         Ok(TypeEnvironment { id, types })
     }
 
+    pub(crate) fn validate_environment(&self, id: EnvironmentId) -> Result<(), RuntimeError> {
+        self.gc.ensure_execution_allowed()?;
+        let environments = self
+            .gc
+            .environments
+            .try_borrow()
+            .map_err(|_| RuntimeError::module_validation("environment store is borrowed"))?;
+        let published = environments
+            .published(id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid execution environment"))?;
+        // Slot/generation admission proves the published graph is still present:
+        // GC validates and detaches the whole graph atomically. Candidate program
+        // leases can expire independently, so availability is checked on every entry.
+        for owner in &published.dependencies {
+            self.validate_loaded_module(owner)?;
+        }
+        Ok(())
+    }
+}
+
+impl GcHeap {
     pub(crate) fn environment(&self, id: EnvironmentId) -> Option<Ref<'_, EnvironmentRecord>> {
         Ref::filter_map(self.environments.try_borrow().ok()?, |store| store.get(id)).ok()
     }

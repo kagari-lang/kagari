@@ -30,12 +30,6 @@ pub(crate) struct EnvironmentRecord {
 }
 
 impl EnvironmentRecord {
-    pub(crate) fn validate(&self, heap: &GcHeap) -> bool {
-        self.parent
-            .is_none_or(|parent| heap.environment(parent).is_some())
-            && self.operations.validate(heap)
-    }
-
     pub(crate) fn trace_metadata<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
         if let Some(parent) = &self.parent {
             pending.push(MetadataEdge::Environment(*parent));

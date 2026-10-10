@@ -105,7 +105,7 @@ impl Runtime {
         // Associated results need selected output facts while the signature is
         // resolved, before publishing the executable application.
         binders.extend_operations(operations.clone());
-        let binders = Some(self.gc.alloc_environment(binders)?);
+        let binders = Some(self.alloc_environment(binders)?);
         let result_adapter = view.result_adapter().map(|adapter| {
             let mut adapter = adapter.clone();
             adapter.environment = binders.clone();
@@ -153,7 +153,7 @@ impl Runtime {
                 environment.add_receiver(&self.gc, group)?;
             }
             environment.extend_operations(operations);
-            Some(self.gc.alloc_environment(environment)?)
+            Some(self.alloc_environment(environment)?)
         };
         Ok(MethodApplication {
             signature,

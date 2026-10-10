@@ -59,7 +59,7 @@ fn detached_environments_reject_recycled_group_slots() {
     let mut environment =
         EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
     environment.add_receiver(&runtime.gc, old).unwrap();
-    let environment = runtime.gc.alloc_environment(environment).unwrap();
+    let environment = runtime.alloc_environment(environment).unwrap();
     runtime
         .validate_metadata(MetadataEdge::Environment(environment.id))
         .unwrap();
@@ -176,7 +176,7 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
         } else {
             environment.add_receiver(&runtime.gc, group).unwrap();
         }
-        let environment = runtime.gc.alloc_environment(environment).unwrap();
+        let environment = runtime.alloc_environment(environment).unwrap();
         let application_id = runtime
             .gc
             .alloc_method_application(MethodApplication {
@@ -279,7 +279,7 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
     let mut environment =
         EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
     environment.add_operation(&runtime.gc, ids[0]).unwrap();
-    let environment = runtime.gc.alloc_environment(environment).unwrap();
+    let environment = runtime.alloc_environment(environment).unwrap();
     let root = runtime
         .root_metadata(vec![MetadataRoot::Environment(environment.id)])
         .unwrap();
@@ -309,7 +309,7 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
     let mut receiver =
         EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
     receiver.add_receiver(&runtime.gc, ids[0].group).unwrap();
-    let receiver = runtime.gc.alloc_environment(receiver).unwrap();
+    let receiver = runtime.alloc_environment(receiver).unwrap();
     assert_eq!(
         receiver.operation(&runtime.gc, &sibling.requirement),
         Some(ids[1])
@@ -449,7 +449,7 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
             .associated_output(&receiver, &interface, member)
             .is_none()
     );
-    let environment = runtime.gc.alloc_environment(environment).unwrap();
+    let environment = runtime.alloc_environment(environment).unwrap();
     let environment_id = environment.id;
     let mut child = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
     child.include(Some(environment.clone())).unwrap();

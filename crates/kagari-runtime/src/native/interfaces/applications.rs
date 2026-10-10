@@ -134,7 +134,7 @@ impl ApplicationEvidence {
         let mut environment =
             EnvironmentRecord::new(runtime.definition_context(), parameters, arguments.clone())?;
         environment.extend_operations(operations.clone());
-        let environment = runtime.gc.alloc_environment(environment)?;
+        let environment = runtime.alloc_environment(environment)?;
         let roots = runtime.root_metadata(vec![
             MetadataRoot::Program(self.owner.clone()),
             MetadataRoot::Environment(environment.id),
