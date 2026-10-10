@@ -45,7 +45,7 @@ impl ExecutionStack<'_> {
             FrameDispatch {
                 prepared: None,
                 entry: FrameEntry::Call,
-                interface_method: None,
+                invocation: None,
                 environment: selected.environment.clone(),
             },
         )

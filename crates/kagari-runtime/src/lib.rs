@@ -9,8 +9,7 @@ use crate::{
         ReloadDependencySnapshot,
     },
     error::{RuntimeError, RuntimeErrorKind},
-    execution_metadata::{applications::ApplicationId, links::MethodSelection},
-    frame::{ExecutionStack, types::TypeEnvironment},
+    frame::ExecutionStack,
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, roots::RootedValue},
     host::{
         FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallContext, HostFunction,
@@ -27,7 +26,7 @@ use crate::{
         function_handle::cache::FunctionCache, interfaces::binding::InterfaceCache,
         objects::cache::BindingCache, registry::NativeRegistry,
     },
-    objects::method::BoundReceiver,
+    objects::{invocation::MethodInvocation, method::BoundReceiver},
     reflection::ReflectionError,
     resource::{AsyncLimits, ResourceState, RuntimeLimits},
     session::{
@@ -147,10 +146,8 @@ pub struct Runtime {
 /// safepoints and synchronous host reentry.
 #[derive(Clone)]
 pub struct RootedInterfaceMethod {
-    selection: MethodSelection,
+    invocation: MethodInvocation,
     bound_receiver: BoundReceiver,
-    environment: Option<TypeEnvironment>,
-    application: Option<ApplicationId>,
     _root: RootedValue,
 }
 

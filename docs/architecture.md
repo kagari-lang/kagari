@@ -750,20 +750,32 @@ incoming representations/domains. Unavailable scalar inspection produces Unit;
 executing an uninitialized operand quarantines. Frame entry reserves both banks
 before copying arguments; release clears managed roots and initialization state.
 
-Statically selected script and shared script/native calls transfer arguments directly
+Statically selected script, shared script/native and interface calls transfer arguments directly
 between disjoint frame banks. Sealed call sites own physical source locations and the
 return destination; the selected callee's layout owns parameter placement and semantic
 admission. There is no duplicate per-call-site callee layout or source/target-pair table.
 Borrowed host values, captures and window sources feed the same argument iterator,
-transactional admission and frame publication; shared calls do not pack a temporary
+transactional admission and frame publication; shared/interface calls do not pack a temporary
 Value vector. Window identity, initialization, bounds and scalar domains are checked
 before growing the banks. Scalar-only sources skip heap-reference walks. Concrete scalar
 returns use an opaque packet until the caller slot or public host boundary;
 shared environments and interface adapters retain their full return validation.
-Function/ModuleFunction and Shared call sites prepare physical arguments and return
+Function/ModuleFunction, Shared and InterfaceMethod call sites prepare physical arguments and return
 destinations once. The executing canonical PC selects the record; module slots bind
 through the caller's pinned program descriptor. Shared calls select their HP01-owned
 environment and retain caller-scoped semantic argument checks before common admission.
+Interface calls retain a `MethodInvocation` containing checked selection/application
+identities. Preparation borrows immutable snapshot/operation facts instead of cloning
+receiver type descriptions. The selected receiver is a borrowed parameter prefix;
+remaining parameters come directly from the caller window. Selection/application edges
+are published with the callee's program, environment and argument roots before any
+safepoint. They remain live even after optional application-cache eviction or caller
+register replacement. Retirement releases these edges with the window.
+`RootedInterfaceMethod` is the host-retained wrapper around the same descriptor. Host
+entry validates its lease and keeps it alive until window publication; internal dispatch
+does not construct that wrapper or refresh a host root container. Host/internal arguments
+and results use the same method-view signature checks and result adapters. Frame-entry
+environment graph validation and scoped application-key preparation remain migration work.
 Shared verified records contain no runtime-local identities. Admission reuses one
 session/scope check until frame creation, while retaining dynamic argument, depth
 and cancellation checks. Scalar returns without environment/interface adaptation

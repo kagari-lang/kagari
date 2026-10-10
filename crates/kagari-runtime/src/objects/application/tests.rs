@@ -2,7 +2,10 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
     execution_metadata::MetadataRoot,
-    frame::types::{EnvironmentRecord, operations::OperationBindings},
+    frame::{
+        transfer::ReturnValue,
+        types::{EnvironmentRecord, operations::OperationBindings},
+    },
     module::LoadedModule,
     native::{
         binding::{Codec, NativeBinding},
@@ -12,6 +15,7 @@ use crate::{
         module::NativeModule,
         types::Type,
     },
+    objects::invocation::MethodInvocation,
     value::Value,
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
@@ -134,23 +138,26 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             .unwrap();
         let operation = runtime.gc.bound_operation(operation_id).unwrap();
         let prepare = || {
-            let method = RootedInterfaceMethod::from_operation(
-                &runtime,
-                runtime.root_value(Value::I32(7)).unwrap(),
-                operation_id,
-                Value::I32(7),
-                snapshot.concrete_type.clone(),
-                snapshot.interface_type.clone(),
-            )
-            .unwrap();
-            runtime
-                .apply_interface_method(method, &[], Default::default())
-                .unwrap()
+            let method = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
+            let method = runtime
+                .apply_method_invocation(method, &[], Default::default())
+                .unwrap();
+            let mut edges = Vec::new();
+            method.append_metadata(&mut edges);
+            (runtime.root_metadata(edges).unwrap(), method)
         };
-        let first = prepare();
-        let second = prepare();
-        let environment = first.environment.as_ref().unwrap();
-        assert_eq!(environment.id, second.environment.as_ref().unwrap().id);
+        let (first_root, first) = prepare();
+        let (second_root, second) = prepare();
+        let environment = first
+            .view(&runtime)
+            .unwrap()
+            .environment()
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            environment.id,
+            second.view(&runtime).unwrap().environment().unwrap().id
+        );
         assert_eq!(
             environment.id,
             runtime
@@ -168,7 +175,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         let application_id = first.application.unwrap();
         assert_eq!(first.application, Some(application_id));
         assert_eq!(second.application, Some(application_id));
-        drop((operation, snapshot, first));
+        drop((operation, snapshot, first_root));
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc.stats().operation_groups, 1);
         assert!(runtime.gc.environment(environment_id).is_some());
@@ -177,25 +184,16 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         if teardown {
             // A prepared identity can survive runtime teardown without owning the
             // operation or its cached application. This handle has no applied view.
-            let retained = RootedInterfaceMethod::from_operation(
-                &runtime,
-                runtime.root_value(Value::I32(7)).unwrap(),
-                operation_id,
-                Value::I32(7),
-                requirement.receiver.clone(),
-                requirement.interface.clone(),
-            )
-            .unwrap();
-            retained.refresh_roots(&runtime).unwrap();
-            drop(second);
+            let retained = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
+            let mut edges = Vec::new();
+            retained.append_metadata(&mut edges);
+            let retained_root = runtime.root_metadata(edges).unwrap();
+            drop(second_root);
             drop(runtime);
             assert!(runtime_owner.upgrade().is_none());
             let foreign = Runtime::default();
-            assert!(retained.implementation(&foreign).is_err());
-            assert!(retained.target(&foreign).is_err());
-            assert!(retained.parameter_types(&foreign).is_err());
-            assert!(retained.return_type(&foreign).is_err());
-            drop(retained);
+            assert!(retained.view(&foreign).is_err());
+            drop(retained_root);
         } else {
             let candidate = runtime
                 .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
@@ -205,7 +203,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             // after its last root is dropped, the entire retired cycle is dead.
             runtime.collect_garbage().unwrap();
             assert!(runtime.gc.method_application(application_id).is_some());
-            drop(second);
+            drop(second_root);
             assert_eq!(
                 runtime
                     .collect_garbage()
@@ -284,14 +282,14 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
         second_value,
         Ty::Builtin(BuiltinType::I32),
     );
-    assert_eq!(first.application, second.application);
+    assert_eq!(first.invocation.application, second.invocation.application);
     let wide = apply_generic(
         &runtime,
         &loaded,
         second_value,
         Ty::Builtin(BuiltinType::I64),
     );
-    assert_ne!(first.application, wide.application);
+    assert_ne!(first.invocation.application, wide.invocation.application);
     assert_eq!(
         wide.return_type(&runtime).unwrap(),
         Ty::Builtin(BuiltinType::I64)
@@ -311,7 +309,7 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
         other_value,
         Ty::Builtin(BuiltinType::I32),
     );
-    assert_ne!(first.application, other.application);
+    assert_ne!(first.invocation.application, other.invocation.application);
     let candidate = runtime
         .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
         .unwrap();
@@ -325,7 +323,7 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
         fresh_value,
         Ty::Builtin(BuiltinType::I32),
     );
-    assert_ne!(first.application, fresh.application);
+    assert_ne!(first.invocation.application, fresh.invocation.application);
     let nominal = Ty::Struct(NominalTy {
         declaration: loaded.bytecode.structures[0].declaration,
         arguments: vec![],
@@ -348,11 +346,14 @@ fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_v
         old_type.return_type(&runtime).unwrap(),
         new_type.return_type(&runtime).unwrap()
     );
-    assert_ne!(old_type.application, new_type.application);
+    assert_ne!(
+        old_type.invocation.application,
+        new_type.invocation.application
+    );
 
     runtime.collect_garbage().unwrap();
     assert!(first.return_type(&runtime).is_ok());
-    let application = first.application.unwrap();
+    let application = first.invocation.application.unwrap();
     drop((first, second, wide, other, old_type, new_type));
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc.method_application(application).is_none());
@@ -366,7 +367,16 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
         .make_interface(&loaded, table, Value::I32(1))
         .unwrap();
     let retained = apply_generic(&runtime, &loaded, value, Ty::Builtin(BuiltinType::I32));
-    let application = retained.application.unwrap();
+    let application = retained.invocation.application.unwrap();
+    let stack = runtime.enter_execution_stack(&loaded).unwrap();
+    stack
+        .push_interface_method(
+            &runtime,
+            retained.clone(),
+            &[Value::I32(1), Value::I32(7)],
+            None,
+        )
+        .unwrap();
     // More distinct applications than the retention limit. The older call stays
     // rooted through its host handle even when the program evicts its index edge.
     for length in 0..160 {
@@ -381,6 +391,17 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
     assert!(runtime.gc.method_application(application).is_some());
     assert_eq!(runtime.gc.stats().method_applications, 129);
     drop(retained);
+    runtime.collect_garbage().unwrap();
+    // With the external lease gone and the cache entry evicted, only the active
+    // window protects the applied signature needed to validate the return.
+    assert!(runtime.gc.method_application(application).is_some());
+    assert_eq!(runtime.gc.stats().method_applications, 129);
+    assert_eq!(
+        stack
+            .finish_return(&runtime, ReturnValue::general(Value::I32(7)))
+            .unwrap(),
+        Some(Value::I32(7))
+    );
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc.method_application(application).is_none());
     assert_eq!(runtime.gc.stats().method_applications, 128);
@@ -422,7 +443,7 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
         let method = runtime
             .prepare_interface_method_slot(&value, &interface, 0, &arguments, operations)
             .unwrap();
-        let application = method.application.unwrap();
+        let application = method.invocation.application.unwrap();
         drop(method);
         if publish {
             runtime.publish_staged_reload(candidate).unwrap();

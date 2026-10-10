@@ -42,16 +42,46 @@ fn frame_windows_reject_foreign_and_reused_identities() {
     let mut foreign = ExecutionValues::default();
     let arguments = FrameArguments::plain(&[Value::I32(42)]);
     let first = values
-        .allocate(2, 1, &arguments, module.clone(), None, None)
+        .allocate(
+            2,
+            1,
+            &arguments,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
+            None,
+        )
         .unwrap();
     let other = foreign
-        .allocate(2, 1, &arguments, module.clone(), None, None)
+        .allocate(
+            2,
+            1,
+            &arguments,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
+            None,
+        )
         .unwrap();
     assert!(values.get(other).is_none());
     assert!(values.release(other).is_none());
     values.release(first).unwrap();
     let second = values
-        .allocate(2, 1, &arguments, module, None, None)
+        .allocate(
+            2,
+            1,
+            &arguments,
+            FrameMetadata {
+                program: module,
+                environment: None,
+                invocation: None,
+            },
+            None,
+        )
         .unwrap();
     assert_eq!(first.index, second.index);
     assert!(values.get(first).is_none());
@@ -69,8 +99,11 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
             1,
             0,
             &FrameArguments::plain(&[Value::I32(1)]),
-            module.clone(),
-            None,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
             None,
         )
         .unwrap();
@@ -79,8 +112,11 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
             1,
             0,
             &FrameArguments::plain(&[Value::I32(2)]),
-            module.clone(),
-            None,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
             None,
         )
         .unwrap();
@@ -113,8 +149,11 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
             4,
             0,
             &FrameArguments::plain(&args),
-            module.clone(),
-            None,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
             Some(scalar_layout()),
         )
         .unwrap();
@@ -124,8 +163,11 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
                 4,
                 0,
                 &FrameArguments::plain(&args),
-                module.clone(),
-                None,
+                FrameMetadata {
+                    program: module.clone(),
+                    environment: None,
+                    invocation: None,
+                },
                 Some(scalar_layout()),
             )
             .unwrap();
@@ -151,8 +193,11 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
             2,
             0,
             &FrameArguments::plain(&[Value::I64(11), Value::I64(23)]),
-            module.clone(),
-            None,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
             None,
         )
         .unwrap();
@@ -169,7 +214,17 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
         .collect::<Vec<_>>();
     let arguments = FrameArguments::frame(caller, &transfers);
     let callee = values
-        .allocate(8192, 4096, &arguments, module.clone(), None, None)
+        .allocate(
+            8192,
+            4096,
+            &arguments,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
+            None,
+        )
         .unwrap();
     assert_eq!(
         &values.get(callee).unwrap()[4096..4099],
@@ -183,7 +238,17 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
     values.release(caller).unwrap();
     assert!(
         values
-            .allocate(3, 0, &arguments, module, None, None)
+            .allocate(
+                3,
+                0,
+                &arguments,
+                FrameMetadata {
+                    program: module,
+                    environment: None,
+                    invocation: None
+                },
+                None
+            )
             .is_err()
     );
 }
@@ -236,8 +301,11 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
             4,
             0,
             &FrameArguments::plain(&[]),
-            module,
-            None,
+            FrameMetadata {
+                program: module,
+                environment: None,
+                invocation: None,
+            },
             Some(scalar_layout()),
         )
         .unwrap();
@@ -283,8 +351,11 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
                 4,
                 2,
                 &FrameArguments::plain(&[Value::I32(128)]),
-                module.clone(),
-                None,
+                FrameMetadata {
+                    program: module.clone(),
+                    environment: None,
+                    invocation: None
+                },
                 Some(scalar_layout())
             )
             .is_err()
@@ -296,8 +367,11 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
             4,
             0,
             &FrameArguments::plain(&[Value::U64(u64::MAX)]),
-            module.clone(),
-            None,
+            FrameMetadata {
+                program: module.clone(),
+                environment: None,
+                invocation: None,
+            },
             Some(scalar_layout()),
         )
         .unwrap();
@@ -314,8 +388,11 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
                 4,
                 0,
                 &FrameArguments::frame(slots, &transfers),
-                module.clone(),
-                None,
+                FrameMetadata {
+                    program: module.clone(),
+                    environment: None,
+                    invocation: None
+                },
                 Some(narrow.clone())
             )
             .is_err()
@@ -332,8 +409,11 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
             4,
             0,
             &FrameArguments::frame(slots, &transfers),
-            module,
-            None,
+            FrameMetadata {
+                program: module,
+                environment: None,
+                invocation: None,
+            },
             Some(narrow),
         )
         .unwrap();
@@ -411,8 +491,11 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
             0,
             0,
             &FrameArguments::plain(&[]),
-            loaded.clone(),
-            Some(source),
+            FrameMetadata {
+                program: loaded.clone(),
+                environment: Some(source),
+                invocation: None,
+            },
             None,
         )
         .unwrap();

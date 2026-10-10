@@ -12,7 +12,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::ty::Ty;
-use std::{iter, ops::Bound, slice};
+use std::{ops::Bound, slice};
 
 pub(super) enum InstructionProgress {
     Continue,
@@ -561,7 +561,10 @@ impl<'a> Executor<'a> {
         }
         if matches!(
             callee,
-            CallTarget::Function(_) | CallTarget::ModuleFunction { .. } | CallTarget::Shared { .. }
+            CallTarget::Function(_)
+                | CallTarget::ModuleFunction { .. }
+                | CallTarget::Shared { .. }
+                | CallTarget::InterfaceMethod { .. }
         ) {
             return self
                 .stack
@@ -578,26 +581,9 @@ impl<'a> Executor<'a> {
             CallTarget::Native(_) => unreachable!("native calls execute before argument packing"),
             CallTarget::ModuleFunction { .. }
             | CallTarget::Function(_)
-            | CallTarget::Shared { .. } => {
-                unreachable!("statically selected calls use frame windows")
-            }
-            CallTarget::InterfaceMethod { ref contract, .. } => {
-                let receiver = arg_values.first().unwrap_or(&Value::Unit);
-                let resolved = self
-                    .runtime
-                    .resolve_interface_call(&*self.current_frame()?, contract, receiver)
-                    .map_err(VmError::RuntimeError)?;
-                let arguments = if contract.receiver.is_some() {
-                    arg_values
-                } else {
-                    iter::once(*resolved.receiver())
-                        .chain(arg_values.into_iter().skip(1))
-                        .collect::<Vec<_>>()
-                };
-                self.stack
-                    .push_interface_method(self.runtime, resolved, &arguments, dst)
-                    .map(|()| InstructionProgress::Call)
-                    .map_err(VmError::RuntimeError)
+            | CallTarget::Shared { .. }
+            | CallTarget::InterfaceMethod { .. } => {
+                unreachable!("prepared calls use frame windows")
             }
             CallTarget::Register(_) => {
                 Err(VmError::UnsupportedCallTarget(Box::new(callee.clone())))

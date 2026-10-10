@@ -3,7 +3,7 @@ use crate::{executor::Executor, tests::common::standard_runtime};
 use kagari_bytecode::instruction::ConstantId;
 use kagari_bytecode::instruction::StructId;
 use kagari_contract::types::PublicItem;
-use kagari_runtime::{Runtime, module::LoadedModule};
+use kagari_runtime::{Runtime, frame::transfer::ReturnValue, module::LoadedModule};
 use kagari_types::ty::{NominalTy, Ty};
 use std::slice;
 
@@ -248,7 +248,7 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     let old = runtime.load_program("interface-frames", old_code).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
     let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let _root = runtime.root_value(boxed).unwrap();
+    let receiver_root = runtime.root_value(boxed).unwrap();
     let candidate = runtime
         .stage_reload_program(&old, "interface-frames", new_code)
         .unwrap();
@@ -280,11 +280,20 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     stack
         .push_interface_method(&runtime, resolved, &[Value::I32(7)], None)
         .unwrap();
+    // The callee must retain selection metadata after its host lease and the
+    // receiver's external root are gone, even while a newer program is current.
+    drop(receiver_root);
+    runtime.collect_garbage().unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), old.key());
     stack.push(&runtime, old.slot(), helper, &[], None).unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), old.key());
     stack.pop().unwrap();
-    stack.pop().unwrap();
+    assert!(
+        stack
+            .finish_return(&runtime, ReturnValue::general(Value::I32(8)))
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(stack.current().unwrap().loaded().key(), new.key());
     stack.pop().unwrap();
     assert_eq!(runtime.resources().counters().current_call_depth, 0);

@@ -9,11 +9,19 @@ use kagari_common::identity::table::DefinitionId;
 
 #[derive(Debug)]
 pub(crate) struct PreparedCall {
-    pub module: ModuleRef,
-    pub target: CallableTarget,
-    pub shared: bool,
+    pub target: PreparedCallTarget,
     pub arguments: Box<[Location]>,
     pub destination: Option<Location>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PreparedCallTarget {
+    Static {
+        module: ModuleRef,
+        target: CallableTarget,
+        shared: bool,
+    },
+    Interface,
 }
 
 impl ExecutionModule {
@@ -25,12 +33,23 @@ impl ExecutionModule {
                 let BytecodeInstruction::Call { dst, callee, args } = instruction else {
                     continue;
                 };
-                let (module, target) = match *callee {
-                    CallTarget::Function(function) => (slot, CallableTarget::Script(function)),
-                    CallTarget::ModuleFunction { module, function } => {
-                        (module, CallableTarget::Script(function))
-                    }
-                    CallTarget::Shared { module, target, .. } => (module, target),
+                let target = match *callee {
+                    CallTarget::Function(function) => PreparedCallTarget::Static {
+                        module: slot,
+                        target: CallableTarget::Script(function),
+                        shared: false,
+                    },
+                    CallTarget::ModuleFunction { module, function } => PreparedCallTarget::Static {
+                        module,
+                        target: CallableTarget::Script(function),
+                        shared: false,
+                    },
+                    CallTarget::Shared { module, target, .. } => PreparedCallTarget::Static {
+                        module,
+                        target,
+                        shared: true,
+                    },
+                    CallTarget::InterfaceMethod { .. } => PreparedCallTarget::Interface,
                     _ => continue,
                 };
                 let arguments = args
@@ -51,9 +70,7 @@ impl ExecutionModule {
                 prepared.calls.insert(
                     pc,
                     PreparedCall {
-                        module,
                         target,
-                        shared: matches!(callee, CallTarget::Shared { .. }),
                         arguments,
                         destination,
                     },

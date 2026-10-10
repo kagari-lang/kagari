@@ -1,13 +1,15 @@
-//! Statically selected call sites share physical argument admission and publication.
+//! Prepared calls share physical argument admission, dependencies and publication.
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments},
+    module::execution::calls::PreparedCallTarget,
 };
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
     module::CallableTarget,
 };
+use std::slice;
 
 impl ExecutionStack<'_> {
     /// Only the executing sealed instruction selects a call record; external
@@ -37,13 +39,66 @@ impl ExecutionStack<'_> {
             .calls
             .get(&pc)
             .ok_or_else(|| runtime.resources().quarantine("missing prepared call"))?;
-        let loaded = owner.member(call.module).ok_or_else(|| {
+        let (module, target, shared) = match call.target {
+            PreparedCallTarget::Static {
+                module,
+                target,
+                shared,
+            } => (module, target, shared),
+            PreparedCallTarget::Interface => {
+                let BytecodeInstruction::Call {
+                    callee: CallTarget::InterfaceMethod { contract, .. },
+                    args,
+                    ..
+                } = &owner.bytecode.functions[function.index()].instructions[pc]
+                else {
+                    return Err(runtime
+                        .resources()
+                        .quarantine("missing prepared interface contract"));
+                };
+                let (invocation, receiver) = {
+                    let caller = self.current()?;
+                    let register = args.first().ok_or_else(|| {
+                        RuntimeError::module_validation("missing interface receiver")
+                    })?;
+                    let receiver = caller.read_register(runtime, *register)?;
+                    runtime.resolve_interface_invocation(&caller, contract, &receiver)?
+                };
+                let arguments = FrameArguments::captured_frame(
+                    slice::from_ref(&receiver),
+                    slots,
+                    &call.arguments[1..],
+                )?;
+                let view = invocation.view(runtime)?;
+                view.validate_arguments(runtime, arguments)?;
+                let loaded = view.implementation().clone();
+                let target = view.target();
+                let environment = view.environment().cloned();
+                drop(view);
+                // Preparation cannot collect or invoke user code. The caller keeps
+                // the receiver alive until the callee publishes its own dependencies.
+                return self.push_admitted_arguments(
+                    runtime,
+                    loaded,
+                    target,
+                    arguments,
+                    None,
+                    FrameDispatch {
+                        prepared: Some(call),
+                        entry: FrameEntry::Call,
+                        invocation: Some(invocation),
+                        environment,
+                    },
+                );
+            }
+        };
+        let loaded = owner.member(module).ok_or_else(|| {
             runtime
                 .resources()
                 .quarantine("invalid prepared script module")
         })?;
         let arguments = FrameArguments::frame(slots, &call.arguments);
-        let environment = if call.shared {
+        let environment = if shared {
             let BytecodeInstruction::Call {
                 callee: CallTarget::Shared { contract, .. },
                 ..
@@ -57,7 +112,7 @@ impl ExecutionStack<'_> {
                 &owner,
                 environment.clone(),
                 &loaded,
-                call.target,
+                target,
                 contract,
             )?;
             if arguments.len() != contract.signature.params.len()
@@ -81,13 +136,13 @@ impl ExecutionStack<'_> {
         self.push_admitted_arguments(
             runtime,
             loaded,
-            call.target,
+            target,
             arguments,
             None,
             FrameDispatch {
                 prepared: Some(call),
                 entry: FrameEntry::Call,
-                interface_method: None,
+                invocation: None,
                 environment,
             },
         )

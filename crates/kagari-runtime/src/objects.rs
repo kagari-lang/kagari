@@ -3,8 +3,12 @@ use crate::{
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId, links::MetadataCache},
-    frame::types::{
-        EnvironmentRecord, TypeEnvironment, arguments::TypeArgument, operations::OperationBindings,
+    frame::{
+        arguments::FrameArguments,
+        types::{
+            EnvironmentRecord, TypeEnvironment, arguments::TypeArgument,
+            operations::OperationBindings,
+        },
     },
     gc::{
         HeapObjectId,
@@ -12,9 +16,9 @@ use crate::{
             InterfaceMethodBinding, InterfaceParentBinding, InterfaceResultBinding,
             InterfaceValueSnapshot,
         },
-        roots::RootedValue,
     },
     module::{self, LoadedModule},
+    objects::invocation::MethodInvocation,
     value,
     value::{EnumTag, Value},
     value_check::matches_type,
@@ -32,6 +36,7 @@ use kagari_types::{
 use std::{cell::Ref, slice};
 mod application;
 mod calls;
+pub(crate) mod invocation;
 pub(crate) mod method;
 mod method_view;
 mod operations;
@@ -751,18 +756,16 @@ impl Runtime {
         arguments: &[TypeArgument],
         operations: OperationBindings,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        let (root, id) = self.rooted_interface_snapshot(value)?;
-        let snapshot = self
-            .gc
-            .interface_metadata(id)
-            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
-        let same = snapshot.interface_type == *interface;
-        drop(snapshot);
-        let id = if same {
-            id
-        } else {
-            self.parent_snapshot(id, interface)?
-        };
+        if !matches!(value, Value::Interface(_)) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "expected interface value",
+            ));
+        }
+        let root = self.root_value(*value).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
+        })?;
+        let id = self.select_interface_snapshot(value, interface)?;
         self.apply_interface_method(
             RootedInterfaceMethod::from_interface(self, root, id, slot)?,
             arguments,
@@ -770,21 +773,52 @@ impl Runtime {
         )
     }
 
-    fn rooted_interface_snapshot(
+    fn prepare_interface_invocation_slot(
         &self,
         value: &Value,
-    ) -> Result<(RootedValue, InterfaceSnapshotId), RuntimeError> {
-        let invalid =
-            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle");
+        interface: &NominalTy<DefinitionId>,
+        slot: usize,
+        arguments: &[TypeArgument],
+        operations: OperationBindings,
+    ) -> Result<(MethodInvocation, Value), RuntimeError> {
+        let id = self.select_interface_snapshot(value, interface)?;
+        let method = MethodInvocation::from_interface(self, id, slot)?;
+        let receiver = self
+            .gc
+            .interface_metadata(id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?
+            .data;
+        Ok((
+            self.apply_method_invocation(method, arguments, operations)?,
+            receiver,
+        ))
+    }
+
+    fn select_interface_snapshot(
+        &self,
+        value: &Value,
+        interface: &NominalTy<DefinitionId>,
+    ) -> Result<InterfaceSnapshotId, RuntimeError> {
         let Value::Interface(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "expected interface value",
             ));
         };
-        let root = self.root_value(*value).ok_or_else(invalid)?;
-        let snapshot = self.gc.interface_snapshot_id(*id).ok_or_else(invalid)?;
-        Ok((root, snapshot))
+        let id = self.gc.interface_snapshot_id(*id).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
+        })?;
+        let snapshot = self
+            .gc
+            .interface_metadata(id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
+        let same = snapshot.interface_type == *interface;
+        drop(snapshot);
+        if same {
+            Ok(id)
+        } else {
+            self.parent_snapshot(id, interface)
+        }
     }
 
     pub fn validate_interface_method_arguments(
@@ -792,37 +826,17 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         arguments: &[value::Value],
     ) -> Result<(), RuntimeError> {
-        let view = method.view(self)?;
-        if !view.implementation().belongs_to(self.host.owner())
-            || arguments.len() != view.parameter_types().len()
-            || !arguments
-                .iter()
-                .enumerate()
-                .all(|(index, value)| match view.scoped_signature() {
-                    Some(signature) => {
-                        signature.params[index].matches(self, value, view.implementation())
-                    }
-                    None => self.matches_interface_method_abi(
-                        value,
-                        &view.parameter_types()[index],
-                        view.implementation(),
-                    ),
-                })
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "interface method argument does not match its linked signature",
-            ));
-        }
-        Ok(())
+        method
+            .view(self)?
+            .validate_arguments(self, FrameArguments::plain(arguments))
     }
 
-    pub(crate) fn finish_interface_method_result(
+    pub(crate) fn finish_method_result(
         &self,
-        method: &RootedInterfaceMethod,
+        method: &MethodInvocation,
         result: Value,
     ) -> Result<Value, RuntimeError> {
-        self.validate_interface_method_result(method, &result)?;
+        method.view(self)?.validate_result(self, &result)?;
         let adapter = method.view(self)?.result_adapter().cloned();
         if let Some(adapter) = adapter {
             // Keep the raw return alive until its interface wrapper is published.
@@ -848,25 +862,7 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         result: &value::Value,
     ) -> Result<(), RuntimeError> {
-        let view = method.view(self)?;
-        if !view.implementation().belongs_to(self.host.owner())
-            || !match view.scoped_signature() {
-                Some(signature) => signature
-                    .result
-                    .matches(self, result, view.implementation()),
-                None => self.matches_interface_method_abi(
-                    result,
-                    view.return_type(),
-                    view.implementation(),
-                ),
-            }
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "interface method result does not match its linked signature",
-            ));
-        }
-        Ok(())
+        method.view(self)?.validate_result(self, result)
     }
 
     pub(super) fn matches_interface_method_abi(

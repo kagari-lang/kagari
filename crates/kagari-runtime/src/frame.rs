@@ -3,7 +3,11 @@ use crate::{
     closure::ClosureTarget,
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::MetadataRoot,
-    frame::{arguments::FrameArguments, types::TypeEnvironment, values::FrameSlots},
+    frame::{
+        arguments::FrameArguments,
+        types::TypeEnvironment,
+        values::{FrameMetadata, FrameSlots},
+    },
     gc::CollectionIteration,
     module::{
         LoadedModule,
@@ -12,6 +16,7 @@ use crate::{
             layout::{FrameLayout, Location},
         },
     },
+    objects::invocation::MethodInvocation,
     resource::ResourceState,
     session::ExecutionSession,
     value::Value,
@@ -34,7 +39,7 @@ use std::{
     sync::Arc,
 };
 
-mod arguments;
+pub(crate) mod arguments;
 mod calls;
 pub mod cursor;
 pub mod driver;
@@ -189,7 +194,6 @@ impl<'runtime> ExecutionStack<'runtime> {
             CallableTarget::Script(function),
             args,
             return_dst,
-            None,
         )
     }
 
@@ -205,11 +209,26 @@ impl<'runtime> ExecutionStack<'runtime> {
         self.validate_runtime(runtime)?;
         let view = method.view(runtime)?;
         runtime.validate_loaded_module(view.implementation())?;
-        runtime.validate_interface_method_arguments(&method, args)?;
+        let arguments = FrameArguments::plain(args);
+        view.validate_arguments(runtime, arguments)?;
         let loaded = view.implementation().clone();
         let target = view.target();
+        let environment = view.environment().cloned();
         drop(view);
-        self.push_callable(runtime, loaded, target, args, return_dst, Some(method))
+        // The host lease remains alive until the window has published all edges.
+        self.push_admitted_arguments(
+            runtime,
+            loaded,
+            target,
+            arguments,
+            return_dst,
+            FrameDispatch {
+                prepared: None,
+                entry: FrameEntry::Call,
+                invocation: Some(method.invocation),
+                environment,
+            },
+        )
     }
 
     pub fn push_closure(
@@ -248,7 +267,7 @@ impl<'runtime> ExecutionStack<'runtime> {
                     FrameDispatch {
                         prepared: None,
                         entry: FrameEntry::Call,
-                        interface_method: None,
+                        invocation: None,
                         environment,
                     },
                 );
@@ -311,7 +330,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             FrameDispatch {
                 prepared: None,
                 entry: FrameEntry::Call,
-                interface_method: None,
+                invocation: None,
                 environment: closure.environment.clone(),
             },
         )
@@ -324,11 +343,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         target: CallableTarget,
         args: &[Value],
         return_dst: Option<Register>,
-        interface_method: Option<RootedInterfaceMethod>,
     ) -> Result<(), RuntimeError> {
-        let environment = interface_method
-            .as_ref()
-            .and_then(|method| method.environment.clone());
         self.push_arguments(
             runtime,
             loaded,
@@ -338,8 +353,8 @@ impl<'runtime> ExecutionStack<'runtime> {
             FrameDispatch {
                 prepared: None,
                 entry: FrameEntry::Call,
-                interface_method,
-                environment,
+                invocation: None,
+                environment: None,
             },
         )
     }
@@ -498,7 +513,7 @@ pub struct ExecutionFrame {
     register_count: usize,
     registers: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
-    interface_method: Option<RootedInterfaceMethod>,
+    invocation: Option<MethodInvocation>,
     iterations: Vec<CollectionIteration>,
     mutations: Vec<(Value, CollectionIteration)>,
 }
@@ -522,7 +537,7 @@ enum FrameEntry {
 struct FrameDispatch<'call> {
     prepared: Option<&'call PreparedCall>,
     entry: FrameEntry,
-    interface_method: Option<RootedInterfaceMethod>,
+    invocation: Option<MethodInvocation>,
     environment: Option<TypeEnvironment>,
 }
 
@@ -561,7 +576,7 @@ impl ExecutionFrame {
         let FrameDispatch {
             prepared,
             entry: _,
-            interface_method,
+            invocation,
             environment,
         } = dispatch;
         let (register_count, slot_count, argument_offset, native_entry, registers) = match target {
@@ -654,8 +669,11 @@ impl ExecutionFrame {
                 slot_count,
                 argument_offset,
                 &args,
-                loaded.clone(),
-                environment.clone(),
+                FrameMetadata {
+                    program: loaded.clone(),
+                    environment: environment.clone(),
+                    invocation,
+                },
                 registers.clone(),
             )?;
         Ok(Self {
@@ -671,7 +689,7 @@ impl ExecutionFrame {
             return_to: prepared.map_or(ReturnDestination::Register(return_dst), |call| {
                 ReturnDestination::Prepared(call.destination)
             }),
-            interface_method,
+            invocation,
             iterations: Vec::new(),
             mutations: Vec::new(),
         })
@@ -841,8 +859,8 @@ impl ExecutionFrame {
         &self.loaded
     }
 
-    pub fn interface_method(&self) -> Option<&RootedInterfaceMethod> {
-        self.interface_method.as_ref()
+    pub(crate) fn invocation(&self) -> Option<&MethodInvocation> {
+        self.invocation.as_ref()
     }
 
     pub(crate) fn set_native_instruction(

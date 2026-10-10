@@ -1566,3 +1566,118 @@ protocol has not earned performance acceptance. VM/Lua remains 6.04/3.45/23.68/3
 47.09/57.85/74.63 respectively; Lua parity is open. The partial checkpoint carries
 no build/test error. Formatting, all 76 local links in the three changed documents
 and `git diff --check` pass; no full-workspace or GitHub CI run was performed.
+
+2026-10-10 HP03, active interface invocation ownership (in progress):
+`MethodInvocation` now separates checked selection/application identities from the
+host-retained `RootedInterfaceMethod`. Internal interface/constraint resolution uses
+the existing immutable views and application cache without constructing a host root,
+copying bound receiver type descriptions or refreshing a root-container graph. Host
+handles retain their checked lease protocol and converge on the same application,
+argument validation and result-adapter implementation. The application owns its entry
+environment; the wrapper no longer duplicates that environment reference.
+
+Prepared InterfaceMethod call sites now share direct/shared physical argument sources
+and return destinations. The selected receiver is a borrowed prefix and the other
+operands come from the caller window, eliminating both VM argument vectors. A cohesive
+`FrameMetadata` record publishes the callee program/environment and invocation edges
+with parameter roots. The window retains selection/application dependencies across GC,
+reentry and cache eviction independently of external handles or caller register lifetime.
+Host entry keeps its lease until this publication completes. No unchecked public
+invocation entry, new cache or second signature/adapter implementation was added.
+
+The obsolete public `Runtime::resolve_interface_call` and
+`ExecutionFrame::interface_method` interfaces are removed; VM dispatch uses the sealed
+`push_prepared_call` entry. `push_callable` no longer accepts a method handle; host method
+entry uses `push_interface_method`. The unused root-snapshot helper and internal
+operation-to-host-handle construction are deleted. Existing storage fixtures now supply
+the frame dependency record, preserving their behavioral assertions. The application
+cycle fixture uses explicit metadata leases for retained operation identities; public
+host-handle foreign-runtime checks remain in the interface contract tests.
+
+Initial compilation exposed the argument module's previous frame-only visibility and
+tests constructing the removed operation wrapper/accessing moved fields. These were
+resolved by exposing the argument protocol within the crate to its method-validator
+consumer and migrating the fixtures to the new ownership model. No intermediate build
+error is carried. Runtime frame contracts (11), method-application contracts (5), VM
+interface contracts (23), native-boundary interface contracts (12), host interface
+allocation contracts (3), and strict affected-target diagnostics Clippy pass. The existing
+pinned-method frame test now releases its external receiver root and collects before
+descendant execution/return. The existing application-eviction test now proves the
+active window keeps an evicted application alive after the last host lease is dropped,
+then releases it after return; both strengthened checks pass. Structure checks cover
+1,007 Rust files with zero violations/exceptions.
+
+This does not accept HP03: scoped type/key preparation, frame-entry environment graph
+validation, closure packing and unified return retirement remain. Performance evidence
+for this ownership change follows separately; prior allocation savings or passing
+correctness checks are not throughput acceptance. Full workspace and GitHub CI remain
+unrun at this intermediate checkpoint.
+
+All 64 cold/warm diagnostics pass (`target/hp03/invocation-diagnostics.log`), compared
+with the preceding common-argument checkpoint's
+`target/hp03/flat-transition-diagnostics.log`. Fixed and alternating receiver probes
+both remove exactly 10 allocation requests/720 requested bytes per ordinary interface
+call: at 2,500 calls fixed requests fall 32,540 to 7,540; at 5,000 they fall 65,040 to
+15,040. Fixed generic applications remove 16 requests/1,524 requested bytes per call:
+77,550 to 37,550 and 155,050 to 75,050 respectively. Alternating applications remove
+the same per-call amounts. Ordinary interface metadata validations fall N+1 to 1
+(alternating: N+2 to 2); fixed generic application validations fall 4N+2 to N+2.
+Method/environment/application preparation counts, logical boundary/driver counts
+and heap object counts are unchanged. These reductions remove host root admission
+and packing, not value allocation required by script semantics. Generic frame-entry
+graph validation still accounts for an N-scaled remainder; not all preparation traffic
+is retired. Nested witness/shared/native and scoped-layout probes also improve, but
+retain substantial scoped preparation/validation costs. Full warm deltas are recorded
+in `target/hp03/invocation-diagnostic-delta.json`; these are allocation/validation
+measurements, not execution-time results.
+
+Paired ordinary source forms against the preceding HP03 checkpoint are in
+`target/lua-comparison/20261010T045016Z-forms-paired/results.json`. Baseline is
+`target/hp03/flat-transition-executable` (hash above); candidate is preserved as
+`target/hp03/invocation-executable`, SHA-256
+`53e625737b56453eabfdbc3cc3f163ad05d4b4353cf718b1bb6311c875d22517`.
+All checksums pass. Candidate/baseline execution ratios are interface 0.5868,
+shared generic 0.6660, helper 0.9528, concrete generic 0.9543, direct 1.1559,
+field 1.0208, capture 1.0117, native 1.0393, byte state 1.0151, host callback
+1.0192, string constants 1.0174 and string calls 1.0070. Lua control ratios range
+0.9801–1.0300. Interface and shared-generic process medians consistently improve
+in both orders (approximately 9.36 to 5.48 ms and 15.49 to 10.29 ms); their VM/Lua
+ratios remain 40.60 and 95.11. This is material measured benefit, not Lua parity.
+
+The direct scalar loop is a regression requiring continued integration review:
+baseline process medians are 314.333/315.125 us, while candidates differ at
+378.333/330.708 us; Lua stays about 75.2 us. The pooled 15.59% regression must not
+be discarded, nor interpreted as one stable per-instruction overhead without more
+evidence. Other regressions are also retained. The same M1 Max/macOS 26.6.2/rustc
+1.98.1 environment, default release profile/Cargo parallelism, fresh sequential
+baseline/candidate/candidate/baseline processes, three warmups and 22 pooled samples
+are used. Diagnostic features are disabled, normal GC remains included, and the
+20.104 s incremental build is excluded from execution measurements. No benchmark,
+compiler flag or alignment setting was changed.
+
+The original-seven comparison also passes all checksums:
+`target/lua-comparison/20261010T045123Z-paired/results.json`, same baseline/candidate
+hashes and environment, 0.082 s incremental build excluded. Candidate/baseline ratios
+are entry 0.9817, arithmetic 1.0760, branches 1.0496, calls 0.9754, fibonacci 0.9761,
+arrays 1.0170 and maps 1.0071; Lua controls range 0.9819–1.0002. Arithmetic/branch
+regressions reinforce that this checkpoint cannot claim whole-interpreter acceptance.
+
+Independent direct-loop sampling reuses `scripts/profile_lua_macos.py::sample` with
+the two preserved ordinary executables, sequentially, with no concurrent build/test
+or throughput run. Each samples 5 s at 1 ms within a warmed 10 s execution window,
+then counts instructions afterwards. Both execute 75,015 Kagari instructions (Lua:
+40,006), allocate zero heap objects and perform zero collections; layout sizes remain
+Value/instruction/prepared operation/return packet = 16/136/24/24 bytes. Collapsed
+top samples remain concentrated in the scalar loop (3,086/3,057), cancellation
+(299/292) and numeric kernels, without a new interface/root path in this workload.
+Arm64 disassembly shows scalar loop body/stack sizes changing from 1,840/352 to
+1,836/368 bytes with different register allocation. This establishes code-generation
+sensitivity around the retained scalar region, not an isolated cause or justification
+for padding/alignment patches. Evidence and binary hashes are in
+`target/hp03/invocation-profiles/`. HP04's prepared-region integration and HP06's
+retrospective review must keep this regression visible. Required polling, including
+abandoned-program detection, remains intact; no check was weakened to recover time.
+
+Formatting, all 76 local document links and `git diff --check` pass after the final
+edits. Next HP03 work is scoped call preparation/environment admission and the remaining
+closure/return transitions; no new performance subproject is authorized by these results.

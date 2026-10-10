@@ -21,6 +21,7 @@ use crate::{
         },
     },
     native::application::NativeApplication,
+    objects::invocation::MethodInvocation,
     value::Value,
 };
 use std::{
@@ -38,9 +39,17 @@ pub(crate) struct FrameSlots {
     generation: u64,
 }
 
+/// Dependencies published atomically with the callee's parameter roots.
+pub(crate) struct FrameMetadata {
+    pub program: LoadedModule,
+    pub environment: Option<TypeEnvironment>,
+    pub invocation: Option<MethodInvocation>,
+}
+
 #[derive(Debug)]
 struct Window {
     native_application: Option<Arc<NativeApplication>>,
+    invocation: Option<MethodInvocation>,
     generation: u64,
     ranges: WindowRanges,
     program: LoadedModule,
@@ -104,8 +113,7 @@ impl ExecutionValues {
         count: usize,
         argument_offset: usize,
         arguments: &FrameArguments<'_>,
-        program: LoadedModule,
-        environment: Option<TypeEnvironment>,
+        metadata: FrameMetadata,
         registers: Option<Arc<FrameLayout>>,
     ) -> Result<FrameSlots, RuntimeError> {
         if argument_offset
@@ -193,8 +201,9 @@ impl ExecutionValues {
                 scalars: scalar_start..scalar_start + scalar_count,
                 managed: managed_start..managed_start + managed_count,
             },
-            program,
-            environment,
+            program: metadata.program,
+            environment: metadata.environment,
+            invocation: metadata.invocation,
             native_application: None,
             registers,
         });
@@ -464,6 +473,9 @@ impl ExecutionValues {
 
     pub(crate) fn append_metadata(&self, roots: &mut Vec<MetadataRoot>) {
         for window in self.windows.iter().flatten() {
+            if let Some(invocation) = window.invocation {
+                invocation.append_metadata(roots);
+            }
             if let Some(application) = &window.native_application {
                 roots.push(MetadataRoot::NativeApplication(application.clone()));
             }

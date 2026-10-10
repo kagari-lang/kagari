@@ -3,7 +3,7 @@
 use crate::diagnostics::{self, Event};
 
 use crate::{
-    RootedInterfaceMethod, Runtime,
+    Runtime,
     error::RuntimeError,
     execution_metadata::{groups::OperationId, operation::BoundOperation},
     frame::{
@@ -13,6 +13,7 @@ use crate::{
     gc::interfaces::InterfaceResultBinding,
     module::LoadedModule,
     native::registry::callable_primitive,
+    objects::{invocation::MethodInvocation, method_view::SelectionView},
     value::Value,
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
@@ -100,12 +101,12 @@ fn resolve_requirement(
 }
 
 impl Runtime {
-    pub fn resolve_interface_call(
+    pub(crate) fn resolve_interface_invocation(
         &self,
         frame: &ExecutionFrame,
         contract: &InterfaceCallContract<DefinitionId>,
         receiver: &Value,
-    ) -> Result<RootedInterfaceMethod, RuntimeError> {
+    ) -> Result<(MethodInvocation, Value), RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         let Ty::Trait(interface) = frame
             .resolve_type(&Ty::Trait(contract.interface.clone()))?
@@ -119,14 +120,7 @@ impl Runtime {
             let operation = environment
                 .operation_slot(&self.gc, &receiver_type, &interface, contract.method_slot)
                 .ok_or_else(invalid)?;
-            let method = RootedInterfaceMethod::from_operation(
-                self,
-                self.root_value(*receiver).ok_or_else(invalid)?,
-                operation,
-                *receiver,
-                receiver_type.into_owned(),
-                interface,
-            )?;
+            let method = MethodInvocation::from_operation(self, operation)?;
             let arguments = self.type_arguments(
                 frame.loaded(),
                 frame
@@ -134,12 +128,12 @@ impl Runtime {
                     .map(|environment| environment.types.clone()),
                 &contract.arguments,
             )?;
-            let method = self.apply_interface_method(
+            let method = self.apply_method_invocation(
                 method,
                 &arguments,
                 self.bind_operations(frame, &contract.operations)?,
             )?;
-            return Ok(method);
+            return Ok((method, *receiver));
         }
         let arguments = self.type_arguments(
             frame.loaded(),
@@ -148,7 +142,7 @@ impl Runtime {
                 .map(|environment| environment.types.clone()),
             &contract.arguments,
         )?;
-        let method = self.prepare_interface_method_slot(
+        let (method, receiver) = self.prepare_interface_invocation_slot(
             receiver,
             &interface,
             contract.method_slot as usize,
@@ -157,8 +151,11 @@ impl Runtime {
         )?;
         let compatible = {
             let view = method.view(self)?;
+            let SelectionView::Interface { snapshot, .. } = &view.selection else {
+                return Err(invalid());
+            };
             TypeView::new(
-                &Ty::Trait(method.interface_expression().clone()),
+                &Ty::Trait(snapshot.interface_expression.clone()),
                 view.implementation(),
                 view.receiver_environment()
                     .map(|environment| environment.types.as_ref()),
@@ -175,7 +172,7 @@ impl Runtime {
         if !compatible {
             return Err(invalid());
         }
-        Ok(method)
+        Ok((method, receiver))
     }
 
     pub(crate) fn bind_operations(

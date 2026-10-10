@@ -155,7 +155,7 @@ impl ExecutionStack<'_> {
             FrameDispatch {
                 prepared: None,
                 entry: FrameEntry::Await,
-                interface_method: None,
+                invocation: None,
                 environment: closure.environment.clone(),
             },
         )

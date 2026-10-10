@@ -33,7 +33,7 @@ impl ExecutionStack<'_> {
             .last()
             .filter(|_| frames.len() > self.base)
             .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
-        if frame.environment.is_some() || frame.interface_method.is_some() {
+        if frame.environment.is_some() || frame.invocation.is_some() {
             return Ok(ScalarReturn::Adapt);
         }
         let destination = frame.return_to;
@@ -93,7 +93,7 @@ impl ExecutionStack<'_> {
             .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
         let destination = {
             let frame = self.current()?;
-            if frame.interface_method().is_none()
+            if frame.invocation().is_none()
                 && let Some(environment) = frame.environment()
             {
                 let ty = match frame.target() {
@@ -114,8 +114,8 @@ impl ExecutionStack<'_> {
                     ));
                 }
             }
-            if let Some(method) = frame.interface_method() {
-                value = runtime.finish_interface_method_result(method, value)?;
+            if let Some(method) = frame.invocation() {
+                value = runtime.finish_method_result(method, value)?;
             }
             frame.return_to
         };

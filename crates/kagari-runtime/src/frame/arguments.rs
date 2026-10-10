@@ -55,6 +55,22 @@ impl<'args> FrameArguments<'args> {
         }
     }
 
+    pub(crate) fn captured_frame(
+        captures: &'args [Value],
+        slots: FrameSlots,
+        sources: &'args [Location],
+    ) -> Result<Self, RuntimeError> {
+        let count = captures
+            .len()
+            .checked_add(sources.len())
+            .ok_or_else(|| RuntimeError::module_validation("call argument count"))?;
+        Ok(Self {
+            captures,
+            explicit: ExplicitArguments::Window(slots, sources),
+            count,
+        })
+    }
+
     pub(crate) fn all(
         self,
         runtime: &Runtime,

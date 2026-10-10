@@ -13,6 +13,7 @@ use crate::{
         arguments::{ScopedSignature, TypeArgument},
         operations::OperationBindings,
     },
+    objects::invocation::MethodInvocation,
 };
 use kagari_types::callable::Signature;
 use std::slice;
@@ -24,6 +25,19 @@ impl Runtime {
         arguments: &[TypeArgument],
         operations: OperationBindings,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        method.view(self)?;
+        method.invocation =
+            self.apply_method_invocation(method.invocation, arguments, operations)?;
+        method.refresh_roots(self)?;
+        Ok(method)
+    }
+
+    pub(crate) fn apply_method_invocation(
+        &self,
+        mut method: MethodInvocation,
+        arguments: &[TypeArgument],
+        operations: OperationBindings,
+    ) -> Result<MethodInvocation, RuntimeError> {
         let view = method.view(self)?;
         if arguments.len() != view.type_parameters().len() {
             return Err(RuntimeError::module_validation(
@@ -39,7 +53,6 @@ impl Runtime {
             && operations.is_empty()
         {
             drop(view);
-            method.refresh_roots(self)?;
             return Ok(method);
         }
         let owner = view.implementation().clone();
@@ -66,20 +79,13 @@ impl Runtime {
             self.publish_method_application(&owner, key, prepared)?;
             prepared
         };
-        method.environment = self
-            .gc
-            .method_application(application)
-            .ok_or_else(|| RuntimeError::module_validation("invalid cached method application"))?
-            .environment
-            .clone();
         method.application = Some(application);
-        method.refresh_roots(self)?;
         Ok(method)
     }
 
     fn prepare_method_application(
         &self,
-        method: &RootedInterfaceMethod,
+        method: &MethodInvocation,
         arguments: &[TypeArgument],
         operations: OperationBindings,
         receiver_operations: Option<OperationGroupId>,

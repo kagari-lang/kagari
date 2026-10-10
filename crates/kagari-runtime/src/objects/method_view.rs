@@ -1,14 +1,20 @@
 //! Borrowed method metadata cannot retain executable storage or cross an entry.
 use crate::{
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::{
         application_key::{AdapterIdentity, MethodIdentity},
         applications::MethodApplication,
         groups::OperationId,
         operation::BoundOperation,
     },
-    frame::types::{TypeEnvironment, arguments::ScopedSignature},
+    frame::{
+        arguments::FrameArguments,
+        types::{TypeEnvironment, arguments::ScopedSignature},
+    },
     gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
     module::LoadedModule,
+    value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
@@ -32,6 +38,63 @@ pub(crate) struct MethodView<'a> {
 }
 
 impl MethodView<'_> {
+    pub(crate) fn validate_arguments(
+        &self,
+        runtime: &Runtime,
+        arguments: FrameArguments<'_>,
+    ) -> Result<(), RuntimeError> {
+        if !self.implementation().belongs_to(runtime.host.owner())
+            || arguments.len() != self.parameter_types().len()
+            || !arguments.all(runtime, |index, value| match self.scoped_signature() {
+                Some(signature) => {
+                    signature.params[index].matches(runtime, value, self.implementation())
+                }
+                None => runtime.matches_interface_method_abi(
+                    value,
+                    &self.parameter_types()[index],
+                    self.implementation(),
+                ),
+            })?
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "interface method argument does not match its linked signature",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_result(
+        &self,
+        runtime: &Runtime,
+        result: &Value,
+    ) -> Result<(), RuntimeError> {
+        if !self.implementation().belongs_to(runtime.host.owner())
+            || !match self.scoped_signature() {
+                Some(signature) => signature
+                    .result
+                    .matches(runtime, result, self.implementation()),
+                None => runtime.matches_interface_method_abi(
+                    result,
+                    self.return_type(),
+                    self.implementation(),
+                ),
+            }
+        {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "interface method result does not match its linked signature",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn environment(&self) -> Option<&TypeEnvironment> {
+        self.application
+            .as_ref()
+            .and_then(|application| application.environment.as_ref())
+    }
+
     pub(crate) fn implementation(&self) -> &LoadedModule {
         match &self.selection {
             SelectionView::Interface { snapshot, .. } => &snapshot.implementation,

@@ -29,7 +29,7 @@ impl<T> MetadataCache<T> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum MethodSelection {
     Interface {
         snapshot: InterfaceSnapshotId,
