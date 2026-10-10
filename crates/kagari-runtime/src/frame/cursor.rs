@@ -1,38 +1,48 @@
-//! One checked access to the current frame and its contiguous operand window.
+//! An admitted interpreter scope cannot escape the closed execution operation.
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::{
-        ExecutionFrame, ExecutionStack,
-        values::{ExecutionValues, WindowRanges},
+        ExecutionFrame, ExecutionStack, cursor::kernel::RegionExit, values::operands::OperandWindow,
     },
     session::SessionState,
     value::Value,
 };
-use kagari_bytecode::instruction::{LocalSlot, Register};
-use std::cell::{Ref, RefMut};
+use kagari_bytecode::instruction::Register;
+use std::ptr;
 
 pub mod kernel;
 mod objects;
 mod scalars;
+#[cfg(test)]
+mod tests;
 
-/// A transient interpreter view. Release it before GC, observation, native calls,
-/// stack growth or synchronous reentry; the stores reject conflicting borrows.
-/// Slot access preserves bounds and publication checks without host root leases.
-pub struct ExecutionCursor<'a> {
-    frame: RefMut<'a, ExecutionFrame>,
-    values: RefMut<'a, ExecutionValues>,
-    ranges: WindowRanges,
+/// All references live inside execute_region. No caller callback or supplied Value
+/// can intervene while admission is reused; exits release the frame and bank borrows.
+struct ExecutionCursor<'a> {
+    frame: &'a mut ExecutionFrame,
+    values: OperandWindow<'a>,
     runtime: &'a Runtime,
-    session: Ref<'a, SessionState>,
+    session: &'a SessionState,
 }
 
 impl ExecutionStack<'_> {
-    pub fn cursor<'a>(&'a self, runtime: &'a Runtime) -> Result<ExecutionCursor<'a>, RuntimeError> {
-        self.validate_runtime(runtime)?;
+    /// Run a closed region, releasing all transient views before returning a transition.
+    /// The driver has already polled and observed the first logical instruction.
+    pub fn execute_region(
+        &self,
+        runtime: &Runtime,
+        remaining: &mut Option<usize>,
+    ) -> Result<RegionExit, RuntimeError> {
+        if !ptr::eq(runtime.resources(), self.session.resources) {
+            return Err(RuntimeError::module_validation(
+                "execution stack belongs to another runtime",
+            ));
+        }
+        // current_mut admits the active session/frame scope and sticky termination.
+        let mut frame = self.current_mut()?;
         runtime.gc().ensure_no_native_borrow()?;
-        let frame = self.current_mut()?;
-        let values = runtime
+        let mut values = runtime
             .resources()
             .frame_values
             .try_borrow_mut()
@@ -41,70 +51,46 @@ impl ExecutionStack<'_> {
                     .resources()
                     .quarantine("execution slots borrowed across instruction")
             })?;
-        let ranges = values.ranges(frame.slots).ok_or_else(|| {
+        let values = values.borrow_operands(frame.slots).ok_or_else(|| {
             runtime
                 .resources()
                 .quarantine("invalid execution frame window")
         })?;
-        Ok(ExecutionCursor {
-            frame,
+        let session = self.session.state();
+        ExecutionCursor {
+            frame: &mut frame,
             values,
-            ranges,
             runtime,
-            session: self.session.state(),
-        })
+            session: &session,
+        }
+        .execute_region(remaining)
     }
 }
 
 impl ExecutionCursor<'_> {
     fn invalid(&self) -> RuntimeError {
         self.runtime
-            .gc()
             .resources()
             .quarantine("invalid execution operand slot")
     }
 
-    fn read(&self, logical: usize) -> Result<Value, RuntimeError> {
-        self.runtime
-            .resources()
-            .ensure_cursor_allowed(&self.session)?;
-        self.values
-            .with_value(self.frame.slots, logical, Value::clone)
-            .ok_or_else(|| self.invalid())
-    }
-
-    fn write(&mut self, logical: usize, value: Value) -> Result<(), RuntimeError> {
-        self.runtime.gc().ensure_no_native_borrow()?;
-        self.runtime
-            .resources()
-            .ensure_cursor_allowed(&self.session)?;
-        if !self.runtime.gc().validate_value(&value) {
-            return Err(self.invalid());
-        }
-        self.values
-            .set(self.frame.slots, logical, value)
-            .ok_or_else(|| self.invalid())
-    }
-
-    pub fn read_register(&self, register: Register) -> Result<Value, RuntimeError> {
+    fn read_register(&self, register: Register) -> Result<Value, RuntimeError> {
         if register.index() >= self.frame.register_count {
             return Err(self.invalid());
         }
-        self.read(register.index())
+        self.values
+            .read(register.index())
+            .ok_or_else(|| self.invalid())
     }
 
-    pub fn write_register(&mut self, register: Register, value: Value) -> Result<(), RuntimeError> {
-        if register.index() >= self.frame.register_count {
+    fn write_register(&mut self, register: Register, value: Value) -> Result<(), RuntimeError> {
+        if register.index() >= self.frame.register_count
+            || !self.runtime.gc().validate_value(&value)
+        {
             return Err(self.invalid());
         }
-        self.write(register.index(), value)
-    }
-
-    pub fn read_local(&self, local: LocalSlot) -> Result<Value, RuntimeError> {
-        self.read(self.frame.register_count + local.index())
-    }
-
-    pub fn write_local(&mut self, local: LocalSlot, value: Value) -> Result<(), RuntimeError> {
-        self.write(self.frame.register_count + local.index(), value)
+        self.values
+            .write(register.index(), value)
+            .ok_or_else(|| self.invalid())
     }
 }

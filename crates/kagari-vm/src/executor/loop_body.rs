@@ -12,8 +12,7 @@ pub(super) enum LoopExit {
 
 impl Executor<'_> {
     pub(super) fn run_cursor(&self, remaining: &mut Option<usize>) -> Result<LoopExit, VmError> {
-        let mut frame = self.stack.cursor(self.runtime)?;
-        Ok(match frame.execute_region(remaining)? {
+        Ok(match self.stack.execute_region(self.runtime, remaining)? {
             RegionExit::Slice => LoopExit::Slice,
             RegionExit::Safepoint => LoopExit::Safepoint,
             RegionExit::Return(value) => LoopExit::Return(value),

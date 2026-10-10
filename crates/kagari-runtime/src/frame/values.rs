@@ -1,12 +1,17 @@
 //! Runtime-owned execution windows, independent of persistent host root leases.
 use kagari_abi::representation::ValueType;
 
+pub(crate) mod operands;
 pub(crate) mod scalar;
 
 use crate::{
     error::RuntimeError,
     execution_metadata::MetadataRoot,
-    frame::{arguments::FrameArguments, types::TypeEnvironment},
+    frame::{
+        arguments::FrameArguments,
+        types::TypeEnvironment,
+        values::operands::{read_operand, write_operand},
+    },
     gc::GcHeap,
     module::{
         LoadedModule,
@@ -353,29 +358,14 @@ impl ExecutionValues {
         location: Location,
         read: impl FnOnce(&Value) -> R,
     ) -> Option<R> {
-        let window = self.window(slots)?;
-        let slot = location.operand;
-        if slot.managed() {
-            if slot.index() >= window.ranges.managed.len() {
-                return None;
-            }
-            return self
-                .values
-                .get(window.ranges.managed.start + slot.index())
-                .map(read);
-        }
-        if slot.index() >= window.ranges.scalars.len() {
-            return None;
-        }
-        let index = window.ranges.scalars.start + slot.index();
-        if !self.initialized.get(index).copied()? {
-            // Debugger/native inspection preserves unavailable Unit; execution
-            // uses payload(), which rejects uninitialized scalar operands.
-            return Some(read(&Value::Unit));
-        }
-        scalar::decode(location.representation, *self.payloads.get(index)?)
-            .as_ref()
-            .map(read)
+        let ranges = &self.window(slots)?.ranges;
+        let value = read_operand(
+            self.values.get(ranges.managed.clone())?,
+            self.payloads.get(ranges.scalars.clone())?,
+            self.initialized.get(ranges.scalars.clone())?,
+            location,
+        )?;
+        Some(read(&value))
     }
 
     pub(crate) fn set(&mut self, slots: FrameSlots, logical: usize, value: Value) -> Option<()> {
@@ -390,26 +380,14 @@ impl ExecutionValues {
         location: Location,
         value: Value,
     ) -> Option<()> {
-        let window = self.window(slots)?;
-        if !location.admits(&value) {
-            return None;
-        }
-        let slot = location.operand;
-        if slot.managed() {
-            if slot.index() >= window.ranges.managed.len() {
-                return None;
-            }
-            let index = window.ranges.managed.start + slot.index();
-            *self.values.get_mut(index)? = value;
-        } else {
-            if slot.index() >= window.ranges.scalars.len() {
-                return None;
-            }
-            let index = window.ranges.scalars.start + slot.index();
-            *self.payloads.get_mut(index)? = scalar::encode(&value)?;
-            *self.initialized.get_mut(index)? = true;
-        }
-        Some(())
+        let ranges = self.window(slots)?.ranges.clone();
+        write_operand(
+            self.values.get_mut(ranges.managed)?,
+            self.payloads.get_mut(ranges.scalars.clone())?,
+            self.initialized.get_mut(ranges.scalars)?,
+            location,
+            value,
+        )
     }
 
     #[inline]

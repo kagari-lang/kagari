@@ -23,14 +23,10 @@ impl ExecutionCursor<'_> {
     /// has already polled and observed the first PC; subsequent logical PCs keep
     /// the same cancellation, collection and observation boundaries. No caller
     /// supplies values or callbacks while authority is reused.
-    pub fn execute_region(
+    pub(super) fn execute_region(
         &mut self,
         remaining: &mut Option<usize>,
     ) -> Result<RegionExit, RuntimeError> {
-        self.runtime
-            .resources()
-            .ensure_cursor_allowed(&self.session)?;
-        self.runtime.gc().ensure_no_native_borrow()?;
         // A closed region cannot allocate heap records, mutate executable metadata
         // or change collector policy. Field operations copy rooted Values using
         // checked storage methods; no destructor/callback runs on replacement.

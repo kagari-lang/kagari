@@ -33,7 +33,7 @@ The seven original workloads remain unchanged. VE08 local workspace integration
 and VE09 focused checks passed; the latter reduces map time to 0.489x VE08. All
 16 frozen matched nontrivial original/source-form cases still take 3.66-201.94x
 Lua time. Parity remains unmet and full GitHub CI is unrun. Historical reports
-below retain their distinct baseline scope. In-progress HP01 ownership measurements
+below retain their distinct baseline scope. HP ownership and execution measurements
 and remaining architecture work are tracked in the [active plan](../../docs/interpreter-hotpath-execution-plan.md).
 
 ## Matching and timing

@@ -53,28 +53,14 @@ impl ExecutionCursor<'_> {
                     .quarantine("invalid execution function")
             })?
             .instructions;
-        let values = &mut *self.values;
-        let invalid = || {
-            self.runtime
-                .resources()
-                .quarantine("invalid scalar window range")
-        };
-        let payloads = values
-            .payloads
-            .get_mut(self.ranges.scalars.clone())
-            .ok_or_else(invalid)?;
-        let initialized = values
-            .initialized
-            .get_mut(self.ranges.scalars.clone())
-            .ok_or_else(invalid)?;
         Ok(ScalarCursor {
             instructions,
             ip: &mut frame.ip,
             executing: &mut frame.executing,
-            payloads,
-            initialized,
+            payloads: self.values.payloads,
+            initialized: self.values.initialized,
             runtime: self.runtime,
-            session: &self.session,
+            session: self.session,
         })
     }
 }

@@ -710,11 +710,16 @@ Execution values instead occupy reusable contiguous runtime-owned frame windows
 in separate scalar and managed banks. Scalar slots hold complete 64-bit payloads
 and explicit initialization flags; managed slots retain ordinary Values and full
 handle identities. GC traces the managed bank and program/environment edges, including suspended
-callers, independently of host leases. Session frames use indexed storage; transient
-interpreter cursors borrow the checked frame, session and operand window once,
-without a session/root-table lookup for each operand. Cursors are released before
-GC, observation, calls and reentry; bounds, publication and sticky termination
-checks remain enforced. Window generation checks reject expired native views.
+callers, independently of host leases. Session frames use indexed storage.
+`ExecutionStack::execute_region` admits the active session/frame scope and window
+owner/generation, then borrows bounded scalar/managed banks for the closed operation.
+Its cursor is private and cannot escape to callers or accept callbacks/external Values.
+Internal operand access reuses these borrows without repeated session or window lookup;
+the region releases them before returning to GC, observation, calls or reentry.
+Checked external frame access and region entry still enforce sticky termination and
+quarantine. Internal writes retain heap-value validation, bounds and slot representation
+checks through the same bank access implementation as external frame access.
+Window generation checks continue to reject expired native views.
 VerifiedProgram derives compact physical operations once from sealed bytecode.
 Bounded control-flow liveness and conservative intervals assign reusable physical
 temporary slots without renaming canonical registers used by contract verification.

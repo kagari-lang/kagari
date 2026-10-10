@@ -177,19 +177,6 @@ impl ResourceState {
         Ok(())
     }
 
-    /// A cursor already pins and validates its session record. Check its current
-    /// authority and sticky termination directly, without resolving it again.
-    pub(crate) fn ensure_cursor_allowed(&self, session: &SessionState) -> Result<(), RuntimeError> {
-        self.execution.ensure_allowed()?;
-        if self.active_session.get() != Some(session.id) {
-            return Err(self.quarantine("cursor used a suspended session"));
-        }
-        match session.termination.borrow().as_ref() {
-            Some(error) => Err(error.clone()),
-            None => Ok(()),
-        }
-    }
-
     pub fn is_quarantined(&self) -> bool {
         self.execution.is_quarantined()
     }

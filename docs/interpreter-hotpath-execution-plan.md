@@ -1,6 +1,6 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP01 are complete; HP02 is next.
+Status: active, authorized by the user on 2026-10-10; HP00–HP01 are complete; HP02 is in progress.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -1195,3 +1195,117 @@ binary is restored at `target/release/kagari-lua-benchmark`. Its preserved copy 
 These are correctness checks, not throughput samples. HP01 is accepted for its stated
 preparation/publication scope; HP02 is the next implementation phase. The full goal
 remains active, with architectural integration, GitHub CI and Lua parity still open.
+
+
+2026-10-10 HP02, admitted operand scope checkpoint (in progress):
+`ExecutionStack::execute_region` now owns the complete transient frame/session/bank
+borrow. Its internal cursor is private; the old public `ExecutionStack::cursor` and
+externally callable cursor read/write API are removed, not retained as compatibility
+wrappers. The only backend-facing operation returns a region transition after all
+borrows end. Existing checked `ExecutionFrame` inspection/publication remains the
+external value boundary. No supplied Value or caller closure enters the admitted region.
+
+Admission validates the runtime pointer, active session and top frame scope, sticky
+termination/quarantine, native borrow state and exact window owner/generation. An
+`OperandWindow` then holds bounded managed/scalar/initialization slices and the immutable
+location map. Internal field operands no longer reacquire the session or resolve the
+window handle. The obsolete `ensure_cursor_allowed` layer is removed. Scalar segments
+reborrow those admitted slices directly instead of recomputing window ranges on each
+field/scalar handoff. Both checked external frame storage and admitted execution share
+`values/operands.rs` for Value materialization, representation/numeric admission and
+slot writes; this does not introduce a second storage semantic implementation.
+
+Proof/invalidation audit for the removed checks:
+
+| Removed repetition | Proof owner | Invalidating boundary and remaining checks |
+| --- | --- | --- |
+| Session/top-scope/termination checks at each internal operand | Region entry plus private synchronous scope; it cannot invoke caller code | Return before callbacks, observation, GC, parking or frame changes; next entry re-admits. Errors exit immediately. External frame access still checks current authority. |
+| Window owner/generation lookup at each internal operand | Checked `borrow_operands` and exclusive bank borrow | Growth/retirement/compaction requires releasing the region. Relative slot bounds, representation checks, initialization semantics and full heap handle validation remain. |
+| Native-storage-borrow check on every internal write | Entry check and no callbacks/native borrowing inside closed handlers | Native calls remain region exits. Heap storage continues checking dynamic generation, layout, access and bounds. |
+| Bank-range reconstruction at scalar/object handoff | One admitted bounded slice per bank | Handoff only reborrows; logical PC, instruction count and slice accounting are unchanged. |
+
+Cancellation, observer attachment and abandoned program leases retain their existing
+logical-PC checks. The driver still polls/observes the first instruction before region
+entry. Automatic collection eligibility is still recomputed across allocating/reentrant
+boundaries. GC roots remain in runtime-owned windows independently of transient frame
+views; no new root registry or unchecked raw pointer is introduced.
+
+The old VM fault test used an escaped cursor to hold a window borrow across GC. That
+illegal operation is now constructible only by engine code, so the contract moved to
+runtime `frame/cursor/tests.rs`: hold the actual bank borrow, require an EngineFault,
+then reject external reads/writes and further region execution, and verify cleanup.
+An initial migration incorrectly assumed a frame borrow alone blocks collection; the
+collector intentionally traces independent banks, so that probe returned success. The
+corrected test exercises the actual invalid bank borrow without changing GC policy or
+weakening assertions. A private child-module method visibility error and import/format
+warnings were also corrected. Successful GC lifecycle cases from that same focused run
+remain valid; only the relocated failing contract required correction.
+
+HP02 remains open: the executor still rediscovers native return/entry and pending-wait
+state at outer driver iterations; ordinary managed operations retain slow boundaries
+until their HP03/HP04 migrations. This checkpoint does not claim that every instruction
+uses the admitted operand path or that execution-wide admission is complete.
+
+Focused checks pass: runtime frame/window/type contracts including the relocated GC
+fault test (11), VM allocation contracts (2), field/nominal/reflection contracts (5),
+synchronous debugger contracts (4) and async debugger drive (1). Nine existing GC
+lifecycle cases also passed before relocation of the one incorrect fixture noted above.
+Strict runtime/VM/benchmark all-target Clippy with diagnostics passes; structure checks
+1,005 Rust files with zero violations/exceptions; final formatting, 703 local Markdown
+links and diff checks pass. No build/test error is carried. No full workspace or CI run
+was performed at this intermediate checkpoint.
+
+Paired ordinary release measurements compare this worktree with the preserved final
+HP01 executable. Commands, both on the documented M1 Max/32 GiB/10-core macOS 26.6.2,
+rustc 1.98.1/LLVM 22.1.8 machine:
+
+```text
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/hp01/linked-signature-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/hp01/linked-signature-executable
+```
+
+Default workspace release profile/features/target and Cargo parallelism; sequential,
+single-thread benchmark processes in baseline/candidate/candidate/baseline order, fresh
+process/state, three warmups and 22 pooled samples per engine/workload/variant. Build
+caches were incremental (20.103 s / 0.088 s builds, excluded from execution). No allocation
+instrumentation or concurrent build/test workload ran during sampling. All checksums
+pass; frozen definitions remain unchanged. Diagnostic-only native/entry rows retain
+their existing status and do not redefine the 16-workload parity gate.
+
+| Workload | HP01 median µs | Candidate median µs | Candidate / HP01 | Lua control ratio | Candidate / Lua |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7,362.562 | 7,085.729 | 0.9624 | 1.0033 | 62.80 |
+| forms_capture_cell | 10,308.375 | 9,975.416 | 0.9677 | 1.0196 | 68.71 |
+| forms_concrete_generic | 3,221.146 | 3,123.188 | 0.9696 | 0.9895 | 30.46 |
+| forms_direct | 348.542 | 347.000 | 0.9956 | 1.0101 | 4.49 |
+| forms_field | 3,767.291 | 3,344.063 | 0.8877 | 0.9982 | 36.41 |
+| forms_helper | 3,230.438 | 3,103.416 | 0.9607 | 1.0219 | 21.59 |
+| forms_host_callback | 1,936.625 | 1,855.938 | 0.9583 | 1.0066 | 7.27 |
+| forms_interface | 10,429.229 | 10,189.791 | 0.9770 | 1.0006 | 74.53 |
+| forms_native | 1,935.021 | 1,842.167 | 0.9520 | 0.9867 | 12.94 |
+| forms_shared_generic | 16,980.062 | 16,804.812 | 0.9897 | 0.9699 | 155.45 |
+| forms_string_calls | 12,948.562 | 12,606.021 | 0.9735 | 1.0036 | 98.92 |
+| forms_string_constants | 7,015.521 | 6,749.937 | 0.9621 | 0.9997 | 99.78 |
+| arithmetic | 2,491.937 | 2,489.646 | 0.9991 | 1.0187 | 6.47 |
+| arrays | 5,169.833 | 4,963.687 | 0.9601 | 1.0103 | 71.72 |
+| branches | 3,019.750 | 2,942.084 | 0.9743 | 0.9716 | 3.70 |
+| calls | 6,415.105 | 6,137.396 | 0.9567 | 1.0044 | 27.52 |
+| entry | 1.405 | 1.379 | 0.9811 | 1.0015 | 48.20 |
+| fibonacci | 13,014.687 | 12,450.896 | 0.9567 | 1.0015 | 35.95 |
+| maps | 6,074.312 | 5,790.438 | 0.9533 | 0.9534 | 86.56 |
+
+The targeted field loop falls from 3,767.291 to 3,344.063 µs (11.23% lower time), while
+its Lua control ratio is 0.9982. This is evidence of benefit for that workload, not a
+universal speedup. Source-form controls vary by up to about 3%; smaller improvements
+need that context. The original Map row and its Lua control both fall about 4.7%,
+so that row does not isolate a Kagari-specific improvement. All original/source-form results remain above Lua time; parity is
+still unmet. Raw samples, machine metadata and hashes are in
+`target/lua-comparison/20261010T034614Z-forms-paired/results.json` and
+`target/lua-comparison/20261010T034728Z-paired/results.json`.
+
+The ordinary candidate is preserved at `target/hp02/admitted-region-executable`, SHA-256
+`b990bf7bca4448a83ed4792c9393caf118327510c734380be97816a2adb764f0`;
+`target/release/kagari-lua-benchmark` remains the ordinary build. No diagnostic rebuild
+needs restoration. Next HP02 work replaces repeated `poll_await`/native-state discovery
+in the executor with explicit transitions at entry, calls, returns and await/resume;
+it must retain original polling, observation, slice and cleanup order.

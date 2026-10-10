@@ -307,11 +307,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         )
         .unwrap();
     assert!(matches!(
-        stack
-            .cursor(&runtime)
-            .unwrap()
-            .execute_region(&mut None)
-            .unwrap(),
+        stack.execute_region(&runtime, &mut None).unwrap(),
         RegionExit::Boundary
     ));
     stack.push_prepared_call(&runtime).unwrap();
@@ -325,12 +321,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             Value::I32(expected)
         );
     }
-    let RegionExit::Return(value) = stack
-        .cursor(&runtime)
-        .unwrap()
-        .execute_region(&mut None)
-        .unwrap()
-    else {
+    let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap() else {
         panic!("concrete scalar callee must remain in its prepared region");
     };
     stack.finish_return(&runtime, value).unwrap();
@@ -355,11 +346,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     .unwrap();
             }
             stack.push_prepared_call(black_box(&runtime)).unwrap();
-            let RegionExit::Return(value) = stack
-                .cursor(&runtime)
-                .unwrap()
-                .execute_region(&mut None)
-                .unwrap()
+            let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap()
             else {
                 panic!("scalar return");
             };

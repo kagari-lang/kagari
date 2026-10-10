@@ -6,14 +6,10 @@ use crate::{
     },
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-use kagari_bytecode::{
-    artifact::KbcArtifact,
-    instruction::{BytecodeInstruction, Register},
-};
+use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeapConfig, resource::RuntimeLimits,
-    value::Value,
+    Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -305,36 +301,4 @@ fn main() -> i32 {
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(vm.runtime().gc().allocated_objects(), 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
-}
-
-#[test]
-fn collection_during_an_instruction_cursor_quarantines_without_further_writes() {
-    let program = compile_test_bytecode("fn main() -> i32 { 42 }");
-    let mut runtime = runtime();
-    let loaded = runtime.load_program("cursor_borrow", program).unwrap();
-    let entry = loaded
-        .bytecode
-        .functions
-        .iter()
-        .find(|function| function.name == "main")
-        .unwrap()
-        .id;
-    let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(&runtime, loaded.slot(), entry, &[], None)
-        .unwrap();
-    let mut cursor = stack.cursor(&runtime).unwrap();
-    let error = runtime.collect_garbage().unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    assert!(
-        cursor
-            .write_register(Register::new(0), Value::I32(99))
-            .is_err()
-    );
-    assert!(cursor.read_register(Register::new(0)).is_err());
-    assert!(cursor.execute_region(&mut None).is_err());
-    drop(cursor);
-    drop(stack);
-    assert_eq!(runtime.gc().active_roots(), 0);
-    assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
