@@ -96,6 +96,21 @@ build policy.
   not justify speculative abstraction, empty future-use crates or unrelated rewrites.
   Keep migrations finite and record material decisions in the existing active plan.
 
+### Explaining Problems and Design Changes
+
+- When a concrete example would clarify an explanation, include one. Assume the
+  reader has not read the source or has seen only a small part of it. Explain the
+  relevant context and causal chain without requiring them to reconstruct the
+  architecture from file links, function names or isolated implementation details.
+- Prefer a small representative scenario: show the input or operation, what happens
+  through the relevant layers, and the observable result or cost. For a proposed
+  change, use the same scenario to explain current versus intended behavior and
+  which guarantees remain. Short code, pseudocode or a diagram can support the
+  explanation; clearly label simplifications and hypothetical numbers.
+- Keep examples focused and proportional to the question. Connect each example
+  back to the underlying reason; an analogy alone is not an explanation or evidence.
+  Source references support the explanation but do not replace it.
+
 ### Code Structure
 
 - Split code by crate and module responsibility. Keep `lib.rs` and facades focused
