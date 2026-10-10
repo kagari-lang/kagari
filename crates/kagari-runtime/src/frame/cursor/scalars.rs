@@ -26,11 +26,34 @@ pub(super) enum ScalarExit {
     Managed(PreparedManagedOperation),
 }
 
-enum CursorProgress {
-    Continue,
-    Boundary,
-    Return(ReturnValue),
-    Managed(PreparedManagedOperation),
+/// The scalar segment selects its mode once at entry. Only bounded
+/// execution carries writable step state; both modes use the same instruction loop.
+trait InstructionSlice {
+    fn exhausted(&self) -> bool;
+
+    fn advance(&mut self);
+}
+
+struct Unbounded;
+
+impl InstructionSlice for Unbounded {
+    fn exhausted(&self) -> bool {
+        false
+    }
+
+    fn advance(&mut self) {}
+}
+
+struct Bounded<'a>(&'a mut usize);
+
+impl InstructionSlice for Bounded<'_> {
+    fn exhausted(&self) -> bool {
+        *self.0 == 0
+    }
+
+    fn advance(&mut self) {
+        *self.0 = self.0.saturating_sub(1);
+    }
 }
 
 impl ExecutionCursor<'_> {
@@ -66,100 +89,97 @@ impl ExecutionCursor<'_> {
 }
 
 impl<'code> ScalarCursor<'code> {
-    // Keep object handlers out of this loop's register allocation and inlining
-    // budget while reusing the same admitted cursor across both operation kinds.
-    #[inline(never)]
     pub(super) fn execute(
         &mut self,
         remaining: &mut Option<usize>,
         collection_due: bool,
+        first: bool,
+    ) -> Result<ScalarExit, RuntimeError> {
+        match remaining {
+            Some(remaining) => self.execute_slice(&mut Bounded(remaining), collection_due, first),
+            None => self.execute_slice(&mut Unbounded, collection_due, first),
+        }
+    }
+
+    // Keep object handlers out of this loop's register allocation and inlining
+    // budget. An unbounded segment has no optional countdown to load or spill.
+    #[inline(never)]
+    fn execute_slice<S: InstructionSlice>(
+        &mut self,
+        slice: &mut S,
+        collection_due: bool,
         mut first: bool,
     ) -> Result<ScalarExit, RuntimeError> {
         loop {
-            if !first && *remaining == Some(0) {
+            if !first && slice.exhausted() {
                 return Ok(ScalarExit::Slice);
             }
             if !first && self.prepare_instruction(collection_due) {
                 return Ok(ScalarExit::Safepoint);
             }
             first = false;
-            if let Some(remaining) = remaining {
-                *remaining = remaining.saturating_sub(1);
-            }
-            match self.execute_next()? {
-                CursorProgress::Continue => {}
-                CursorProgress::Boundary => return Ok(ScalarExit::Boundary),
-                CursorProgress::Return(value) => {
+            slice.advance();
+            let instruction = self.next_instruction().ok_or_else(|| {
+                self.runtime
+                    .resources()
+                    .quarantine("verified function fell through")
+            })?;
+            let (dst, value) = match *instruction {
+                ExecutionInstruction::Constant { dst, value } => (dst, value),
+                ExecutionInstruction::Move { dst, src } => (dst, self.payload(src)?),
+                ExecutionInstruction::Scalar {
+                    dst,
+                    lhs,
+                    rhs,
+                    kernel,
+                } => {
+                    let lhs = self.payload(lhs)?;
+                    let rhs = self.payload(rhs)?;
+                    let value = kernel(lhs, rhs).map_err(|reason| {
+                        RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason)
+                    })?;
+                    (dst, value)
+                }
+                ExecutionInstruction::Jump(target) => {
+                    self.jump(target.index())?;
+                    continue;
+                }
+                ExecutionInstruction::Branch {
+                    cond,
+                    then_target,
+                    else_target,
+                } => {
+                    let target = match self.payload(cond)? {
+                        1 => then_target,
+                        0 => else_target,
+                        _ => {
+                            return Err(self
+                                .runtime
+                                .resources()
+                                .quarantine("verified branch condition is not bool"));
+                        }
+                    };
+                    self.jump(target.index())?;
+                    continue;
+                }
+                ExecutionInstruction::Return {
+                    value,
+                    representation,
+                } => {
+                    let value = match value {
+                        Some(slot) => ReturnValue::scalar(representation, self.payload(slot)?),
+                        None => ReturnValue::scalar(representation, 0),
+                    };
                     return Ok(ScalarExit::Return(value));
                 }
-                CursorProgress::Managed(instruction) => {
-                    return Ok(ScalarExit::Managed(instruction));
+                ExecutionInstruction::Managed(operation) => {
+                    return Ok(ScalarExit::Managed(operation));
                 }
-            }
+                ExecutionInstruction::Boundary => return Ok(ScalarExit::Boundary),
+            };
+            self.write_payload(dst, value)
+                .ok_or_else(|| self.invalid())?;
         }
-    }
-
-    fn execute_next(&mut self) -> Result<CursorProgress, RuntimeError> {
-        let instruction = self.next_instruction().ok_or_else(|| {
-            self.runtime
-                .resources()
-                .quarantine("verified function fell through")
-        })?;
-        let (dst, value) = match *instruction {
-            ExecutionInstruction::Constant { dst, value } => (dst, value),
-            ExecutionInstruction::Move { dst, src } => (dst, self.payload(src)?),
-            ExecutionInstruction::Scalar {
-                dst,
-                lhs,
-                rhs,
-                kernel,
-            } => {
-                let lhs = self.payload(lhs)?;
-                let rhs = self.payload(rhs)?;
-                let value = kernel(lhs, rhs)
-                    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
-                (dst, value)
-            }
-            ExecutionInstruction::Jump(target) => {
-                self.jump(target.index())?;
-                return Ok(CursorProgress::Continue);
-            }
-            ExecutionInstruction::Branch {
-                cond,
-                then_target,
-                else_target,
-            } => {
-                let target = match self.payload(cond)? {
-                    1 => then_target,
-                    0 => else_target,
-                    _ => {
-                        return Err(self
-                            .runtime
-                            .resources()
-                            .quarantine("verified branch condition is not bool"));
-                    }
-                };
-                self.jump(target.index())?;
-                return Ok(CursorProgress::Continue);
-            }
-            ExecutionInstruction::Return {
-                value,
-                representation,
-            } => {
-                let value = match value {
-                    Some(slot) => ReturnValue::scalar(representation, self.payload(slot)?),
-                    None => ReturnValue::scalar(representation, 0),
-                };
-                return Ok(CursorProgress::Return(value));
-            }
-            ExecutionInstruction::Managed(operation) => {
-                return Ok(CursorProgress::Managed(operation));
-            }
-            ExecutionInstruction::Boundary => return Ok(CursorProgress::Boundary),
-        };
-        self.write_payload(dst, value)
-            .ok_or_else(|| self.invalid())?;
-        Ok(CursorProgress::Continue)
     }
 
     #[inline(always)]

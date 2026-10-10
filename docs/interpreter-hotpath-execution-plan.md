@@ -3483,3 +3483,99 @@ Final formatting, structure review (1,021 files, zero violations/exceptions), do
 links and diff checks pass. No build/test error is carried. Full local integration,
 complete CI, architecture acceptance and Lua parity remain open. target/release now
 contains the ordinary binary, also preserved separately above.
+
+
+2026-10-10 HP04 carried control regression, scalar-loop ownership:
+The segment selects bounded/unbounded stepping once. A bounded mode borrows the
+remaining count directly; the unbounded mode has no countdown state. Both instantiate
+one generic source loop. That loop now owns decoding/dispatch, removing execute_next
+and CursorProgress rather than relying on the compiler to inline a per-instruction
+function and eliminate its second continuation dispatch. ScalarExit remains the actual
+segment boundary. No operand checks, callbacks, allocation or executable facts move
+into the scalar segment; no per-frame/heap metadata is added.
+
+Ordering is unchanged: after an already-admitted first instruction, exhaustion precedes
+cancellation/observer/collection checks; step consumption precedes decoding and traps.
+The first-instruction bypass and saturating decrement remain necessary for synchronous
+work that cannot park. Jump/Branch reenter ordinary polling. Managed handoff consumes
+its logical step once; successors resume boundary checks. Bounds, initialization,
+boolean representation, checked arithmetic and original error PCs remain enforced.
+
+A rejected intermediate implementation split stepping modes but retained execute_next.
+Its ordinary code outlined that helper, adding a call and progress-result dispatch per
+instruction. Arithmetic/branches/direct regressed to 1.5074/1.4512/1.4692x af254d6b;
+String constants reached 1.3418x (Lua controls 1.0113/1.0287/1.0000/1.0034).
+That candidate is not an accepted baseline. Evidence: target/hp05/slice-modes/,
+ordinary SHA-256 9e3c4ff93ad31497e8293cb566ab6a81277d83942a18069dfa5facb956068ffc,
+paired results 20261010T101007Z-forms-paired and 20261010T101040Z-paired. Its two
+loop bodies contain 177/157 machine instructions and each has three static callsites
+to the 522-instruction execute_next; static callsites are not calls per instruction.
+The final model deletes that intermediate protocol rather than adding an inline hint.
+Final bounded/unbounded loops contain 488/471 machine instructions and no execute_next
+references. Compared with a867487f's single 510-instruction body, these two arm64
+bodies occupy approximately 1,796 additional instruction bytes, including cold paths.
+This is code footprint, not dynamic instruction counts or total executable size.
+
+Final focused validation: owned-drive/iteration-lease contracts (2), native callback/
+cancellation/depth contracts (7), scalar collection safepoint (1), collection-during-
+operand-borrow quarantine (1). Runtime/VM all-target Clippy with execution-diagnostics
+and warnings denied, formatting and structure (1,021 files, zero violations/exceptions)
+pass. An initial Clippy invocation used the nonexistent runtime feature diagnostics;
+it was corrected to execution-diagnostics. No code/test failure remains. Separate
+release diagnostics reproduce all 72 source-form/scaling and 14 original rows from
+a867487f exactly, including allocation, layout preparation, execution protocol and GC
+counts. No full-workspace run or CI acceptance is claimed.
+
+Final ordinary binary: target/hp05/scalar-loop/prepared-executable, SHA-256
+28d0c43e49576bb54871530e9d0463cd9764e5b6c178a8bb8315da35afb6e46e.
+Reference remains af254d6b at target/hp05/admission/prepared-executable (SHA-256
+b13dd45f9687bf986149a18d26758a4ef34128a3ce56aeb49e3e345a2a757fd2).
+Paired results under target/lua-comparison/: 20261010T101725Z-forms-paired,
+20261010T101759Z-paired, 20261010T102023Z-forms-paired and 20261010T102036Z-paired.
+Same M1 Max/32 GiB/ten logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8,
+vendored PUC Lua 5.4.8, workspace release/default parallelism/default target, normal
+GC/allocator, warm build cache and unchanged inputs. Diagnostics off; three warmups,
+22 pooled samples per route, serial B/C/C/B processes; no build/test/profile overlaps
+timing. All checksums pass. Excluded builds: 20.890/0.083/0.082/0.073 seconds. Commands
+are benchmark_lua.py --interpreter-only [--source-forms] --baseline-executable with
+the reference path above and the documented DEVELOPER_DIR prefix.
+
+| Workload | Candidate / af254d6b | Lua control | Repeat candidate / af254d6b | Repeat Lua control |
+| --- | ---: | ---: | ---: | ---: |
+| arithmetic | 0.9044 | 1.0102 | 0.8943 | 0.9768 |
+| arrays | 0.9642 | 0.9972 | 0.9728 | 1.0009 |
+| branches | 0.9441 | 0.9975 | 0.9315 | 1.0160 |
+| calls | 0.9736 | 1.0012 | 0.9768 | 1.0032 |
+| entry | 1.0077 | 0.9957 | 1.0359 | 0.9956 |
+| fibonacci | 0.9922 | 0.9988 | 0.9877 | 0.9996 |
+| maps | 0.8981 | 0.9825 | 0.9157 | 1.0153 |
+| byte_state | 0.9665 | 0.9917 | 0.9685 | 0.9962 |
+| capture_cell | 0.9996 | 1.0256 | 0.9981 | 1.0119 |
+| concrete_generic | 0.9928 | 1.0026 | 0.9835 | 1.0286 |
+| direct | 0.8937 | 0.9978 | 0.8938 | 1.0003 |
+| field | 0.9968 | 0.9866 | 1.0004 | 1.0005 |
+| helper | 0.9792 | 1.0065 | 0.9853 | 1.0021 |
+| host_callback | 1.0015 | 1.0055 | 0.9928 | 1.0069 |
+| interface | 1.0043 | 0.9815 | 0.9973 | 1.0017 |
+| native | 1.0031 | 0.9893 | 0.9935 | 1.0013 |
+| shared_generic | 1.0065 | 0.9829 | 0.9964 | 0.9982 |
+| string_calls | 0.9835 | 0.9998 | 0.9926 | 1.0029 |
+| string_constants | 0.9922 | 0.9951 | 1.0084 | 1.0318 |
+
+The repeated arithmetic/branch/direct regressions introduced at a867487f are recovered
+relative to af254d6b; these workloads now improve in both paired runs. String constants
+are within roughly +/-1% of that reference, without a demonstrated new throughput win.
+This does not erase the earlier HP04 String regression against the preserved 5c2527f2
+checkpoint. Map's benefit includes the preceding function-layout change and cannot be
+attributed solely to this loop change. Current candidate/Lua remains 4.49/4.48 for
+arithmetic, 2.71/2.67 branches, 12.50/12.25 String constants, 26.37/26.83 arrays and
+58.99/59.66 maps. HP04 overall acceptance and Lua parity remain unmet.
+
+Next HP05 unit remains shared TypeArgument/StorageType admission facts: repeated
+container matching still rebuilds Ty worklists despite immutable supplied types and
+storage contracts. Review the common type/value boundary, preserve complete nominal
+provenance and live handle/access checks, and replace repeated preparation at its owner.
+Do not add a Vec-specific exception or continue scalar tuning in place of this required
+migration. Ordinary Option representation evaluation, HP06 retirement/memory accounting,
+final local integration and complete CI remain outstanding. Raw checks, diagnostics and
+disassembly are under target/hp05/scalar-loop/. target/release holds the ordinary build.

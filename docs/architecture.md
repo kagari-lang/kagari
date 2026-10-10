@@ -972,6 +972,15 @@ than copying the complete nested enum before classifying it. Instructions
 still check operand bounds and initialization, but no longer recover the loaded
 function or bank range per operand. These borrows end before object handoff or
 region exit; no pointer or exclusive borrow survives a callback or arena growth.
+The scalar cursor selects bounded or unbounded stepping once at segment entry. Bounded
+execution borrows the remaining count directly; unbounded execution carries no
+countdown state. Both use the same generic instruction loop, so the optional mode
+is not decoded at each logical instruction. Bounded execution retains saturating
+step consumption, the already-admitted first instruction, and the original ordering
+of exhaustion, cancellation, observation and GC checks. Managed handoffs consume no
+second step; successors resume normal boundary checks. The loop owns instruction
+decoding and dispatch directly; it returns only when leaving the scalar segment,
+without a per-instruction progress result or a second continuation dispatch.
 Canonical instructions remain one-to-one with prepared instructions.
 Scoped fields use the same physical execution kernel as concrete fields once their
 function/environment's layout operand is ready. Only first-use preparation exits the
