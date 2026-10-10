@@ -3840,3 +3840,125 @@ or overall performance acceptance is claimed here. Current arrays/maps are still
 then complete the ordinary Option representation assessment, HP06 retirement/memory
 review/final validation and unchanged HP00 comparisons. Earlier HP04 gates, CI and
 all-workload parity remain unmet. target/release holds the ordinary benchmark.
+
+2026-10-10 HP05, builtin result contracts owned by runtime links:
+
+The previous checkpoint (352074be) exposed a displaced preparation owner:
+`builtin::standard::invoke` created a fresh Ordering TypeArgument for each comparison,
+then discarded its prepared type/layout facts. The new nominal proof added one more
+allocation to that already repeated work. Removing the proof would preserve the
+architectural defect. For example, 5,000 calls to `a.cmp(b)` need 5,000 result values,
+but their exact supplying program member needs only one Ordering type contract.
+
+`module::linked_execution::builtin_results` now owns two fixed, lazily prepared
+contracts under each installed member's LinkedExecution: Ordering and Option<Ordering>.
+All builtin invocation routes consume these same TypeArguments through the existing
+portable type preparation and declared enum constructor. There is no global/name-keyed
+cache, duplicate enum implementation, cached result Value or call-site-specific path.
+The member record is resolved with exact program provenance on both lookup/publication;
+reload creates independent facts, and record retirement drops their runtime retention.
+Closed type origins have no execution environment. Their nested layout scopes and
+admission tokens retain immutable descriptors, not executable leases or GC values, so
+there is no new tracing edge or program-cycle root. The optional boxed holder adds one
+pointer per LinkedExecution and is allocated only for a member using these results.
+Its two TypeArguments reuse existing parameter/member/admission ownership.
+
+Operand count and builtin ordering validation still precede preparation. Total
+unordered comparison still fails first. Partial comparison retains the inner Ordering
+root before requesting Option<Ordering> or allocating its payload. Installed-owner,
+member, payload, heap ownership/generation and allocation checks remain; only successful
+type preparation is retained. No module-store borrow crosses type/layout preparation
+or enum allocation. No API/ABI version or source/artifact semantics changed.
+
+Validation and raw evidence are in `target/hp05/builtin-results/`:
+
+- `cargo test --locked -p kagari-embed --test operator_traits`: 18 passed. Existing
+  contracts cover builtin/custom comparison, float unordered behavior, evaluation
+  order, traps/cancellation, source-free roundtrips and native execution; the shared
+  execution helper uses collection threshold 1.
+- `cargo test --locked -p kagari-vm --test native_boundary program_cycles`: 4 passed.
+  The existing generic cycle fixture now performs comparison before returning its
+  captured closure, so obsolete-program collection exercises a prepared builtin result
+  contract rather than leaving that lazy state untouched.
+- `cargo test --locked -p kagari-embed --test generic_reload`: 2 passed, preserving
+  generation-pinned generic/default/override/try operations.
+- Strict runtime/VM all-target Clippy with `kagari-runtime/execution-diagnostics`,
+  formatting, diff checks and the structure checker passed (1,023 files; zero
+  violations/exceptions). No local full-workspace suite or CI acceptance was run.
+- Release diagnostic build, then `--diagnostics --source-forms` and `--diagnostics`:
+  all 86 cold/warm rows passed. Compared with 352074be, every non-allocation counter
+  is unchanged, including GC collections, allocated objects, layouts, environment/
+  application preparation, metadata checks, driver admissions and slow boundaries.
+
+The 2,500/5,000-iteration witness and shared-application probes both remove exactly
+29 allocation requests and 2,420 requested bytes per warm iteration. At 5,000:
+
+| Warm probe | Requests before → after | Requested bytes before → after |
+| --- | ---: | ---: |
+| witness_application | 200,466 → 55,466 | 19,487,939 → 7,387,939 |
+| shared_application | 200,486 → 55,486 | 19,500,336 → 7,400,336 |
+
+Cold net retention increases by 664 bytes in each probe, independent of 2,500 versus
+5,000 iterations; warm net bytes are unchanged. These are allocator measurements for
+these fixtures, not universal descriptor or peak-live-memory sizes. All other diagnostic
+rows, including Map and the scoped-layout probes, are unchanged. Ordinary enum objects
+and collections are unchanged. The remaining roughly 11 requests per comparison in
+these diagnostic paths are not claimed eliminated, and allocation savings are not a
+throughput measurement. The previous +1-request/+48-byte regression is superseded by
+removing the whole repeated result-type preparation path.
+
+This completes the bounded builtin-result ownership follow-up, not HP05/HP06 or Lua
+parity acceptance. The next enum-access retirement review must include all callers of
+`stdlib::bindings::enums::inspect`: propagation, list comparison, list receivers and
+construction. They still request an owned member String and payload snapshot, even
+where a rooted bounded read would suffice. Consolidate that semantic access owner and
+remove the superseded helper; do not add separate per-provider caches. Then complete
+the ordinary Option representation assessment with profiling, HP06 retrospective/setup/
+memory accounting, final local integration and unchanged HP00 comparisons. Earlier
+HP04 gates and CI remain open.
+
+Ordinary throughput control used the unchanged interpreter-only driver with and without
+`--source-forms --baseline-executable target/hp05/builtin-results/baseline-executable`
+(the baseline option is present in both invocations). Raw runs are
+`target/lua-comparison/20261010T110430Z-forms-paired` and
+`target/lua-comparison/20261010T110504Z-paired`. The baseline is 352074be's ordinary
+executable, SHA-256 `5452b7ed1d307db3a7b23e58f543c1599470cb50e58dbcca0c81e8a2cdefd04f`;
+the candidate is `target/hp05/builtin-results/prepared-executable`, SHA-256
+`a3eb3c7a345ba61563f74bb91655ad3a46d4bd959f7c54dbd7343851cc54aa39`.
+
+Environment: Apple M1 Max, 32 GiB, 10 logical CPUs, arm64 macOS 26.6.2,
+rustc 1.98.1/LLVM 22.1.8, vendored PUC Lua 5.4.8; default workspace release/target/
+Cargo parallelism, benchmark source/native features, diagnostic instrumentation off,
+normal GC/allocator, warm build cache. Three warmups and 11 samples per process,
+22 pooled per route; serial baseline/candidate/candidate/baseline processes.
+Builds (21.168 s/0.082 s) are excluded. No build, test, profile or Rust edit overlapped
+measurements; every checksum passed. C/B below is candidate/baseline elapsed time.
+
+| Workload | Kagari C/B | Lua control C/B |
+| --- | ---: | ---: |
+| arithmetic | 0.9908 | 0.9857 |
+| arrays | 0.9853 | 0.9769 |
+| branches | 1.0036 | 0.9885 |
+| calls | 1.0000 | 1.0078 |
+| entry | 0.9975 | 0.9949 |
+| fibonacci | 1.0032 | 1.0001 |
+| maps | 0.9968 | 0.9798 |
+| byte_state | 1.0012 | 0.9958 |
+| capture_cell | 1.0022 | 0.9458 |
+| concrete_generic | 0.9988 | 0.9982 |
+| direct | 0.9980 | 1.0000 |
+| field | 0.9963 | 0.9995 |
+| helper | 0.9974 | 1.0019 |
+| host_callback | 0.9838 | 0.9928 |
+| interface | 0.9918 | 1.0152 |
+| native | 0.9909 | 0.9969 |
+| shared_generic | 0.9909 | 1.0082 |
+| string_calls | 0.9989 | 1.0176 |
+| string_constants | 0.9926 | 1.0025 |
+
+Kagari shifts range from -1.6% to +0.4%; no broad speedup or independent repeat is
+claimed. The capture-cell Lua control varies by -5.4%, further limiting interpretation
+of small ratio changes. The affected comparison scaling probes are diagnostics, not
+these timed workloads. Maps remain 53.81x Lua, arrays 23.42x, fibonacci 30.71x and
+String constants 12.23x. This control run does not resolve the older HP04 gates or
+establish all-workload parity. target/release again holds the ordinary benchmark.

@@ -573,6 +573,14 @@ callbacks or collection, so reentry may evict an index entry without invalidatin
 outer call. Selected-call edge tracing is shared with stored native selections;
 escaping typed host handles still explicitly acquire their own roots. Generic entry
 does not recreate native applications or host-style selected-call roots on a hit.
+Builtin comparison result contracts use the same TypeArgument preparation and enum
+construction path. Each exact runtime-linked program member lazily owns at most two
+closed result arguments: Ordering and Option<Ordering>. Operand validation precedes
+first preparation, and the optional result is prepared only after rooting any inner
+Ordering value. Reuse still validates the installed owner and declared enum member;
+payload checks and ordinary result allocation remain. These facts retain immutable
+provenance, without Values or executable leases, and disappear with the member's
+runtime record. Reload cannot inherit another version's result arguments.
 TypeArgument shares immutable validated type facts, memoized parameters, exact
 type/provenance identities and enum layout applications. Nominal type application
 prepares a successful admission proof once, retaining only the immutable program,
@@ -632,9 +640,7 @@ type facts cross threads; graph comparison runs outside the lock. Missing identi
 eviction or unavailable cache access retain full checks. A new version cannot inherit an
 old proof, and a proof never authorizes execution, a heap handle or mutable access.
 Raw type-expression checks retain full resolution and graph-comparison fallbacks.
-Builtin comparison still recreates its nominal result type on each call; migration
-to runtime-linked result facts remains in the active plan. A borrowed closed spelling
-does not replace a complete layout proof.
+A borrowed closed spelling does not replace a complete layout proof.
 Every value access continues to validate heap ownership, slot generation and access.
 Enum variant comparison goes directly through this shared admission policy after
 runtime/variant checks; the older same-member/Arc shortcut is removed. Interpreter

@@ -4,13 +4,12 @@ use crate::{
     builtin::BuiltinError,
     error::RuntimeError,
     gc::GcHeap,
-    module::LoadedModule,
+    module::{LoadedModule, linked_execution::builtin_results::BuiltinResult},
     native::sequence::SequenceStorage,
     value::{MapKey, Value},
     value_semantics,
 };
 use kagari_contract::standard::RuntimePrimitive;
-use kagari_types::language::binding;
 use std::cmp::Ordering;
 #[cfg(test)]
 mod tests;
@@ -32,7 +31,7 @@ pub fn invoke(
             if intrinsic == RuntimePrimitive::ValueCmp && ordering.is_none() {
                 return Err(BuiltinError::new("total comparison cannot be unordered"));
             }
-            let applied = runtime.portable_type_argument(owner, &binding::ordering())?;
+            let applied = runtime.builtin_result_type(owner, BuiltinResult::Ordering)?;
             let value = ordering
                 .map(|ordering| {
                     runtime.make_enum_member(
@@ -49,8 +48,7 @@ pub fn invoke(
                 .transpose()?;
             if intrinsic == RuntimePrimitive::ValuePartialCmp {
                 let _root = value.as_ref().and_then(|value| gc.root_value(*value));
-                let option =
-                    runtime.portable_type_argument(owner, &binding::option(binding::ordering()))?;
+                let option = runtime.builtin_result_type(owner, BuiltinResult::OptionalOrdering)?;
                 runtime
                     .make_enum_member(
                         owner,

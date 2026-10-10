@@ -38,7 +38,7 @@ fn with_state(mut program: BytecodeProgram) -> BytecodeProgram {
 fn generic_program() -> BytecodeProgram {
     with_state(compile_program(
         "use std::cmp::Ordering; \
-         trait Keep { fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool { || a.cmp(b) == Ordering::Less } } \
+         trait Keep { fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool { a.cmp(b); || a.cmp(b) == Ordering::Less } } \
          impl Keep for i32 {} \
          fn make() -> fn() -> bool { val keeper: Keep = 0; keeper.keep(1, 2) }",
         None,

@@ -1,4 +1,5 @@
 //! Runtime-local execution links are admitted with their supplying program.
+pub(crate) mod builtin_results;
 pub(crate) mod layouts;
 mod primitives;
 use crate::{
@@ -14,7 +15,10 @@ use crate::{
         constants::ConstantPool,
         descriptor_index::DescriptorIndex,
         execution::{calls::PreparedCallTarget, layout::Location},
-        linked_execution::layouts::{AppliedLayouts, FunctionLayouts},
+        linked_execution::{
+            builtin_results::BuiltinResults,
+            layouts::{AppliedLayouts, FunctionLayouts},
+        },
     },
     native::{binding::LinkedNativeFunction, primitive::NativePrimitive},
 };
@@ -65,6 +69,7 @@ type FunctionApplications = DescriptorIndex<EnvironmentId, FunctionRef, Arc<Link
 pub(super) struct LinkedExecution {
     functions: Box<[Option<Arc<LinkedFunction>>]>,
     applications: Option<Box<FunctionApplications>>,
+    builtin_results: Option<Box<BuiltinResults>>,
 }
 
 impl LinkedExecution {
@@ -155,6 +160,7 @@ impl Runtime {
         record.execution = Some(LinkedExecution {
             functions: functions.into_boxed_slice(),
             applications: None,
+            builtin_results: None,
         });
         Ok(())
     }
