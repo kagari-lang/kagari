@@ -5,7 +5,9 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution_metadata::{groups::OperationId, operation::BoundOperation},
+    execution_metadata::{
+        call_contracts::InterfaceCallSite, groups::OperationId, operation::BoundOperation,
+    },
     frame::{
         ExecutionFrame,
         types::{TypeEnvironment, compatibility::TypeView, operations::OperationBindings},
@@ -19,10 +21,7 @@ use crate::{
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
-    callable::{
-        interface::InterfaceCallContract,
-        witness::{OperationWitness, SharedMethodWitness},
-    },
+    callable::witness::{OperationWitness, SharedMethodWitness},
     types as abi,
     types::{ConcreteFunctionIdentity, PublicItem},
 };
@@ -104,51 +103,22 @@ impl Runtime {
     pub(crate) fn resolve_interface_invocation(
         &self,
         frame: &ExecutionFrame,
-        contract: &InterfaceCallContract<DefinitionId>,
+        site: InterfaceCallSite,
         receiver: &Value,
     ) -> Result<(MethodInvocation, Value), RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
-        let Ty::Trait(interface) = frame
-            .resolve_type(&Ty::Trait(contract.interface.clone()))?
-            .into_owned()
-        else {
-            return Err(invalid());
-        };
-        if let Some(ty) = &contract.receiver {
-            let receiver_type = frame.resolve_type(ty)?;
-            let environment = frame.environment().ok_or_else(invalid)?;
-            let operation = environment
-                .operation_slot(&self.gc, &receiver_type, &interface, contract.method_slot)
-                .ok_or_else(invalid)?;
+        let call = self.prepare_interface_call(frame.loaded(), frame.environment(), site)?;
+        if let Some(operation) = call.operation {
             let method = MethodInvocation::from_operation(self, operation)?;
-            let arguments = self.type_arguments(
-                frame.loaded(),
-                frame
-                    .environment()
-                    .map(|environment| environment.types.clone()),
-                &contract.arguments,
-            )?;
-            let method = self.apply_method_invocation(
-                method,
-                &arguments,
-                self.bind_operations(frame, &contract.operations)?,
-            )?;
+            let method =
+                self.apply_method_invocation(method, &call.arguments, call.operations.clone())?;
             return Ok((method, *receiver));
         }
-        let arguments = self.type_arguments(
-            frame.loaded(),
-            frame
-                .environment()
-                .map(|environment| environment.types.clone()),
-            &contract.arguments,
-        )?;
-        let (method, receiver) = self.prepare_interface_invocation_slot(
-            receiver,
-            &interface,
-            contract.method_slot as usize,
-            &arguments,
-            self.bind_operations(frame, &contract.operations)?,
-        )?;
+        let id = self.select_interface_snapshot(receiver, call.interface_type())?;
+        let method = MethodInvocation::from_interface(self, id, call.slot)?;
+        let receiver = self.gc.interface_metadata(id).ok_or_else(invalid)?.data;
+        let method =
+            self.apply_method_invocation(method, &call.arguments, call.operations.clone())?;
         let compatible = {
             let view = method.view(self)?;
             let SelectionView::Interface { snapshot, .. } = &view.selection else {
@@ -160,27 +130,12 @@ impl Runtime {
                 view.receiver_environment()
                     .map(|environment| environment.types.as_ref()),
             )
-            .compatible(TypeView::new(
-                &Ty::Trait(contract.interface.clone()),
-                frame.loaded(),
-                frame
-                    .environment()
-                    .as_ref()
-                    .map(|environment| environment.types.as_ref()),
-            ))
+            .compatible(call.interface.view(frame.loaded()))
         };
         if !compatible {
             return Err(invalid());
         }
         Ok((method, receiver))
-    }
-
-    pub(crate) fn bind_operations(
-        &self,
-        frame: &ExecutionFrame,
-        witnesses: &[OperationWitness<DefinitionId>],
-    ) -> Result<OperationBindings, RuntimeError> {
-        self.bind_operations_in(frame.loaded(), frame.environment(), witnesses)
     }
 
     /// Bind already-verified witnesses in their lexical executable scope. Host

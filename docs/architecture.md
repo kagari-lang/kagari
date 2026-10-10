@@ -774,8 +774,20 @@ register replacement. Retirement releases these edges with the window.
 `RootedInterfaceMethod` is the host-retained wrapper around the same descriptor. Host
 entry validates its lease and keeps it alive until window publication; internal dispatch
 does not construct that wrapper or refresh a host root container. Host/internal arguments
-and results use the same method-view signature checks and result adapters. Scoped
-application-key preparation remains migration work.
+and results use the same method-view signature checks and result adapters.
+Linked members also retain scoped interface-call contracts by verified function/PC
+and exact environment identity. These immutable descriptors contain the expected
+interface type with its lexical provenance, method type arguments and operation
+witnesses, independently of receiver values. They use the common bounded descriptor
+index and checked publication/GC tracing. Changed scopes receive different entries;
+an expired scope is rejected even if a cached descriptor remains. Receiver selection,
+argument/result checks and cross-version interface compatibility still run per call.
+Application arguments share their prepared exact type identities. Each immutable
+interface method binding derives its structural selection identity once, without
+capturing the receiver or an applied result. The existing application index consumes
+these shared identities; host entry constructs the same argument bundle. No separate
+application solver or result cache is introduced. Closed contract preparation at
+linking and any remaining invocation-scaled semantic admission are still HP03 work.
 Executable environments are published by the runtime after validating their complete
 parent/operation graph. The central environment record retains a flat list of exact
 program dependencies alongside its immutable edges. Frame entry checks the environment's

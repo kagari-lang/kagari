@@ -48,7 +48,7 @@ fn count(
     );
     let after = runtime.runtime().gc().stats();
     println!(
-        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_comparisons={},environment_allocations={},metadata_validations={},slow_boundaries={},driver_admissions={},await_polls={}",
+        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},interface_call_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_comparisons={},environment_allocations={},metadata_validations={},slow_boundaries={},driver_admissions={},await_polls={}",
         allocations.requests,
         allocations.requested_bytes,
         allocations.net_bytes,
@@ -58,6 +58,7 @@ fn count(
         after.environments as i128 - before.environments as i128,
         after.method_applications as i128 - before.method_applications as i128,
         execution.method_preparations,
+        execution.interface_call_preparations,
         execution.shared_preparations,
         execution.operation_preparations,
         execution.native_preparations,

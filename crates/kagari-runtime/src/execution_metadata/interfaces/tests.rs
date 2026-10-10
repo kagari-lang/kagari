@@ -4,7 +4,9 @@ use crate::{
     error::RuntimeErrorKind,
     execution_metadata::{
         MetadataEdge, MetadataRoot,
-        application_key::{ApplicationKey, MethodIdentity},
+        application_key::{
+            ApplicationArguments, ApplicationKey, InterfaceMethodIdentity, MethodIdentity,
+        },
         applications::MethodApplication,
     },
     frame::types::EnvironmentRecord,
@@ -16,6 +18,7 @@ use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lowe
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{callable::Signature, ty::Ty};
+use std::sync::Arc;
 
 fn load_source(source: &str) -> (Runtime, LoadedModule) {
     let mut sources = SourceDatabase::default();
@@ -113,7 +116,7 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
     let root = runtime.root_value(value).unwrap();
     let snapshot = runtime.gc.interface_metadata(id).unwrap();
     let key = ApplicationKey::new(
-        MethodIdentity::Interface {
+        MethodIdentity::Interface(Arc::new(InterfaceMethodIdentity {
             owner: loaded.key(),
             table,
             slot: 0,
@@ -121,13 +124,11 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
             arguments: snapshot.receiver_table.arguments.clone(),
             environment: None,
             result_adapter: None,
-        },
-        &loaded,
-        &[],
+        })),
+        &ApplicationArguments::new(&loaded, vec![]).unwrap(),
         None,
         &Default::default(),
-    )
-    .unwrap();
+    );
     drop(snapshot);
     let application = || MethodApplication {
         signature: Signature {

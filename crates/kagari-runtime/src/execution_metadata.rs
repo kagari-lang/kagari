@@ -1,6 +1,7 @@
 //! Executable metadata edges are separate from immutable layout provenance.
 pub(crate) mod application_key;
 pub(crate) mod applications;
+pub(crate) mod call_contracts;
 pub(crate) mod environments;
 pub(crate) mod groups;
 pub(crate) mod interfaces;
@@ -15,6 +16,7 @@ use crate::{
     error::RuntimeError,
     execution_metadata::{
         applications::{ApplicationId, ApplicationStore},
+        call_contracts::ScopedInterfaceCall,
         environments::{EnvironmentId, EnvironmentStore},
         groups::{OperationGroupId, OperationGroupStore, OperationId},
         interfaces::{InterfaceSnapshotId, InterfaceStore},
@@ -125,6 +127,7 @@ pub(crate) enum MetadataEdge<'a> {
     Program(&'a LoadedModule),
     Environment(EnvironmentId),
     EnvironmentView(&'a EnvironmentRecord),
+    InterfaceCall(&'a ScopedInterfaceCall),
     Operation(OperationId),
     Group(OperationGroupId),
     Interface(InterfaceSnapshotId),
@@ -141,6 +144,7 @@ impl MetadataEdge<'_> {
         Some(match self {
             Self::NativeApplication(value) => (8, value as *const _ as usize),
             Self::EnvironmentView(value) => (9, value as *const _ as usize),
+            Self::InterfaceCall(value) => (10, value as *const _ as usize),
             Self::Program(value) => (0, value as *const _ as usize),
             Self::Environment(_)
             | Self::Operation(_)
@@ -233,6 +237,7 @@ impl<'a> MetadataTrace<'a> {
                     }
                 }
                 MetadataEdge::EnvironmentView(record) => record.trace_metadata(&mut self.pending),
+                MetadataEdge::InterfaceCall(call) => call.trace(&mut self.pending),
                 MetadataEdge::Group(id) => {
                     if self.live_groups.insert(id) {
                         self.groups.get(id)?.trace_metadata(&mut self.pending);

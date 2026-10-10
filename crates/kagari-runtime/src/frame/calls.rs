@@ -2,6 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    execution_metadata::call_contracts::InterfaceCallSite,
     frame::{ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments},
     module::execution::calls::PreparedCallTarget,
 };
@@ -75,7 +76,7 @@ impl ExecutionStack<'_> {
             }
             PreparedCallTarget::Interface => {
                 let BytecodeInstruction::Call {
-                    callee: CallTarget::InterfaceMethod { contract, .. },
+                    callee: CallTarget::InterfaceMethod { .. },
                     args,
                     ..
                 } = &owner.bytecode.functions[function.index()].instructions[pc]
@@ -90,7 +91,11 @@ impl ExecutionStack<'_> {
                         RuntimeError::module_validation("missing interface receiver")
                     })?;
                     let receiver = caller.read_register(runtime, *register)?;
-                    runtime.resolve_interface_invocation(&caller, contract, &receiver)?
+                    runtime.resolve_interface_invocation(
+                        &caller,
+                        InterfaceCallSite { function, pc },
+                        &receiver,
+                    )?
                 };
                 let arguments = FrameArguments::frame(slots, &call.arguments[1..])
                     .with_prefix(slice::from_ref(&receiver))?;

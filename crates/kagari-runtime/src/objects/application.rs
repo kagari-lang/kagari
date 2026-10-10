@@ -6,7 +6,9 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
     execution_metadata::{
-        application_key::ApplicationKey, applications::MethodApplication, groups::OperationGroupId,
+        application_key::{ApplicationArguments, ApplicationKey},
+        applications::MethodApplication,
+        groups::OperationGroupId,
     },
     frame::types::{
         EnvironmentRecord,
@@ -25,19 +27,6 @@ impl Runtime {
         arguments: &[TypeArgument],
         operations: OperationBindings,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        method.view(self)?;
-        method.invocation =
-            self.apply_method_invocation(method.invocation, arguments, operations)?;
-        method.refresh_roots(self)?;
-        Ok(method)
-    }
-
-    pub(crate) fn apply_method_invocation(
-        &self,
-        mut method: MethodInvocation,
-        arguments: &[TypeArgument],
-        operations: OperationBindings,
-    ) -> Result<MethodInvocation, RuntimeError> {
         let view = method.view(self)?;
         if arguments.len() != view.type_parameters().len() {
             return Err(RuntimeError::module_validation(
@@ -45,6 +34,29 @@ impl Runtime {
             ));
         }
         for argument in arguments {
+            argument.validate(self)?;
+        }
+        let arguments = ApplicationArguments::new(view.implementation(), arguments.to_vec())?;
+        drop(view);
+        method.invocation =
+            self.apply_method_invocation(method.invocation, &arguments, operations)?;
+        method.refresh_roots(self)?;
+        Ok(method)
+    }
+
+    pub(crate) fn apply_method_invocation(
+        &self,
+        mut method: MethodInvocation,
+        arguments: &ApplicationArguments,
+        operations: OperationBindings,
+    ) -> Result<MethodInvocation, RuntimeError> {
+        let view = method.view(self)?;
+        if arguments.values().len() != view.type_parameters().len() {
+            return Err(RuntimeError::module_validation(
+                "interface method type arguments",
+            ));
+        }
+        for argument in arguments.values() {
             argument.validate(self)?;
         }
         if view.type_parameters().is_empty()
@@ -59,19 +71,13 @@ impl Runtime {
         let identity = view.identity();
         drop(view);
         let receiver_operations = method.receiver_operations(self)?;
-        let key = ApplicationKey::new(
-            identity,
-            &owner,
-            arguments,
-            receiver_operations,
-            &operations,
-        )?;
+        let key = ApplicationKey::new(identity, arguments, receiver_operations, &operations);
         let application = if let Some(prepared) = self.modules.method_application(&owner, &key) {
             prepared
         } else {
             let prepared = self.prepare_method_application(
                 &method,
-                arguments,
+                arguments.values(),
                 operations,
                 receiver_operations,
             )?;

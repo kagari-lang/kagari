@@ -5,7 +5,7 @@ use crate::{
     execution_metadata::applications::MethodApplication,
     execution_metadata::{
         MetadataEdge, MetadataRoot,
-        application_key::{ApplicationKey, MethodIdentity},
+        application_key::{ApplicationArguments, ApplicationKey, MethodIdentity},
     },
     frame::types::EnvironmentRecord,
     module::LoadedModule,
@@ -188,12 +188,10 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
             .unwrap();
         let key = ApplicationKey::new(
             MethodIdentity::Operation(operation_id),
-            &loaded,
-            &[],
+            &ApplicationArguments::new(&loaded, vec![]).unwrap(),
             Some(group),
             &Default::default(),
-        )
-        .unwrap();
+        );
         runtime
             .publish_method_application(&loaded, key, application_id)
             .unwrap();

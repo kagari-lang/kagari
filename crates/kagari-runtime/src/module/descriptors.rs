@@ -3,7 +3,10 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution_metadata::{
-        MetadataEdge, application_key::ApplicationKey, applications::ApplicationId,
+        MetadataEdge,
+        application_key::ApplicationKey,
+        applications::ApplicationId,
+        call_contracts::{InterfaceCallSite, ScopedInterfaceCall},
         environments::EnvironmentId,
     },
     frame::types::{TypeEnvironment, operations::OperationBindings},
@@ -48,6 +51,11 @@ pub(crate) struct SharedScope {
 
 #[derive(Debug, Default)]
 pub(super) struct LinkedDescriptors {
+    interface_calls: DescriptorIndex<
+        Option<EnvironmentId>,
+        InterfaceCallSite,
+        Published<Arc<ScopedInterfaceCall>>,
+    >,
     applications: DescriptorIndex<(), ApplicationKey, Published<ApplicationId>>,
     witnesses: WitnessIndex,
     shared: SharedIndex,
@@ -56,6 +64,12 @@ pub(super) struct LinkedDescriptors {
 
 trait Descriptor {
     fn edge(&self) -> MetadataEdge<'_>;
+}
+
+impl Descriptor for Arc<ScopedInterfaceCall> {
+    fn edge(&self) -> MetadataEdge<'_> {
+        MetadataEdge::InterfaceCall(self)
+    }
 }
 
 impl Descriptor for Arc<NativeApplication> {
@@ -91,6 +105,12 @@ impl LinkedDescriptors {
         // Expiration removes optional retention, not validation of independently
         // rooted facts. These graphs are immutable after publication.
         pending.extend(
+            self.interface_calls
+                .values()
+                .filter(|value| value.is_available(store))
+                .map(|value| value.value.edge()),
+        );
+        pending.extend(
             self.native
                 .values()
                 .filter(|value| value.is_available(store))
@@ -118,6 +138,21 @@ impl LinkedDescriptors {
 }
 
 impl ModuleStore {
+    pub(crate) fn interface_call(
+        &self,
+        owner: &LoadedModule,
+        environment: Option<EnvironmentId>,
+        site: InterfaceCallSite,
+    ) -> Option<Arc<ScopedInterfaceCall>> {
+        let records = self.inner.try_borrow().ok()?;
+        let entry = records
+            .resolve(owner)?
+            .descriptors
+            .interface_calls
+            .get(&environment, &site)?;
+        entry.is_available(&records).then(|| entry.value.clone())
+    }
+
     pub(crate) fn native_application(
         &self,
         owner: &LoadedModule,
@@ -179,6 +214,18 @@ impl ModuleStore {
 }
 
 impl Runtime {
+    pub(crate) fn publish_interface_call(
+        &self,
+        owner: &LoadedModule,
+        environment: Option<EnvironmentId>,
+        site: InterfaceCallSite,
+        prepared: Arc<ScopedInterfaceCall>,
+    ) -> Result<(), RuntimeError> {
+        self.publish_descriptor(owner, prepared, |descriptors, value| {
+            descriptors.interface_calls.insert(environment, site, value)
+        })
+    }
+
     pub(crate) fn publish_native_application(
         &self,
         owner: &LoadedModule,

@@ -1,7 +1,8 @@
 //! Retained dynamic method and representation-adapter metadata.
 use crate::{
     execution_metadata::{
-        groups::OperationGroupId, interfaces::InterfaceSnapshotId, links::MetadataCache,
+        application_key::MethodIdentity, groups::OperationGroupId, interfaces::InterfaceSnapshotId,
+        links::MetadataCache,
     },
     frame::types::{TypeEnvironment, bindings::TypeBindings, compatibility::TypeView},
     module::LoadedModule,
@@ -10,9 +11,11 @@ use crate::{
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{GenericParam, NominalTy, Ty};
+use std::cell::OnceCell;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct InterfaceMethodBinding {
+    pub(crate) identity: OnceCell<MethodIdentity>,
     pub(crate) receiver_operations: MetadataCache<Option<OperationGroupId>>,
     pub(crate) parameters: Vec<GenericParam<DefinitionId>>,
     pub(crate) entry_parameters: Vec<GenericParam<DefinitionId>>,

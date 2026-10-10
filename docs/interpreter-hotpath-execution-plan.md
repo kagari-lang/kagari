@@ -1883,3 +1883,114 @@ No build/test error remains. No full-workspace suite or GitHub CI run was perfor
 Next HP03 work is the still-repeated scoped call contract/type argument/application-key
 preparation; it must reuse linked descriptor ownership rather than add a competing
 per-callsite semantic implementation. HP03–HP06 and full-goal acceptance remain open.
+
+2026-10-10 HP03, scoped interface contracts and shared application keys (in progress):
+The linked member's existing descriptor owner now retains immutable interface-call
+facts under verified function/PC and exact optional EnvironmentId. Preparation derives
+the expected interface with lexical type provenance, supplied method arguments and
+selected operation witnesses once per retained scope. The common bounded descriptor
+index, dependency validation, publication and GC tracing own this state; there is no
+raw-address key, receiver-value cache, host lease or permanent registry. Hits still
+check the caller/program/environment and supplying witness availability. A weak scope
+key cannot resurrect a collected environment. Cold preparation reads the sealed
+contract; the interpreter does not infer syntax or repeat compiler selection.
+
+ApplicationArguments packages immutable TypeArguments with shared exact type/provenance
+identities. Interface method bindings derive their complete structural selection key
+once; keys still distinguish receiver table, method ordinal, interface expression,
+adapter, environment, lexical type provenance and operation group identities. The
+existing application index and single preparation implementation consume these facts.
+Host method entry builds the same bundle. Dynamic receiver selection, signature checks,
+cross-version compatibility, result adapters and frame/window publication are unchanged.
+The old per-call type-argument/exact identity vectors, structural method-key clones,
+separate invocation-slot packing wrapper and frame-only witness wrapper are removed.
+Pure identity cells hold no applied result or receiver and are separate from executable
+edge publication; they do not revive the superseded closed-method application cache.
+
+Existing witness retention coverage now goes through the scoped call descriptor: repeat
+lookup, 160 distinct lexical environments beyond the 128-entry retention bound, explicit
+root survival through eviction, stale-scope rejection, reload and complete reclamation
+after the last root are checked. Runtime application contracts (5), metadata contracts
+(31) and native function boundary contracts (38) pass. The only intermediate warning
+was the obsolete frame-only witness wrapper, which was deleted. Initial affected-target
+Clippy passes, and structure review covers 1,009 Rust files with no violations/exceptions.
+The opt-in diagnostic output gains an interface-call preparation counter, absent from
+ordinary builds. No matched workload changes. Closed contract preparation at linking,
+remaining semantic admission costs and prior execution regressions still require HP03
+review before acceptance; HP03 is not marked complete by this migration.
+
+All 72 source-form/protocol diagnostic rows pass in
+`target/hp03/scoped-calls-diagnostics.log`; deltas against environment admission are
+in `target/hp03/scoped-calls-diagnostic-delta.json`. Every warm row reports zero
+scoped interface-call preparations, and cold fixed/alternating application probes
+prepare one/two call descriptors at both N and 2N. Warm fixed applications drop
+32,550 to 5,051 allocation requests at 2,500 calls and 65,050 to 10,051 at 5,000;
+requested bytes at 5,000 fall 4,844,525 to 84,805. Alternating applications fall
+65,093 to 10,095 requests. This removes eleven requests/952 requested bytes per
+generic invocation, with an additional fixed identity allocation per newly created
+receiver outside the loop. Ordinary interfaces remove one request/eight bytes per
+call. Witness and shared-witness probes remove twenty requests/about 1,520 bytes
+per call; native and scoped layout probes improve but still have larger remaining
+semantic costs. Heap object, driver admission and slow-boundary counts are unchanged.
+
+The remaining fixed/alternating interface slope is two allocation requests/sixteen
+bytes per call, not argument/root packing or application preparation. Code review
+identifies `TypeView::compare` calling `closed` on each side, and `Ty::is_concrete`
+allocating `vec![self]` even for an empty-argument interface. That is consistent with
+the slope, not an independent allocation-stack measurement. HP03 admission review
+and HP05's scoped compatibility/layout identities must address repeated immutable
+type inspection through the intended ownership model, rather than replace the
+walker with an unrelated small-vector patch. No validity checks were removed.
+
+Paired ordinary source forms against the environment-admission checkpoint are in
+`target/lua-comparison/20261010T053347Z-forms-paired/results.json`; all checksums pass.
+Baseline is `target/hp03/environment-admission-executable` (hash above). Candidate
+is preserved as `target/hp03/scoped-calls-executable`, SHA-256
+`1c5c1fdbd92bcf9db9390f1dd268e9592e9727662267c5d9787f10ed127f4f8e`.
+Candidate/baseline ratios are direct 1.0760, helper 0.9934, concrete generic 1.0244,
+interface 1.0956, shared generic 0.8565, capture cell 0.9499, field 1.0074,
+native 1.0002, byte state 0.9983, host callback 1.0161, string constants 0.9935
+and string calls 0.9935. Lua controls range 0.9584–1.0091; shared generic's control
+is 0.9992. The measured shared-generic gain is material, but VM/Lua remains 79.87.
+Ordinary interfaces regress 9.56% and direct scalar execution regresses 7.60%; these
+remain acceptance failures, not evidence to remove checks or alter benchmark flags.
+Closed contracts still pay dynamic descriptor lookup/admission; that boundary and
+the previously recorded execution-region sensitivity require further architecture
+review. The measurements alone do not isolate the causes of either regression.
+
+Same M1 Max/32 GiB/10 logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8,
+default workspace release profile and Cargo parallelism. Fresh single-threaded
+baseline/candidate/candidate/baseline processes use three warmups and 22 pooled samples
+per variant. Normal GC is included and diagnostics disabled. The 19.016 s incremental
+build is excluded from execution time. Workloads, compiler flags and alignment are
+unchanged; allocation diagnostics and throughput are run separately.
+
+The original-seven paired run passes every checksum:
+`target/lua-comparison/20261010T053609Z-paired/results.json`, same hashes/environment,
+0.077 s incremental build excluded. Candidate/baseline ratios are entry 0.9916,
+arithmetic 1.0860, branches 1.0326, calls 1.0429, fibonacci 0.9848, arrays 1.0218
+and maps 0.9984; Lua controls range 0.9637–1.0086. Calls remain 24.81 times Lua.
+Arithmetic/call regressions reinforce that this is an intermediate architectural
+checkpoint, not overall performance acceptance. Arithmetic has no interface-call
+preparation to attribute its timing change to; retained execution-region/code-generation
+review remains necessary.
+
+Independent interface sampling of the preserved ordinary binaries, after throughput
+and without concurrent builds/tests, is in `target/hp03/scoped-calls-profiles/`.
+Each uses the existing 5 s/1 ms sample within a warmed 10 s window and counts
+instructions afterwards. Both execute 110,014 Kagari instructions versus 65,009 Lua
+instructions. Profiled windows finish 1,718/1,586 invocations, allocate one heap
+interface per invocation and collect six times each. Collapsed top samples for SipHash
+write rise 67 to 180, ModuleKey hashing 74 to 130 and module resolution 37 to 66;
+the candidate additionally shows scoped descriptor get/site hash samples 32/29.
+Method application samples fall 70 to 21. Sampling is not exclusive cycle attribution,
+but supports the concrete next architectural action: closed linked call facts should
+be directly available to their admitted executable scope, without generic dynamic
+scope/index discovery on every call. It does not explain the separate scalar regression.
+Checks, compiler/alignment settings and frozen workloads remain intact.
+
+Final diagnostic-target Clippy, formatting, structure review, all 84 local document
+links and diff checks pass. No build/test errors are carried; no full-workspace suite
+or GitHub CI run was performed. HP03 remains open for closed linked-call admission
+and integration review, with immutable type compatibility work owned jointly with
+the already planned HP05 layout admission. The full HP00–HP06 objective is unchanged.

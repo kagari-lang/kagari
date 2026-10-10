@@ -287,6 +287,7 @@ impl Runtime {
                 })
                 .transpose()?;
             methods.push(Some(InterfaceMethodBinding {
+                identity: Default::default(),
                 receiver_operations: MetadataCache::new(),
                 parameters: method.generic_params.clone(),
                 entry_parameters: match slot.target {
@@ -771,27 +772,6 @@ impl Runtime {
             arguments,
             operations,
         )
-    }
-
-    fn prepare_interface_invocation_slot(
-        &self,
-        value: &Value,
-        interface: &NominalTy<DefinitionId>,
-        slot: usize,
-        arguments: &[TypeArgument],
-        operations: OperationBindings,
-    ) -> Result<(MethodInvocation, Value), RuntimeError> {
-        let id = self.select_interface_snapshot(value, interface)?;
-        let method = MethodInvocation::from_interface(self, id, slot)?;
-        let receiver = self
-            .gc
-            .interface_metadata(id)
-            .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?
-            .data;
-        Ok((
-            self.apply_method_invocation(method, arguments, operations)?,
-            receiver,
-        ))
     }
 
     fn select_interface_snapshot(

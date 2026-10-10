@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::{
-        application_key::{AdapterIdentity, MethodIdentity},
+        application_key::{AdapterIdentity, InterfaceMethodIdentity, MethodIdentity},
         applications::MethodApplication,
         groups::OperationId,
         operation::BoundOperation,
@@ -19,7 +19,7 @@ use crate::{
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{GenericParam, Ty};
-use std::cell::Ref;
+use std::{cell::Ref, sync::Arc};
 
 pub(super) enum SelectionView<'a> {
     Interface {
@@ -234,29 +234,37 @@ impl MethodView<'_> {
 
     pub(super) fn identity(&self) -> MethodIdentity {
         match &self.selection {
-            SelectionView::Interface { snapshot, slot } => {
-                let binding = &snapshot.receiver_table;
-                MethodIdentity::Interface {
-                    owner: binding.owner.key(),
-                    table: binding.table,
-                    slot: *slot,
-                    interface: snapshot.interface_expression.clone(),
-                    arguments: binding.arguments.clone(),
-                    environment: binding
-                        .environment
-                        .as_ref()
-                        .map(|environment| environment.id),
-                    result_adapter: self.result_adapter().map(|adapter| AdapterIdentity {
-                        owner: adapter.owner.key(),
-                        table: adapter.table,
-                        arguments: adapter.arguments.clone(),
-                        environment: adapter
+            SelectionView::Interface { snapshot, slot } => snapshot.methods[*slot]
+                .as_ref()
+                .expect("checked interface slot")
+                .identity
+                .get_or_init(|| {
+                    let binding = &snapshot.receiver_table;
+                    MethodIdentity::Interface(Arc::new(InterfaceMethodIdentity {
+                        owner: binding.owner.key(),
+                        table: binding.table,
+                        slot: *slot,
+                        interface: snapshot.interface_expression.clone(),
+                        arguments: binding.arguments.clone(),
+                        environment: binding
                             .environment
                             .as_ref()
                             .map(|environment| environment.id),
-                    }),
-                }
-            }
+                        result_adapter: snapshot.methods[*slot]
+                            .as_ref()
+                            .and_then(|method| method.result_adapter.as_ref())
+                            .map(|adapter| AdapterIdentity {
+                                owner: adapter.owner.key(),
+                                table: adapter.table,
+                                arguments: adapter.arguments.clone(),
+                                environment: adapter
+                                    .environment
+                                    .as_ref()
+                                    .map(|environment| environment.id),
+                            }),
+                    }))
+                })
+                .clone(),
             SelectionView::Operation { id, .. } => MethodIdentity::Operation(*id),
         }
     }

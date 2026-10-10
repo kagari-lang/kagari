@@ -574,8 +574,8 @@ allocation/reallocation requests, bytes requested and net allocated bytes on the
 current thread; net bytes may be negative when GC frees earlier allocations.
 They are not peak memory or bytes retained after collection. Heap object counts
 include reclaimed objects; environment/application deltas report live records.
-Runtime counters report method/shared preparation attempts, environment allocation
-attempts, non-program metadata graph validation entries and prepared-region exits
+Runtime counters report method/shared and scoped interface-call preparation attempts,
+environment allocation attempts, non-program metadata graph validation entries and prepared-region exits
 to ordinary dispatch. They include same-thread synchronous reentry. Cold counts include first-call descriptor preparation; they do not measure
 instruction cost or time saved. The HP00 warm baseline used one shared runtime
 for source forms, so differences in GC/live deltas require that context.

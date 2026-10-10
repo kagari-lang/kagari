@@ -1,7 +1,9 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
-    execution_metadata::MetadataRoot,
+    execution_metadata::{
+        MetadataRoot, application_key::ApplicationArguments, call_contracts::InterfaceCallSite,
+    },
     frame::{
         transfer::ReturnValue,
         types::{EnvironmentRecord, operations::OperationBindings},
@@ -140,7 +142,11 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         let prepare = || {
             let method = MethodInvocation::from_operation(&runtime, operation_id).unwrap();
             let method = runtime
-                .apply_method_invocation(method, &[], Default::default())
+                .apply_method_invocation(
+                    method,
+                    &ApplicationArguments::new(&loaded, vec![]).unwrap(),
+                    Default::default(),
+                )
                 .unwrap();
             let mut edges = Vec::new();
             method.append_metadata(&mut edges);
@@ -495,26 +501,31 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         None,
     );
     for _ in 0..3 {
-        let witnesses = loaded
+        let site = loaded
             .bytecode
             .functions
             .iter()
-            .flat_map(|function| &function.instructions)
-            .find_map(|instruction| match instruction {
-                BytecodeInstruction::Call {
-                    callee: CallTarget::InterfaceMethod { contract, .. },
-                    ..
-                } if !contract.operations.is_empty() => Some(&contract.operations),
-                _ => None,
+            .find_map(|function| {
+                function
+                    .instructions
+                    .iter()
+                    .enumerate()
+                    .find_map(|(pc, instruction)| match instruction {
+                        BytecodeInstruction::Call {
+                            callee: CallTarget::InterfaceMethod { contract, .. },
+                            ..
+                        } if !contract.operations.is_empty() => Some(InterfaceCallSite {
+                            function: function.id,
+                            pc,
+                        }),
+                        _ => None,
+                    })
             })
             .unwrap();
-        let first = runtime
-            .bind_operations_in(&loaded, None, witnesses)
-            .unwrap();
-        let second = runtime
-            .bind_operations_in(&loaded, None, witnesses)
-            .unwrap();
-        assert_eq!(first.identity(), second.identity());
+        let first_call = runtime.prepare_interface_call(&loaded, None, site).unwrap();
+        let second_call = runtime.prepare_interface_call(&loaded, None, site).unwrap();
+        assert!(Arc::ptr_eq(&first_call, &second_call));
+        let first = first_call.operations.clone();
         assert!(!first.is_empty());
         runtime.collect_garbage().unwrap();
         assert!(first.validate(&runtime.gc));
@@ -536,10 +547,10 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
                     EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
                 )
                 .unwrap();
-            let operations = runtime
-                .bind_operations_in(&loaded, Some(scope.clone()), witnesses)
+            let call = runtime
+                .prepare_interface_call(&loaded, Some(scope.clone()), site)
                 .unwrap();
-            assert_ne!(first.identity(), operations.identity());
+            assert_ne!(first.identity(), call.operations.identity());
             last_scope = Some(scope);
         }
         runtime.collect_garbage().unwrap();
@@ -549,7 +560,7 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         // Retaining an index key cannot resurrect a stale caller environment.
         assert!(
             runtime
-                .bind_operations_in(&loaded, last_scope, witnesses)
+                .prepare_interface_call(&loaded, last_scope, site)
                 .is_err()
         );
         let candidate = runtime
