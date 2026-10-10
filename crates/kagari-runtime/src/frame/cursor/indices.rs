@@ -34,8 +34,9 @@ impl ExecutionCursor<'_> {
         ordinal: usize,
     ) -> Result<Option<CursorExit>, RegionError> {
         let operation = *self
-            .frame
-            .prepared_index(ordinal)
+            .function
+            .indices
+            .get(ordinal)
             .ok_or_else(|| self.invalid())?;
         // Preserve base, index, value evaluation order before interpreting the
         // index. Locations are sealed, but current heap identities remain checked.

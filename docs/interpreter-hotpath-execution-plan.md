@@ -1,8 +1,8 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP03 and HP05 implementation
-are complete. HP04 acceptance and HP06 integration/retrospective remain open; local
-phase progress does not establish CI acceptance or Lua parity.
+Status: active, authorized by the user on 2026-10-10; HP00–HP05 have local phase
+acceptance. HP06 integration/retrospective remains open; local phase progress does
+not establish complete architecture/CI acceptance or Lua parity.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -378,7 +378,7 @@ only content/link/diff checks. Use `Phase: HPxx` in implementation commit traile
 - [x] HP01 — Runtime-linked executable identities and publication.
 - [x] HP02 — Active execution ownership and transitions.
 - [x] HP03 — Unified call/return protocol (local phase acceptance; final performance/CI gates remain open).
-- [ ] HP04 — Common prepared operation model.
+- [x] HP04 — Common prepared operation model (local contracts and carried control gates accepted; HP06 integration/CI/parity remain open).
 - [x] HP05 — Unified layout admission and enum access (local mechanism/contract acceptance; integrated performance and CI remain open).
 - [ ] HP06 — Old-path retirement and architecture evaluation.
 - [ ] Complete GitHub CI acceptance.
@@ -4381,3 +4381,108 @@ Any implementation must replace the repeated reconstruction coherently and compa
 with both this checkpoint and the preserved HP04 reference. HP06 still owns final
 retrospective removal, setup/retained-memory accounting, final checks and unchanged
 HP00 comparisons; the finite scope and separate unmet performance gates remain intact.
+
+
+2026-10-10 HP04, one function view per admitted region (in progress):
+
+The previous HP05 checkpoint identified repeated function/code selection at every
+managed-to-scalar handoff, despite the function's identity being immutable throughout
+that closed region. ExecutionCursor now borrows LoadedModule, ExecutionFunction and
+optional LinkedFunction directly, alongside disjoint mutable PC/executing references
+and the existing operand window. The private scalar kernel operates on that same
+cursor; ScalarCursor and its per-segment constructor are removed. Prepared field/index
+operations read the admitted function's tables. Ready scoped-field lookup moves from
+the frame wrapper to its actual LinkedFunction owner. External/lazy-transition frame
+lookup remains checked after the region borrow ends.
+
+The code view is selected once after the existing frame/window/session admission, at
+the point where the first scalar segment previously selected it. The cursor cannot
+replace the loaded module, target, environment or links. Only closed kernel methods
+can use it; allocation, collection, callbacks, lazy field/tuple preparation and calls
+return through the existing transitions and release all views. No persistent cache,
+frame field, clone/retention lease, unsafe alias, new instruction encoding or public
+unchecked entry is introduced. Functions without runtime links remain supported.
+Missing links, invalid ordinals, live heap identities, initialized/bounded operands,
+slot representation, native pre/post polls and logical cancellation/observer/slice
+checks retain their original enforcement. Earlier constant/field/index/String/Vec
+implementations are reused, without benchmark-specific dispatch or compiler settings.
+
+Focused local contracts pass under `target/hp04/region-views/`: runtime cursor borrow
+quarantine (1), installed primitive body/signature/access contracts (2), native control/
+reentry/cancellation/retained-generation contracts (7), embed async debugger and
+lifecycle reload contracts (1 each), VM one-instruction owned drive/iteration leases
+(2) and frame/field/index/lifetime contracts (17). These exercise both sliced and
+unbounded execution without creating a parallel regression suite. Strict all-target
+runtime/VM Clippy with execution diagnostics, formatting, diff and structure checks
+pass (1,025 files, zero violations/exceptions). No intermediate full-workspace suite
+or GitHub CI matrix ran. Release diagnostics and ordinary controls follow separately;
+no throughput conclusion follows from source simplification alone.
+
+All 86 restored benchmark diagnostic rows match cff6c137 exactly: allocations,
+requested/net bytes, heap objects/collections, preparation/admission and driver/slow
+boundary counters are unchanged. In particular, warm strings retain seven Rust
+requests and zero new string objects or collections. This unit adds no per-frame,
+per-object, linked-function or instruction metadata fields. Only stack-local borrowed
+views change, and ordinary release throughput is measured without instrumentation.
+
+Ordinary release candidate is `target/hp04/region-views/prepared-executable`, SHA-256
+`5161d2859bb0e693960c7e7fa0b1b6e288f182eafc52ee6f804571494b9d3d33`.
+Current baseline cff6c137 is `target/hp05/enum-consumers/prepared-executable`, SHA-256
+`80ad1058a08d98a3bf8aecdfd09995aa775472841a99b4abb4cf8072d928280b`.
+The carried HP04 reference remains 5c2527f2 at `target/hp04/primitives/prepared-executable`,
+SHA-256 `457da165a899ae3d77123449e7930a08f11590d960692ea458853f4bf081558e`.
+Raw runs under `target/lua-comparison/` are `20261010T115942Z-forms-paired`,
+`20261010T120016Z-paired` and independent `20261010T120226Z-forms-paired` against
+that older HP04 reference. Excluded build times are 20.253/0.120/0.109 seconds.
+Conditions: M1 Max, 32 GiB, ten logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/
+LLVM 22.1.8, PUC Lua 5.4.8, workspace release/default target/default build parallelism,
+source/native features, diagnostics off, reused build cache and normal GC/allocator.
+Unchanged fixtures use three warmups, 11 samples per process (22 pooled), serial
+B/C/C/B; no concurrent builds, tests, profiles or Rust edits. All checksums pass.
+
+| Workload | Candidate/cff6c137 | Lua control | Candidate/5c2527f2 | Older-reference Lua control |
+| --- | ---: | ---: | ---: | ---: |
+| byte_state | 0.8360 | 1.0079 | 0.8528 | 1.0448 |
+| capture_cell | 0.9592 | 1.0127 | 0.9774 | 1.0272 |
+| concrete_generic | 0.9602 | 0.9691 | 0.9631 | 1.0074 |
+| direct | 0.9508 | 0.9908 | 0.8969 | 1.0000 |
+| field | 0.8197 | 0.9905 | 0.7491 | 1.0060 |
+| helper | 0.9451 | 0.9863 | 0.9674 | 0.9981 |
+| host_callback | 0.9765 | 1.0134 | 0.9520 | 1.0112 |
+| interface | 0.9688 | 0.9985 | 0.9616 | 1.0005 |
+| native | 0.9628 | 1.0040 | 0.9548 | 1.0068 |
+| shared_generic | 0.9600 | 0.9979 | 0.9595 | 1.0255 |
+| string_calls | 0.8972 | 0.9930 | 0.9197 | 1.0082 |
+| string_constants | 0.8214 | 1.0131 | 0.8331 | 1.0000 |
+
+Original-suite candidate/cff6c137 medians (Lua controls): arithmetic 0.9927 (1.0106),
+arrays 0.8856 (1.0112), branches 0.9799 (1.0049), calls 0.9607 (1.0023), fibonacci
+0.9564 (1.0058), maps 0.9609 (0.9966); entry diagnostic 0.9808 (0.9856). Small
+changes, especially those comparable with Lua's shift, are not individually robust
+speedup claims. The much larger String/field/byte-state/array improvements exceed
+those controls, and independent comparison against the older reference recovers the
+carried HP04 String gate. This does not isolate each machine-instruction contribution
+or guarantee immunity to future generated-code regressions.
+
+Source-form setup medians, baseline/candidate milliseconds: source-to-artifact
+1,143.914/1,145.114; artifact preparation 269.283/261.696; runtime init
+115.034/109.704; program link 3.257/3.288. These two-process setup samples are
+reported separately from execution, not a claimed setup optimization. No executable
+metadata representation changes in this unit; exact diagnostic net bytes and all
+persistent layouts remain unchanged. HP06 still evaluates cumulative HP00-to-final
+metadata/setup costs, rather than treating this local result as the full accounting.
+
+HP04 local phase acceptance is now closed: planned common operations share prepared
+physical operands and storage semantics; the cold VM dispatcher rejects those migrated
+opcodes instead of preserving a second semantic handler. Real allocation/lazy/reentrant
+transitions remain checked. Scoped type admission's carried allocation defect was
+closed by HP05's common TypeView/layout work; this unit removes per-handoff function
+selection and recovers the carried control regression without weakening semantics.
+Current candidate/Lua ratios still include 4.47 arithmetic, 20.60 arrays, 2.61 branches,
+22.31 calls, 29.36 fibonacci and 47.98 maps; String constants/calls are 10.10/24.78
+(first pair) and 10.12/24.37 (older-reference pair). None establish Lua parity.
+No build/test error is carried. HP06 must close the retrospective rows, audit remaining
+ownership/retention and public surfaces, run final local integration/debug-release
+boundary checks, compare all unchanged workloads against HP00 and report CI separately.
+No additional language/backend feature or unbounded optimization work is authorized
+by closing this phase. target/release retains the same ordinary candidate binary.

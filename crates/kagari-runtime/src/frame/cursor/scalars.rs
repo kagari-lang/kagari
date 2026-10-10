@@ -1,22 +1,9 @@
 //! Borrow code and scalar banks once while preserving each logical boundary.
 use crate::{
-    Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{cursor::ExecutionCursor, transfer::ReturnValue},
     module::execution::{ExecutionInstruction, ScalarSlot, managed::PreparedManagedOperation},
-    session::SessionState,
 };
-use kagari_bytecode::module::CallableTarget;
-
-pub(super) struct ScalarCursor<'a> {
-    instructions: &'a [ExecutionInstruction],
-    ip: &'a mut usize,
-    executing: &'a mut Option<usize>,
-    payloads: &'a mut [u64],
-    initialized: &'a mut [bool],
-    runtime: &'a Runtime,
-    session: &'a SessionState,
-}
 
 pub(super) enum ScalarExit {
     Slice,
@@ -56,40 +43,8 @@ impl InstructionSlice for Bounded<'_> {
     }
 }
 
-impl ExecutionCursor<'_> {
-    pub(super) fn scalars(&mut self) -> Result<ScalarCursor<'_>, RuntimeError> {
-        let frame = &mut *self.frame;
-        let CallableTarget::Script(function) = frame.target else {
-            return Err(self
-                .runtime
-                .resources()
-                .quarantine("scalar region requires script frame"));
-        };
-        let instructions = &frame
-            .loaded
-            .execution()
-            .functions
-            .get(function.index())
-            .ok_or_else(|| {
-                self.runtime
-                    .resources()
-                    .quarantine("invalid execution function")
-            })?
-            .instructions;
-        Ok(ScalarCursor {
-            instructions,
-            ip: &mut frame.ip,
-            executing: &mut frame.executing,
-            payloads: self.values.payloads,
-            initialized: self.values.initialized,
-            runtime: self.runtime,
-            session: self.session,
-        })
-    }
-}
-
-impl<'code> ScalarCursor<'code> {
-    pub(super) fn execute(
+impl<'code> ExecutionCursor<'code> {
+    pub(super) fn execute_scalars(
         &mut self,
         remaining: &mut Option<usize>,
         collection_due: bool,
@@ -184,25 +139,26 @@ impl<'code> ScalarCursor<'code> {
 
     #[inline(always)]
     fn payload(&self, slot: ScalarSlot) -> Result<u64, RuntimeError> {
-        if !self.initialized.get(slot.index()).copied().unwrap_or(false) {
+        if !self
+            .values
+            .initialized
+            .get(slot.index())
+            .copied()
+            .unwrap_or(false)
+        {
             return Err(self.invalid());
         }
-        self.payloads
+        self.values
+            .payloads
             .get(slot.index())
             .copied()
             .ok_or_else(|| self.invalid())
     }
 
     fn write_payload(&mut self, slot: ScalarSlot, value: u64) -> Option<()> {
-        *self.payloads.get_mut(slot.index())? = value;
-        *self.initialized.get_mut(slot.index())? = true;
+        *self.values.payloads.get_mut(slot.index())? = value;
+        *self.values.initialized.get_mut(slot.index())? = true;
         Some(())
-    }
-
-    fn invalid(&self) -> RuntimeError {
-        self.runtime
-            .resources()
-            .quarantine("invalid execution operand slot")
     }
 
     fn prepare_instruction(&mut self, collection_due: bool) -> bool {
@@ -218,14 +174,14 @@ impl<'code> ScalarCursor<'code> {
         // The admitted code slice is immutable for this region. Borrow the
         // instruction so only the selected handler reads its payload; copying
         // the whole enum before dispatch also decodes unrelated managed fields.
-        let instruction = self.instructions.get(*self.ip)?;
+        let instruction = self.function.instructions.get(*self.ip)?;
         *self.executing = Some(*self.ip);
         *self.ip += 1;
         Some(instruction)
     }
 
     fn jump(&mut self, target: usize) -> Result<(), RuntimeError> {
-        if target >= self.instructions.len() {
+        if target >= self.function.instructions.len() {
             return Err(self
                 .runtime
                 .resources()

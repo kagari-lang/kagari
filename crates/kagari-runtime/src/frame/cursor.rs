@@ -7,8 +7,10 @@ use crate::{
         cursor::kernel::{CursorExit, RegionError, RegionExit},
         values::operands::OperandWindow,
     },
+    module::{LoadedModule, execution::ExecutionFunction, linked_execution::LinkedFunction},
     session::SessionState,
 };
+use kagari_bytecode::module::CallableTarget;
 use std::ptr;
 
 mod indices;
@@ -23,7 +25,11 @@ mod transitions;
 /// All references live inside execute_region. No caller callback or supplied Value
 /// can intervene while admission is reused; exits release the frame and bank borrows.
 struct ExecutionCursor<'a> {
-    frame: &'a mut ExecutionFrame,
+    loaded: &'a LoadedModule,
+    function: &'a ExecutionFunction,
+    links: Option<&'a LinkedFunction>,
+    ip: &'a mut usize,
+    executing: &'a mut Option<usize>,
     values: OperandWindow<'a>,
     runtime: &'a Runtime,
     session: &'a SessionState,
@@ -72,8 +78,34 @@ impl ExecutionStack<'_> {
                 .quarantine("invalid execution frame window")
         })?;
         let session = self.session.state();
+        // Split immutable execution facts from the only frame state a closed
+        // region may change. Every handler shares this admitted function view;
+        // calls, allocation and lazy preparation end the borrow before transition.
+        let ExecutionFrame {
+            loaded,
+            target,
+            links,
+            ip,
+            executing,
+            ..
+        } = &mut *frame;
+        let CallableTarget::Script(function) = *target else {
+            return Err(runtime
+                .resources()
+                .quarantine("scalar region requires script frame")
+                .into());
+        };
+        let function = loaded
+            .execution()
+            .functions
+            .get(function.index())
+            .ok_or_else(|| runtime.resources().quarantine("invalid execution function"))?;
         ExecutionCursor {
-            frame: &mut frame,
+            loaded,
+            function,
+            links: links.as_deref(),
+            ip,
+            executing,
             values,
             runtime,
             session: &session,

@@ -6,7 +6,10 @@ use crate::{
     error::RuntimeError,
     execution_metadata::environments::EnvironmentId,
     frame::types::TypeEnvironment,
-    module::{EnumVariantRef, LoadedModule, StructLayoutRef, execution::ExecutionFunction},
+    module::{
+        EnumVariantRef, LoadedModule, StructLayoutRef, execution::ExecutionFunction,
+        linked_execution::LinkedFunction,
+    },
 };
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, EnumId, StructId},
@@ -59,6 +62,19 @@ pub(crate) struct FunctionLayouts {
     sites: Box<[(usize, usize)]>,
     operands: Box<[LinkedLayout]>,
     scoped_count: usize,
+}
+
+impl LinkedFunction {
+    pub(crate) fn ready_field_layout(&self, pc: usize) -> Option<&StructLayoutRef> {
+        let AggregateLayout::Struct(layout) = self
+            .layouts
+            .as_ref()?
+            .ready(self.applied_layouts.as_deref(), pc)?
+        else {
+            return None;
+        };
+        Some(layout)
+    }
 }
 
 impl FunctionLayouts {

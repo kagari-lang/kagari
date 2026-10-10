@@ -70,7 +70,7 @@ impl ExecutionCursor<'_> {
         let collection_due = self.runtime.gc().collection_due();
         let mut first = true;
         loop {
-            match self.scalars()?.execute(remaining, collection_due, first)? {
+            match self.execute_scalars(remaining, collection_due, first)? {
                 ScalarExit::Slice => return Ok(CursorExit::Region(RegionExit::Slice)),
                 ScalarExit::Safepoint => return Ok(CursorExit::Region(RegionExit::Safepoint)),
                 ScalarExit::Return(value) => {
@@ -85,12 +85,7 @@ impl ExecutionCursor<'_> {
                     dst,
                     constant,
                 })) => {
-                    let pool = &self
-                        .frame
-                        .links
-                        .as_ref()
-                        .ok_or_else(|| self.invalid())?
-                        .constants;
+                    let pool = &self.links.ok_or_else(|| self.invalid())?.constants;
                     let Some(value) = pool.get(constant) else {
                         return Ok(CursorExit::Transition(PreparedTransition::Constant {
                             dst,

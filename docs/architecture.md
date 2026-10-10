@@ -827,6 +827,14 @@ callers, independently of host leases. Session frames use indexed storage.
 `ExecutionStack::execute_region` admits the active session/frame scope and window
 owner/generation, then borrows bounded scalar/managed banks for the closed operation.
 Its cursor is private and cannot escape to callers or accept callbacks/external Values.
+Region admission also selects one immutable ExecutionFunction and borrows its exact
+LoadedModule and optional LinkedFunction separately from the mutable PC/executing
+position. Scalar, managed, field and index handlers share those views. The scalar
+kernel operates directly on this cursor; it no longer reconstructs a second cursor
+or reselects the function after every managed operation. Field/index ordinal checks
+and lazy scoped-layout transitions remain, and missing runtime links still fail at
+the operation that needs them. No persistent frame field, code clone or extra module
+lease is needed: all views end with the original frame/window borrow.
 Internal operand access reuses these borrows without repeated session or window lookup;
 the region releases them before returning to GC, observation, calls or reentry.
 Checked external frame access and region entry still enforce sticky termination and
@@ -1041,14 +1049,15 @@ callbacks, readonly access, bounds and current element contracts remain checked.
 The fixed setter copies an already rooted Value without a Rust conversion or heap
 growth. SDK conversions still retain their own roots, limits and safepoints because
 they may allocate or reenter; committing afterward rechecks the actual storage.
-Each scalar segment splits the admitted Rust borrow into an immutable code slice,
-mutable logical-PC fields and bounded scalar/initialization slices. Fetch borrows
-one immutable instruction; dispatch then reads only its selected payload rather
-than copying the complete nested enum before classifying it. Instructions
-still check operand bounds and initialization, but no longer recover the loaded
-function or bank range per operand. These borrows end before object handoff or
-region exit; no pointer or exclusive borrow survives a callback or arena growth.
-The scalar cursor selects bounded or unbounded stepping once at segment entry. Bounded
+Each scalar segment reuses the region's immutable function and disjoint mutable
+logical-PC fields and bounded scalar/initialization slices. Fetch borrows one
+immutable instruction; dispatch reads only its selected payload rather than copying
+the complete nested enum before classifying it. Instructions still check operand
+bounds and initialization without recovering the function or bank range. Closed
+managed handoffs keep the same cursor; region exit releases every borrowed view
+before callbacks, collection or arena growth. The separate non-inlined scalar
+kernel keeps object handlers out of its instruction loop and inlining budget.
+The scalar kernel selects bounded or unbounded stepping once at segment entry. Bounded
 execution borrows the remaining count directly; unbounded execution carries no
 countdown state. Both use the same generic instruction loop, so the optional mode
 is not decoded at each logical instruction. Bounded execution retains saturating

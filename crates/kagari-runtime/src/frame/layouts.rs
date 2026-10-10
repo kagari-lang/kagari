@@ -93,18 +93,6 @@ impl ExecutionFrame {
         )
     }
 
-    pub(super) fn ready_field_layout(&self, pc: usize) -> Option<&StructLayoutRef> {
-        let links = self.links.as_ref()?;
-        let AggregateLayout::Struct(layout) = links
-            .layouts
-            .as_ref()?
-            .ready(links.applied_layouts.as_deref(), pc)?
-        else {
-            return None;
-        };
-        Some(layout)
-    }
-
     pub(super) fn field_layout(
         &self,
         runtime: &Runtime,

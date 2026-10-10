@@ -24,9 +24,7 @@ impl ExecutionCursor<'_> {
         index: usize,
     ) -> Result<NativeContinuation, RegionError> {
         let operation = self
-            .frame
             .links
-            .as_ref()
             .and_then(|links| links.primitive(index))
             .ok_or_else(|| self.invalid())?;
         let Some(operation) = operation else {
@@ -49,7 +47,7 @@ impl ExecutionCursor<'_> {
                 })
             }
             LinkedPrimitiveBody::Vector(vector) => {
-                let owner = self.frame.loaded();
+                let owner = self.loaded;
                 execute_primitive(runtime, &mut self.values, operation.destination, |values| {
                     vector.operation.execute(
                         runtime,

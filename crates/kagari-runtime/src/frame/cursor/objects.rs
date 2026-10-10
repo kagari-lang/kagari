@@ -17,13 +17,15 @@ impl ExecutionCursor<'_> {
         index: usize,
     ) -> Result<Option<CursorExit>, RegionError> {
         let operation = self
-            .frame
-            .prepared_field(index)
+            .function
+            .fields
+            .get(index)
             .ok_or_else(|| self.invalid())?;
-        let Some(layout) = operation
-            .concrete_layout(self.frame.loaded())
-            .or_else(|| self.frame.ready_field_layout(operation.pc).cloned())
-        else {
+        let Some(layout) = operation.concrete_layout(self.loaded).or_else(|| {
+            self.links
+                .and_then(|links| links.ready_field_layout(operation.pc))
+                .cloned()
+        }) else {
             return Ok(Some(CursorExit::Transition(PreparedTransition::Field {
                 index,
             })));
