@@ -1,7 +1,9 @@
 //! Immutable aggregate descriptions; installed application caches live in ModuleStore.
 use crate::{
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
-    module::{EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef},
+    module::{
+        EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef, layout_identity::LayoutIdentity,
+    },
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
@@ -9,7 +11,14 @@ use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::{NominalTy, Ty};
 use std::{collections::HashMap, sync::Arc};
 
-type LayoutApplications<Id, Layout> = HashMap<Id, HashMap<Vec<Ty<DefinitionId>>, Arc<Layout>>>;
+type LayoutApplications<Id, Layout> =
+    HashMap<Id, HashMap<Vec<Ty<DefinitionId>>, AppliedLayout<Layout>>>;
+
+#[derive(Debug)]
+struct AppliedLayout<L> {
+    layout: Arc<L>,
+    canonical: Option<LayoutIdentity>,
+}
 
 #[derive(Debug, Default)]
 pub(super) struct LayoutCache {
@@ -78,6 +87,13 @@ impl LoadedModule {
         Some(StructLayoutRef {
             module: self.clone(),
             id,
+            canonical: match &applied {
+                None => Some(self.program.layouts.structure(self.slot, id)),
+                Some(layout) => self
+                    .program
+                    .layouts
+                    .applied_structure(layout, &self.program.code.modules),
+            },
             applied,
             environment: None,
         })
@@ -108,6 +124,13 @@ impl LoadedModule {
             module: self.clone(),
             id,
             variant,
+            canonical: match &applied {
+                None => Some(self.program.layouts.enumeration(self.slot, id)),
+                Some(layout) => self
+                    .program
+                    .layouts
+                    .applied_enumeration(layout, &self.program.code.modules),
+            },
             applied,
             environment: None,
         })
@@ -138,18 +161,20 @@ impl ModuleStore {
             return Some(StructLayoutRef {
                 module: owner.clone(),
                 id,
-                applied: Some(applied.clone()),
+                applied: Some(applied.layout.clone()),
+                canonical: applied.canonical,
                 environment: None,
             });
         }
         let layout = owner.applied_struct_layout(id, arguments)?;
         if let Some(applied) = &layout.applied {
-            record
-                .layouts
-                .structures
-                .entry(id)
-                .or_default()
-                .insert(arguments.to_vec(), applied.clone());
+            record.layouts.structures.entry(id).or_default().insert(
+                arguments.to_vec(),
+                AppliedLayout {
+                    layout: applied.clone(),
+                    canonical: layout.canonical,
+                },
+            );
         }
         Some(layout)
     }
@@ -174,23 +199,25 @@ impl ModuleStore {
             .get(&id)
             .and_then(|cache| cache.get(arguments))
         {
-            applied.variants.get(variant as usize)?;
+            applied.layout.variants.get(variant as usize)?;
             return Some(EnumVariantRef {
                 module: owner.clone(),
                 id,
                 variant,
-                applied: Some(applied.clone()),
+                applied: Some(applied.layout.clone()),
+                canonical: applied.canonical,
                 environment: None,
             });
         }
         let layout = owner.applied_enum_variant(id, arguments, variant)?;
         if let Some(applied) = &layout.applied {
-            record
-                .layouts
-                .enumerations
-                .entry(id)
-                .or_default()
-                .insert(arguments.to_vec(), applied.clone());
+            record.layouts.enumerations.entry(id).or_default().insert(
+                arguments.to_vec(),
+                AppliedLayout {
+                    layout: applied.clone(),
+                    canonical: layout.canonical,
+                },
+            );
         }
         Some(layout)
     }
@@ -304,15 +331,13 @@ impl EnumVariantRef {
         {
             return true;
         }
-        // Native results and their consuming patterns can use different module
-        // slots/templates in the same pinned program. With no lexical bindings,
-        // equal applied layouts resolve every nested nominal type through that
-        // same immutable dependency graph. Reuse those layouts instead of
-        // rebuilding both type applications during each compatibility check.
+        // Equal layouts in different member slots were normalized at linking or
+        // application preparation. No hashing or structural comparison occurs here.
         if Arc::ptr_eq(&self.module.program, &other.module.program)
+            && self.canonical.is_some()
+            && self.canonical == other.canonical
             && self.environment.is_none()
             && other.environment.is_none()
-            && self.layout() == other.layout()
         {
             return true;
         }

@@ -654,3 +654,69 @@ source-form checksum checks pass. No carried build/test failures remain. No full
 workspace suite, GitHub CI matrix or new paired throughput run was performed.
 The ordinary executable is preserved as `target/hp01/witness-shared-executable`, SHA-256
 `904289770aa24ee12440c19acd5b5f7f22a6508f1670bfbaddcf2e264fa89346`.
+
+2026-10-10 HP01, linked layout identity checkpoint (in progress): `ProgramDescriptor`
+now owns canonical struct/enum layout tables prepared from the verified, normalized
+members before publication. Dense identities are meaningful only within that exact
+program descriptor and aggregate kind. Hash buckets select candidates; complete layout
+equality, including declaration, arguments and field/variant contracts, establishes
+equivalence. The tables keep bytecode locations and IDs instead of copying layouts or
+retaining runtime resources. Their size is bounded by the linked program's layout count.
+
+Template applications resolve a matching linked identity on preparation, retaining it
+with their existing application record. Prepared field operands use the same identities.
+This replaces the VE09 same-program enum whole-layout equality shortcut: duplicate
+member layouts now compare their prepared identities, without hashing or walking layout
+trees during access. An identity cannot bypass variant, runtime/program or lexical
+payload-scope checks. Cross-generation compatibility and applications with no matching
+linked layout still use complete `TypeView` compatibility; migration of those explicit
+admissions and runtime-only/scoped layout preparation remains required HP01/HP05 work.
+
+The runtime layout ownership contract verifies duplicate member layouts, matching
+generic/closed applications, distinct versions, variant mismatch and collection of
+retired executable records while immutable type facts remain usable. Focused module
+record tests (6), VM native enum contracts (6), embed enum payload/ABI/reload contracts
+(4) and serialized native enum contracts (2) pass. Strict affected types/contract/runtime
+all-target Clippy, formatting and structure (995 files, zero violations/exceptions)
+pass. Initial test-only portable/runtime type inference errors were fixed; the identity
+module sits directly under its program owner, avoiding unnecessary wider visibility.
+
+The next preparation audit has a concrete remaining producer: `frame/native.rs`
+still invokes `LinkedNativeFunction::apply` for every generic native entry, rebuilding
+signatures/adapters/selections. Its selected calls currently create host-style pinned
+roots in `native/selected.rs`. Persistent reuse must first replace those owning roots
+with traced descriptor edges; storing the existing pinned functions in a program index
+would create permanent retention. This is within the existing HP01/HP03 migration,
+not justification for another per-call cache or a new scope expansion.
+
+Paired ordinary-release evidence: `target/lua-comparison/20261010T020217Z-paired/`
+(`results.json`, raw CSVs, build/toolchain/machine metadata), reproduced with
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py
+--interpreter-only --baseline-executable target/hp01/witness-shared-executable`.
+The unchanged original seven workloads run baseline/candidate/candidate/baseline,
+with reversed workload order in the second pair, three warmups and eleven execution
+samples per route/process. All checksums pass. Default release features/profiles and
+Cargo parallelism are unchanged; execution is single-threaded and processes sequential.
+Build time (20.126 s) is excluded. Candidate is preserved as
+`target/hp01/layout-identity-executable`, SHA-256
+`b707d0edc523b542a4326028642328ec1694972b243595a3a04eedb8c4189908`.
+
+| Original workload | Previous checkpoint median (us) | Candidate median (us) | Candidate / previous |
+| --- | ---: | ---: | ---: |
+| Entry | 1.452 | 1.443 | 0.9944 |
+| Arithmetic | 2,411.855 | 2,517.771 | 1.0439 |
+| Branches | 2,908.625 | 2,927.250 | 1.0064 |
+| Calls | 6,433.313 | 6,374.000 | 0.9908 |
+| Fibonacci | 13,100.354 | 13,001.375 | 0.9924 |
+| Arrays | 5,075.980 | 5,158.271 | 1.0162 |
+| Maps | 6,106.521 | 5,919.187 | 0.9693 |
+
+Map process medians are 5,998.291/6,146.916 us for the baseline and
+5,925.000/5,916.375 us for the candidate. The observed aggregate reduction is 3.07%,
+with control variation up to 4.39%; it is not evidence of a large isolated speedup.
+Candidate maps remain 86.57x Lua. Map linking medians are 2,520.854/2,590.480 us
+(baseline/candidate, six setup samples each), reported separately from execution.
+These timings do not satisfy retained-byte accounting, which remains outstanding.
+Final diff/content checks and all 703 local Markdown links pass; no carried build/test
+error remains. No full workspace suite or GitHub CI run was performed. HP01 and all
+later architecture/CI/Lua-parity acceptance gates remain open.

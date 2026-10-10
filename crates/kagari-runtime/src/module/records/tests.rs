@@ -218,6 +218,100 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
 }
 
 #[test]
+fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions() {
+    let (runtime, previous, mut code) = fixture();
+    let args = [Ty::Builtin(BuiltinType::I32)];
+    let source = code.root.index();
+    let target = (0..code.modules.len())
+        .find(|index| *index != source)
+        .unwrap();
+    let structure = code.modules[source]
+        .structures
+        .iter()
+        .find(|layout| !layout.arguments.iter().all(Ty::is_concrete))
+        .unwrap()
+        .apply(&args, &Default::default())
+        .unwrap()
+        .into_owned();
+    let enumeration = code.modules[source]
+        .enumerations
+        .iter()
+        .find(|layout| !layout.arguments.iter().all(Ty::is_concrete))
+        .unwrap()
+        .apply(&args, &Default::default())
+        .unwrap()
+        .into_owned();
+    // Different portable members may each carry the same checked applied layout,
+    // as happens with native enum results and their consuming script patterns.
+    for index in [source, target] {
+        if !code.modules[index].structures.contains(&structure) {
+            code.modules[index].structures.push(structure.clone());
+        }
+        if !code.modules[index].enumerations.contains(&enumeration) {
+            code.modules[index].enumerations.push(enumeration.clone());
+        }
+    }
+    let candidate = runtime
+        .stage_reload_program(&previous, "records", code)
+        .unwrap();
+    let loaded = runtime.publish_staged_reload(candidate).unwrap();
+    let other = loaded.members().nth(target).unwrap();
+    let args = [Ty::Builtin(BuiltinType::I32)];
+    let struct_id = generic_structure(&loaded);
+    let enum_id = generic_enum(&loaded);
+    let structure = runtime
+        .modules
+        .applied_struct_layout(&loaded, struct_id, &args)
+        .unwrap();
+    let enumeration = runtime
+        .modules
+        .applied_enum_variant(&loaded, enum_id, &args, 0)
+        .unwrap();
+    let other_structure = other
+        .bytecode
+        .structures
+        .iter()
+        .position(|layout| layout == structure.layout())
+        .unwrap();
+    let other_enum = other
+        .bytecode
+        .enumerations
+        .iter()
+        .position(|layout| layout == enumeration.layout())
+        .unwrap();
+    let alias = other.struct_layout(StructId::new(other_structure)).unwrap();
+    let enum_alias = other.enum_variant(EnumId::new(other_enum), 0).unwrap();
+    assert_ne!(loaded.slot(), other.slot());
+    assert!(structure.canonical.is_some());
+    assert_eq!(structure.canonical, alias.canonical);
+    assert!(structure.same_instance(&alias));
+    assert!(enumeration.canonical.is_some());
+    assert_eq!(enumeration.canonical, enum_alias.canonical);
+    assert!(enumeration.matches_layout(&enum_alias));
+    assert!(!enumeration.matches_layout(&enum_alias.with_variant(1).unwrap()));
+    let candidate = runtime
+        .stage_reload_verified_program(&loaded, "records", loaded.verified_program().clone())
+        .unwrap();
+    let latest = runtime.publish_staged_reload(candidate).unwrap();
+    let fresh = runtime
+        .modules
+        .applied_struct_layout(&latest, struct_id, &args)
+        .unwrap();
+    assert!(!structure.same_instance(&fresh));
+    assert!(structure.matches(&fresh));
+    let fresh_enum = runtime
+        .modules
+        .applied_enum_variant(&latest, enum_id, &args, 0)
+        .unwrap();
+    assert!(enumeration.matches_layout(&fresh_enum));
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.validate_loaded_module(&loaded).is_err());
+    // Canonical type facts do not root executable instances and remain readable.
+    assert!(enumeration.matches_layout(&enum_alias));
+    assert!(structure.same_instance(&alias));
+}
+
+#[test]
 fn link_lookup_checks_runtime_version_bounds_and_store_borrows() {
     let (runtime, loaded, _) = fixture();
     let (foreign, foreign_loaded, _) = fixture();
@@ -303,6 +397,7 @@ fn matching_keys_and_copied_bindings_do_not_authorize_an_uninstalled_descriptor(
         slot: loaded.slot,
         program: Arc::new(ProgramDescriptor {
             code: loaded.program.code.clone(),
+            layouts: loaded.program.layouts.clone(),
             root: loaded.program.root,
             fingerprint: loaded.program.fingerprint,
             modules: loaded

@@ -562,8 +562,15 @@ Runtime-local linked native bindings lazily prepare concrete scoped signatures.
 TypeArgument shares immutable validated type facts, memoized parameters and enum
 layout applications. Caches follow the binding/type descriptor's lifetime and do
 not hold executable leases; nominal provenance retains immutable layout generations.
-Exact prepared enum layout/payload-scope identity permits reuse of its checked
-contract; different applications or generations still compare complete layouts.
+At linking, equivalent struct/enum layouts across members of one pinned program
+receive a canonical identity. An applied template resolves that identity during
+preparation when a matching linked layout exists; the application cache retains
+the result. Identity tables retain locations in immutable bytecode, not duplicated
+layouts, native links, Values or executable leases. Complete equality establishes
+identity; a hash only selects candidates. Unscoped accesses compare program and
+canonical identity instead of whole layouts. Lexical payload scopes and genuinely
+different applications or generations retain the complete compatibility checks;
+the active HP plan owns their remaining preparation/admission migration.
 Every value access continues to validate heap ownership, slot generation and access.
 
 Typed callbacks borrow their enclosing synchronous call's program retention.

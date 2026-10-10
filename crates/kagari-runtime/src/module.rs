@@ -3,6 +3,7 @@ mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
 pub mod execution;
+mod layout_identity;
 mod layouts;
 mod records;
 pub mod retention;
@@ -16,6 +17,7 @@ use crate::{
     metadata::TypeId,
     module::{
         execution::ExecutionModule,
+        layout_identity::{LayoutIdentity, ProgramLayouts},
         records::ModuleRecord,
         retention::{ProgramLease, Retentions},
         staging::StagedProgram,
@@ -277,6 +279,7 @@ impl VerifiedProgram {
 #[derive(Debug)]
 struct ProgramDescriptor {
     code: VerifiedProgram,
+    layouts: ProgramLayouts,
     root: ModuleRef,
     fingerprint: ArtifactFingerprint,
     modules: Vec<LinkedModule>,
@@ -431,6 +434,7 @@ pub struct EnumVariantRef {
     id: EnumId,
     variant: u32,
     applied: Option<Arc<EnumLayout<DefinitionId>>>,
+    canonical: Option<LayoutIdentity>,
     pub(crate) environment: Option<Arc<TypeBindings>>,
 }
 
@@ -469,6 +473,7 @@ pub struct StructLayoutRef {
     module: LoadedModule,
     id: StructId,
     applied: Option<Arc<StructLayout<DefinitionId>>>,
+    canonical: Option<LayoutIdentity>,
     pub(crate) environment: Option<Arc<TypeBindings>>,
 }
 
@@ -476,6 +481,14 @@ impl StructLayoutRef {
     /// Clones of one immutable layout can be checked without walking its type
     /// graph, including layouts carrying a generic lexical environment.
     fn same_instance(&self, other: &Self) -> bool {
+        if Arc::ptr_eq(&self.module.program, &other.module.program)
+            && self.canonical.is_some()
+            && self.canonical == other.canonical
+            && self.environment.is_none()
+            && other.environment.is_none()
+        {
+            return true;
+        }
         self.module.registry_owner == other.module.registry_owner
             && Arc::ptr_eq(&self.module.program, &other.module.program)
             && self.module.slot == other.module.slot
@@ -661,6 +674,7 @@ impl ModuleStore {
             })
             .collect();
         let program = Arc::new(ProgramDescriptor {
+            layouts: ProgramLayouts::prepare(&program.modules),
             code: program,
             root,
             fingerprint,
