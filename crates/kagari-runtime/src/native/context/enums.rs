@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
+    frame::types::arguments::{TypeArgument, variants::PreparedEnumMember},
     module::{EnumVariantRef, LoadedModule},
     native::{binding::NativeResult, context::CallContext, types::VariantRef},
     value::{EnumTag, EnumValueSnapshot, Value},
@@ -15,25 +15,29 @@ use kagari_types::ty::Ty;
 use std::{cell::Ref, slice};
 
 impl Runtime {
+    fn declared_enum_member<'a>(
+        &self,
+        fallback: &LoadedModule,
+        applied: &'a TypeArgument,
+        member: &str,
+    ) -> NativeResult<&'a PreparedEnumMember> {
+        self.validate_loaded_module(fallback)?;
+        applied.validate(self)?;
+        applied
+            .prepared_variants(|| self.prepare_enum_variants(fallback, applied))?
+            .iter()
+            .find(|prepared| prepared.name() == Some(member))
+            .ok_or_else(|| RuntimeError::module_validation("variant belongs to another enum"))
+    }
+
     pub(crate) fn declared_enum_variant(
         &self,
         fallback: &LoadedModule,
         applied: &TypeArgument,
         member: &str,
     ) -> NativeResult<EnumVariantRef> {
-        self.validate_loaded_module(fallback)?;
-        applied.validate(self)?;
-        applied
-            .prepared_variants(|| self.prepare_enum_variants(fallback, applied))?
-            .iter()
-            .find(|layout| {
-                layout
-                    .module()
-                    .definition_name(layout.variant().declaration)
-                    == Some(member)
-            })
-            .cloned()
-            .ok_or_else(|| RuntimeError::module_validation("variant belongs to another enum"))
+        self.declared_enum_member(fallback, applied, member)
+            .map(|prepared| prepared.layout().clone())
     }
 
     pub(crate) fn portable_type_argument(
@@ -79,20 +83,15 @@ impl CallContext<'_> {
             .path
             .last()
             .ok_or_else(|| RuntimeError::module_validation("native enum member identity"))?;
-        let layout = self
+        let prepared = self
             .runtime
-            .declared_enum_variant(self.owner, applied, &member.name)?;
-        let expected = layout
-            .module()
-            .definitions()
-            .lookup(variant.id())
-            .ok_or_else(|| RuntimeError::module_validation("native enum member identity"))?;
-        if expected != layout.variant().declaration {
+            .declared_enum_member(self.owner, applied, &member.name)?;
+        if !prepared.matches_identity(variant.id()) {
             return Err(RuntimeError::module_validation(
                 "variant belongs to another enum",
             ));
         }
-        Ok(layout)
+        Ok(prepared.layout().clone())
     }
 
     /// Allocate an ordinary registered enum in its checked, pinned type scope.

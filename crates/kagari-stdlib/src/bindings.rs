@@ -24,13 +24,16 @@ use kagari_runtime::{
     },
     value::Value,
 };
-use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl};
+use kagari_types::{
+    callable::CallableImplementation, declaration::module::ModuleDecl, language::binding,
+};
 use std::{collections::BTreeMap, ops::Bound, sync::OnceLock};
 
 type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
 
 // Shared registrations contain immutable declarations and Send + Sync callbacks.
 static MODULE: OnceLock<NativeResult<Vec<NativeModule>>> = OnceLock::new();
+static OPTION_MEMBERS: OnceLock<NativeResult<(VariantRef, VariantRef)>> = OnceLock::new();
 
 pub fn modules() -> NativeResult<Vec<NativeModule>> {
     MODULE.get_or_init(build).clone()
@@ -38,6 +41,16 @@ pub fn modules() -> NativeResult<Vec<NativeModule>> {
 
 fn build() -> NativeResult<Vec<NativeModule>> {
     let language = StandardDeclarations::default();
+    let catalog = language.catalog()?;
+    // Bind authoring identities from the catalog already needed for registration.
+    // Executing a collection operation must not rebuild that declaration inventory.
+    OPTION_MEMBERS
+        .get_or_init(|| {
+            let option = catalog.type_reference(&binding::option_declaration())?;
+            Ok((option.variant("Some")?, option.variant("None")?))
+        })
+        .as_ref()
+        .map_err(Clone::clone)?;
     catalog::declarations()
         .into_iter()
         .map(|declaration| build_module(declaration, &language))
@@ -187,19 +200,20 @@ fn list_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 /// Only immutable declaration handles are shared. Each allocation still resolves
 /// and checks the result's runtime-local, generation-pinned enum layout.
 pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult<Value> {
-    static MEMBERS: OnceLock<NativeResult<(VariantRef, VariantRef)>> = OnceLock::new();
-    let (some, none) = MEMBERS
-        .get_or_init(|| {
-            let option = StandardDeclarations::enumeration("Option")?;
-            Ok((option.variant("Some")?, option.variant("None")?))
-        })
-        .as_ref()
-        .map_err(Clone::clone)?;
+    let (some, none) = option_members()?;
     cx.allocate_enum(
         &cx.result_type_argument()?,
         if value.is_some() { some } else { none },
         value.into_iter().collect(),
     )
+}
+
+fn option_members() -> NativeResult<&'static (VariantRef, VariantRef)> {
+    OPTION_MEMBERS
+        .get()
+        .ok_or_else(|| RuntimeError::metadata_conflict("foundation Option members are not linked"))?
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -230,7 +244,8 @@ fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn next(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.iter_operation(0, IterOp::Next)
+    let (some, none) = option_members()?;
+    cx.iterator_next_result(0, some, none)
 }
 
 fn start_bound(cx: &mut CallContext<'_>) -> NativeResult<Value> {

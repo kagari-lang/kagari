@@ -1,5 +1,6 @@
 //! Synchronous native access borrows stable, already rooted caller slots.
 mod enums;
+mod iteration;
 pub mod operations;
 mod tasks;
 use crate::{
@@ -33,7 +34,7 @@ use crate::{
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
 use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
-use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
+use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{slice, sync::Arc};
 
@@ -347,16 +348,6 @@ impl<'call> CallContext<'call> {
     ) -> NativeResult<TypeArgument> {
         self.argument_type_argument(index)?
             .parameter(self.runtime, self.owner, parameter)
-    }
-
-    /// Apply a checked built-in iterator operation using the argument's declared scope.
-    pub fn iter_operation(&self, index: usize, op: IterOp) -> NativeResult<Value> {
-        self.runtime.iter_operation_with_type(
-            self.owner,
-            &self.argument(index)?,
-            &self.argument_type_argument(index)?,
-            op,
-        )
     }
 
     pub fn result_type_parameter(&self, index: usize) -> NativeResult<TypeArgument> {

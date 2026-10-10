@@ -592,7 +592,28 @@ that proof through the existing bounded layout-admission owner; genuine cross-ve
 comparisons and missing identities keep the full scoped fallback. Enum type admission
 accepts any valid member, while pattern admission independently checks its tag.
 Native enum construction retains its member-selection facts, but no longer provides
-a separate member-by-member type matcher. Struct application checks are shared by
+a separate member-by-member type matcher. Each prepared member pairs its applied
+layout with the complete portable declaration identity resolved at preparation.
+Named construction reads the prepared final segment; portable VariantRef admission
+compares the full identity, including module, segment kinds and occurrences, before
+using that layout. Repeated construction no longer walks the definition table to
+recover names or hash a portable path back into an ID. Independently authored equal
+handles remain valid; same-spelled foreign members fail. Payload scope and generation
+still come from the applied layout, with existing owner and heap checks unchanged.
+These facts belong to TypeArgument's existing lazy member list, adding no separate
+global/call-site admission cache, frame field or executable root.
+Foundation iterator next calls construct through the native function's prepared
+result TypeArgument. The declared-result adapter validates the iterator contract,
+then uses the existing advance/finish/commit kernel: payload roots and mutation
+guards remain live, and checked enum allocation must succeed before cursor progress
+is committed. It does not derive a fresh Option type for every item. General raw
+iterator operations still derive independent result types when no declared native
+result contract is being used; they share the same iterator checks and commit kernel.
+No result type is cached on a cursor or an unscoped primitive type argument, where
+the correct supplying program could differ between callers. Foundation Option
+authoring member handles are prepared from the existing registration catalog before
+bindings are published, removing their duplicate first-execution catalog build.
+Struct application checks are shared by
 nominal preparation and host object binding; enum preparation belongs to the common
 type-application layer. Its borrowed type view carries
 the checked closed result alongside the original expression and supplying scope.

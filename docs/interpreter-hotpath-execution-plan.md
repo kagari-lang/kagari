@@ -4117,3 +4117,149 @@ snapshots only where crossing a lifetime boundary actually requires them. HP06 o
 full retrospective removal, cold setup/retained metadata accounting, integration and
 final HP00 comparisons. This checkpoint closes the named standard-library read helper;
 it does not claim that the full architecture, CI or Lua performance goal is accepted.
+
+2026-10-10 HP05, prepared native member identity and iterator result ownership:
+
+The Map profile from 84455163 located repeated portable-path lookup under native enum
+member admission (12.1% inclusive samples). TypeArgument already owned applied member
+layouts, but native construction walked definition segments to find a member name and
+then hashed the incoming VariantRef path back into a DefinitionId on every call.
+`PreparedEnumMember` now pairs each existing applied layout with its complete portable
+identity, resolved once from that layout's verified supplying table. Named construction
+uses its final segment; native handles compare the full path, including module, segment
+kinds and occurrences, before receiving the applied layout. This is the same membership
+predicate, without repeated symbol discovery. Independently authored equal handles are
+accepted; foreign same-spelled members fail. There is no last-handle shortcut, Map-only
+exemption, separate admission cache or process-global runtime identity. Payload scope,
+owner/generation, result construction and heap checks remain with their existing owners.
+
+The first prototype exposed a remaining ownership defect: native CollectionCursor::next
+called the raw iterator API, deriving a new Option TypeArgument for every item despite
+its linked native signature already containing the exact result contract. Adding full
+member identities consequently added 13 requests/838 bytes per Next in the scaling
+probes. That diagnostic regression was not accepted; its logs are retained as
+`member-only-*` under `target/hp05/member-identities/`. Its ordinary measurement pipeline
+was stopped, including the partially started original-suite run, and is not acceptance
+evidence. The fix moves result construction to the declared native result boundary.
+
+`CallContext::iterator_next_result` uses the existing prepared result TypeArgument and
+checked present/empty VariantRefs. It shares the runtime iterator contract check and
+existing GC advance/finish/commit kernel with raw operations. The kernel roots any
+materialized item and holds mutation guards; checked enum result allocation must finish
+before committing cursor position/string traversal. There is no external finish callback
+or new reentry opportunity. The general raw API remains for operations independent of
+the caller's declared result type, including host operations; it does not gain an unsafe
+cursor-owned result cache. Such a cache, or one attached to an unscoped primitive type
+argument, could accidentally reuse the wrong supplying program's Option layout.
+The foundation next implementation now uses the declared-result adapter, and no longer
+rebuilds result types on each item. This is one advancement implementation with distinct
+raw versus declared-result boundaries, not duplicated iterator semantics.
+
+The existing foundation Option VariantRefs are also prepared during native registration
+from its already required declaration catalog. Map/iterator execution no longer builds
+a second whole standard catalog to initialize those two handles. The same immutable
+handle pair serves all foundation Option producers. Other public standard-enum inventory
+users retain their existing behavior; this does not claim that every catalog setup cost
+has been removed. No format/ABI change, per-object/frame field or new runtime retention
+lease is introduced; the native SDK gains the declared iterator-result adapter.
+
+Focused local evidence (`target/hp05/member-identities/`):
+
+- Runtime type-identity/scope/lifetime/Send+Sync tests: four passed. A temporary size
+  print in the existing shareability contract measured old member entries at 48 bytes,
+  PreparedEnumMember at 120 bytes and TypeArgumentData unchanged at 280 bytes. The
+  print was restored exactly. Portable path backing storage is additional to these
+  inline sizes; Value, frame and per-object EnumVariantRef layouts are unchanged.
+- VM native enum contracts: six passed; embed enum payloads four, native enum providers
+  two, generic reload two and Try protocols eight passed. These cover foreign members,
+  payload mismatch, GC failures/roots, independently installed authoring handles,
+  source-free serialized execution, imported scopes and retained generations.
+- Obsolete-program cycle contracts: four passed. After iterator integration, all 12
+  embed iteration contracts, generic reload and native enum provider contracts passed
+  again, plus the focused dynamic-iteration GC/mutation-guard contract.
+- Strict all-target Clippy for runtime/VM/stdlib with execution diagnostics, formatting,
+  diff checks and structure review pass (1,025 files, zero violations/exceptions).
+  No full-workspace suite or GitHub CI matrix ran at this intermediate checkpoint.
+- All 86 final release diagnostic rows pass against 84455163. Every non-allocation
+  counter is unchanged, including objects, collections, preparation, layout comparison,
+  metadata validation, driver admissions and slow boundaries. These logs use restored
+  permanent benchmark sources, without the temporary size probe.
+
+| Warm 5,000-iteration probe | Requests before → after | Requested bytes before → after |
+| --- | ---: | ---: |
+| native_application | 200,336 → 15,299 | 11,634,473 → 1,237,394 |
+| changing_native_application | 200,501 → 15,427 | 11,731,694 → 1,332,536 |
+
+Both 2,500/5,000 probes remove exactly 37 requests/2,079 bytes per Next, including each
+terminal None. Warm net bytes are unchanged. Cold net retention grows by 838 bytes for
+one prepared iterator result and 1,676 for the two-result changing probe, independent
+of iteration count. Witness/shared comparison probes add 19 cold requests, 1,018
+requested bytes and 826 retained bytes for their three prepared Ordering members;
+their warm allocation counts are unchanged.
+
+Map cold execution changes from 2,147,823 to 2,216 requests and 225,519,489 to 1,129,117
+requested bytes after removing the duplicate catalog build; net retention drops
+333,535 → 320,593 bytes. The member-only prototype had shown +646 bytes of Map member
+retention; final cold net change includes both that cost and retired catalog setup.
+These execution-phase measurements are not a whole-process peak-memory or setup-time
+claim. Warm Map remains exactly 2,178 requests/1,022,792 bytes, 2,001 ordinary objects
+and five collections. Option boxing has not been removed or hidden. No allocation
+result alone establishes an execution-speed gain.
+
+Ordinary release measurements preserve the unchanged driver/fixtures and normal GC.
+Baseline 84455163 is `target/hp05/enum-readers/prepared-executable` (SHA-256
+`b30d9400718ad7db6d42e485f5222c0c5fcf705d1b768c805abfe347b63fc3e1`); candidate
+`target/hp05/member-identities/prepared-executable` is
+`185577120e579897dcd5c0ddaa4746cd91900fa94222508bdd9cc3a69ee7a312`.
+Environment remains Apple M1 Max/32 GiB/10 logical CPUs, macOS 26.6.2 arm64,
+rustc 1.98.1/LLVM 22.1.8, PUC Lua 5.4.8, default workspace release/profile/target/
+parallelism, source/native features, diagnostics disabled and reused build cache.
+Processes run serially B/C/C/B with three warmups and 11 samples each (22 pooled).
+No build, test, diagnostic run or Rust edit overlaps execution timing. Raw directories
+under `target/lua-comparison/` are `20261010T113822Z-forms-paired`,
+`20261010T113855Z-paired` and independent `20261010T114334Z-forms-paired`.
+Excluded build times are 20.626/0.088/0.082 seconds respectively.
+
+| Workload | Candidate/baseline time | Same-run Lua control | Candidate/Lua |
+| --- | ---: | ---: | ---: |
+| Map | 0.9100 | 0.9984 | 51.12 |
+| Arrays | 0.9631 | 0.9837 | 23.25 |
+| Fibonacci | 1.0189 | 0.9989 | 31.39 |
+| String constants, first / repeat | 1.1226 / 1.1093 | 1.0056 / 1.0028 | 13.76 / 13.72 |
+| String calls, first / repeat | 1.0684 / 1.0555 | 0.9937 / 1.0070 | 29.16 / 28.32 |
+
+Map improves by 9.0% in this pair, while the repeated String regressions exceed the
+5% control gate. Other source forms vary between -3.6% and +3.1% in the first pair
+and -0.2% and +2.6% in the repeat. This checkpoint is **not performance acceptance**;
+it carries the new String regression alongside HP04's existing unmet String gate.
+The completed member-only prototype forms run (`20261010T112722Z-forms-paired`)
+had String constants/calls C/B 1.0171/1.0039 and Lua controls 1.0173/1.0070. That
+narrows the observed onset to the subsequent iterator/registration integration,
+but does not establish which source change causes it; its unfinished original suite
+remains excluded from acceptance. No benchmark or threshold is changed.
+
+Separate ordinary-binary sampling (`profile.py` and `*-profile/` under the checkpoint
+log directory) warms three times and samples five seconds of a ten-second execution
+window, with instruction counting only afterwards. Map keeps 63,030 logical Kagari
+instructions versus 24,012 Lua, 2,001 heap objects/five collections per call and no
+live-object growth. Among 3,622 main-thread samples, native invocation has 1,805
+inclusive samples (49.8%), enum member admission 158 (4.4%), CallContext enum
+construction 275 (7.6%) and active-frame validation 402 (11.1%). Baseline member
+admission was 477/3,950 (12.1%). Nested samples within each group are counted once;
+groups overlap and are not additive or exact CPU attribution. Full portable-path
+lookup has left the native member hot path; checked identity/owner work remains.
+No Option unboxing speedup is inferred from these numbers.
+
+Both String constant profiles retain 100,012 logical instructions, no heap allocation
+or GC in the window, and identical layout sizes. Exclusive execute_region samples
+increase from 850/3,660 (23.2%) to 1,070/3,664 (29.2%); the scalar loop remains the
+largest leaf. Ordinary-binary disassembly (`*-function-*.asm`) shows a changed constant
+pool read sequence with extra temporary stores/reloads, while source region/scalar
+code is unchanged. This supports investigating generated-code sensitivity around the
+existing managed/scalar handoff; it does not prove those instructions explain the
+entire regression. Do not label it measurement noise or fix it by removing checks,
+changing compiler defaults or tuning a benchmark-only branch. The owning HP04 follow-up
+must review region/code-view ownership and the remaining per-managed-operation scalar
+cursor reconstruction, then measure any coherent change against this checkpoint and
+the preserved pre-regression binary. HP05 still owes the runtime snapshot-consumer
+audit; HP06 integration/retrospective/CI/parity acceptance remains open.

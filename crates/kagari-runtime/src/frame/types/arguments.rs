@@ -7,10 +7,12 @@ use kagari_common::identity::{
 #[cfg(test)]
 mod identity_tests;
 mod nominal;
+pub(crate) mod variants;
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{
+        arguments::variants::PreparedEnumMember,
         bindings::TypeBindings,
         compatibility::{TypeIdentity, TypeView},
     },
@@ -36,7 +38,7 @@ struct TypeArgumentData {
     definitions: DefinitionTable,
     origin: Option<Arc<TypeOrigin>>,
     parameters: OnceLock<Result<Vec<TypeArgument>, RuntimeError>>,
-    variants: OnceLock<Result<Vec<EnumVariantRef>, RuntimeError>>,
+    variants: OnceLock<Result<Vec<PreparedEnumMember>, RuntimeError>>,
     identity: OnceLock<Option<Arc<TypeIdentity>>>,
     admission: OnceLock<Box<NominalAdmission>>,
 }
@@ -140,15 +142,22 @@ impl TypeArgument {
     pub(crate) fn prepared_variants(
         &self,
         prepare: impl FnOnce() -> Result<Vec<EnumVariantRef>, RuntimeError>,
-    ) -> Result<&[EnumVariantRef], RuntimeError> {
+    ) -> Result<&[PreparedEnumMember], RuntimeError> {
         let variants = self
             .data
             .variants
-            .get_or_init(prepare)
+            .get_or_init(|| {
+                prepare()?
+                    .into_iter()
+                    .map(PreparedEnumMember::new)
+                    .collect()
+            })
             .as_deref()
             .map_err(Clone::clone)?;
         if self.data.admission.get().is_none()
-            && let Some(admission) = variants.first().and_then(NominalAdmission::enumeration)
+            && let Some(admission) = variants
+                .first()
+                .and_then(|member| NominalAdmission::enumeration(member.layout()))
         {
             let _ = self.data.admission.set(Box::new(admission));
         }

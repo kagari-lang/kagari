@@ -545,11 +545,7 @@ impl Runtime {
                 self.gc.new_iter(value, ty, item, owner)
             }
             _ => {
-                if !ty.matches(self, value, owner) {
-                    return Err(RuntimeError::module_validation(
-                        "iterator differs from its checked item contract",
-                    ));
-                }
+                self.check_iterator_contract(owner, value, ty)?;
                 if op == IterOp::Next {
                     let declaration = self
                         .definition_context()
@@ -576,6 +572,20 @@ impl Runtime {
                 }
             }
         }
+    }
+
+    pub(crate) fn check_iterator_contract(
+        &self,
+        owner: &LoadedModule,
+        value: &Value,
+        ty: &TypeArgument,
+    ) -> Result<(), RuntimeError> {
+        if !ty.matches(self, value, owner) {
+            return Err(RuntimeError::module_validation(
+                "iterator differs from its checked item contract",
+            ));
+        }
+        Ok(())
     }
 
     pub fn make_capture_cell(
