@@ -1,4 +1,6 @@
 //! A pending native or Task wait is an owned session resource, not a call frame.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -221,6 +223,8 @@ impl ExecutionStack<'_> {
     /// No callback, conversion or result destruction occurs while the session
     /// table is borrowed. This also permits custom conversion to allocate safely.
     pub fn poll_await(&self, runtime: &Runtime) -> NativeResult<Poll<Option<Value>>> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::AwaitPoll);
         self.validate_runtime(runtime)?;
         runtime.resources().poll_execution()?;
         self.start_queued_factory(runtime)?;

@@ -21,8 +21,9 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_vm::vm::Vm;
+use kagari_vm::vm::{Vm, owned::DriveResult};
 use std::{
+    num::NonZeroUsize,
     slice,
     sync::{
         Arc,
@@ -36,6 +37,7 @@ type Callback = PinnedFunction<(), i32>;
 #[test]
 fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     let calls = Arc::new(AtomicUsize::new(0));
+    let text_calls = Arc::new(AtomicUsize::new(0));
     let mut module = ModuleBuilder::new(
         "example::boxed",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -51,6 +53,16 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
                     return Err(RuntimeError::module_validation("requested failure"));
                 }
                 Ok(left + right)
+            },
+        )
+        .unwrap();
+    let observed = text_calls.clone();
+    let text = module
+        .add_function(
+            FunctionSpec::new("text"),
+            move |_cx: &mut NativeContext<'_>, (): ()| -> NativeResult<String> {
+                observed.fetch_add(1, Ordering::Relaxed);
+                Ok("retained native result".to_owned())
             },
         )
         .unwrap();
@@ -76,15 +88,63 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         .unwrap();
     let module = module.finish().unwrap();
     let source = r#"
-        use example::boxed::{add, through};
+        use example::boxed::{add, text, through};
         pub fn evidence() -> i32 { add(20, 22) }
         pub fn invoke(f: fn(i32, i32) -> i32, left: i32, right: i32) -> i32 { f(left, right) }
         pub fn echo(f: fn(i32, i32) -> i32) -> fn(i32, i32) -> i32 { f }
         pub fn capture(f: fn(i32, i32) -> i32) -> fn() -> i32 { || f(20, 22) }
         pub fn wrong(f: fn(i32) -> i32) -> i32 { f(42) }
         pub fn native(f: fn(i32, i32) -> i32) -> i32 { through(f) }
+        pub fn text_evidence() -> String { text() }
+        pub fn owned(callback: fn() -> String) -> String { callback() }
     "#;
     let (vm, old) = fixture(source, Some(&module));
+    // Native completion can park before returning to its script caller. Its
+    // frame must retain the result without repeating the callback on resume.
+    let callback = vm
+        .runtime()
+        .bind_function_declaration::<(), String>(&old, text.id())
+        .unwrap();
+    let callback = ConversionContext::new(vm.runtime(), &old)
+        .unwrap()
+        .encode(callback)
+        .unwrap();
+    let owner = vm
+        .start(
+            &old,
+            "owned",
+            &[callback.value(vm.runtime().gc()).unwrap()],
+            Default::default(),
+        )
+        .unwrap();
+    drop(callback);
+    let mut parked_native_return = false;
+    let mut completed = false;
+    for _ in 0..32 {
+        vm.runtime().collect_garbage().unwrap();
+        let before = text_calls.load(Ordering::Relaxed);
+        match vm.drive(&owner, NonZeroUsize::new(1).unwrap()).unwrap() {
+            DriveResult::Runnable => {
+                parked_native_return |= before == 0 && text_calls.load(Ordering::Relaxed) == 1;
+            }
+            DriveResult::Waiting => panic!("synchronous native entry cannot wait"),
+            DriveResult::Complete(result) => {
+                let result = result.unwrap();
+                let Some(Value::Str(id)) = result.value(vm.runtime().gc()) else {
+                    panic!("native string result")
+                };
+                assert_eq!(
+                    &*vm.runtime().gc().string(id).unwrap(),
+                    "retained native result"
+                );
+                completed = true;
+                break;
+            }
+        }
+    }
+    assert!(parked_native_return && completed);
+    assert_eq!(text_calls.load(Ordering::Relaxed), 1);
+    drop(owner);
     let function = vm
         .runtime()
         .bind_function_declaration::<(i32, i32), i32>(&old, add.id())

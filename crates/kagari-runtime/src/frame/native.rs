@@ -2,8 +2,9 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, NativeEntryState},
+    frame::{ExecutionStack, NativeEntryState, driver::ExecutionAction, transfer::ReturnValue},
     native::context::{ArgumentSlots, ArgumentView, CallContext, ScriptInvoker},
+    value::Value,
 };
 use kagari_bytecode::{
     instruction::{NativeImportId, Register},
@@ -15,7 +16,7 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         invoke_script: ScriptInvoker,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<ExecutionAction, RuntimeError> {
         self.validate_runtime(runtime)?;
         let (loaded, import, roots, environment) = {
             let mut frame = self.current_mut()?;
@@ -83,7 +84,25 @@ impl ExecutionStack<'_> {
             .set(&runtime.gc, 0, value)
             .ok_or_else(|| RuntimeError::module_validation("native return destination"))?;
         frame.native_entry = NativeEntryState::Complete;
-        Ok(())
+        Ok(ExecutionAction::NativeReturn)
+    }
+
+    /// Consume a completed native frame at an explicit return transition.
+    pub fn finish_native_return(&self, runtime: &Runtime) -> Result<Option<Value>, RuntimeError> {
+        self.validate_runtime(runtime)?;
+        let value = {
+            let frame = self.current()?;
+            if !matches!(frame.native_entry, NativeEntryState::Complete) {
+                return Err(runtime
+                    .resources()
+                    .quarantine("native return before completion"));
+            }
+            frame
+                .slots
+                .get(&runtime.gc, 0)
+                .ok_or_else(|| runtime.resources().quarantine("invalid native return slot"))?
+        };
+        self.finish_return(runtime, ReturnValue::general(value))
     }
 
     pub fn invoke_native(

@@ -720,6 +720,20 @@ Checked external frame access and region entry still enforce sticky termination 
 quarantine. Internal writes retain heap-value validation, bounds and slot representation
 checks through the same bank access implementation as external frame access.
 Window generation checks continue to reject expired native views.
+
+The VM driver classifies authoritative runtime state on activation/resume and after
+call, return or await transitions. Ordinary progress retains its script action instead
+of probing pending waits and native entry/return state. This action is local control
+flow, not a second persistent session state; every resumed activation classifies again.
+Region exits release operand borrows before observation, collection, native callbacks,
+frame changes or parking. Synchronous native reentry must unwind back to its caller;
+the next region still admits the session/frame/window. Cancellation and debugger
+checks retain their original logical execution points. Actual waits are polled before
+the slice check. Native completion publishes its result into the traced frame before
+the driver can park; resume consumes it through the common return protocol without
+repeating the native callback. The removed per-frame native-state probe API and VM
+region-exit forwarding enum have no compatibility replacements.
+
 VerifiedProgram derives compact physical operations once from sealed bytecode.
 Bounded control-flow liveness and conservative intervals assign reusable physical
 temporary slots without renaming canonical registers used by contract verification.

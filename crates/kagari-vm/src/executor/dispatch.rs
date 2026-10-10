@@ -7,9 +7,19 @@ use kagari_bytecode::instruction::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
-use kagari_runtime::{host::HostPathDescriptorId, numeric, range::RangeValue, value::Value};
+use kagari_runtime::{
+    frame::transfer::ReturnValue, host::HostPathDescriptorId, numeric, range::RangeValue,
+    value::Value,
+};
 use kagari_types::ty::Ty;
 use std::{iter, ops::Bound, slice};
+
+pub(super) enum InstructionProgress {
+    Continue,
+    Call,
+    Await,
+    Return(ReturnValue),
+}
 
 impl<'a> Executor<'a> {
     fn dispatch_iterator(
@@ -66,10 +76,10 @@ impl<'a> Executor<'a> {
         Ok(())
     }
 
-    pub(crate) fn dispatch_instruction(
+    pub(super) fn dispatch_instruction(
         &mut self,
         instruction: &BytecodeInstruction<DefinitionId>,
-    ) -> Result<(), VmError> {
+    ) -> Result<InstructionProgress, VmError> {
         match *instruction {
             BytecodeInstruction::LoadLocal { dst, local } => {
                 let value = self.current_frame()?.read_local(self.runtime, local)?;
@@ -194,7 +204,7 @@ impl<'a> Executor<'a> {
                 ref callee,
                 ref args,
             } => {
-                self.dispatch_call(dst, callee, args)?;
+                return self.dispatch_call(dst, callee, args);
             }
             BytecodeInstruction::Unreachable => {
                 return Err(VmError::Trap("unreachable"));
@@ -500,17 +510,34 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
-            BytecodeInstruction::Await { .. }
-            | BytecodeInstruction::Return(_)
-            | BytecodeInstruction::Jump { .. }
-            | BytecodeInstruction::Branch { .. } => {
+            BytecodeInstruction::Return(register) => {
+                let value = register
+                    .map(|register| {
+                        self.current_frame()?
+                            .read_register(self.runtime, register)
+                            .map_err(VmError::RuntimeError)
+                    })
+                    .transpose()?
+                    .unwrap_or(Value::Unit);
+                return Ok(InstructionProgress::Return(ReturnValue::general(value)));
+            }
+            BytecodeInstruction::Await {
+                dst,
+                value,
+                ref future,
+            } => {
+                let value = self.current_frame()?.read_register(self.runtime, value)?;
+                self.stack.begin_await(self.runtime, value, dst, future)?;
+                return Ok(InstructionProgress::Await);
+            }
+            BytecodeInstruction::Jump { .. } | BytecodeInstruction::Branch { .. } => {
                 return Err(VmError::UnsupportedInstruction(
                     "cursor operation at slow boundary",
                 ));
             }
         }
 
-        Ok(())
+        Ok(InstructionProgress::Continue)
     }
 
     fn read_path_args(&self, args: &[Register]) -> Result<Vec<Value>, VmError> {
@@ -524,11 +551,12 @@ impl<'a> Executor<'a> {
         dst: Option<Register>,
         callee: &CallTarget<DefinitionId>,
         args: &[Register],
-    ) -> Result<(), VmError> {
+    ) -> Result<InstructionProgress, VmError> {
         if let CallTarget::Native(import) = callee {
             return self
                 .stack
                 .invoke_native(self.runtime, *import, args, dst, invoke_script)
+                .map(|()| InstructionProgress::Continue)
                 .map_err(VmError::RuntimeError);
         }
         if matches!(
@@ -538,6 +566,7 @@ impl<'a> Executor<'a> {
             return self
                 .stack
                 .push_prepared_call(self.runtime)
+                .map(|()| InstructionProgress::Call)
                 .map_err(VmError::RuntimeError);
         }
         let arg_values = args
@@ -549,6 +578,7 @@ impl<'a> Executor<'a> {
             CallTarget::Shared { .. } => self
                 .stack
                 .push_shared_call(self.runtime, &arg_values, dst)
+                .map(|()| InstructionProgress::Call)
                 .map_err(VmError::RuntimeError),
             CallTarget::Native(_) => unreachable!("native calls execute before argument packing"),
             CallTarget::ModuleFunction { .. } | CallTarget::Function(_) => {
@@ -569,6 +599,7 @@ impl<'a> Executor<'a> {
                 };
                 self.stack
                     .push_interface_method(self.runtime, resolved, &arguments, dst)
+                    .map(|()| InstructionProgress::Call)
                     .map_err(VmError::RuntimeError)
             }
             CallTarget::Register(_) => {
@@ -600,14 +631,15 @@ impl<'a> Executor<'a> {
                 drop(closure);
                 self.stack
                     .push_closure(self.runtime, &value, &arg_values, dst)
+                    .map(|()| InstructionProgress::Call)
                     .map_err(VmError::RuntimeError)
             }
-            CallTarget::RuntimePrimitive(intrinsic) => {
-                self.dispatch_standard_intrinsic(intrinsic, dst, arg_values)
-            }
-            CallTarget::RuntimeHelper(ref helper) => {
-                self.dispatch_runtime_helper(helper, dst, arg_values)
-            }
+            CallTarget::RuntimePrimitive(intrinsic) => self
+                .dispatch_standard_intrinsic(intrinsic, dst, arg_values)
+                .map(|()| InstructionProgress::Continue),
+            CallTarget::RuntimeHelper(ref helper) => self
+                .dispatch_runtime_helper(helper, dst, arg_values)
+                .map(|()| InstructionProgress::Continue),
         }
     }
 

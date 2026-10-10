@@ -1,6 +1,6 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP01 are complete; HP02 is in progress.
+Status: active, authorized by the user on 2026-10-10; HP00–HP02 are complete; HP03 is next.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -374,7 +374,7 @@ only content/link/diff checks. Use `Phase: HPxx` in implementation commit traile
 - [x] Evidence-based plan recorded and revised to architecture-first scope.
 - [x] HP00 — Architecture audit, baseline and replacement map.
 - [x] HP01 — Runtime-linked executable identities and publication.
-- [ ] HP02 — Active execution ownership and transitions.
+- [x] HP02 — Active execution ownership and transitions.
 - [ ] HP03 — Unified call/return protocol.
 - [ ] HP04 — Common prepared operation model.
 - [ ] HP05 — Unified layout admission and enum access.
@@ -1309,3 +1309,113 @@ The ordinary candidate is preserved at `target/hp02/admitted-region-executable`,
 needs restoration. Next HP02 work replaces repeated `poll_await`/native-state discovery
 in the executor with explicit transitions at entry, calls, returns and await/resume;
 it must retain original polling, observation, slice and cleanup order.
+
+2026-10-10 HP02, explicit driver transitions and phase acceptance:
+`ExecutionStack::next_action` classifies authoritative session queues and frame state
+only on activation/resume and after call, return or await. VM dispatch explicitly
+reports ordinary progress, call, await or return. Ordinary instructions and inline
+synchronous native calls keep their script action; native-frame completion supplies
+the return action directly. No persistent shadow state/cache was added. Scalar and
+managed returns converge on the existing return operation. The old public frame
+`native_return`/`has_pending_native_entry` probes and VM `LoopExit` forwarding layer
+are removed; `start_native_entry` now returns its next action.
+
+The driver owns control flow, while the runtime owns frames, pending waits and entry
+states. Its local action retains no frame/window borrow. All frame-changing VM dispatch
+arms report a transition; synchronous callback/reentry paths unwind their nested scope
+before returning. The removed ordinary native probe's runtime/window-owner check is
+covered by region admission and checked external frame accesses. Native return still
+validates stack authority and the exact result window. The previous checkpoint's
+session/window invalidation audit continues to apply.
+
+| Boundary | Preserved contract |
+| --- | --- |
+| Ordinary instruction/region continuation | Original cancellation and debugger points; only redundant no-wait/native-state probes disappear. Region entry admits session, scope and window again after releasing transient borrows. |
+| Observation, GC and synchronous reentry | No operand view survives; existing active frame banks and program/environment edges remain traced. Reentry must restore its caller before returning. |
+| Await/factory/resume | Queued factories/futures and pending waits are classified from runtime state. Real waits are polled before the slice check; parked activations classify again on resume. |
+| Native completion and slicing | Result publication precedes possible parking and remains in the traced native frame. Resume consumes the completed return without repeating the callback. |
+| Failure/cancellation | Existing trap reporting, trace capture, stack retirement and owned-session cleanup remain; invariant failures still quarantine. |
+
+Focused validation passes: 38 native function/handle contracts; VM owned-drive (2),
+native-wait (4), debugger (6) and reentry-debug (1); embed async execution (14) and
+source-free async execution (1). The existing boxed-native contract now also drives a
+native String result with one-instruction slices and GC between every activation:
+it must park after native completion, return intact bytes and invoke the callback once.
+That augmented contract passes separately. Its first fixture attempted unsupported
+source-level native function boxing (`InvalidValueTarget: text`); it was corrected to
+use the existing checked host binding/conversion boundary, without changing language
+semantics. An initial visibility warning was corrected before strict Clippy.
+
+Runtime/VM/benchmark all-target Clippy with diagnostics passes; the subsequently changed
+native-boundary target also passes strict Clippy. Structure checks 1,006 Rust files with
+zero violations/exceptions; formatting and diff checks pass. No build/test error is
+carried. No full-workspace or GitHub CI run was performed at this intermediate phase.
+
+Diagnostic release (`--features diagnostics`, `--diagnostics --source-forms`) passes all
+64 cold/warm rows. New opt-in counters count actual driver admissions and wait polling.
+Direct, field, byte-state, string-constant and inline native/host loops each admit once;
+5,000 helper/concrete-generic/interface/shared/closure calls admit 10,001 times. All
+synchronous rows report zero await polls. N/2N application rows scale with actual frame
+transitions, not ordinary instruction count. Allocation counts remain unchanged:
+5,000 interface/shared calls still request 65,040/155,050 allocations. Raw counts are in
+`target/hp02/driver-diagnostics.log`; they are not throughput measurements.
+
+HP02 acceptance is complete for runnable ownership and driver transitions. The checked
+external frame API remains the host/native/debug boundary; managed slow operations
+still await the explicit HP04 migration. Internal owning method handles and call-kind
+packing/retirement are HP03 work, not additional HP02 caches. The full goal, HP03–HP06,
+complete CI and unchanged Lua-parity gate remain open.
+
+Paired ordinary release measurements compare against the preceding HP02 admitted-region
+executable (`8a1aff02`), with unchanged workload bodies/checksums:
+
+```text
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/hp02/admitted-region-executable
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/hp02/admitted-region-executable
+```
+
+Same M1 Max/32 GiB/10-core macOS 26.6.2 arm64 machine, rustc 1.98.1/LLVM 22.1.8,
+workspace release/default features/target/parallelism. Benchmark processes run singly
+in baseline/candidate/candidate/baseline order, with fresh state, three warmups and 22
+pooled samples per engine/workload/variant. Incremental build wall times are 20.416 s
+and 0.090 s, excluded from execution. No allocation counters or concurrent build/test
+work ran during sampling. All checksums pass.
+
+| Workload | Prior HP02 median µs | Candidate median µs | Candidate / prior | Lua control ratio | Candidate / Lua |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| forms_byte_state | 7,012.438 | 5,395.751 | 0.7695 | 0.9946 | 48.16 |
+| forms_capture_cell | 9,887.458 | 7,852.396 | 0.7942 | 0.9764 | 56.23 |
+| forms_concrete_generic | 3,062.312 | 2,635.771 | 0.8607 | 1.0088 | 25.13 |
+| forms_direct | 338.521 | 333.125 | 0.9841 | 0.9995 | 4.43 |
+| forms_field | 3,323.625 | 2,710.854 | 0.8156 | 1.0062 | 29.60 |
+| forms_helper | 3,074.438 | 2,611.688 | 0.8495 | 1.0174 | 18.35 |
+| forms_host_callback | 1,838.938 | 1,521.708 | 0.8275 | 1.0156 | 6.12 |
+| forms_interface | 10,052.396 | 9,363.896 | 0.9315 | 0.9983 | 69.61 |
+| forms_native | 1,837.312 | 1,518.229 | 0.8263 | 1.0012 | 10.79 |
+| forms_shared_generic | 16,627.416 | 15,711.854 | 0.9449 | 1.0125 | 145.23 |
+| forms_string_calls | 12,481.541 | 9,929.146 | 0.7955 | 0.9886 | 79.95 |
+| forms_string_constants | 6,702.438 | 5,179.333 | 0.7728 | 0.9981 | 77.69 |
+| arithmetic | 2,519.876 | 2,449.146 | 0.9719 | 1.0179 | 6.37 |
+| arrays | 4,989.438 | 3,925.229 | 0.7867 | 0.9759 | 57.43 |
+| branches | 2,934.000 | 2,878.896 | 0.9812 | 0.9928 | 3.63 |
+| calls | 6,172.667 | 5,224.229 | 0.8463 | 0.9951 | 23.44 |
+| entry | 1.376 | 1.334 | 0.9696 | 0.9971 | 46.81 |
+| fibonacci | 12,461.729 | 10,545.959 | 0.8463 | 0.9994 | 30.40 |
+| maps | 5,799.312 | 5,136.501 | 0.8857 | 1.0266 | 73.42 |
+
+The managed-boundary workloads show larger reductions: field 18.44%, string constants
+22.72%, byte state 23.05% and inline native calls 17.37%; their Lua controls change by
+less than 1%. Original arrays fall 21.33%, with a 2.41% lower Lua control. Interface and
+shared-generic loops improve only 6.85%/5.51% and retain their allocation traffic; HP03
+must replace their call ownership/packing protocol. Small scalar changes remain subject
+to measurement noise. Every reported workload still takes longer than Lua; diagnostic
+entry/native rows do not redefine the frozen parity gate.
+
+Raw results and metadata: `target/lua-comparison/20261010T040319Z-forms-paired/results.json`
+and `target/lua-comparison/20261010T040421Z-paired/results.json`. The ordinary candidate
+is preserved at `target/hp02/driver-transition-executable`, SHA-256
+`11b48cda4efe11a81ba93863b476e78a2b4ffb35277b9b0a98be56e6cebcf873`.
+The default release executable is also ordinary. Link checks cover all 76 local links
+in the three changed architecture/roadmap/plan documents. Next is HP03: unify prepared
+call ownership and physical argument/result transfers, starting from the retained
+interface/shared packing and owning method-handle paths.

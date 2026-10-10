@@ -8,6 +8,8 @@ use std::cell::Cell;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ExecutionCounts {
+    pub driver_admissions: u64,
+    pub await_polls: u64,
     pub method_preparations: u64,
     pub shared_preparations: u64,
     pub operation_preparations: u64,
@@ -20,6 +22,8 @@ pub struct ExecutionCounts {
 }
 
 pub(crate) enum Event {
+    DriverAdmission,
+    AwaitPoll,
     MethodPreparation,
     SharedPreparation,
     OperationPreparation,
@@ -41,6 +45,8 @@ pub(crate) fn record(event: Event) {
             return;
         };
         let counter = match event {
+            Event::DriverAdmission => &mut counts.driver_admissions,
+            Event::AwaitPoll => &mut counts.await_polls,
             Event::MethodPreparation => &mut counts.method_preparations,
             Event::SharedPreparation => &mut counts.shared_preparations,
             Event::OperationPreparation => &mut counts.operation_preparations,

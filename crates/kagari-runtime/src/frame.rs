@@ -37,6 +37,7 @@ use std::{
 mod arguments;
 mod calls;
 pub mod cursor;
+pub mod driver;
 pub(crate) mod factory;
 mod future;
 mod layouts;
@@ -814,21 +815,6 @@ impl ExecutionFrame {
             }
             CallableTarget::Native(_) => None,
         }
-    }
-
-    pub fn native_return(&self, runtime: &Runtime) -> Result<Option<Value>, RuntimeError> {
-        self.validate_runtime(runtime)?;
-        if !matches!(self.native_entry, NativeEntryState::Complete) {
-            return Ok(None);
-        }
-        self.slots
-            .get(&runtime.gc, 0)
-            .map(Some)
-            .ok_or_else(|| runtime.resources().quarantine("invalid native return slot"))
-    }
-
-    pub fn has_pending_native_entry(&self) -> bool {
-        matches!(self.native_entry, NativeEntryState::Pending)
     }
 
     pub fn register_type(
