@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{arguments::TypeArgument, compatibility::TypeView},
+    frame::types::arguments::TypeArgument,
     module::{LoadedModule, ModuleEpochRetention, StructLayoutRef},
     native::{
         binding::NativeResult,
@@ -78,23 +78,7 @@ impl Runtime {
             .ok_or_else(|| {
                 RuntimeError::module_validation("missing executable struct application")
             })?;
-        let template = &member.bytecode.structures[id.index()];
-        for (compiled, supplied) in template.arguments.iter().zip(arguments) {
-            if compiled.is_concrete()
-                && !supplied
-                    .view(owner)
-                    .compatible(TypeView::new(compiled, &member, None))
-            {
-                return Err(RuntimeError::module_validation(
-                    "struct application differs from its compiled argument scope",
-                ));
-            }
-        }
-        let scope = self.prepare_layout_scope(&member, template.declaration, arguments)?;
-        let layout = self
-            .modules
-            .applied_struct_layout(&member, id, &types, scope)
-            .ok_or_else(|| RuntimeError::module_validation("invalid struct application"))?;
+        let layout = self.prepare_struct_application(&member, id, arguments)?;
         let result = self.retain_object_type(layout)?;
         if !result.0.public {
             return Err(RuntimeError::module_validation("object type is not public"));

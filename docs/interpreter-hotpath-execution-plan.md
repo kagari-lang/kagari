@@ -3708,3 +3708,135 @@ is established, but this is not blanket performance acceptance. Earlier HP04 reg
 remaining repeated nominal graph work, ordinary Option representation evaluation, HP06
 retirement/memory accounting/final integration, CI and all-workload parity remain open.
 Raw logs are under target/hp05/type-views/; target/release holds the ordinary benchmark.
+
+
+2026-10-10 HP05, nominal admission owned by supplied type applications:
+TypeArgument prepares a complete nominal admission at construction, after type/scope
+validation. Layout-scope preparation can retry an unavailable proof, and native enum
+member preparation publishes the same evidence when necessary. Only successful facts
+enter the OnceLock: unavailable identities/preparation failures preserve full comparisons
+and do not poison later installed preparation. Value matching itself only reads the
+proof. An intermediate prototype prepared at first runtime match; this was moved out
+of consumers before final validation so closed native bodies do not initialize metadata.
+
+NominalAdmission stores aggregate kind, exact immutable ProgramDescriptor and complete
+canonical LayoutIdentity. It deliberately does not retain StructLayoutRef/EnumVariantRef,
+LayoutScope, argument bindings, Values or executable environment/lease edges. Retaining
+another full layout on a supplied type could create a cycle through lexical type
+arguments; the identity proof has no such back edge. ProgramDescriptor owns immutable
+code/linked descriptions and weak compatibility entries, not runtime type arguments.
+Same-program identity comparison and genuine cross-version admission both use the
+existing bounded layout_admission owner. Heap lookup still checks the current handle.
+Enum type checking accepts any valid member; member/payload patterns independently
+check the expected tag and bounds. Full scope/layout fallback remains mandatory when
+identities are absent or incompatible. No native or script semantics are relaxed.
+
+The old TypeArgument matches_prepared_enum member iteration is removed. The enum member
+cell remains for construction/selection, not a competing type-checking implementation.
+Enum preparation moves from native/context into frame/types/arguments/nominal.rs, which
+has no dependency on native binding policy. Struct application compatibility/scope
+preparation is shared with host object binding. LoadedModule's struct-definition lookup
+is separated from detached application construction so admission does not allocate and
+then discard an initial applied layout. layout_admission is crate-visible for this
+actual shared responsibility; no facade/re-export/compatibility API is added.
+
+Focused checks pass: four type identity/lifetime/Send-Sync contracts, eight shared generic
+and mixed-provenance contracts (plus the shared_ filter's two existing object tests), six
+native-enum contracts, four obsolete-program/environment-cycle contracts, supplied
+nominal native payload scope, and four embed enum-payload contracts. The type/lifetime,
+shared, enum and cycle contracts were rerun after preparation moved to type application.
+Strict runtime/VM all-target Clippy with execution-diagnostics, formatting, structure
+(1,022 files, zero violations/exceptions), document links and diff checks pass. No
+compile/test failure remains. Full local integration and complete GitHub CI remain open.
+
+A temporary size probe extends the existing Send-Sync test, reconstructing the previous
+TypeArgumentData declaration from HEAD; it is restored byte-for-byte afterward. On this
+64-bit build TypeArgumentData grows 264 -> 280 bytes, its admission cell is 16 bytes and
+a successful boxed NominalAdmission is 32 bytes. The TypeArgument Arc wrapper, Value,
+frame and per-object layout references do not grow. Every type record pays the cell;
+only nominal records with an available proof allocate the box. These are payload sizes,
+not allocator overhead or isolated peak retention. The probe source/output remain under
+ target/hp05/nominal-admission/{identity-size-probe.rs,test-type-sizes.log}.
+
+Separate final release diagnostics complete all 72 source-form/scaling and 14 original
+rows. All non-allocation counters match d54d6916 exactly, including cold/warm object/GC,
+preparation, environment, metadata and execution-boundary counts. In particular, no new
+script object or root is introduced. layout_comparisons was already zero because the
+old raw TypeView path was outside the admission counter; zero alone did not establish
+absence of graph work. Allocation evidence now distinguishes the removed preparation:
+
+| Warm workload | Requests before -> after | Requested bytes before -> after |
+| --- | ---: | ---: |
+| scoped_layout (2,500) | 568,175 -> 10,675 | 54,677,507 -> 1,807,507 |
+| scoped_layout (5,000) | 1,136,290 -> 21,290 | 109,347,107 -> 3,607,107 |
+| changing_scoped_layout (5,000) | 1,136,464 -> 21,464 | 109,386,004 -> 3,646,004 |
+| native_application (5,000) | 385,373 -> 200,336 | 29,458,021 -> 11,634,473 |
+| changing_native_application (5,000) | 385,575 -> 200,501 | 29,558,790 -> 11,731,694 |
+| witness_application (5,000) | 195,466 -> 200,466 | 19,247,939 -> 19,487,939 |
+| shared_application (5,000) | 195,486 -> 200,486 | 19,260,336 -> 19,500,336 |
+
+Scoped layout saves exactly 223 requests/21,148 requested bytes per iteration, for both
+fixed/changing types and 2,500/5,000 sizes. Its 5,000-iteration 15,001 objects/30 warm
+collections stay unchanged. Warm Map remains 2,178 requests/1,022,792 bytes, 2,001 objects
+and five collections. Arrays remain 59 requests but gain 16 requested bytes (20,282);
+byte-state similarly gains 16 requested bytes per complete warm call. Warm net-byte
+deltas are unchanged. Cold fixed/changing scoped net bytes decrease 420/16; native
+application decreases 880/1,128, independent of probe size. These aggregate execution
+deltas do not establish lower total retained metadata. Raw final diagnostics and the
+superseded first-use prototype logs are kept separately in the evidence directory.
+
+The witness/shared-application increase is an explicit unresolved preparation defect:
+builtin/standard.rs reconstructs portable Ordering (and Option<Ordering> for partial
+comparison) on every invocation. Each fresh result TypeArgument now adds its 32-byte
+proof box and 16-byte cell; this is exactly +1 request/+48 bytes per iteration. It is
+not fixed by skipping checks, excluding this probe, or treating the box as free. The
+next bounded HP05 unit must move builtin nominal result facts into their runtime-linked
+owner, shared by interpreter and native callers, preserving exact supplying versions,
+ordinary enum allocation, roots between partial-comparison allocations and failure
+order. Retire per-call portable result preparation. This is the remaining selected-
+primitive/enum integration already covered by HP01/HP03/HP05, not a new optimization
+track or a reason to declare those costs unavoidable.
+
+Ordinary binary reference: d54d6916, target/hp05/nominal-admission/baseline-executable,
+SHA-256 f69eedd6986a8e2efbea756550ef4c063099e09940e41efe22d0cc2fb254af0e. Candidate:
+ target/hp05/nominal-admission/prepared-executable, SHA-256
+5452b7ed1d307db3a7b23e58f543c1599470cb50e58dbcca0c81e8a2cdefd04f.
+Paired results under target/lua-comparison/: 20261010T105400Z-forms-paired and
+20261010T105434Z-paired. Same M1 Max/32 GiB/ten logical CPUs, macOS 26.6.2 arm64,
+rustc 1.98.1/LLVM 22.1.8, vendored PUC Lua 5.4.8, workspace release/default target and
+parallelism, warm build cache, normal GC/allocator and diagnostics off. Frozen workloads
+and checksums are unchanged. benchmark_lua.py --interpreter-only [--source-forms]
+--baseline-executable uses the reference above with the documented DEVELOPER_DIR prefix.
+Three warmups/22 pooled samples per route, serial B/C/C/B; no build/test/profile overlaps
+timing. Excluded builds: 20.430/0.117 seconds. All checksums pass.
+
+| Workload | Candidate / d54d6916 | Lua control |
+| --- | ---: | ---: |
+| arithmetic | 0.9562 | 1.0113 |
+| arrays | 0.9723 | 0.9863 |
+| branches | 0.9978 | 1.0046 |
+| calls | 0.9800 | 1.0011 |
+| entry | 0.9743 | 0.9971 |
+| fibonacci | 0.9787 | 0.9953 |
+| maps | 0.9957 | 0.9912 |
+| byte_state | 0.9945 | 1.0002 |
+| capture_cell | 1.0120 | 1.0157 |
+| concrete_generic | 0.9931 | 0.9976 |
+| direct | 0.9556 | 0.9989 |
+| field | 0.9963 | 0.9982 |
+| helper | 0.9831 | 0.9981 |
+| host_callback | 0.9940 | 0.9850 |
+| interface | 0.9998 | 1.0079 |
+| native | 0.9980 | 0.9978 |
+| shared_generic | 0.9997 | 1.0144 |
+| string_calls | 0.9813 | 1.0030 |
+| string_constants | 0.9877 | 0.9984 |
+
+The unchanged timed workloads show no new >5% control regression in this paired run.
+Most shifts are small, and the scoped-layout diagnostic is not a timed Lua workload;
+its allocation reduction is not a measured throughput claim. No independent repeat
+or overall performance acceptance is claimed here. Current arrays/maps are still
+23.19/54.09x Lua; String constants are 12.32x. Resolve builtin result preparation next,
+then complete the ordinary Option representation assessment, HP06 retirement/memory
+review/final validation and unchanged HP00 comparisons. Earlier HP04 gates, CI and
+all-workload parity remain unmet. target/release holds the ordinary benchmark.

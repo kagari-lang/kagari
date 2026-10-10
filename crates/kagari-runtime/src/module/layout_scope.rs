@@ -68,6 +68,7 @@ impl Runtime {
         }
         for argument in arguments {
             argument.validate(self)?;
+            argument.prepare_admission(self, owner);
         }
         if !arguments.iter().any(TypeArgument::has_origin) {
             return Ok(None);

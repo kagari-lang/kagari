@@ -2,9 +2,12 @@
 //! Weak producer links cannot retain executable instances or create descriptor cycles.
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
-use crate::module::{
-    LoadedModule, ModuleKey, ProgramDescriptor, descriptor_index::DescriptorIndex,
-    layout_identity::LayoutIdentity,
+use crate::{
+    frame::types::compatibility::TypeView,
+    module::{
+        EnumVariantRef, LoadedModule, ModuleKey, ProgramDescriptor, StructLayoutRef,
+        descriptor_index::DescriptorIndex, layout_identity::LayoutIdentity,
+    },
 };
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
@@ -28,6 +31,68 @@ struct AdmissionKey {
 }
 
 type AdmissionIndex = DescriptorIndex<AggregateKind, AdmissionKey, Weak<ProgramDescriptor>>;
+
+/// Complete nominal meaning without retaining a layout's argument bindings.
+/// The immutable program does not own type arguments; this proof cannot create
+/// a cycle through a supplied argument's lexical environment.
+#[derive(Debug)]
+pub(crate) struct NominalAdmission {
+    owner: LoadedModule,
+    identity: LayoutIdentity,
+    kind: AggregateKind,
+}
+
+impl NominalAdmission {
+    pub(crate) fn structure(layout: &StructLayoutRef) -> Option<Self> {
+        Some(Self {
+            owner: layout.module.clone(),
+            identity: layout.canonical?,
+            kind: AggregateKind::Struct,
+        })
+    }
+
+    pub(crate) fn enumeration(layout: &EnumVariantRef) -> Option<Self> {
+        Some(Self {
+            owner: layout.module.clone(),
+            identity: layout.canonical?,
+            kind: AggregateKind::Enum,
+        })
+    }
+
+    pub(crate) fn matches_struct(&self, actual: &StructLayoutRef, expected: TypeView<'_>) -> bool {
+        self.kind == AggregateKind::Struct
+            && admit(
+                self.kind,
+                LayoutEndpoint {
+                    owner: &self.owner,
+                    identity: Some(self.identity),
+                },
+                LayoutEndpoint {
+                    owner: &actual.module,
+                    identity: actual.canonical,
+                },
+                || actual.matches_view(expected),
+            )
+    }
+
+    pub(crate) fn matches_enum(&self, actual: &EnumVariantRef, expected: TypeView<'_>) -> bool {
+        // Type admission accepts every valid member; pattern admission separately
+        // checks the selected tag through EnumVariantRef::matches_layout.
+        self.kind == AggregateKind::Enum
+            && admit(
+                self.kind,
+                LayoutEndpoint {
+                    owner: &self.owner,
+                    identity: Some(self.identity),
+                },
+                LayoutEndpoint {
+                    owner: &actual.module,
+                    identity: actual.canonical,
+                },
+                || actual.matches_view(expected),
+            )
+    }
+}
 
 /// Lazily allocated, bounded pure-fact evidence; safe to share with detached type facts.
 #[derive(Debug, Default)]

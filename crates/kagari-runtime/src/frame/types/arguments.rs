@@ -6,6 +6,7 @@ use kagari_common::identity::{
 };
 #[cfg(test)]
 mod identity_tests;
+mod nominal;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -14,7 +15,7 @@ use crate::{
         compatibility::{TypeIdentity, TypeView},
     },
     gc::GcHeap,
-    module::{EnumVariantRef, LoadedModule},
+    module::{EnumVariantRef, LoadedModule, layout_admission::NominalAdmission},
     value::Value,
     value_check,
 };
@@ -37,6 +38,7 @@ struct TypeArgumentData {
     parameters: OnceLock<Result<Vec<TypeArgument>, RuntimeError>>,
     variants: OnceLock<Result<Vec<EnumVariantRef>, RuntimeError>>,
     identity: OnceLock<Option<Arc<TypeIdentity>>>,
+    admission: OnceLock<Box<NominalAdmission>>,
 }
 
 #[derive(Debug)]
@@ -81,7 +83,7 @@ impl TypeArgument {
     }
 
     pub(crate) fn matches_heap(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> bool {
-        if let Some(matches) = self.matches_prepared_enum(heap, value) {
+        if let Some(matches) = self.matches_admitted(heap, value, owner) {
             return matches;
         }
         value_check::matches_view(heap, value, self.view(owner))
@@ -139,11 +141,18 @@ impl TypeArgument {
         &self,
         prepare: impl FnOnce() -> Result<Vec<EnumVariantRef>, RuntimeError>,
     ) -> Result<&[EnumVariantRef], RuntimeError> {
-        self.data
+        let variants = self
+            .data
             .variants
             .get_or_init(prepare)
             .as_deref()
-            .map_err(Clone::clone)
+            .map_err(Clone::clone)?;
+        if self.data.admission.get().is_none()
+            && let Some(admission) = variants.first().and_then(NominalAdmission::enumeration)
+        {
+            let _ = self.data.admission.set(Box::new(admission));
+        }
+        Ok(variants)
     }
 
     pub fn ty(&self) -> &Ty<DefinitionId> {
@@ -185,22 +194,21 @@ impl TypeArgument {
         Ok(())
     }
 
-    fn matches_prepared_enum(&self, heap: &GcHeap, value: &Value) -> Option<bool> {
-        let Ok(variants) = self.data.variants.get()? else {
-            return None;
-        };
-        let Value::Enum(id) = value else {
-            return Some(false);
-        };
-        Some(heap.enum_layout(*id).is_some_and(|actual| {
-            variants
-                .iter()
-                .any(|expected| actual.matches_layout(expected))
-        }))
+    fn matches_admitted(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> Option<bool> {
+        let admission = self.data.admission.get()?;
+        Some(match value {
+            Value::Struct(id) => heap
+                .struct_layout(*id)
+                .is_some_and(|actual| admission.matches_struct(&actual, self.view(owner))),
+            Value::Enum(id) => heap
+                .enum_layout(*id)
+                .is_some_and(|actual| admission.matches_enum(&actual, self.view(owner))),
+            _ => false,
+        })
     }
 
     pub(crate) fn matches(&self, runtime: &Runtime, value: &Value, owner: &LoadedModule) -> bool {
-        if let Some(matches) = self.matches_prepared_enum(&runtime.gc, value) {
+        if let Some(matches) = self.matches_admitted(&runtime.gc, value, owner) {
             return matches;
         }
         runtime.matches_type_view(value, self.view(owner))
@@ -344,7 +352,7 @@ impl Runtime {
             } else {
                 None
             };
-            arguments.push(TypeArgument {
+            let argument = TypeArgument {
                 data: Arc::new(TypeArgumentData {
                     ty,
                     definitions: definitions.clone(),
@@ -352,8 +360,13 @@ impl Runtime {
                     parameters: OnceLock::new(),
                     variants: OnceLock::new(),
                     identity: OnceLock::new(),
+                    admission: OnceLock::new(),
                 }),
-            });
+            };
+            // Prepare immutable nominal meaning at type application, before a
+            // value matcher or a closed native kernel consumes this argument.
+            argument.prepare_admission(self, owner);
+            arguments.push(argument);
         }
         Ok(arguments)
     }

@@ -4,7 +4,7 @@ pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
 pub mod execution;
-mod layout_admission;
+pub(crate) mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
 mod layouts;

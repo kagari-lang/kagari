@@ -53,6 +53,14 @@ impl LoadedModule {
         &self,
         nominal: &NominalTy<DefinitionId>,
     ) -> Option<StructLayoutRef> {
+        let (owner, id) = self.find_struct_definition(nominal)?;
+        owner.applied_struct_layout(id, &nominal.arguments)
+    }
+
+    pub(crate) fn find_struct_definition(
+        &self,
+        nominal: &NominalTy<DefinitionId>,
+    ) -> Option<(LoadedModule, StructId)> {
         self.members().find_map(|owner| {
             let id = owner
                 .bytecode
@@ -64,7 +72,7 @@ impl LoadedModule {
                 })
                 .max_by_key(|(_, layout)| !layout.arguments.iter().all(Ty::is_concrete))?
                 .0;
-            owner.applied_struct_layout(StructId::new(id), &nominal.arguments)
+            Some((owner, StructId::new(id)))
         })
     }
 

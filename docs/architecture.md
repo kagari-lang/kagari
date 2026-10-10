@@ -574,7 +574,19 @@ outer call. Selected-call edge tracing is shared with stored native selections;
 escaping typed host handles still explicitly acquire their own roots. Generic entry
 does not recreate native applications or host-style selected-call roots on a hit.
 TypeArgument shares immutable validated type facts, memoized parameters, exact
-type/provenance identities and enum layout applications. Its borrowed type view carries
+type/provenance identities and enum layout applications. Nominal type application
+prepares a successful admission proof once, retaining only the immutable program,
+complete canonical layout identity and aggregate kind. Scope preparation can retry a
+previously unavailable proof; failures/absent identities are not cached. The proof
+does not retain layout argument bindings, Values or executable environments, so it
+cannot create a cycle through a supplied argument's type scope. Value matching reads
+that proof through the existing bounded layout-admission owner; genuine cross-version
+comparisons and missing identities keep the full scoped fallback. Enum type admission
+accepts any valid member, while pattern admission independently checks its tag.
+Native enum construction retains its member-selection facts, but no longer provides
+a separate member-by-member type matcher. Struct application checks are shared by
+nominal preparation and host object binding; enum preparation belongs to the common
+type-application layer. Its borrowed type view carries
 the checked closed result alongside the original expression and supplying scope.
 Container/tuple projections preserve both trees; arbitrary lexical children inherit
 closed evidence only when they belong to the checked closed tree. Storage contracts
@@ -620,8 +632,9 @@ type facts cross threads; graph comparison runs outside the lock. Missing identi
 eviction or unavailable cache access retain full checks. A new version cannot inherit an
 old proof, and a proof never authorizes execution, a heap handle or mutable access.
 Raw type-expression checks retain full resolution and graph-comparison fallbacks.
-Repeated nominal preparation outside admitted layout operands remains an active-plan
-review item; a borrowed closed spelling does not replace a complete layout proof.
+Builtin comparison still recreates its nominal result type on each call; migration
+to runtime-linked result facts remains in the active plan. A borrowed closed spelling
+does not replace a complete layout proof.
 Every value access continues to validate heap ownership, slot generation and access.
 Enum variant comparison goes directly through this shared admission policy after
 runtime/variant checks; the older same-member/Arc shortcut is removed. Interpreter
