@@ -50,6 +50,8 @@ pub mod backend;
 pub mod builtin;
 pub mod cache;
 pub mod closure;
+#[cfg(feature = "execution-diagnostics")]
+pub mod diagnostics;
 pub mod error;
 mod execution_metadata;
 mod execution_state;

@@ -5,6 +5,9 @@ pub(crate) mod groups;
 pub(crate) mod interfaces;
 pub(crate) mod links;
 pub(crate) mod operation;
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime,
     closure::ClosureValueSnapshot,
@@ -28,6 +31,8 @@ impl Runtime {
         if let MetadataEdge::Program(owner) = edge {
             return self.validate_loaded_module(owner);
         }
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::MetadataValidation);
         let mut error = None;
         let groups =
             self.gc.operation_groups.try_borrow().map_err(|_| {

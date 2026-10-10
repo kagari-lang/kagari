@@ -17,13 +17,19 @@ from benchmark_lua import ROOT, command, machine
 WORKLOADS = ("arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
 
 
-def sample(name: str, executable: Path, output: Path) -> None:
+FORMS = ("direct", "helper", "concrete_generic", "interface", "shared_generic",
+         "capture_cell", "field", "native", "byte_state", "host_callback",
+         "string_constants", "string_calls")
+
+
+def sample(name: str, executable: Path, output: Path, source_forms: bool) -> None:
     directory = output / name
     directory.mkdir()
     with (directory / "stderr.log").open("w") as errors, \
             (directory / "execution.log").open("w") as execution:
         process = subprocess.Popen(
-            [str(executable), "--interpreter-only", f"--profile={name}"],
+            [str(executable), "--interpreter-only", f"--profile={name}"]
+            + (["--source-forms"] if source_forms else []),
             cwd=ROOT, stdout=subprocess.PIPE, stderr=errors, text=True, bufsize=1,
         )
         lines: list[str] = []
@@ -74,12 +80,15 @@ def sample(name: str, executable: Path, output: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("workloads", nargs="*", default=list(WORKLOADS))
+    parser.add_argument("workloads", nargs="*")
+    parser.add_argument("--source-forms", action="store_true")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("requires macOS /usr/bin/sample")
-    if any(name not in WORKLOADS for name in args.workloads):
-        parser.error(f"workloads must be selected from {WORKLOADS}")
+    available = FORMS if args.source_forms else WORKLOADS
+    args.workloads = args.workloads or list(available)
+    if any(name not in available for name in args.workloads):
+        parser.error(f"workloads must be selected from {available}")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output = ROOT / "target/lua-comparison" / f"{stamp}-macos-profile"
     output.mkdir(parents=True)
@@ -99,11 +108,12 @@ def main() -> None:
         "build_wall_seconds": build_seconds,
         "profile": "workspace release; default parallelism and target; no debug override",
         "features": "kagari-embed source,native; only interpreter executed",
-        "sampling": "sample PID 5 1; all threads; three warmups; ten-second execution window",
+        "sampling": "sample PID 5 1; all threads; ten-second execution window",
+        "kagari_warmups": 6 if args.source_forms else 3,
         "limitations": "wall-clock stack samples, not CPU counters; optimized inline attribution is incomplete",
         "binary_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "driver_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        "workloads": args.workloads,
+        "workloads": args.workloads, "source_forms": args.source_forms,
         "environment": {key: os.environ[key] for key in (
             "CARGO_BUILD_JOBS", "CARGO_TARGET_DIR", "RUSTFLAGS", "CFLAGS", "CC"
         ) if key in os.environ},
@@ -116,7 +126,7 @@ def main() -> None:
     }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2))
     for name in args.workloads:
-        sample(name, executable, output)
+        sample(name, executable, output, args.source_forms)
 
 
 if __name__ == "__main__":

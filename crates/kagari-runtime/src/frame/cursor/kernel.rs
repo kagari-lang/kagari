@@ -1,4 +1,7 @@
 //! Closed operations reuse authority without allocating or admitting callbacks.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     error::RuntimeError,
     frame::{
@@ -38,14 +41,24 @@ impl ExecutionCursor<'_> {
         let mut first = true;
         loop {
             match self.scalars()?.execute(remaining, collection_due, first)? {
-                ScalarExit::Region(exit) => return Ok(exit),
+                ScalarExit::Region(exit) => {
+                    #[cfg(feature = "execution-diagnostics")]
+                    if matches!(exit, RegionExit::Boundary) {
+                        diagnostics::record(Event::SlowBoundary);
+                    }
+                    return Ok(exit);
+                }
                 ScalarExit::Object(ExecutionInstruction::ReadField { dst, base, field }) => {
                     if !self.read_field(dst, base, field)? {
+                        #[cfg(feature = "execution-diagnostics")]
+                        diagnostics::record(Event::SlowBoundary);
                         return Ok(RegionExit::Boundary);
                     }
                 }
                 ScalarExit::Object(ExecutionInstruction::WriteField { base, value, field }) => {
                     if !self.write_field(base, value, field)? {
+                        #[cfg(feature = "execution-diagnostics")]
+                        diagnostics::record(Event::SlowBoundary);
                         return Ok(RegionExit::Boundary);
                     }
                 }

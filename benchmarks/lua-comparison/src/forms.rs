@@ -1,4 +1,7 @@
 //! Same recurrence through concrete and dynamic boundaries, plus bounded byte state.
+#[cfg(feature = "diagnostics")]
+use crate::diagnostics;
+
 use crate::{Options, profile};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
@@ -238,24 +241,20 @@ pub(super) fn run(options: &Options) {
             };
             value
         };
+        #[cfg(feature = "diagnostics")]
+        if options.diagnostics {
+            assert_eq!(execute("lua54"), expected);
+            diagnostics::measure(&runtime, &loaded, &context, name, &[], expected);
+            continue;
+        }
         for _ in 0..options.warmups {
             for engine in ["kagari_vm", "lua54"] {
                 assert_eq!(execute(engine), expected);
             }
         }
         if options.profile.is_some() {
-            let before = runtime.runtime().gc().stats();
-            assert_eq!(execute("kagari_vm"), expected);
-            let after = runtime.runtime().gc().stats();
-            println!(
-                "FORMS_ACCOUNTING,{name},collections={},heap_object_allocations={},live_objects_delta={}",
-                after.collections - before.collections,
-                after.allocated_objects as i128 - before.allocated_objects as i128
-                    + (after.reclaimed_objects - before.reclaimed_objects) as i128,
-                after.allocated_objects as i128 - before.allocated_objects as i128
-            );
             profile::count_lua(&lua, &entry, expected);
-            profile::count(&runtime, &loaded, &context, name, expected);
+            profile::run(&runtime, &loaded, &context, name, name, expected);
             continue;
         }
         for sample in 0..options.samples {

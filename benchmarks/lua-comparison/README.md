@@ -548,3 +548,52 @@ Strict workspace/all-target Clippy, formatting, structure (659 files, zero
 violations/exceptions), empty/single-element regression, all fifteen ordinary
 release smoke routes, Python syntax/document links and diff checks pass. No
 production source changed, and the full language-contract matrix was not rerun.
+
+## Execution architecture diagnostics (HP00)
+
+Allocation and protocol counters are opt-in and separate from timing:
+
+```sh
+cargo build --release --locked -p kagari-lua-benchmark --features diagnostics
+target/release/kagari-lua-benchmark --diagnostics
+target/release/kagari-lua-benchmark --diagnostics --source-forms
+```
+
+On the development macOS machine, prefix Cargo commands with
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools`. Diagnostic builds reject
+throughput mode. Rebuild without `--features diagnostics` before timing; the
+ordinary driver does this automatically. Neither allocator nor runtime counters
+are compiled into the default build.
+
+Each diagnostic entry checks three warmups and counts one execution, including
+host entry/result retention and ordinary GC. Counts cover successful system
+allocation/reallocation requests, bytes requested and net allocated bytes on the
+current thread; net bytes may be negative when GC frees earlier allocations.
+They are not peak memory or bytes retained after collection. Heap object counts
+include reclaimed objects; environment/application deltas report live records.
+Runtime counters report method/shared preparation attempts, environment allocation
+attempts, non-program metadata graph validation entries and prepared-region exits
+to ordinary dispatch. They include same-thread synchronous reentry. Counters do
+not measure cold preparation, instruction cost or time saved.
+
+Source-form diagnostics also run a separate 2,500/5,000-iteration protocol matrix:
+fixed versus alternating interface receivers, and fixed versus alternating receiver
+and generic argument types. The alternating receiver changes at the same callsite;
+i32/i64 arguments use two statically typed callsites and all four receiver/type
+combinations. Independent Rust checksums check receiver selection and results.
+These probes do not replace or modify the frozen Lua comparison fixtures.
+
+On macOS, use the ordinary release binary for stack sampling:
+
+```sh
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py arrays maps
+DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/profile_lua_macos.py --source-forms shared_generic interface byte_state string_calls
+```
+
+The driver records hashes/environment and samples five seconds inside a ten-second
+warmed execution window (three Kagari warmups for original workloads, six for
+source forms including their paired warmup pass). Observer instruction counts are collected afterward;
+Lua hooks run before the window. These are wall-clock stack samples, not exclusive
+CPU percentages. Run sampling, counters and throughput serially, without concurrent
+builds/tests. Keep generated output under ignored `target/` and durable conclusions
+in the active execution plan or performance report.

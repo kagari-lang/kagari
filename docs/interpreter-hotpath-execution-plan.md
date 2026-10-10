@@ -1,9 +1,8 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: planned; implementation is not started. The user requested this plan after
-the post-VE09 diagnosis. Writing the plan does not activate implementation or resume
-an earlier goal. The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up)
-owns activation; this document owns the finite phase order and progress ledger.
+Status: active, authorized by the user on 2026-10-10; HP00 is complete; HP01 is next.
+The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
+activation; this document owns the finite phase order and progress ledger.
 
 ## Objective and evidence
 
@@ -157,10 +156,41 @@ its previous benchmark win or completed phase status does not justify retaining
 obsolete duplicate machinery after migration. Any additional workaround found on
 these paths receives a concrete disposition and phase owner in this same table.
 
+### HP00 migration map and invariant ownership
+
+The audit follows an ordinary interface call through
+`executor/dispatch.rs::dispatch_call` in the VM and runtime `objects/application`,
+`execution_metadata/links`, `frame/shared`, `frame/calls` and `frame/returns`.
+For example, `receiver.forward<i32>(value)` currently selects a host-rooted method,
+reconstructs binder/entry environments, resolves its signature, publishes metadata
+roots and then validates frame entry. The target prepares immutable facts for the
+exact application once; each invocation supplies its receiver/value through the
+common frame transfer protocol. A different receiver implementation or supplied
+nominal version selects a different descriptor. It does not mutate an earlier one.
+
+| Protected fact | Target proof owner and invalidation | Remaining enforcement / migration |
+| --- | --- | --- |
+| Type/layout meaning and exact supplying versions | Runtime-linked descriptor owns normalized type/layout identity and pinned provenance; new publication/reload creates distinct identities | HP01/HP05: preserve foreign scope and genuine cross-version compatibility admission; replace repeated module-slot/layout equality, including VE09 shortcut |
+| Method signature, entry environment and operation witnesses | Immutable applied descriptor includes selection, supplied type scopes and operation identities; different keys require preparation | HP01/HP03: replace closed-only `MethodSelection` application cells and repeated `prepare_method_application` / `prepare_shared_environment`; validation failure cannot publish partial facts |
+| Executable dependency validity and lifetime | Checked publication of every initial/lazy edge, with descriptors reachable from existing metadata tracing | HP01: consolidate `MetadataCache` publication; preserve owner/generation lookups, abandoned-lease checks and collection/retirement; no untraced global root or permanent cache |
+| Active operand ownership | Runnable scope borrows admitted session/frame/window; observation, GC, growth, reentry and parking end that scope | HP02: replace repeated internal `ExecutionStack::current/current_mut` admission; keep checked external access, stale-session rejection and cancellation/debugger cadence |
+| Live arguments, captures and return values | Common call transition owns transfers and roots before retiring caller/callee state | HP03: generalize `PreparedScriptCall` and existing window transfer; remove internal `RootedInterfaceMethod` construction, temporary argument packing and separate shared/interface retirement; host-retained method handles remain |
+| Managed constants, fields and primitive collection operations | Linked prepared operands plus explicit effect/access contract; current aliases/bounds are dynamic | HP04: replace `ExecutionInstruction::Boundary` fallback for migrated common operations and repeated canonical decode; retain lazy string storage, scalar kernels, checked arithmetic, trap order and storage borrow checks |
+| Enum nominal identity, tag and payload | Prepared producer/consumer layout admission; rooted bounded payload borrow for each read | HP05: replace owned snapshots/pattern reconstruction and VE09 structural shortcut; preserve mismatch/failure order and ordinary boxed Option until representation evidence warrants a scoped decision |
+
+`SessionStore` is already an indexed slot/generation store; the older profile's
+HashMap attribution does not describe this baseline. IP/NE window banks, 16-byte
+Copy values and VE03 traced string storage remain useful foundations. The defective
+boundary is repeated admission/preparation, not the existence of owner/generation
+checks. Native `TypeArgument` derived parameter/variant preparation, selected
+collection borrowing helpers and direct scalar returns must be reviewed with their
+new owner, rather than retained as competing semantic paths. Every row in the
+retrospective table remains open until its owning phase supplies code evidence.
+
 ## Phase order and acceptance
 
-Implementation remains queued. Once activated, execute the bounded sequence without
-asking again for its routine work. Each checkpoint replaces a coherent responsibility
+Implementation is authorized. Execute the bounded sequence without asking again
+for its routine work. Each checkpoint replaces a coherent responsibility
 and must build/pass selected contracts. Temporary migration bridges need a named
 removal phase and cannot survive HP06; obsolete internal compatibility APIs are not
 required. A performance miss triggers ownership/representation review before another
@@ -272,7 +302,8 @@ bounded migration requirement instead of declaring a snapshot optimization suffi
 ### HP06 — Retire old paths and evaluate the architecture
 
 Close every retrospective row with concrete code evidence; delete obsolete adapters,
-caches, duplicate validation and temporary migration bridges. Review module ownership,
+caches, duplicate validation and temporary migration bridges. Durable opt-in diagnostic
+tooling may remain; it must be absent from ordinary builds. Review module ownership,
 LOC and public surfaces. Confirm external entry and real dynamic slow paths remain
 checked. Architectural acceptance requires the new ownership model to serve changing
 receivers, types and versions, not only frozen monomorphic fixtures.
@@ -308,9 +339,8 @@ uv run python scripts/benchmark_lua.py --source-forms --baseline-executable targ
 ```
 
 On the recorded macOS environment, prefix build commands with
-`DEVELOPER_DIR=/Library/Developer/CommandLineTools`. HP00 records the actual commands
-for its durable counting/sampling support; do not present those future tools as
-already available. Report cold preparation and retained cache memory separately,
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools`. The [benchmark diagnostic instructions](../benchmarks/lua-comparison/README.md#execution-architecture-diagnostics-hp00)
+record counting/sampling commands; these runs are separate from throughput. Report cold preparation and retained cache memory separately,
 including repeated reload/retirement and changing application keys.
 
 Phase measurements target affected workloads and a small unaffected control set.
@@ -342,7 +372,7 @@ only content/link/diff checks. Use `Phase: HPxx` in implementation commit traile
 ## Progress ledger
 
 - [x] Evidence-based plan recorded and revised to architecture-first scope.
-- [ ] HP00 — Architecture audit, baseline and replacement map.
+- [x] HP00 — Architecture audit, baseline and replacement map.
 - [ ] HP01 — Runtime-linked executable identities and publication.
 - [ ] HP02 — Active execution ownership and transitions.
 - [ ] HP03 — Unified call/return protocol.
@@ -357,3 +387,89 @@ required architecture review before local optimization and correction of earlier
 workarounds. Phase responsibilities were rewritten before implementation; the
 retrospective table includes IP/NE and VE mechanisms. No runtime migration, new
 performance result or new build/test failure is claimed by this documentation change.
+
+2026-10-10 HP00 in progress: baseline revision `f97b4095`, SHA-256
+`a10ea34693c9a113b97cf2f1e2af1906c07a2b175e1bfcd209bb055c01cecc22`,
+preserved at `target/hp00/baseline-executable`; metadata/checksums are alongside it.
+Both `--check --interpreter-only` and `--check --source-forms` pass. Environment:
+Apple M1 Max, 32 GiB RAM, 10 logical CPUs, macOS 26.6.2 arm64; rustc 1.98.1
+(`48a229cea`, LLVM 22.1.8), Cargo 1.98.1; workspace release, warm build cache,
+default target/parallelism, source/native SDK, vendored PUC Lua 5.4.8. Build prefix:
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools`. The preserved executable has
+no counters. New diagnostic tooling uses explicit opt-in features and rejects
+throughput mode; the frozen fixture bodies/checksums are unchanged.
+
+Fresh warm diagnostic counts (one complete script execution after three warmups):
+
+| Workload | System allocation requests | Method preparations | Environment allocations | Metadata validation graph entries | Ordinary dispatch boundaries |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original arrays, 2,000 elements | 12,059 | 0 | 0 | 0 | 16,003 |
+| Original maps, 1,000 keys | 30,207 | 0 | 0 | 0 | 12,003 |
+| Interface, 5,000 calls | 70,040 | 0 | 0 | 5,001 | 10,002 |
+| Shared generic identity, 5,000 calls | 315,599 | 5,000 | 10,000 | 20,002 | 20,002 |
+| String constants, 5,000 iterations | 7 | 0 | 0 | 0 | 25,000 |
+| String calls, 5,000 iterations | 7 | 0 | 0 | 0 | 45,000 |
+| Byte state, 5,000 iterations | 36 | 0 | 0 | 0 | 25,002 |
+
+The generic case requests 26,257,537 bytes, with a +176,240 net byte delta and
++484/+242 live environment/application records after the counted execution;
+14 collections occur within it. These are current live deltas, not peak memory
+or permanent leaks. Original maps allocate 2,001 heap objects with five collections;
+arrays allocate one with two collections. Strings allocate zero new heap objects.
+Each boundary count is a prepared-region exit, not an opcode or host crossing;
+ordinary direct calls also exit the region. Graph counts exclude cheap Program-only
+validation and collector traversals. Zero graph entries therefore do not mean no
+validation or GC work.
+
+The additional changing-receiver/type matrix passes independent checksums. Increasing
+iterations from 2,500 to 5,000 changes fixed generic method preparations from 2,500 to
+5,000 and environments from 5,000 to 10,000. Alternating i32/i64 receivers and i32/i64
+type arguments has the same linear preparation counts (four combinations). Interface
+graph validation entries grow from 2,501 to 5,001 for a fixed receiver and 2,502 to
+5,002 for alternating receivers. These measurements support replacing repeated
+application preparation and active-root admission; they do not establish a speedup.
+The SDK's ordinary entry argument path is currently unsupported, so probe wrappers
+pass iteration counts through normal script calls rather than changing that API.
+Raw counters: `target/hp00/{original,forms}-diagnostics.log`; reproduction commands
+are in the benchmark README. Sampling and checkpoint validation are recorded below.
+
+Original-workload sampling completed separately in
+`target/lua-comparison/20261010T011111Z-macos-profile/`: arrays has 3,991 main-thread
+samples, maps 4,026. Leading collapsed top-of-stack counts include
+`ResourceState::termination` (501/373), `ExecutionStack::validate_top` (470/309),
+`ScalarCursor::execute` (338/265) and `ensure_execution_allowed` (229/147).
+`poll_await`, `current/current_mut` and ordinary dispatch are also prominent.
+Array stacks reach scoped `CallContext::array_argument`/push and checked storage;
+Map stacks additionally reach `enum_snapshot`, layout application/comparison and
+allocation. This independently supports HP02/HP04 for original arrays, and both
+the common execution protocol and HP05 enum work for maps. Sampling does not
+separate all inline costs or prove the exact origin of every allocation.
+Observer counts are 72,030/63,030 Kagari instructions versus 42,012/24,012 Lua
+instructions per arrays/maps execution, collected outside the sampling window.
+Different instruction semantics prevent comparing those as equal units of work.
+
+Source-form sampling also passes for shared_generic, interface, byte_state,
+string_calls, capture_cell and field in
+`target/lua-comparison/20261010T011203Z-macos-profile/`. Shared generic stacks show
+allocator/free prominently; the other paths prominently retain frame/state/driver
+work. Capture-cell now has fresh sampling evidence, rather than allocation counts
+alone. Field storage access is also visible; retaining the prepared field/scalar
+kernel foundation is justified while HP02/HP04 replace surrounding admission.
+These source-form profiles use six Kagari warmups (three paired plus three profile
+warmups); the driver metadata was corrected to distinguish these from the three
+original-workload warmups. No observer/counting allocator runs during sampling.
+
+
+HP00 acceptance: baseline/hash, reusable diagnostics, original/form sampling,
+changing-key scaling probes and the finite migration/invariant map are complete.
+Validation passed: release builds with and without `diagnostics`; both diagnostic
+suites and independent checksums; instrumented/ordinary CLI mode guards; existing
+`cargo test --locked -p kagari-lua-benchmark -- --test-threads=1`; strict Clippy for
+runtime/benchmark all targets with diagnostic features, and benchmark all targets
+with default features; formatting; structure (991 Rust files, zero violations or
+exceptions); Python syntax; 702 local Markdown links; `git diff --check`. No full
+workspace suite or GitHub CI ran. A constant-assert Clippy failure was fixed with
+configuration-specific CLI branches; no build/test error is carried. HP00 changes
+measurement support and documents architecture decisions, with no throughput claim.
+Cold descriptor preparation, retained memory after reload/retirement and new publication
+contracts are HP01 acceptance work; net byte deltas above cannot replace them.

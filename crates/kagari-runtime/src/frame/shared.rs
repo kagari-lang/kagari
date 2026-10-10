@@ -1,4 +1,7 @@
 //! Enter a shared function using the active, verified call instruction.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -131,6 +134,8 @@ impl Runtime {
         target: CallableTarget,
         contract: &SharedCall<DefinitionId>,
     ) -> Result<EnvironmentRecord, RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::SharedPreparation);
         self.validate_loaded_module(caller)?;
         self.validate_loaded_module(owner)?;
         let body = match target {

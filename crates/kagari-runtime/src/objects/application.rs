@@ -1,4 +1,7 @@
 //! Reuse closed method preparation; method-local arguments remain call-specific.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
@@ -67,6 +70,8 @@ impl Runtime {
         arguments: &[TypeArgument],
         operations: OperationBindings,
     ) -> Result<MethodApplication, RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::MethodPreparation);
         let view = method.view(self)?;
         let mut binders = EnvironmentRecord::new(
             self.definition_context(),

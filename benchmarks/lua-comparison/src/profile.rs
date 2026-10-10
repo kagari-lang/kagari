@@ -86,10 +86,11 @@ fn execute(
     runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
+    entry: &str,
     expected: i32,
 ) {
     let result = runtime
-        .execute(module, "main", &[], context)
+        .execute(module, entry, &[], context)
         .expect("profile execution");
     assert_eq!(
         black_box(
@@ -106,11 +107,12 @@ pub(super) fn run(
     runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
+    entry: &str,
     name: &str,
     expected: i32,
 ) {
     for _ in 0..3 {
-        execute(runtime, module, context, expected);
+        execute(runtime, module, context, entry, expected);
     }
     let before = runtime.runtime().gc().stats();
     println!(
@@ -125,7 +127,7 @@ pub(super) fn run(
     let start = Instant::now();
     let mut calls = 0_u64;
     while start.elapsed() < Duration::from_secs(10) {
-        execute(runtime, module, context, expected);
+        execute(runtime, module, context, entry, expected);
         calls += 1;
     }
     let elapsed = start.elapsed();
@@ -143,7 +145,7 @@ pub(super) fn run(
     io::stdout().flush().unwrap();
     // Counting is deliberately outside the sampling window; observer callbacks
     // change dispatch cost and must never be mixed into the throughput baseline.
-    count(runtime, module, context, "main", expected);
+    count(runtime, module, context, entry, expected);
 }
 
 pub(super) fn count(

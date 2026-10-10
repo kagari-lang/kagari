@@ -1,4 +1,8 @@
 //! Matched Lua/Kagari execution with setup separated and every checksum verified.
+#[cfg(feature = "diagnostics")]
+mod diagnostic_forms;
+#[cfg(feature = "diagnostics")]
+mod diagnostics;
 mod forms;
 mod numeric;
 mod profile;
@@ -27,6 +31,7 @@ struct Options {
     workload: Option<String>,
     numeric_matrix: bool,
     source_forms: bool,
+    diagnostics: bool,
 }
 
 impl Options {
@@ -41,6 +46,7 @@ impl Options {
             workload: None,
             numeric_matrix: false,
             source_forms: false,
+            diagnostics: false,
         };
         for argument in env::args().skip(1) {
             match argument.as_str() {
@@ -53,6 +59,16 @@ impl Options {
                 "--interpreter-only" => options.interpreter_only = true,
                 "--numeric-matrix" => options.numeric_matrix = true,
                 "--source-forms" => options.source_forms = true,
+                "--diagnostics" => {
+                    #[cfg(not(feature = "diagnostics"))]
+                    panic!("build with --features diagnostics");
+                    #[cfg(feature = "diagnostics")]
+                    {
+                        options.diagnostics = true;
+                        options.interpreter_only = true;
+                        options.setup_samples = 1;
+                    }
+                }
                 _ if argument.starts_with("--profile=") => {
                     options.profile = Some(argument["--profile=".len()..].to_owned());
                     options.setup_samples = 1;
@@ -61,10 +77,18 @@ impl Options {
                     options.workload = Some(argument["--workload=".len()..].to_owned());
                 }
                 _ => panic!(
-                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --profile=WORKLOAD, --workload=WORKLOAD"
+                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --diagnostics, --profile=WORKLOAD, --workload=WORKLOAD"
                 ),
             }
         }
+        assert!(
+            !cfg!(feature = "diagnostics") || options.diagnostics,
+            "diagnostic builds cannot measure throughput; use --diagnostics"
+        );
+        assert!(
+            !options.diagnostics || !options.numeric_matrix,
+            "numeric diagnostics are unsupported"
+        );
         assert!(
             options.workload.is_none()
                 || (!options.numeric_matrix && !options.source_forms && options.profile.is_none()),
@@ -157,11 +181,25 @@ impl ExecutionRoutes {
 
     fn measure(&mut self, workload: &Workload, options: &Options) {
         let expected = (workload.reference)(workload.size);
+        #[cfg(feature = "diagnostics")]
+        if options.diagnostics {
+            println!("DIAGNOSTIC_WORKLOAD,{}", workload.name);
+            diagnostics::measure(
+                &self.runtime,
+                &self.module,
+                &self.context,
+                "main",
+                &[],
+                expected,
+            );
+            return;
+        }
         if options.profile.is_some() {
             profile::run(
                 &self.runtime,
                 &self.module,
                 &self.context,
+                "main",
                 workload.name,
                 expected,
             );
@@ -269,7 +307,7 @@ fn run(workload: &Workload, options: &Options) {
             Some(native)
         };
         if sample + 1 == options.setup_samples {
-            if options.profile.is_some() {
+            if options.profile.is_some() && !options.diagnostics {
                 profile::count_lua(&lua, &lua_entry, (workload.reference)(workload.size));
             }
             ExecutionRoutes {
@@ -289,6 +327,10 @@ fn main() {
     println!("phase,workload,engine,size,batch,sample,ns,checksum");
     if options.source_forms {
         forms::run(&options);
+        #[cfg(feature = "diagnostics")]
+        if options.diagnostics && options.profile.is_none() {
+            diagnostic_forms::run();
+        }
         return;
     }
     if options.numeric_matrix {
@@ -338,6 +380,7 @@ mod tests {
             workload: None,
             numeric_matrix: false,
             source_forms: false,
+            diagnostics: false,
         };
         for size in [0, 1] {
             for workload in WORKLOADS {

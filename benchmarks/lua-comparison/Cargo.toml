@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+diagnostics = ["kagari-runtime/execution-diagnostics"]
+
 [dependencies]
 kagari-source.workspace = true
 kagari-common.workspace = true

@@ -1,4 +1,7 @@
 //! Central executable environment storage; handles retain immutable type facts only.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     error::RuntimeError,
     frame::types::{EnvironmentRecord, TypeEnvironment},
@@ -109,6 +112,8 @@ impl GcHeap {
         &self,
         record: EnvironmentRecord,
     ) -> Result<TypeEnvironment, RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::EnvironmentAllocation);
         self.ensure_execution_allowed()?;
         if !record.validate(self) {
             return Err(RuntimeError::module_validation("invalid environment edges"));
