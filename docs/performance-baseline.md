@@ -135,6 +135,60 @@ target/ve09/candidate-allocations target/ve05/collections.kgr
 The build helper selects the current release rlibs. Rebuilding a historical probe
 requires its corresponding production revision; do not overwrite a saved baseline.
 
+### Post-VE09 hotspot diagnosis, 2026-10-10
+
+At `5791c6f3` (production code unchanged from VE09), separate allocation and stack
+probes used the same M1 Max/macOS/Rust environment above, existing workspace release
+rlibs, source/native SDK and default target/parallelism. Temporary harnesses used
+`rustc -O -g`; compilation/setup were excluded. The ten non-native source-form
+bodies were extracted unchanged from `benchmarks/lua-comparison/src/forms.rs`.
+Each performs 5,000 iterations; three warmups precede a checked counting execution.
+All checksums passed. Counting includes host entry/return and normal collection.
+Requests count alloc/alloc_zeroed/realloc; requested bytes are not live memory.
+
+| Source form | Rust requests | Requested bytes | Script objects | Collections |
+| --- | ---: | ---: | ---: | ---: |
+| direct / helper | 7 each | 153 each | 0 | 0 |
+| concrete_generic | 7 | 163 | 0 | 0 |
+| interface | 70,040 | 3,923,825 | 1 | 0 |
+| shared_generic | 315,599 | 26,257,530 | 1 | 14 |
+| capture_cell | 11 | 3,147 | 2 | 0 |
+| field | 5,009 | 40,224 | 1 | 0 |
+| byte_state | 36 | 2,881 | 1 | 1 |
+| string_constants | 7 | 163 | 0 | 0 |
+| string_calls | 7 | 159 | 0 | 0 |
+
+Five separate serial stack probes covered shared_generic, interface,
+string_constants, string_calls and byte_state. Each used `/usr/bin/sample PID 3 1`
+inside a seven-second warmed checked execution window with allocation counting
+disabled. No builds or other probes ran concurrently. These are wall-clock stack
+samples with incomplete optimized-symbol attribution, not CPU counters or new
+throughput comparisons; background activity/frequency remain uncontrolled.
+
+Shared generic samples prominently reach malloc/free, method application,
+root metadata validation and type arguments. Method-local generic applications
+currently miss the closed-method reuse condition in `objects/application.rs`;
+preparation builds environments and signatures again. Interface samples also show
+argument Vec construction, metadata traversal and frame admission. These support
+reusing generation-scoped prepared applications and avoiding transient argument/root
+metadata construction as the first bounded optimization proposal.
+
+String samples instead concentrate in frame validation, termination checks,
+`poll_await`, dispatch and register access. Warm string bodies allocate no string
+objects; `len` borrows text. Cached constant loads still validate/resolve their
+module, and managed transfers/native calls leave scalar regions. Byte-state samples
+show the same boundary machinery with only 36 allocation requests. Reducing these
+repeated transitions is a distinct proposal; removing required cancellation, roots,
+owner/generation or reentry checks is not justified. Capture-cell allocation counts
+alone do not establish its CPU attribution. Map attribution remains the VE09 probe
+above; no new map CPU profile was collected here.
+
+Probe sources, extracted workload, library/binary hashes, counts and sample stacks
+are under ignored `target/hotpath-analysis/`. Reproduce counting by linking
+`counts.rs` with `target/ve09/build_probe.py` and running it against `forms.kgr`;
+`sample.rs` takes the same source plus the selected form name. This diagnosis changes
+no production code and establishes no additional Lua parity result.
+
 ## Compact value and interpreter final local evaluation (VE08), 2026-10-10
 
 VE00-VE08 implementation and final local correctness evaluation are complete.
