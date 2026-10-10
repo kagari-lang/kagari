@@ -138,20 +138,20 @@ lowering failure remains visible; the frozen identity benchmark cannot close it.
 
 ## Mandatory review of earlier optimizations
 
-This is an initial disposition, not evidence that the replacement is implemented.
-HP00 checks the earlier IP/NE tracks as well as VE00-VE09 on every affected path;
-HP06 must close each row with retained/replaced/deleted code and evidence.
+HP06 reviewed the final production owners at 375c727d. The dispositions below close
+the replacement audit; they do not assert full CI acceptance or Lua parity. Final
+local tests, memory probes and HP00 comparisons are recorded in the HP06 ledger.
 
-| Existing mechanism | Initial disposition | Owning phase and retirement criterion |
+| Existing mechanism | Final disposition and code evidence | Preserved boundary / evidence |
 | --- | --- | --- |
-| IP execution windows, NE scalar banks/kernels, VE01-VE04 compact handles/Value | Retain foundations; audit their admission interfaces | HP02/HP04: one active ownership protocol; no duplicated per-operand admission |
-| VE03 runtime-local constant pool and borrowed strings | Retain storage semantics; replace repeated execution-time module resolution | HP01/HP04: linked constant operands preserve lazy materialization and version lifetime |
-| Native type preparation and closed-method application caches | Merge into runtime-linked descriptor ownership | HP01/HP03: no competing application/signature caches on the migrated call path |
-| VE05 prepared fields and scoped Vec/Map helpers | Generalize ownership/effect contracts; remove operation-specific bypasses made redundant | HP04: script/SDK adapters share storage semantics and explicit borrow boundaries |
-| VE06 concrete-call transfers and scalar-return specialization | Generalize transfers/frame lifetime across call kinds | HP03: interface/shared/closure paths no longer maintain separate packing/retirement protocols |
-| VE07 scalar-region/ordinary-boundary split | Retain efficient scalar kernels; replace the managed-operation architectural split | HP02/HP04: common prepared operations do not bounce to a second decode/admission path |
-| VE09 same-program enum structural-equality shortcut | Transitional optimization to replace, not extend | HP01/HP05: prepared layout identity/admission replaces repeated full-layout comparison; remove superseded shortcut |
-| Repeated metadata graph validation at root refresh/frame entry | Move proof to publication and explicit boundary admission | HP01/HP02/HP03: active dependencies are traced without rebuilding host-style metadata roots |
+| IP windows, NE scalar banks/kernels, VE01–VE04 compact handles/Value | Retained storage foundations. `frame/values.rs`, `frame/cursor.rs` and `cursor/scalars.rs` now expose one private region with disjoint immutable function/link and mutable PC/window views; ScalarCursor reconstruction is deleted. | External frame/session/window admission and live bounds/initialization remain. Slicing, debugger, reentry, lifetime and primitive contracts passed HP04; Value remains 16-byte Copy. |
+| VE03 runtime-local pool and borrowed strings | Retained `module/constants.rs`; `LinkedFunction.constants` supplies warm loads. `cursor/transitions.rs` owns lazy materialization after region borrows end. | A OnceLock cell has one pinned supplying program; cold misses preserve roots and the successor safepoint. Warm String probes allocate no string objects. |
+| Native type preparation and closed-method application caches | Replaced competing method/application preparation with `module/descriptors.rs`, `execution_metadata/applications.rs`, linked functions and TypeArgument-owned facts. The common `DescriptorIndex` bounds optional retention; publication validates new graph edges. | Exact environment/application/owner identities and live dependency availability remain. `MetadataCache` survives only for parent-interface/receiver-operation edges in `execution_metadata/links.rs`, not a competing closed-method application cache. Changing-key probes and generation/cycle contracts cover these owners. |
+| VE05 fields and scoped Vec/Map helpers | Generalized through `module/execution/{fields,indices}.rs`, `native/primitive.rs`, common storage kernels and `native/context/operations.rs`. Former stdlib String length/index and owning Vec setter bodies are deleted. | Installed primitive signatures/body authority, alias/access/bounds and setter commit rules remain. Map/native operations keep real key/callback/allocation guards; they are not falsely admitted as nonallocating primitives. |
+| VE06 concrete transfers and scalar-return specialization | Retained scalar packets through the shared `frame/arguments.rs`, `frame.rs::push_admitted_arguments` and `frame/returns.rs::finish_return` protocol for static/shared/interface/closure calls. | Managed return adaptation occurs with callee roots live; retirement/publication has no GC/callback gap. Internal interface selection no longer constructs RootedInterfaceMethod; host-retained entry in `executor/mod.rs::new_interface` remains intentional. |
+| VE07 scalar/ordinary-boundary split | Replaced the managed-operation split with one prepared region and explicit exits. `executor/dispatch.rs` rejects migrated copy/constant/field/index/control/return opcodes at the slow boundary instead of retaining duplicate handlers. | Scalar kernels remain separate functions within that model. Actual allocation, native callbacks, observation and lazy preparation release region views; remaining canonical operations are genuine unmigrated semantic boundaries, not a non-scalar fallback. |
+| VE09 same-program enum structural shortcut | Deleted. `module/layouts.rs::matches_layout` uses common canonical identity/cross-scope admission after runtime/member checks; function/type owners retain applied facts. Internal enum snapshots are replaced by `enum_view` or bounded projections. | Foreign/version/payload checks and ordinary traced Option allocation remain. Public enum_snapshot is a detached inspection API with explicit rooting obligations, not a compatibility wrapper used in execution. HP05 Map has zero repeated full-layout/scope preparation or pattern descriptor allocation. |
+| Metadata graph validation at root refresh/frame entry | Replaced repeated graph rebuilding with checked publication (`module/descriptors.rs`, `execution_metadata/links.rs`) and tracing from active window/program/environment edges (`frame/values.rs::append_metadata`). | Frame entry's Program validation is an owner/availability check, not a graph walk (`execution_metadata.rs::inspect_metadata` handles Program directly). Real foreign roots, new lazy edges and GC graph consistency still validate. No refresh_roots path remains in frame/VM execution. |
 
 Do not remove a useful optimization merely because it is specialized. Conversely,
 its previous benchmark win or completed phase status does not justify retaining
@@ -187,7 +187,8 @@ boundary is repeated admission/preparation, not the existence of owner/generatio
 checks. Native `TypeArgument` derived parameter/variant preparation, selected
 collection borrowing helpers and direct scalar returns must be reviewed with their
 new owner, rather than retained as competing semantic paths. Every row in the
-retrospective table remains open until its owning phase supplies code evidence.
+retrospective table now has its HP06 code disposition above; complete acceptance
+still depends on the separately recorded local/CI and performance evidence.
 
 ## Phase order and acceptance
 
@@ -4486,3 +4487,53 @@ ownership/retention and public surfaces, run final local integration/debug-relea
 boundary checks, compare all unchanged workloads against HP00 and report CI separately.
 No additional language/backend feature or unbounded optimization work is authorized
 by closing this phase. target/release retains the same ordinary candidate binary.
+
+
+2026-10-10 HP06, final ownership audit and integration (in progress):
+
+At 375c727d, HP04's region view replacement, focused checks and current/historical
+control comparisons are committed. HP06 now
+closes the eight retrospective dispositions in this plan against actual production
+owners. No additional code migration is inferred merely from a surviving name:
+MetadataCache's parent/receiver-edge cells, host RootedInterfaceMethod entry, raw
+iterator results and detached enum_snapshot have distinct checked boundaries. Active
+frame Program validation resolves current ownership/availability without traversing
+the executable graph; publication and real foreign/GC boundaries retain graph checks.
+DescriptorIndex bounds optional retention at 128 per index, while closed function
+facts are bounded by the verified program and remain traced through their owners.
+No blanket structural exception or second permanent root registry is introduced.
+
+The fixture audit (`git diff f97b4095..375c727d -- benchmarks/lua-comparison/src/{forms,
+main,workloads}.rs`) confirms unchanged source/Lua bodies, sizes, checksums and ordinary
+sampling loops. Changes only add opt-in diagnostics, separate setup reporting and
+profiling support; instrumented builds reject throughput. The frozen shared-identity
+workload still cannot demonstrate generic Add lowering capability. That separately
+recorded compiler gap remains outside this interpreter migration's finite scope.
+
+Final local commands pass with the documented DEVELOPER_DIR, workspace profiles,
+default target and default Cargo parallelism: strict workspace/all-target Clippy,
+`cargo test --workspace` (1,948 passed, zero failed, two ignored), formatting,
+structure (1,025 Rust files, zero violations/exceptions) and diff checks. This is
+one authorized end-of-task full run, not an intermediate phase sweep. Logs are in
+`target/hp06/`. Release checks also pass: module records (8), applications (5), cursor
+borrow quarantine (1), metadata ownership/generations (31), native control (7),
+program cycles (4), and the physical instruction budget (1). Debug assertions are
+off in these release checks; the default workspace run exercised debug contracts.
+
+The opt-in ignored descriptor-memory suite initially failed its old global-zero
+operation-group assertion. Linking now prepares the replacement program's closed
+witness, as the existing `witness_preparation_reuses_checked_selections_and_retires_with_its_program`
+contract already verifies. The diagnostic fixture now asserts that GC reclaims
+**all** old groups and retains exactly the new program's one group. It still asserts
+zero environments and zero net allocations after each runtime teardown. No production
+code or contract was weakened; the three release memory probes now pass. The initial
+failure is preserved in `target/hp06/descriptor-memory-initial-failure.log`; this
+feature-gated test-only fix does not require repeating the successful default full
+suite. Affected diagnostic Clippy, formatting/structure/diff checks cover the fix.
+Retained capacity, setup and final HP00 comparisons are reported in the final
+performance record below; ordinary timing remains separate from diagnostics.
+
+GitHub repository kagari-lang/kagari is public. An exact-commit `gh run list` for
+375c727d returns no runs. Local results therefore cannot establish remote CI or its
+feature-consumer/CLI-native matrix. CI status will be reported separately from the
+local checks; no remote acceptance is claimed from an older revision.

@@ -83,8 +83,9 @@ shared-identity workload does not close that capability gap. Byte-state benchmar
 do not establish NES emulation acceptance.
 
 The [HP00-HP06 execution architecture plan](interpreter-hotpath-execution-plan.md)
-is active from 2026-10-10, with HP00–HP03 locally complete and HP05 implementation
-in progress. HP04's performance/admission gate remains unmet. At the user's direction it replaces
+is active from 2026-10-10, with HP00–HP05 locally accepted at `375c727d` and HP06
+final integration/retrospective in progress. The carried HP04 String control regression
+is recovered; full architecture/CI acceptance and Lua parity remain separate gates. At the user's direction it replaces
 the unstarted hotspot-by-hotspot approach: audit architecture and earlier IP/NE/VE
 optimizations, establish runtime-linked executable identities, separate active
 execution ownership from host admission, unify call/return and prepared operations,

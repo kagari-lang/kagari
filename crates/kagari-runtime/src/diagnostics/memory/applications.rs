@@ -225,13 +225,17 @@ fn witness_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Ph
                 }
             }
         });
+        let old_groups = runtime.gc.stats().operation_groups;
         let staged = runtime
             .stage_reload_program(&loaded, "memory", code.clone())
             .unwrap();
         drop(runtime.publish_staged_reload(staged).unwrap());
         drop((roots, inputs, loaded));
-        runtime.collect_garbage().unwrap();
-        assert_eq!(runtime.gc.stats().operation_groups, 0);
+        let collection = runtime.collect_garbage().unwrap();
+        assert_eq!(collection.reclaimed_operation_groups, old_groups);
+        // Linking the replacement prepares its own closed interface-call witness.
+        // Old groups must retire; the current program's distinct group stays live.
+        assert_eq!(runtime.gc.stats().operation_groups, 1);
         assert_eq!(runtime.gc.stats().environments, 0);
         let retired = snapshot();
         Phases {
