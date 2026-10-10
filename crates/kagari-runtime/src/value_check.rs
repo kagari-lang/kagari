@@ -41,8 +41,8 @@ pub(crate) fn matches_type(
             (Value::Struct(id), Ty::Struct(expected)) => heap.struct_layout(id).is_some_and(|layout| {
                 owner.find_struct_layout(expected).is_some_and(|current| layout.matches(&current))
             }),
-            (Value::Enum(id), Ty::Enum(_)) => heap.enum_snapshot(id).is_some_and(|value| {
-                matches!(value.tag, EnumTag::Declared(layout) if layout.matches_type(ty, owner, None))
+            (Value::Enum(id), Ty::Enum(_)) => heap.enum_view(id).is_some_and(|value| {
+                matches!(&value.tag, EnumTag::Declared(layout) if layout.matches_type(ty, owner, None))
             }),
             (Value::Interface(id), Ty::Trait(_)) => heap.interface_snapshot(id)
                 .is_some_and(|value| value.matches_type(ty, owner, None)),
@@ -129,7 +129,7 @@ pub(crate) fn matches_type_in(
             .is_some_and(|actual| actual.matches_type(ty, owner, environment));
     }
     if let (Value::Enum(id), Ty::Enum(_)) = (value, ty) {
-        return heap.enum_snapshot(*id).is_some_and(|snapshot| matches!(snapshot.tag, EnumTag::Declared(actual) if actual.matches_type(ty, owner, environment)));
+        return heap.enum_view(*id).is_some_and(|view| matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_type(ty, owner, environment)));
     }
     match environment {
         Some(environment) => environment

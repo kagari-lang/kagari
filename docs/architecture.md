@@ -609,6 +609,14 @@ old proof, and a proof never authorizes execution, a heap handle or mutable acce
 Raw type-expression checks still need prepared producer/consumer facts before they can
 use admission; that migration and operand preparation remain in the active HP plan.
 Every value access continues to validate heap ownership, slot generation and access.
+Enum variant comparison goes directly through this shared admission policy after
+runtime/variant checks; the older same-member/Arc shortcut is removed. Interpreter
+patterns, native enum argument access and raw enum type checks borrow immutable
+tag/payload storage. A field read copies one Value without cloning the payload list.
+The enclosing frame/native argument retains the root, and the borrow ends before
+collection, heap allocation or callbacks. Owning snapshots remain for consumers
+that cross those boundaries. Frame layout operand reconstruction still requires
+the applied-function preparation work in the active HP plan.
 
 Typed callbacks borrow their enclosing synchronous call's program retention.
 Public standalone conversion scopes and escaping handles retain independent leases.
@@ -802,6 +810,10 @@ Environment-dependent contracts use the common bounded descriptor index keyed by
 verified function/PC and exact EnvironmentId, with checked publication/GC tracing.
 Changed scopes receive different entries; an expired scope is rejected even if a
 cached descriptor remains. The previous closed-scope dynamic index path is removed.
+Shared-call application entries can retain reusable environments and operation groups
+while their supplying program remains live, independently of escaped closure values.
+Detached Rust snapshots confer no retention: once the program graph is retired, they
+cannot republish a stale environment into a newly published program.
 Receiver selection,
 argument/result checks and cross-version interface compatibility still run per call.
 Application arguments share their prepared exact type identities. Each immutable

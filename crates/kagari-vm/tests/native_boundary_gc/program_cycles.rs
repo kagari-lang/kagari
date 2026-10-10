@@ -100,7 +100,9 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let old_snapshot = (*vm.runtime().resolve_closure(&value).unwrap()).clone();
-    let current = vm.reload_program(&old, "environment", code).unwrap();
+    let current = vm
+        .reload_program(&old, "environment", code.clone())
+        .unwrap();
     let value = vm
         .execute(&current, "make")
         .unwrap()
@@ -140,15 +142,31 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
             .is_ok()
     );
     drop(current_root);
+    let unrooted = vm.runtime().collect_garbage().unwrap();
+    assert_eq!(unrooted.live_objects, 0);
+    // Published application descriptors retain reusable environments, not values.
+    assert!(
+        vm.runtime()
+            .make_closure(
+                &snapshot.implementation,
+                snapshot.script_function().unwrap(),
+                snapshot.captures.clone(),
+                snapshot.environment.clone(),
+            )
+            .is_ok()
+    );
+    let replacement = vm.reload_program(&current, "environment", code).unwrap();
     let collected = vm.runtime().collect_garbage().unwrap();
+    assert!(collected.reclaimed_environments > 0);
     assert!(collected.reclaimed_operation_groups > 0);
-    // Published code does not root an escaped invocation's operation records.
-    vm.runtime().validate_loaded_module(&current).unwrap();
+    assert!(collected.reclaimed_modules.contains(&current.key()));
+    // Detached snapshots cannot republish the retired descriptor graph into new code.
+    vm.runtime().validate_loaded_module(&replacement).unwrap();
     let before = vm.runtime().resources().counters();
     let failure = vm
         .runtime()
         .make_closure(
-            &snapshot.implementation,
+            &replacement,
             snapshot.script_function().unwrap(),
             snapshot.captures.clone(),
             snapshot.environment.clone(),

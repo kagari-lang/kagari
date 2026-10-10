@@ -1,6 +1,7 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP03 are complete; HP04 is in progress.
+Status: active, authorized by the user on 2026-10-10; HP00–HP03 are complete;
+HP05 implementation is in progress, carrying HP04's unmet performance/admission gate.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -3230,3 +3231,94 @@ Affected runtime/VM all-target Clippy with diagnostics and warnings denied, form
 structure review (1,020 files, zero violations/exceptions) and diff checks pass.
 No carried build/test error, full-workspace run or CI claim. The ordinary binary is
 preserved separately; target/release now contains diagnostics again.
+
+
+2026-10-10 HP05, shared enum admission and borrowed payload reads:
+EnumVariantRef::matches_layout now uses HP01's complete canonical identity and weak
+bounded compatibility admission after runtime/variant checks. The remaining VE09
+same-program/member/applied-Arc/scope-Arc shortcut is removed. No new cache, layout
+identity, permanent root, execution-metadata field or ABI version is introduced.
+
+GcHeap::enum_view supplies the same checked bounded storage borrow as string/tuple
+views. Interpreter tag/payload operations, native enum arguments and raw enum type
+checks read it directly; a payload access copies one Value without cloning its list.
+The enclosing frame/native argument keeps the value rooted. No collection, script
+heap allocation or callback crosses these borrows. Frame layout preparation currently
+runs inside the interpreter borrow but touches only immutable type facts/module
+metadata; it does not enter the script heap or foreign code. Owning snapshots remain
+for consumers that cross callback/conversion boundaries. This is the storage half of
+HP05, not completion of its repeated operand/type-preparation migration.
+
+The GC contract sweep exposed a pre-existing failure in
+native_boundary_gc::program_cycles::detached_environment_snapshots_cannot_republish_released_executable_dependencies.
+It also fails on unchanged 1237f46c: dropping the last closure root no longer implies
+reclamation of operation groups or environments. Linked calls and bounded shared-call
+application entries retain reusable metadata while the publishing program is live.
+The test now checks that closure values are collected while that environment remains
+usable, then replaces the program and verifies reclamation of its module, environment
+and operation groups. Republish into the valid replacement using a detached stale
+environment must still fail with ModuleValidation, unchanged resource counters and no
+quarantine. The original rejection of a previous generation's detached environment
+also remains. No production lifetime check was relaxed. Runtime environment-store
+contracts separately cover reclamation of an unrooted, uncached environment.
+
+Focused validation: six VM native-enum contracts, fourteen other GC contracts and
+the corrected lifecycle contract, eight hash-handle contracts, four embed payload
+contracts, two source-free native-enum contracts, and two runtime canonical-layout/
+scoped-retention contracts pass. The broader GC run exposed the failure; only the
+corrected test was rerun after the fix, rather than repeating the fourteen unchanged
+successful tests. Runtime/VM all-target Clippy with execution diagnostics and warnings
+denied, formatting, structure review (1,020 Rust files, zero violations/exceptions),
+local document links and diff checks pass. No carried build/test failure, full-workspace
+run or CI acceptance is claimed.
+
+Ordinary release comparison against 1237f46c:
+target/lua-comparison/20261010T093039Z-paired/results.json
+Candidate: target/hp05/admission/prepared-executable, SHA-256
+b13dd45f9687bf986149a18d26758a4ef34128a3ce56aeb49e3e345a2a757fd2.
+The baseline is the preserved native-continuation binary recorded above. Same M1 Max,
+32 GiB, ten logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8, vendored PUC
+Lua 5.4.8, workspace release/default parallelism and target, normal GC/allocator;
+diagnostics off, unchanged inputs, three warmups and 22 pooled samples per route.
+Fresh processes execute serially baseline/candidate/candidate/baseline. Compilation,
+tests and profiling do not overlap timing; the 20.988 s build is excluded. All
+checksums pass. This isolates the storage change; it does not reset the accepted
+String baseline or clear the carried HP04 regressions.
+
+| Workload | Candidate / 1237f46c | Lua control | Candidate / Lua |
+| --- | ---: | ---: | ---: |
+| arithmetic | 1.0149 | 0.9933 | 5.03 |
+| arrays | 1.0026 | 0.9929 | 27.40 |
+| branches | 0.9994 | 0.9997 | 2.89 |
+| calls | 1.0165 | 1.0260 | 23.54 |
+| entry (boundary diagnostic) | 0.9636 | 0.9985 | 47.14 |
+| fibonacci | 1.0008 | 0.9992 | 31.43 |
+| maps | 0.9675 | 0.9754 | 65.48 |
+
+Map's raw 3.25% decrease accompanies a 2.46% Lua decrease; this does not establish a
+robust throughput improvement. Map setup baseline/candidate medians (ms): source
+887.538/888.810, preparation 263.704/263.286, runtime init 109.874/109.890 and link
+2.631/2.668. This unit adds no retained metadata fields or per-call descriptors.
+
+Separate diagnostic builds verify all 14 original and 72 source-form/scaling rows.
+Map cold/warm execution each loses exactly 4,000 Rust requests and 64,000 requested
+bytes. Warm requests 30,183 -> 26,183; requested bytes 1,310,848 -> 1,246,848. Ordinary
+Option/object allocation stays at 2,001 objects; warm GC stays at five collections,
+8,002 slow boundaries, three driver admissions and zero layout comparisons/scope
+preparations. Other original rows are unchanged. Native-application, changing-native-
+application, scoped-layout and changing-scoped-layout probes each lose three requests
+and 48 bytes per iteration in cold/warm runs: 7,500/120,000 at 2,500 iterations and
+15,000/240,000 at 5,000. Every other counter/row is unchanged, including strings.
+Logs are under target/hp05/admission/. target/release now contains diagnostics again;
+timing must use the preserved ordinary binary or rebuild without diagnostics.
+
+Next: replace raw frame layout operand reconstruction with preparation owned by the
+exact function/type application, shared by enum construction/patterns and scoped
+fields. Closed operands belong to linking; environment-dependent operands must retain
+exact supplying provenance and original error/commit order. Reuse validated type facts
+in TypeArgument/StorageType instead of rebuilding worklists on every access. Do not
+place mutable application caches in cloned TypeBindings builders or add a Vec-only
+shortcut. The 5,000-iteration scoped-layout warm probe still makes 1,936,291 requests;
+removing snapshots is plainly insufficient. Ordinary Option representation remains a
+separate measured decision. HP04 admission/performance, remaining HP05, HP06 retirement,
+full local integration, CI and Lua parity all remain open.

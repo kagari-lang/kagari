@@ -4,7 +4,7 @@ use crate::{
     gc::{GcHeap, HeapObjectId, storage::HeapObject},
     host::{FrameHostBorrowToken, HostPathViewHandle, HostRootHandle},
     range::RangeValue,
-    value::{EphemeralValue, Value},
+    value::{EnumValueSnapshot, EphemeralValue, Value},
 };
 use std::{cell::Ref, sync::Arc};
 
@@ -63,6 +63,19 @@ impl GcHeap {
         Ref::filter_map(self.objects.try_borrow().ok()?, |objects| {
             match self.object_ref(objects, id)? {
                 HeapObject::Tuple(tuple) => Some(tuple.members.as_slice()),
+                _ => None,
+            }
+        })
+        .ok()
+    }
+
+    /// Borrow immutable tag and membership without copying a payload list.
+    /// The caller retains its value root and releases this view before collection,
+    /// heap allocation or a script/native callback, as with string/tuple views.
+    pub fn enum_view(&self, id: HeapObjectId) -> Option<Ref<'_, EnumValueSnapshot>> {
+        Ref::filter_map(self.objects.try_borrow().ok()?, |objects| {
+            match self.object_ref(objects, id)? {
+                HeapObject::Enum(value, _) => Some(value),
                 _ => None,
             }
         })

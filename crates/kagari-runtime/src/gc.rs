@@ -406,14 +406,14 @@ impl GcHeap {
     }
 
     pub(crate) fn enum_layout(&self, id: HeapObjectId) -> Option<EnumVariantRef> {
-        self.with_enum(id, |snapshot| {
+        self.enum_view(id).map(|snapshot| {
             let EnumTag::Declared(layout) = &snapshot.tag;
             layout.clone()
         })
     }
 
     pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
-        self.with_enum(id, Clone::clone)
+        self.enum_view(id).map(|view| (*view).clone())
     }
 
     pub fn struct_snapshot(&self, id: HeapObjectId) -> Option<(String, Vec<StructValueField>)> {
@@ -854,24 +854,6 @@ impl GcHeap {
 
     fn release_heap_units(&self, units: usize) {
         self.resources.release_heap_units(units);
-    }
-
-    fn with_enum<R>(&self, id: HeapObjectId, f: impl FnOnce(&EnumValueSnapshot) -> R) -> Option<R> {
-        let objects = self.objects.borrow();
-        match self.object_ref(&objects, id)? {
-            HeapObject::Enum(snapshot, _) => Some(f(snapshot)),
-            HeapObject::String(_)
-            | HeapObject::Tuple(_)
-            | HeapObject::Range(_)
-            | HeapObject::HostRoot(_)
-            | HeapObject::HostPath(_)
-            | HeapObject::Ephemeral(_)
-            | HeapObject::Native(_)
-            | HeapObject::Struct { .. }
-            | HeapObject::Interface { .. }
-            | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
-        }
     }
 
     fn with_struct<R>(

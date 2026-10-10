@@ -12,7 +12,7 @@ use kagari_common::identity::{
     table::DefinitionId,
 };
 use kagari_types::ty::Ty;
-use std::slice;
+use std::{cell::Ref, slice};
 
 impl Runtime {
     pub(crate) fn declared_enum_variant(
@@ -163,7 +163,7 @@ impl CallContext<'_> {
             .map(Value::Enum)
     }
 
-    fn enum_argument_snapshot(&self, index: usize) -> NativeResult<EnumValueSnapshot> {
+    fn enum_argument_view(&self, index: usize) -> NativeResult<Ref<'_, EnumValueSnapshot>> {
         let value = self.argument(index)?;
         let applied = self.argument_type_argument(index)?;
         if !matches!(applied.ty(), Ty::Enum(_))
@@ -177,15 +177,15 @@ impl CallContext<'_> {
             ));
         };
         self.heap()
-            .enum_snapshot(handle)
+            .enum_view(handle)
             .ok_or_else(|| RuntimeError::module_validation("native enum argument handle"))
     }
 
     /// Test a checked member of the argument's enum; foreign member handles fail.
     pub fn enum_argument_is(&self, index: usize, variant: &VariantRef) -> NativeResult<bool> {
         let expected = self.declared_enum_variant(&self.argument_type_argument(index)?, variant)?;
-        let snapshot = self.enum_argument_snapshot(index)?;
-        Ok(matches!(snapshot.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)))
+        let view = self.enum_argument_view(index)?;
+        Ok(matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)))
     }
 
     /// Read a checked payload field; the argument root retains its referent for this call.
@@ -196,16 +196,15 @@ impl CallContext<'_> {
         field: usize,
     ) -> NativeResult<Value> {
         let expected = self.declared_enum_variant(&self.argument_type_argument(index)?, variant)?;
-        let snapshot = self.enum_argument_snapshot(index)?;
-        if !matches!(snapshot.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
+        let view = self.enum_argument_view(index)?;
+        if !matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
             return Err(RuntimeError::module_validation(
                 "native enum argument variant",
             ));
         }
-        snapshot
-            .fields
+        view.fields
             .get(field)
-            .cloned()
+            .copied()
             .ok_or_else(|| RuntimeError::module_validation("native enum payload index"))
     }
 }

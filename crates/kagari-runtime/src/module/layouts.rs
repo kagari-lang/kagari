@@ -417,25 +417,8 @@ impl EnumVariantRef {
         {
             return false;
         }
-        // Prepared descriptors identify the complete immutable payload scope.
-        // Other applications and generations retain structural compatibility checks.
-        if Arc::ptr_eq(&self.module.program, &other.module.program)
-            && self.module.slot == other.module.slot
-            && self.id == other.id
-            && self.variant == other.variant
-            && match (&self.applied, &other.applied) {
-                (None, None) => true,
-                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-                _ => false,
-            }
-            && match (&self.scope, &other.scope) {
-                (None, None) => true,
-                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-                _ => false,
-            }
-        {
-            return true;
-        }
+        // Complete layout identity and genuine cross-scope compatibility share
+        // one admission owner, including aliases in different portable members.
         layout_admission::admit(
             AggregateKind::Enum,
             LayoutEndpoint {

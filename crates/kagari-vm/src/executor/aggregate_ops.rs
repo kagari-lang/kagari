@@ -15,16 +15,16 @@ impl Executor<'_> {
         let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
-        let snapshot = self
+        let view = self
             .runtime
             .gc()
-            .enum_snapshot(handle)
+            .enum_view(handle)
             .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
         let expected =
             self.current_frame()?
                 .enum_variant(self.runtime, enumeration, arguments, variant)?;
         Ok(Value::Bool(matches!(
-            snapshot.tag,
+            &view.tag,
             EnumTag::Declared(actual) if actual.matches_layout(&expected)
         )))
     }
@@ -40,21 +40,20 @@ impl Executor<'_> {
         let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
-        let snapshot = self
+        let view = self
             .runtime
             .gc()
-            .enum_snapshot(handle)
+            .enum_view(handle)
             .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
         let expected =
             self.current_frame()?
                 .enum_variant(self.runtime, enumeration, arguments, variant)?;
-        if !matches!(snapshot.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
+        if !matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
             return Err(VmError::TypeMismatch("enum pattern variant mismatch"));
         }
-        snapshot
-            .fields
+        view.fields
             .get(index as usize)
-            .cloned()
+            .copied()
             .ok_or(VmError::TypeMismatch("invalid enum payload index"))
     }
 
