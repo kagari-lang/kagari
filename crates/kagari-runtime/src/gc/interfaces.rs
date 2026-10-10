@@ -1,8 +1,7 @@
 //! Retained dynamic method and representation-adapter metadata.
 use crate::{
     execution_metadata::{
-        applications::ApplicationId, groups::OperationGroupId, interfaces::InterfaceSnapshotId,
-        links::MetadataCache,
+        groups::OperationGroupId, interfaces::InterfaceSnapshotId, links::MetadataCache,
     },
     frame::types::{TypeEnvironment, bindings::TypeBindings, compatibility::TypeView},
     module::LoadedModule,
@@ -14,7 +13,6 @@ use kagari_types::ty::{GenericParam, NominalTy, Ty};
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceMethodBinding {
-    pub(crate) application: MetadataCache<ApplicationId>,
     pub(crate) receiver_operations: MetadataCache<Option<OperationGroupId>>,
     pub(crate) parameters: Vec<GenericParam<DefinitionId>>,
     pub(crate) entry_parameters: Vec<GenericParam<DefinitionId>>,

@@ -3,7 +3,10 @@ use crate::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     execution_metadata::applications::MethodApplication,
-    execution_metadata::{MetadataEdge, MetadataRoot, links::MethodSelection},
+    execution_metadata::{
+        MetadataEdge, MetadataRoot,
+        application_key::{ApplicationKey, MethodIdentity},
+    },
     frame::types::EnvironmentRecord,
     module::LoadedModule,
     value::Value,
@@ -174,26 +177,35 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
             environment.add_receiver(&runtime.gc, group).unwrap();
         }
         let environment = runtime.gc.alloc_environment(environment).unwrap();
+        let application_id = runtime
+            .gc
+            .alloc_method_application(MethodApplication {
+                signature: operation.signature.clone(),
+                scoped_signature: None,
+                environment: Some(environment.clone()),
+                result_adapter: None,
+            })
+            .unwrap();
+        let key = ApplicationKey::new(
+            MethodIdentity::Operation(operation_id),
+            &loaded,
+            &[],
+            Some(group),
+            &Default::default(),
+        )
+        .unwrap();
         runtime
-            .cache_method_application(
-                MethodSelection::Operation(operation_id),
-                runtime
-                    .gc
-                    .alloc_method_application(MethodApplication {
-                        signature: operation.signature.clone(),
-                        scoped_signature: None,
-                        environment: Some(environment.clone()),
-                        result_adapter: None,
-                    })
-                    .unwrap(),
-            )
+            .publish_method_application(&loaded, key, application_id)
             .unwrap();
         let environment_id = environment.id;
-        let application_id = *operation.application.get().unwrap();
         let root = runtime
             .root_metadata(vec![MetadataRoot::Environment(environment.id)])
             .unwrap();
         drop((environment, operation, snapshot));
+        let candidate = runtime
+            .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+            .unwrap();
+        runtime.publish_staged_reload(candidate).unwrap();
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc.stats().operation_groups, 1);
         assert!(runtime.gc.environment(environment_id).is_some());

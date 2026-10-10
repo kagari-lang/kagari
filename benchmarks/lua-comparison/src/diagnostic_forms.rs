@@ -4,12 +4,19 @@ use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::Pre
 use kagari_source::source::SourceFile;
 
 const SOURCE: &str = r#"
+use std::cmp::Ordering;
 trait Step { fn step(self, value: i32) -> i32; }
 impl Step for i32 { fn step(self, value: i32) -> i32 { value + 1 } }
 impl Step for i64 { fn step(self, value: i32) -> i32 { value + 2 } }
 trait Forward { fn forward<T>(self, value: T) -> T { value } }
 impl Forward for i32 {}
 impl Forward for i64 {}
+trait Compare { fn less<T: Ord>(self, a: T, b: T) -> bool { a.cmp(b) == Ordering::Less } }
+impl Compare for i32 {}
+fn witness_application(n: i32) -> i32 {
+    val receiver: Compare = 0; var sum = 0; var i = 0;
+    while i < n { if receiver.less(i, i + 1) { sum += i; } i += 1; } sum
+}
 fn fixed_interface(n: i32) -> i32 {
     val receiver: Step = 0; var sum = 0; var i = 0;
     while i < n { sum += receiver.step(i); i += 1; } sum
@@ -43,6 +50,7 @@ pub(super) fn run() {
         "changing_interface",
         "fixed_application",
         "changing_application",
+        "witness_application",
     ];
     let mut source = SOURCE.to_owned();
     for n in [2_500, 5_000] {
@@ -59,10 +67,10 @@ pub(super) fn run() {
     let prepared =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
     for n in [2_500, 5_000] {
         for entry in entries {
+            let mut runtime = engine.runtime(context.clone());
+            let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
             let expected = (0..n)
                 .map(|i| match entry {
                     "fixed_interface" => i + 1,

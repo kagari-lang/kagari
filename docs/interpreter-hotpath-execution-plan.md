@@ -1,6 +1,6 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00 is complete; HP01 is next.
+Status: active, authorized by the user on 2026-10-10; HP00 is complete; HP01 is in progress.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -473,3 +473,114 @@ configuration-specific CLI branches; no build/test error is carried. HP00 change
 measurement support and documents architecture decisions, with no throughput claim.
 Cold descriptor preparation, retained memory after reload/retirement and new publication
 contracts are HP01 acceptance work; net byte deltas above cannot replace them.
+
+
+2026-10-10 HP01, applied-call ownership checkpoint (in progress): immutable method
+applications now belong to linked module records rather than receiver snapshots or
+closed-only operation cells. `execution_metadata/application_key` identifies the
+method/view/adapter, exact receiver environment, supplied lexical type scopes and
+operation witness identities. Nominal type provenance includes runtime owner and
+pinned program generation, normalized across members of that program; neither names
+nor raw addresses serve as identities. Different receiver values can reuse the same
+facts without being retained by them. The existing GC application store still owns
+checked slot/generation IDs and immutable signature/environment/adapter records.
+
+`module/applications` publishes only after owner/dependency validation. Each module
+retains at most 128 applications with FIFO eviction; eviction removes an optional
+program edge, not active frame/host roots. The bound limits retained polymorphic keys
+and provenance rather than claiming an optimal cache size. Program tracing now visits
+these application edges, so old program/application/environment/operation cycles are
+collectible after their last real root. Superseded `MetadataCache<ApplicationId>`
+fields, `cache_method_application` and `cached_application` are removed, not kept as
+a second path. Remaining receiver/parent-interface lazy cells are separate contracts.
+
+Application dependency graphs are immutable after those cells are removed. Publication
+records their checked flat program dependencies. Lookup and GC retention check that
+these versions remain available: abandoning an unpublished provider expires optional
+cache retention; publishing it preserves validity. Independently rooted active facts
+still undergo full graph validation. This does not grant a blanket validation stamp
+to mutable interface graphs or extend candidate leases. Flat checks remain in release;
+no raw-pointer bypass, missing root or debug-only safety proof is introduced.
+
+Focused ownership evidence so far: exact application reuse across different receiver
+values, distinct scalar/nested nominal supplying types and versions, old handles across
+reload, FIFO eviction preserving an active handle, 128-entry retention, receiver
+snapshot reclamation, whole retired-cycle reclamation, and both published/abandoned
+witness providers. Existing stale/foreign/publication/collector-atomicity tests remain.
+Runtime application tests pass (12 selected contracts). Checkpoint measurements
+and additional focused checks are recorded below.
+
+This is partial HP01, not phase acceptance. Shared-function preparation, normalized
+layout descriptors/admission, consolidation of native type preparation and remaining
+publication consumers still require migration. HP02/HP03 must remove internal
+host-style method roots and repeated graph validation; HP04/HP05 retain their planned
+operation/enum work. The immutable descriptors introduced here must become inputs to
+that common protocol, not a permanent alternate execution path.
+
+
+HP01 ownership checkpoint evidence, 2026-10-10: frozen shared-generic identity
+performs one method preparation/two environment allocations on its first 5,000-call
+execution, then zero/zero on warmed execution. The four changing receiver/type
+combinations prepare four/eight initially and zero/zero warm, at both 2,500 and 5,000
+iterations. Warm shared-generic system requests fall from HP00's 315,599 to 160,050;
+requested bytes fall from 26,257,537 to 13,924,513. Normal GC remains enabled (14
+collections in the HP00 measured call, zero here). Metadata graph validation remains
+20,002 entries per warm call, so the active-root protocol is still unfinished.
+Fresh first-call net allocation is +14,682 bytes for the shared probe, including
+frame/storage setup; it is not an isolated descriptor size. Post-collection tests
+show 128 cached applications plus one independently rooted evicted application,
+then 128 after dropping that handle, with no receiver object retained. Precise
+retained-byte/repeated-retirement measurement remains part of full HP01 acceptance.
+Counters/logs and environment metadata are under `target/hp01/`; the README documents
+cold/warm measurement and the changed fresh-runtime probe setup.
+
+Uninstrumented paired source-form run:
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/hp00/baseline-executable`.
+The saved baseline has no single-form selector, so the existing frozen source-form
+suite is run intact; entry/host diagnostics are not promoted into the parity gate.
+Workspace release/default features, target and parallelism; same M1 Max/toolchain
+as HP00; reused build cache, fresh processes; three warmups and eleven samples per
+process; baseline/candidate/candidate/baseline order; normal GC/host entry included,
+compilation/linking excluded. All checksums pass. No concurrent agent build/test ran.
+Candidate binary SHA-256 is
+`b462933df76bc8ba6dc73ce0fd8b8579e55deb87fe7c689b65f180cb79ed2d98`
+(saved at `target/hp01/candidate-executable`). Raw data/metadata:
+`target/lua-comparison/20261010T013246Z-forms-paired/`.
+
+| Selected workload/control | HP00 median, us | Candidate median, us | Candidate / HP00 |
+| --- | ---: | ---: | ---: |
+| Shared generic identity | 22,930.334 | 17,656.000 | 0.7700 |
+| Interface | 10,783.604 | 11,029.812 | 1.0228 |
+| Direct scalar | 350.625 | 363.083 | 1.0355 |
+| Helper | 3,232.750 | 3,229.041 | 0.9989 |
+| String calls | 13,603.000 | 13,332.271 | 0.9801 |
+| Byte state | 7,358.375 | 7,477.188 | 1.0161 |
+
+Shared-generic process medians are 23,075.250/22,801.916 us for baseline and
+17,667.834/17,514.416 us for candidate; the 23% reduction exceeds their observed
+variation. Other source-form medians remain within 5% of baseline. This limited
+checkpoint benefit is not phase/architecture/parity acceptance: shared-generic
+still costs 152.76x its measured Lua median. No original-suite throughput claim
+or final 16-workload acceptance is made here.
+
+The new independent `witness_application` diagnostic uses a working `T: Ord`
+comparison body, without changing the frozen fixtures or hiding the separate shared
+Add lowering gap. It exposes unfinished producer ownership: 5,000 warm calls still
+prepare 5,000 methods/10,000 environments (1,110,956 allocation requests, 30,002 graph
+validations). `bind_operations_in` repeatedly creates equivalent operation groups;
+their distinct checked IDs correctly miss the application index. Increasing the
+cache limit would conceal the wrong boundary. Next HP01 work must move witness/shared
+preparation into runtime-linked facts and reuse canonical admitted operation identities,
+then rerun this probe alongside the changing-key cases. This is required remaining
+scope, not an accepted permanent exception or an extra follow-up goal.
+
+Checkpoint validation passes: runtime application/publication/lifecycle contracts
+(12); type-provenance contracts (4); embed generic-associated-types (12) and
+source-free generic reload (2); VM interface allocation/cleanup (3) and native generic
+interface applications (2); strict runtime/benchmark all-target diagnostic-feature
+Clippy; final benchmark Clippy after the witness probe; release diagnostic build and
+all original/source-form/protocol checksums; ordinary release paired run above;
+formatting; structure (993 files, no violations/exceptions); 703 local Markdown links;
+`git diff --check`. Old-cell test compile errors and one probe type annotation were
+resolved; no carried build/test error remains. Full workspace/CI checks are reserved
+for their designated acceptance scope and were not run. HP01 stays in progress.

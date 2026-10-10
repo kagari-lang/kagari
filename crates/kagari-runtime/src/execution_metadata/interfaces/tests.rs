@@ -3,7 +3,9 @@ use crate::{
     Runtime,
     error::RuntimeErrorKind,
     execution_metadata::{
-        MetadataEdge, MetadataRoot, applications::MethodApplication, links::MethodSelection,
+        MetadataEdge, MetadataRoot,
+        application_key::{ApplicationKey, MethodIdentity},
+        applications::MethodApplication,
     },
     frame::types::EnvironmentRecord,
     module::LoadedModule,
@@ -105,10 +107,28 @@ fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
 }
 
 #[test]
-fn application_cache_checks_both_owners_and_retains_only_the_published_edge() {
-    let (runtime, _, _, value) = fixture();
+fn application_publication_checks_owners_and_retains_only_published_edges() {
+    let (runtime, loaded, table, value) = fixture();
     let id = identity(&runtime, &value);
     let root = runtime.root_value(value).unwrap();
+    let snapshot = runtime.gc.interface_metadata(id).unwrap();
+    let key = ApplicationKey::new(
+        MethodIdentity::Interface {
+            owner: loaded.key(),
+            table,
+            slot: 0,
+            interface: snapshot.interface_expression.clone(),
+            arguments: snapshot.receiver_table.arguments.clone(),
+            environment: None,
+            result_adapter: None,
+        },
+        &loaded,
+        &[],
+        None,
+        &Default::default(),
+    )
+    .unwrap();
+    drop(snapshot);
     let application = || MethodApplication {
         signature: Signature {
             params: vec![],
@@ -122,45 +142,49 @@ fn application_cache_checks_both_owners_and_retains_only_the_published_edge() {
     runtime.collect_garbage().unwrap();
     let foreign = Runtime::default();
     let foreign_id = foreign.gc.alloc_method_application(application()).unwrap();
-    let owner = MethodSelection::Interface {
-        snapshot: id,
-        slot: 0,
-    };
     for invalid in [stale, foreign_id] {
-        assert!(runtime.cache_method_application(owner, invalid).is_err());
+        assert!(
+            runtime
+                .publish_method_application(&loaded, key.clone(), invalid)
+                .is_err()
+        );
     }
-    let prepared = runtime.gc.alloc_method_application(application()).unwrap();
-    assert!(foreign.cache_method_application(owner, foreign_id).is_err());
     assert!(
-        runtime
-            .cache_method_application(
-                MethodSelection::Interface {
-                    snapshot: id,
-                    slot: usize::MAX
-                },
-                prepared
-            )
+        foreign
+            .publish_method_application(&loaded, key.clone(), foreign_id)
             .is_err()
     );
-    assert!(
-        runtime.gc.interface_metadata(id).unwrap().methods[0]
-            .as_ref()
-            .unwrap()
-            .application
-            .get()
-            .is_none()
-    );
-    runtime.cache_method_application(owner, prepared).unwrap();
+    assert!(runtime.modules.method_application(&loaded, &key).is_none());
+    let prepared = runtime.gc.alloc_method_application(application()).unwrap();
+    runtime
+        .publish_method_application(&loaded, key.clone(), prepared)
+        .unwrap();
     let unused = runtime.gc.alloc_method_application(application()).unwrap();
-    assert!(runtime.cache_method_application(owner, unused).is_err());
+    assert!(
+        runtime
+            .publish_method_application(&loaded, key.clone(), unused)
+            .is_err()
+    );
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc.method_application(prepared).is_some());
     assert!(runtime.gc.method_application(unused).is_none());
+    // Program-owned application facts must not retain the receiver snapshot.
     drop(root);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.interface_metadata(id).is_none());
+    assert!(runtime.gc.method_application(prepared).is_some());
+    let candidate = runtime
+        .stage_reload_verified_program(&loaded, "interfaces", loaded.verified_program().clone())
+        .unwrap();
+    runtime.publish_staged_reload(candidate).unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc.method_application(prepared).is_none());
     let fresh = runtime.gc.alloc_method_application(application()).unwrap();
-    assert!(runtime.cache_method_application(owner, fresh).is_err());
+    assert!(
+        runtime
+            .publish_method_application(&loaded, key, fresh)
+            .is_err()
+    );
 }
 
 #[test]

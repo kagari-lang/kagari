@@ -1,3 +1,4 @@
+mod applications;
 pub(crate) mod collection;
 mod constants;
 pub mod execution;
@@ -386,6 +387,10 @@ impl LoadedModule {
             program: self.program.clone(),
             slot: self.program.root,
         }
+    }
+
+    pub(crate) fn program_identity(&self) -> (HostRegistryId, ModuleKey) {
+        (self.registry_owner, self.program_key())
     }
 
     fn program_key(&self) -> ModuleKey {
@@ -820,7 +825,9 @@ mod tests {
         let graph = store.collection_graph().unwrap();
         let mut values = Vec::new();
         for key in graph.roots() {
-            graph.trace(key, &mut |value| values.push(*value)).unwrap();
+            graph
+                .trace(key, &mut |value| values.push(*value), &mut Vec::new())
+                .unwrap();
         }
         values
     }

@@ -1,7 +1,9 @@
 //! Borrowed method metadata cannot retain executable storage or cross an entry.
 use crate::{
     execution_metadata::{
-        applications::{ApplicationId, MethodApplication},
+        application_key::{AdapterIdentity, MethodIdentity},
+        applications::MethodApplication,
+        groups::OperationId,
         operation::BoundOperation,
     },
     frame::types::{TypeEnvironment, arguments::ScopedSignature},
@@ -18,7 +20,10 @@ pub(super) enum SelectionView<'a> {
         snapshot: Ref<'a, InterfaceValueSnapshot>,
         slot: usize,
     },
-    Operation(Ref<'a, BoundOperation>),
+    Operation {
+        id: OperationId,
+        operation: Ref<'a, BoundOperation>,
+    },
 }
 
 pub(crate) struct MethodView<'a> {
@@ -30,7 +35,7 @@ impl MethodView<'_> {
     pub(crate) fn implementation(&self) -> &LoadedModule {
         match &self.selection {
             SelectionView::Interface { snapshot, .. } => &snapshot.implementation,
-            SelectionView::Operation(operation) => &operation.owner,
+            SelectionView::Operation { operation, .. } => &operation.owner,
         }
     }
 
@@ -42,7 +47,7 @@ impl MethodView<'_> {
                     .expect("checked interface slot")
                     .target
             }
-            SelectionView::Operation(operation) => operation.target,
+            SelectionView::Operation { operation, .. } => operation.target,
         }
     }
 
@@ -57,7 +62,7 @@ impl MethodView<'_> {
                     .expect("checked interface slot")
                     .parameter_types
             }
-            SelectionView::Operation(operation) => &operation.signature.params,
+            SelectionView::Operation { operation, .. } => &operation.signature.params,
         }
     }
 
@@ -72,7 +77,7 @@ impl MethodView<'_> {
                     .expect("checked interface slot")
                     .return_type
             }
-            SelectionView::Operation(operation) => &operation.signature.result,
+            SelectionView::Operation { operation, .. } => &operation.signature.result,
         }
     }
 
@@ -84,7 +89,7 @@ impl MethodView<'_> {
                     .expect("checked interface slot")
                     .parameters
             }
-            SelectionView::Operation(operation) => operation
+            SelectionView::Operation { operation, .. } => operation
                 .generic
                 .as_ref()
                 .map(|generic| generic.parameters.as_slice())
@@ -100,7 +105,7 @@ impl MethodView<'_> {
                     .expect("checked interface slot")
                     .entry_parameters
             }
-            SelectionView::Operation(operation) => operation
+            SelectionView::Operation { operation, .. } => operation
                 .generic
                 .as_ref()
                 .map(|generic| generic.entry_parameters.as_slice())
@@ -116,7 +121,7 @@ impl MethodView<'_> {
                     .expect("checked interface slot")
                     .entry_arguments
             }
-            SelectionView::Operation(operation) => operation
+            SelectionView::Operation { operation, .. } => operation
                 .generic
                 .as_ref()
                 .map(|generic| generic.entry_arguments.as_slice())
@@ -127,7 +132,7 @@ impl MethodView<'_> {
     pub(crate) fn receiver_environment(&self) -> Option<&TypeEnvironment> {
         match &self.selection {
             SelectionView::Interface { snapshot, .. } => snapshot.environment.as_ref(),
-            SelectionView::Operation(operation) => operation
+            SelectionView::Operation { operation, .. } => operation
                 .generic
                 .as_ref()
                 .and_then(|generic| generic.receiver_environment.as_ref()),
@@ -137,7 +142,7 @@ impl MethodView<'_> {
     pub(crate) fn receiver_table(&self) -> Option<&InterfaceResultBinding> {
         match &self.selection {
             SelectionView::Interface { snapshot, .. } => Some(&snapshot.receiver_table),
-            SelectionView::Operation(operation) => operation
+            SelectionView::Operation { operation, .. } => operation
                 .generic
                 .as_ref()
                 .map(|generic| &generic.receiver_table),
@@ -154,7 +159,7 @@ impl MethodView<'_> {
                 .expect("checked interface slot")
                 .result_adapter
                 .as_ref(),
-            SelectionView::Operation(_) => None,
+            SelectionView::Operation { .. } => None,
         }
     }
 
@@ -164,15 +169,32 @@ impl MethodView<'_> {
             .and_then(|application| application.scoped_signature.as_ref())
     }
 
-    pub(super) fn cached_application(&self) -> Option<ApplicationId> {
+    pub(super) fn identity(&self) -> MethodIdentity {
         match &self.selection {
-            SelectionView::Interface { snapshot, slot } => snapshot.methods[*slot]
-                .as_ref()
-                .expect("checked interface slot")
-                .application
-                .get()
-                .copied(),
-            SelectionView::Operation(operation) => operation.application.get().copied(),
+            SelectionView::Interface { snapshot, slot } => {
+                let binding = &snapshot.receiver_table;
+                MethodIdentity::Interface {
+                    owner: binding.owner.key(),
+                    table: binding.table,
+                    slot: *slot,
+                    interface: snapshot.interface_expression.clone(),
+                    arguments: binding.arguments.clone(),
+                    environment: binding
+                        .environment
+                        .as_ref()
+                        .map(|environment| environment.id),
+                    result_adapter: self.result_adapter().map(|adapter| AdapterIdentity {
+                        owner: adapter.owner.key(),
+                        table: adapter.table,
+                        arguments: adapter.arguments.clone(),
+                        environment: adapter
+                            .environment
+                            .as_ref()
+                            .map(|environment| environment.id),
+                    }),
+                }
+            }
+            SelectionView::Operation { id, .. } => MethodIdentity::Operation(*id),
         }
     }
 }

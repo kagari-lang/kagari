@@ -1,5 +1,6 @@
 //! Module instances participate in the same graph as heap objects.
 use crate::{
+    execution_metadata::MetadataEdge,
     module::{
         LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner, records::ModuleRecord,
         root_programs,
@@ -42,6 +43,7 @@ impl ProgramGraph<'_> {
         &'a self,
         key: ModuleKey,
         visit: &mut dyn FnMut(&'a Value),
+        metadata: &mut Vec<MetadataEdge<'a>>,
     ) -> Option<()> {
         let program = &self.store.records.get(&key)?.module;
         if program.program_key() != key {
@@ -49,6 +51,15 @@ impl ProgramGraph<'_> {
         }
         for member in program.members() {
             let record = self.store.records.get(&member.key())?;
+            // Expired candidate dependencies invalidate only optional cached facts.
+            // Independently rooted active facts still undergo full graph validation.
+            metadata.extend(
+                record
+                    .applications
+                    .values()
+                    .filter(|application| application.is_available(&self.store))
+                    .map(|application| MetadataEdge::Application(application.id)),
+            );
             record
                 .constants
                 .iter()

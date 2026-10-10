@@ -142,11 +142,12 @@ impl RootedInterfaceMethod {
                 })?,
                 slot: *slot,
             },
-            MethodSelection::Operation(id) => {
-                SelectionView::Operation(runtime.gc.bound_operation(*id).ok_or_else(|| {
+            MethodSelection::Operation(id) => SelectionView::Operation {
+                id: *id,
+                operation: runtime.gc.bound_operation(*id).ok_or_else(|| {
                     RuntimeError::module_validation("invalid selected method operation")
-                })?)
-            }
+                })?,
+            },
         };
         Ok(MethodView {
             selection,
@@ -213,7 +214,7 @@ impl RootedInterfaceMethod {
                 runtime.cache_receiver_operations(id, slot, prepared)?;
                 Ok(prepared)
             }
-            SelectionView::Operation(_) => {
+            SelectionView::Operation { .. } => {
                 runtime.bind_receiver_operations(view.implementation(), view.target(), table, group)
             }
         }

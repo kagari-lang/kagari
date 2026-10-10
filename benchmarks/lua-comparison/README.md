@@ -27,13 +27,14 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The current compact-value/interpreter results are recorded in the
+The latest completed compact-value/interpreter report is recorded in the
 [VE09 enum result layout report](../../docs/performance-baseline.md#native-enum-result-layout-reuse-ve09-2026-10-10).
 The seven original workloads remain unchanged. VE08 local workspace integration
 and VE09 focused checks passed; the latter reduces map time to 0.489x VE08. All
 16 frozen matched nontrivial original/source-form cases still take 3.66-201.94x
 Lua time. Parity remains unmet and full GitHub CI is unrun. Historical reports
-below retain their distinct baseline scope.
+below retain their distinct baseline scope. In-progress HP01 ownership measurements
+and remaining architecture work are tracked in the [active plan](../../docs/interpreter-hotpath-execution-plan.md).
 
 ## Matching and timing
 
@@ -565,23 +566,28 @@ throughput mode. Rebuild without `--features diagnostics` before timing; the
 ordinary driver does this automatically. Neither allocator nor runtime counters
 are compiled into the default build.
 
-Each diagnostic entry checks three warmups and counts one execution, including
-host entry/result retention and ordinary GC. Counts cover successful system
+Each diagnostic entry reports its first execution (`phase=cold`), checks two more
+warmups, then reports a fourth execution (`phase=warm`). Each source-form/protocol
+probe now starts with a freshly linked runtime; preparation/linking stay outside
+these counters. Host entry/result retention and ordinary GC are included. Counts cover successful system
 allocation/reallocation requests, bytes requested and net allocated bytes on the
 current thread; net bytes may be negative when GC frees earlier allocations.
 They are not peak memory or bytes retained after collection. Heap object counts
 include reclaimed objects; environment/application deltas report live records.
 Runtime counters report method/shared preparation attempts, environment allocation
 attempts, non-program metadata graph validation entries and prepared-region exits
-to ordinary dispatch. They include same-thread synchronous reentry. Counters do
-not measure cold preparation, instruction cost or time saved.
+to ordinary dispatch. They include same-thread synchronous reentry. Cold counts include first-call descriptor preparation; they do not measure
+instruction cost or time saved. The HP00 warm baseline used one shared runtime
+for source forms, so differences in GC/live deltas require that context.
 
 Source-form diagnostics also run a separate 2,500/5,000-iteration protocol matrix:
 fixed versus alternating interface receivers, and fixed versus alternating receiver
 and generic argument types. The alternating receiver changes at the same callsite;
 i32/i64 arguments use two statically typed callsites and all four receiver/type
 combinations. Independent Rust checksums check receiver selection and results.
-These probes do not replace or modify the frozen Lua comparison fixtures.
+A separate `T: Ord` comparison probe measures witness preparation that unbounded
+identity calls do not exercise. These probes do not replace or modify the frozen
+Lua comparison fixtures.
 
 On macOS, use the ordinary release binary for stack sampling:
 

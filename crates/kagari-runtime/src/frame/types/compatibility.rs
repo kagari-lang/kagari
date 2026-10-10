@@ -1,6 +1,7 @@
 //! Compare complete reified layout graphs while preserving lexical type scopes.
 use crate::{
     frame::types::bindings::TypeBindings,
+    host::HostRegistryId,
     module::{LoadedModule, ModuleKey},
 };
 use kagari_common::identity::table::DefinitionId;
@@ -20,10 +21,10 @@ struct Application<'a> {
     arguments: Vec<TypeView<'a>>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
-struct TypeIdentity {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct TypeIdentity {
     ty: Ty<DefinitionId>,
-    owners: Vec<ModuleKey>,
+    owners: Vec<(HostRegistryId, ModuleKey)>,
 }
 
 impl<'a> TypeView<'a> {
@@ -101,7 +102,7 @@ impl<'a> TypeView<'a> {
         view.environment?.resolve(view.ty).ok().map(Cow::Owned)
     }
 
-    fn identity(self) -> Option<TypeIdentity> {
+    pub(crate) fn identity(self) -> Option<TypeIdentity> {
         let mut owners = vec![];
         self.collect_owners(&mut owners).then_some(())?;
         Some(TypeIdentity {
@@ -110,12 +111,12 @@ impl<'a> TypeView<'a> {
         })
     }
 
-    fn collect_owners(self, owners: &mut Vec<ModuleKey>) -> bool {
+    fn collect_owners(self, owners: &mut Vec<(HostRegistryId, ModuleKey)>) -> bool {
         let Some(view) = self.normalized() else {
             return false;
         };
         if matches!(view.ty, Ty::Struct(_) | Ty::Enum(_)) {
-            owners.push(view.owner.key());
+            owners.push(view.owner.program_identity());
         }
         children_match(view.ty, view.ty, |a, _| {
             view.child(a).collect_owners(owners)

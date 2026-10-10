@@ -1,9 +1,6 @@
 //! Checked executable selections and their generic invocation metadata.
 use crate::{
-    execution_metadata::{applications::ApplicationId, links::MetadataCache},
-    frame::types::TypeEnvironment,
-    gc::interfaces::InterfaceResultBinding,
-    module::LoadedModule,
+    frame::types::TypeEnvironment, gc::interfaces::InterfaceResultBinding, module::LoadedModule,
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
@@ -16,7 +13,6 @@ use kagari_types::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct BoundOperation {
-    pub(crate) application: MetadataCache<ApplicationId>,
     pub(crate) generic: Option<BoundGenericMethod>,
     pub(crate) requirement: NativeCallableRequirement<DefinitionId>,
     pub(crate) associated_interface: NominalTy<DefinitionId>,

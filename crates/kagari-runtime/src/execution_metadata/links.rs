@@ -4,7 +4,6 @@ use crate::{
     error::RuntimeError,
     execution_metadata::{
         MetadataEdge,
-        applications::ApplicationId,
         groups::{OperationGroupId, OperationId},
         interfaces::InterfaceSnapshotId,
     },
@@ -53,33 +52,6 @@ impl Runtime {
         let view = self.gc.interface_metadata(owner).ok_or_else(invalid)?;
         let parent = view.parents.get(slot).ok_or_else(invalid)?;
         parent.prepared.0.set(prepared).map_err(|_| invalid())
-    }
-
-    pub(crate) fn cache_method_application(
-        &self,
-        owner: MethodSelection,
-        prepared: ApplicationId,
-    ) -> Result<(), RuntimeError> {
-        self.gc.ensure_execution_allowed()?;
-        self.validate_metadata(MetadataEdge::Application(prepared))?;
-        let invalid = || RuntimeError::module_validation("invalid method application cache");
-        match owner {
-            MethodSelection::Interface { snapshot, slot } => {
-                self.validate_metadata(MetadataEdge::Interface(snapshot))?;
-                let view = self.gc.interface_metadata(snapshot).ok_or_else(invalid)?;
-                let method = view
-                    .methods
-                    .get(slot)
-                    .and_then(Option::as_ref)
-                    .ok_or_else(invalid)?;
-                method.application.0.set(prepared).map_err(|_| invalid())
-            }
-            MethodSelection::Operation(id) => {
-                self.validate_metadata(MetadataEdge::Operation(id))?;
-                let operation = self.gc.bound_operation(id).ok_or_else(invalid)?;
-                operation.application.0.set(prepared).map_err(|_| invalid())
-            }
-        }
     }
 
     pub(crate) fn cache_receiver_operations(

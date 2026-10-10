@@ -4,7 +4,6 @@ use crate::{
     error::RuntimeError,
     execution_metadata::{
         groups::OperationGroupId,
-        links::MetadataCache,
         operation::{BoundGenericMethod, BoundOperation},
     },
     frame::types::EnvironmentRecord,
@@ -169,7 +168,6 @@ impl Runtime {
                 };
                 operations.push(BoundOperation {
                     associated_interface: interface.clone(),
-                    application: MetadataCache::new(),
                     generic: Some(BoundGenericMethod {
                         receiver_table: binding.clone(),
                         receiver_environment: Some(environment.clone()),

@@ -244,7 +244,18 @@ pub(super) fn run(options: &Options) {
         #[cfg(feature = "diagnostics")]
         if options.diagnostics {
             assert_eq!(execute("lua54"), expected);
-            diagnostics::measure(&runtime, &loaded, &context, name, &[], expected);
+            let mut diagnostic_runtime = engine.runtime(context.clone());
+            let diagnostic_module = diagnostic_runtime
+                .load_program(&prepared, Default::default())
+                .unwrap();
+            diagnostics::measure(
+                &diagnostic_runtime,
+                &diagnostic_module,
+                &context,
+                name,
+                &[],
+                expected,
+            );
             continue;
         }
         for _ in 0..options.warmups {

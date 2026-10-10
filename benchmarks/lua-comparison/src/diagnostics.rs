@@ -82,13 +82,26 @@ pub(super) fn measure(
     args: &[Value],
     expected: i32,
 ) {
-    for _ in 0..3 {
+    count(runtime, module, context, entry, args, expected, "cold");
+    for _ in 0..2 {
         let report = runtime.execute(module, entry, args, context).unwrap();
         assert_eq!(
             report.return_value.value(runtime.runtime().gc()),
             Some(Value::I32(expected))
         );
     }
+    count(runtime, module, context, entry, args, expected, "warm");
+}
+
+fn count(
+    runtime: &KagariRuntime,
+    module: &LoadedModule,
+    context: &ExecutionContext,
+    entry: &str,
+    args: &[Value],
+    expected: i32,
+    phase: &str,
+) {
     let before = runtime.runtime().gc().stats();
     ACTIVE.with(|active| {
         assert!(active.get().is_none());
@@ -106,7 +119,7 @@ pub(super) fn measure(
     );
     let after = runtime.runtime().gc().stats();
     println!(
-        "DIAGNOSTIC,{entry},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},shared_preparations={},environment_allocations={},metadata_validations={},slow_boundaries={}",
+        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},shared_preparations={},environment_allocations={},metadata_validations={},slow_boundaries={}",
         allocations.requests,
         allocations.requested_bytes,
         allocations.net_bytes,

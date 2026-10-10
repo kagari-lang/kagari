@@ -1,4 +1,5 @@
 //! Executable metadata edges are separate from immutable layout provenance.
+pub(crate) mod application_key;
 pub(crate) mod applications;
 pub(crate) mod environments;
 pub(crate) mod groups;
@@ -28,8 +29,34 @@ use std::collections::HashSet;
 
 impl Runtime {
     pub(crate) fn validate_metadata(&self, edge: MetadataEdge<'_>) -> Result<(), RuntimeError> {
+        self.inspect_metadata(edge, |_| {})
+    }
+
+    /// The application graph is immutable after construction. Keep a flat set of
+    /// checked program dependencies for publication and reversible cache retention.
+    pub(crate) fn metadata_dependencies(
+        &self,
+        edge: MetadataEdge<'_>,
+    ) -> Result<Vec<LoadedModule>, RuntimeError> {
+        let mut dependencies = Vec::new();
+        let mut seen = HashSet::new();
+        self.inspect_metadata(edge, |owner| {
+            if seen.insert(owner.program_identity()) {
+                dependencies.push(owner.program_root());
+            }
+        })?;
+        Ok(dependencies)
+    }
+
+    fn inspect_metadata(
+        &self,
+        edge: MetadataEdge<'_>,
+        mut visit: impl FnMut(&LoadedModule),
+    ) -> Result<(), RuntimeError> {
         if let MetadataEdge::Program(owner) = edge {
-            return self.validate_loaded_module(owner);
+            self.validate_loaded_module(owner)?;
+            visit(owner);
+            return Ok(());
         }
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::MetadataValidation);
@@ -55,6 +82,7 @@ impl Runtime {
         MetadataTrace::new(&environments, &groups, &applications, &interfaces)
             .programs(edge, |owner| {
                 self.validate_loaded_module(owner)
+                    .map(|()| visit(owner))
                     .map_err(|failure| error = Some(failure))
                     .ok()
             })
@@ -214,9 +242,6 @@ impl<'a> MetadataTrace<'a> {
                             .push(MetadataEdge::Binding(&generic.receiver_table));
                         self.environment(generic.receiver_environment.as_ref());
                     }
-                    if let Some(application) = operation.application.get() {
-                        self.pending.push(MetadataEdge::Application(*application));
-                    }
                 }
                 MetadataEdge::Interface(id) => {
                     if !self.live_interfaces.insert(id) {
@@ -242,9 +267,6 @@ impl<'a> MetadataTrace<'a> {
                         }
                     }
                     for method in snapshot.methods.iter().flatten() {
-                        if let Some(application) = method.application.get() {
-                            self.pending.push(MetadataEdge::Application(*application));
-                        }
                         if let Some(Some(group)) = method.receiver_operations.get() {
                             self.pending.push(MetadataEdge::Group(*group));
                         }

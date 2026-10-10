@@ -1,6 +1,9 @@
 //! Runtime-local links and caches are owned with the installed module instance.
 use crate::{
-    module::{LoadedModule, ModuleInstance, ModuleStore, ModuleStoreInner, layouts::LayoutCache},
+    module::{
+        LoadedModule, ModuleInstance, ModuleStore, ModuleStoreInner,
+        applications::ApplicationCache, layouts::LayoutCache,
+    },
     native::binding::LinkedNativeFunction,
     value::Value,
 };
@@ -13,6 +16,7 @@ pub(super) struct ModuleRecord {
     pub(super) instance: ModuleInstance,
     pub(super) layouts: LayoutCache,
     pub(super) constants: Vec<Option<Value>>,
+    pub(super) applications: ApplicationCache,
     native: Vec<Arc<LinkedNativeFunction>>,
 }
 
@@ -24,6 +28,7 @@ impl ModuleRecord {
             module,
             native,
             layouts: LayoutCache::default(),
+            applications: ApplicationCache::default(),
         }
     }
 

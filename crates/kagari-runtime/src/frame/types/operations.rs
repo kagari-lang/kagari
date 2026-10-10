@@ -15,8 +15,8 @@ use kagari_types::{
 };
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
-enum OperationSegment {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum OperationSegment {
     Selected(OperationId),
     Receiver(OperationGroupId),
 }
@@ -29,6 +29,10 @@ pub(crate) struct OperationBindings {
 }
 
 impl OperationBindings {
+    pub(crate) fn identity(&self) -> &[OperationSegment] {
+        &self.segments
+    }
+
     pub(crate) fn validate(&self, heap: &GcHeap) -> bool {
         self.segments.iter().all(|segment| match segment {
             OperationSegment::Selected(id) => heap.bound_operation(*id).is_some(),

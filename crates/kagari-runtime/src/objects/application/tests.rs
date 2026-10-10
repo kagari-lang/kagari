@@ -1,6 +1,7 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
+    frame::types::operations::OperationBindings,
     module::LoadedModule,
     native::{
         binding::{Codec, NativeBinding},
@@ -12,10 +13,16 @@ use crate::{
     },
     value::Value,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::types::PublicItem;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::declaration::requirement::NativeCallableRequirement;
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
+};
 use std::sync::Arc;
 
 fn load_source(source: &str, module: Option<&NativeModule>) -> (Runtime, LoadedModule) {
@@ -146,7 +153,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             environment.id,
             runtime
                 .gc
-                .method_application(*operation.application.get().unwrap())
+                .method_application(first.application.unwrap())
                 .unwrap()
                 .environment
                 .as_ref()
@@ -156,7 +163,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         assert!(environment.operation(&runtime.gc, &requirement).is_some());
         let environment_id = environment.id;
         let runtime_owner = runtime.resources().lifetime_probe();
-        let application_id = *operation.application.get().unwrap();
+        let application_id = first.application.unwrap();
         assert_eq!(first.application, Some(application_id));
         assert_eq!(second.application, Some(application_id));
         drop((operation, snapshot, first));
@@ -188,6 +195,14 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             assert!(retained.return_type(&foreign).is_err());
             drop(retained);
         } else {
+            let candidate = runtime
+                .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+                .unwrap();
+            runtime.publish_staged_reload(candidate).unwrap();
+            // The retained method protects the old program/application cycle;
+            // after its last root is dropped, the entire retired cycle is dead.
+            runtime.collect_garbage().unwrap();
+            assert!(runtime.gc.method_application(application_id).is_some());
             drop(second);
             assert_eq!(
                 runtime
@@ -200,5 +215,226 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             assert!(runtime.gc.method_application(application_id).is_none());
             assert_eq!(runtime.gc.stats().method_applications, 0);
         }
+    }
+}
+
+fn generic_fixture() -> (Runtime, LoadedModule, usize) {
+    let (runtime, loaded) = load_source(
+        r#"
+        struct Marker {}
+        fn marker() -> Marker { Marker {} }
+        trait Forward { fn forward<T>(self, value: T) -> T { value } }
+        impl Forward for i32 {}
+        impl Forward for i64 {}
+        fn main() -> i32 { val receiver: Forward = 1; receiver.forward(7) }
+        fn other() -> Forward { 2i64 }
+        "#,
+        None,
+    );
+    let table = loaded
+        .bytecode
+        .interface_tables
+        .iter()
+        .position(|table| loaded.bytecode.public_items.iter().any(|item| matches!(item, PublicItem::InterfaceTable(template) if template.declaration == table.declaration && template.for_type == Ty::Builtin(BuiltinType::I32))))
+        .unwrap();
+    (runtime, loaded, table)
+}
+
+fn apply_generic(
+    runtime: &Runtime,
+    loaded: &LoadedModule,
+    value: Value,
+    ty: Ty<DefinitionId>,
+) -> RootedInterfaceMethod {
+    let Value::Interface(id) = value else {
+        panic!("interface fixture")
+    };
+    let interface = runtime
+        .gc
+        .interface_snapshot(id)
+        .unwrap()
+        .interface_type
+        .clone();
+    let arguments = runtime.resolve_type_arguments(loaded, &[ty]).unwrap();
+    runtime
+        .resolve_interface_method_slot(&value, &interface, 0, &arguments)
+        .unwrap()
+}
+
+#[test]
+fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_versions() {
+    let (runtime, loaded, table) = generic_fixture();
+    let first_value = runtime
+        .make_interface(&loaded, table, Value::I32(1))
+        .unwrap();
+    let second_value = runtime
+        .make_interface(&loaded, table, Value::I32(2))
+        .unwrap();
+    let first = apply_generic(
+        &runtime,
+        &loaded,
+        first_value,
+        Ty::Builtin(BuiltinType::I32),
+    );
+    let second = apply_generic(
+        &runtime,
+        &loaded,
+        second_value,
+        Ty::Builtin(BuiltinType::I32),
+    );
+    assert_eq!(first.application, second.application);
+    let wide = apply_generic(
+        &runtime,
+        &loaded,
+        second_value,
+        Ty::Builtin(BuiltinType::I64),
+    );
+    assert_ne!(first.application, wide.application);
+    assert_eq!(
+        wide.return_type(&runtime).unwrap(),
+        Ty::Builtin(BuiltinType::I64)
+    );
+    let other_table = loaded
+        .bytecode
+        .interface_tables
+        .iter()
+        .position(|table| loaded.bytecode.public_items.iter().any(|item| matches!(item, PublicItem::InterfaceTable(template) if template.declaration == table.declaration && template.for_type == Ty::Builtin(BuiltinType::I64))))
+        .unwrap();
+    let other_value = runtime
+        .make_interface(&loaded, other_table, Value::I64(3))
+        .unwrap();
+    let other = apply_generic(
+        &runtime,
+        &loaded,
+        other_value,
+        Ty::Builtin(BuiltinType::I32),
+    );
+    assert_ne!(first.application, other.application);
+    let candidate = runtime
+        .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+        .unwrap();
+    let latest = runtime.publish_staged_reload(candidate).unwrap();
+    let fresh_value = runtime
+        .make_interface(&latest, table, Value::I32(4))
+        .unwrap();
+    let fresh = apply_generic(
+        &runtime,
+        &latest,
+        fresh_value,
+        Ty::Builtin(BuiltinType::I32),
+    );
+    assert_ne!(first.application, fresh.application);
+    let nominal = Ty::Struct(NominalTy {
+        declaration: loaded.bytecode.structures[0].declaration,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let old_type = apply_generic(
+        &runtime,
+        &loaded,
+        first_value,
+        Ty::Tuple(vec![nominal.clone()]),
+    );
+    let new_arguments = runtime
+        .resolve_type_arguments(&latest, &[Ty::Tuple(vec![nominal])])
+        .unwrap();
+    let new_type = runtime
+        .resolve_interface_method_slot(&first_value, first.interface_type(), 0, &new_arguments)
+        .unwrap();
+    // Identical printed types and declarations retain distinct supplying scopes.
+    assert_eq!(
+        old_type.return_type(&runtime).unwrap(),
+        new_type.return_type(&runtime).unwrap()
+    );
+    assert_ne!(old_type.application, new_type.application);
+
+    runtime.collect_garbage().unwrap();
+    assert!(first.return_type(&runtime).is_ok());
+    let application = first.application.unwrap();
+    drop((first, second, wide, other, old_type, new_type));
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.method_application(application).is_none());
+    assert!(fresh.return_type(&runtime).is_ok());
+}
+
+#[test]
+fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications() {
+    let (runtime, loaded, table) = generic_fixture();
+    let value = runtime
+        .make_interface(&loaded, table, Value::I32(1))
+        .unwrap();
+    let retained = apply_generic(&runtime, &loaded, value, Ty::Builtin(BuiltinType::I32));
+    let application = retained.application.unwrap();
+    // More distinct applications than the retention limit. The older call stays
+    // rooted through its host handle even when the program evicts its index edge.
+    for length in 0..160 {
+        drop(apply_generic(
+            &runtime,
+            &loaded,
+            value,
+            Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); length]),
+        ));
+    }
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.method_application(application).is_some());
+    assert_eq!(runtime.gc.stats().method_applications, 129);
+    drop(retained);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.method_application(application).is_none());
+    assert_eq!(runtime.gc.stats().method_applications, 128);
+    let Value::Interface(id) = value else {
+        unreachable!()
+    };
+    assert!(runtime.gc.interface_snapshot(id).is_none());
+}
+
+#[test]
+fn optional_application_retention_expires_with_abandoned_witness_providers() {
+    for publish in [false, true] {
+        let (runtime, loaded, table) = generic_fixture();
+        let value = runtime
+            .make_interface(&loaded, table, Value::I32(1))
+            .unwrap();
+        let root = runtime.root_value(value).unwrap();
+        let candidate = runtime
+            .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
+            .unwrap();
+        let supplier = candidate.module().clone();
+        let Value::Interface(id) = runtime
+            .make_interface(&supplier, table, Value::I32(2))
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        let snapshot = runtime.gc.interface_snapshot(id).unwrap();
+        let group = runtime
+            .bind_table_operations(&snapshot.receiver_table)
+            .unwrap();
+        let interface = snapshot.interface_type.clone();
+        drop(snapshot);
+        let mut operations = OperationBindings::default();
+        operations.receiver(&runtime.gc, group).unwrap();
+        let arguments = runtime
+            .resolve_type_arguments::<DefinitionId>(&loaded, &[Ty::Builtin(BuiltinType::I32)])
+            .unwrap();
+        let method = runtime
+            .prepare_interface_method_slot(&value, &interface, 0, &arguments, operations)
+            .unwrap();
+        let application = method.application.unwrap();
+        drop(method);
+        if publish {
+            runtime.publish_staged_reload(candidate).unwrap();
+        } else {
+            drop(candidate);
+        }
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            runtime.gc.method_application(application).is_some(),
+            publish
+        );
+        assert!(!runtime.is_quarantined());
+        drop(root);
+        runtime.collect_garbage().unwrap();
+        assert!(runtime.gc.method_application(application).is_none());
     }
 }

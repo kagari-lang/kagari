@@ -2,7 +2,7 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
-    execution_metadata::{groups::OperationId, links::MetadataCache, operation::BoundOperation},
+    execution_metadata::{groups::OperationId, operation::BoundOperation},
     frame::{
         ExecutionFrame,
         types::{TypeEnvironment, compatibility::TypeView, operations::OperationBindings},
@@ -311,7 +311,6 @@ impl Runtime {
                     }
                     self.gc.alloc_bound_operation(BoundOperation {
                         associated_interface,
-                        application: MetadataCache::new(),
                         generic: None,
                         slot,
                         primitive: callable_primitive(selected, owner.definitions()),

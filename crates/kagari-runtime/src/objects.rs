@@ -282,7 +282,6 @@ impl Runtime {
                 })
                 .transpose()?;
             methods.push(Some(InterfaceMethodBinding {
-                application: MetadataCache::new(),
                 receiver_operations: MetadataCache::new(),
                 parameters: method.generic_params.clone(),
                 entry_parameters: match slot.target {

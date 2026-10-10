@@ -100,7 +100,14 @@ impl GcHeap {
                     }
                 }
                 Node::Program(id) => {
-                    programs.trace(id, &mut |value| edges.push(value))?;
+                    let mut applications = Vec::new();
+                    programs.trace(id, &mut |value| edges.push(value), &mut applications)?;
+                    for edge in applications {
+                        metadata.programs(edge, |owner| {
+                            pending.push(Node::Program(programs.executable_edge(owner)?));
+                            Some(())
+                        })?;
+                    }
                     if !edges.iter().all(|value| self.validate_value(value)) {
                         return None;
                     }

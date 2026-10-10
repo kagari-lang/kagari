@@ -1,11 +1,13 @@
-//! Reuse closed method preparation; method-local arguments remain call-specific.
+//! Applied call facts belong to the linked program, independently of receiver values.
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
-    execution_metadata::applications::MethodApplication,
+    execution_metadata::{
+        application_key::ApplicationKey, applications::MethodApplication, groups::OperationGroupId,
+    },
     frame::types::{
         EnvironmentRecord,
         arguments::{ScopedSignature, TypeArgument},
@@ -40,17 +42,28 @@ impl Runtime {
             method.refresh_roots(self)?;
             return Ok(method);
         }
-        let reusable = view.type_parameters().is_empty() && operations.is_empty();
-        let cached = view.cached_application();
+        let owner = view.implementation().clone();
+        let identity = view.identity();
         drop(view);
-        let application = if reusable && let Some(prepared) = cached {
+        let receiver_operations = method.receiver_operations(self)?;
+        let key = ApplicationKey::new(
+            identity,
+            &owner,
+            arguments,
+            receiver_operations,
+            &operations,
+        )?;
+        let application = if let Some(prepared) = self.modules.method_application(&owner, &key) {
             prepared
         } else {
-            let prepared = self.prepare_method_application(&method, arguments, operations)?;
+            let prepared = self.prepare_method_application(
+                &method,
+                arguments,
+                operations,
+                receiver_operations,
+            )?;
             let prepared = self.gc.alloc_method_application(prepared)?;
-            if reusable {
-                self.cache_method_application(method.selection, prepared)?;
-            }
+            self.publish_method_application(&owner, key, prepared)?;
             prepared
         };
         method.environment = self
@@ -69,6 +82,7 @@ impl Runtime {
         method: &RootedInterfaceMethod,
         arguments: &[TypeArgument],
         operations: OperationBindings,
+        receiver_operations: Option<OperationGroupId>,
     ) -> Result<MethodApplication, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::MethodPreparation);
@@ -79,7 +93,6 @@ impl Runtime {
             arguments.to_vec(),
         )?;
         binders.include(view.receiver_environment().cloned())?;
-        let receiver_operations = method.receiver_operations(self)?;
         if let Some(group) = receiver_operations {
             binders.add_receiver(&self.gc, group)?;
         }
