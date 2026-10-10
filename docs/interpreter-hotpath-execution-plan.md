@@ -783,3 +783,67 @@ Final ordinary original/source-form checksum checks and all 703 local Markdown l
 pass, as does `git diff --check`. The restored release executable is preserved at
 `target/hp01/native-application-executable`, SHA-256
 `60e9def12e3d8668fef39683ab9667b2cd35e4d75164e68c89117ccfcf06563d`.
+
+2026-10-10 HP01, shared layout-scope checkpoint (in progress): interpreter aggregate
+construction, native enum preparation and public object binding now use the same
+`module/layout_scope.rs` preparer. Checked argument identities include closed type
+expressions and exact supplying program versions; `TypeArgument` prepares that identity
+once per supplied argument. Independently created equivalent arguments and different
+members share a declaration/argument scope under the program-root runtime record.
+Foreign arguments/owners are rejected, and different supplying generations cannot hit
+the same scope. Template/payload compatibility remains checked by the entry owners.
+
+The existing descriptor index now supplies bounded storage independently of edge
+semantics. Executable publication still wraps entries with validated dependencies and
+traces them; pure layout facts contain no executable roots or GC metadata edges. Layout
+scopes retain at most 128 entries per program. This also replaces the old unbounded
+per-member struct/enum application maps with 128 entries per aggregate kind across all
+IDs. Capacity is reserved before insertion/eviction. Pure-fact retention is optional;
+failure to retain, a borrowed store or retired records leaves complete descriptors
+usable without an executable admission. The three duplicate binding constructors are
+removed. Existing exact-descriptor matching benefits from shared scopes; arbitrary
+runtime-only cross-member layouts and cross-version comparisons retain full checks.
+
+The layout lifecycle contract supplies equivalent nominal arguments independently,
+checks sharing across members, prepares 160 distinct scopes/struct/enum applications
+and observes early entries released through weak references. It then retains old
+provenance across reload and collection, verifies executable records retire, checks
+that old/new supplying versions stay distinct and rejects foreign scopes. This is
+retention/lifetime evidence, not isolated retained-byte accounting.
+
+New diagnostic probes, separate from the frozen parity sources, return nested
+`Wrapped<Holder<Record>>` through a generic interface method. The changing probe
+alternates `Record` and `OtherRecord`. Under the recorded HP00 machine/toolchain,
+default Cargo parallelism and incremental release diagnostics build, with a fresh
+runtime per probe, one cold call and a measured fourth call after two warmups:
+
+| Probe (both 2,500 and 5,000 iterations) | Cold method preparations | Cold layout-scope preparations | Warm method / layout-scope preparations |
+| --- | ---: | ---: | --- |
+| Fixed nominal argument | 1 | 2 | 0 / 0 |
+| Alternating nominal arguments | 2 | 4 | 0 / 0 |
+
+All diagnostic checksums pass (`target/hp01/layout-scope-diagnostics.log`). At 5,000
+iterations, fixed/changing probes still request 4,161,197/4,161,171 allocations and
+both perform 20,002 metadata validations in the warm call. Operand/type-argument
+resolution, identity hashing, compatibility and execution protocols remain material
+per-execution work; HP02–HP05 own their migration. These counts show scope-preparation
+reuse, not throughput improvement. Compilation is excluded, and cold net bytes include
+unrelated execution storage. No new Lua timing or descriptor-memory acceptance is claimed.
+
+Focused checks pass: module records/layout lifetime (7), lexical type arguments (4),
+metadata publication/lifecycle (31), VM native enum contracts (6), embed enum payloads
+(4), native enums (2) and generic associated types (12). Strict runtime/benchmark
+all-target Clippy with diagnostics passes. The initial structure check's diagnostic
+import findings were fixed (997 Rust files, zero violations/exceptions); the diagnostic
+source's match-scrutinee parse error was fixed by binding the constructed value before
+matching. No grammar changes were made. HP01 remains open for runtime-only layout
+normalization/explicit admission, the remaining preparation-owner audit and isolated
+memory accounting; HP02–HP06, GitHub CI and Lua parity are not accepted.
+
+Final host-object checks also pass: nominal applied fields and old-version handle/cache
+retention (two focused tests). Formatting, all 703 local Markdown links and final diff
+checks pass. The restored ordinary release original/source-form checksum checks pass;
+these cold checks are not throughput samples. The executable is preserved at
+`target/hp01/layout-scope-executable`, SHA-256
+`f4b8fb1ced68b8314fb724e242b8e8ec9d3de5abb4e9553867ccd1350ccfa84d`.
+No carried build/test error remains; no full workspace or GitHub CI run was performed.

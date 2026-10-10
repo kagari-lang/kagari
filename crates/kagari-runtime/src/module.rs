@@ -4,6 +4,7 @@ mod descriptor_index;
 pub(crate) mod descriptors;
 pub mod execution;
 mod layout_identity;
+mod layout_scope;
 mod layouts;
 mod records;
 pub mod retention;

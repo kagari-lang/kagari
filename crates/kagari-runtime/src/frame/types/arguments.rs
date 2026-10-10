@@ -9,7 +9,10 @@ mod identity_tests;
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{bindings::TypeBindings, compatibility::TypeView},
+    frame::types::{
+        bindings::TypeBindings,
+        compatibility::{TypeIdentity, TypeView},
+    },
     gc::GcHeap,
     module::{EnumVariantRef, LoadedModule},
     value::Value,
@@ -33,6 +36,7 @@ struct TypeArgumentData {
     origin: Option<Arc<TypeOrigin>>,
     parameters: OnceLock<Result<Vec<TypeArgument>, RuntimeError>>,
     variants: OnceLock<Result<Vec<EnumVariantRef>, RuntimeError>>,
+    identity: OnceLock<Option<Arc<TypeIdentity>>>,
 }
 
 #[derive(Debug)]
@@ -63,6 +67,16 @@ impl TypeArgument {
             ),
             None => TypeView::new(&self.data.ty, owner, None),
         }
+    }
+
+    /// Exact immutable type/provenance identity, prepared once per supplied argument.
+    pub(crate) fn identity(&self, fallback: &LoadedModule) -> Option<Arc<TypeIdentity>> {
+        // Arguments without origins contain no nominal layouts, so their identity
+        // is independent of the fallback. Nominal arguments retain their own scope.
+        self.data
+            .identity
+            .get_or_init(|| self.view(fallback).identity().map(Arc::new))
+            .clone()
     }
 
     pub(crate) fn matches_heap(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> bool {
@@ -346,6 +360,7 @@ impl Runtime {
                     origin,
                     parameters: OnceLock::new(),
                     variants: OnceLock::new(),
+                    identity: OnceLock::new(),
                 }),
             });
         }

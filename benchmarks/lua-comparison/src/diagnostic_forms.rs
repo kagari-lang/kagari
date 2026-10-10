@@ -19,6 +19,43 @@ impl Relay for i32 {}
 trait Append { fn append<T>(self, values: Vec<T>, value: T) { values.push(value); } }
 impl Append for i32 {}
 impl Append for i64 {}
+struct Record { val value: i32 }
+struct OtherRecord { val value: i32 }
+struct Holder<T> { val value: T }
+enum Wrapped<T> { Some(T) }
+trait Package {
+    fn pack<T>(self, value: T) -> Wrapped<Holder<T>> {
+        Wrapped::Some(Holder { value: value })
+    }
+}
+impl Package for i32 {}
+fn scoped_layout(n: i32) -> i32 {
+    val receiver: Package = 0; var sum = 0; var i = 0;
+    while i < n {
+        val item = Record { value: i }; val wrapped = receiver.pack(item);
+        sum += match wrapped {
+            Wrapped::Some(holder) => holder.value.value
+        };
+        i += 1;
+    } sum
+}
+fn changing_scoped_layout(n: i32) -> i32 {
+    val receiver: Package = 0; var sum = 0; var i = 0;
+    while i < n {
+        sum += if i % 2 == 0 {
+            val item = Record { value: i }; val wrapped = receiver.pack(item);
+            match wrapped {
+                Wrapped::Some(holder) => holder.value.value
+            }
+        } else {
+            val item = OtherRecord { value: i }; val wrapped = receiver.pack(item);
+            match wrapped {
+                Wrapped::Some(holder) => holder.value.value
+            }
+        };
+        i += 1;
+    } sum
+}
 fn native_application(n: i32) -> i32 {
     val receiver: Append = 0; val values: Vec<i32> = Vec::new(); var i = 0;
     while i < n { receiver.append(values, i); i += 1; }
@@ -81,6 +118,8 @@ pub(super) fn run() {
         "shared_application",
         "native_application",
         "changing_native_application",
+        "scoped_layout",
+        "changing_scoped_layout",
     ];
     let mut source = SOURCE.to_owned();
     for n in [2_500, 5_000] {

@@ -8,8 +8,7 @@ use crate::{
     },
     frame::types::{TypeEnvironment, operations::OperationBindings},
     module::{
-        LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner,
-        descriptor_index::{DescriptorIndex, Published},
+        LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner, descriptor_index::DescriptorIndex,
     },
     native::application::NativeApplication,
 };
@@ -18,12 +17,27 @@ use kagari_common::identity::table::DefinitionId;
 use kagari_contract::callable::{shared::SharedCall, witness::OperationWitness};
 use std::sync::Arc;
 
+#[derive(Debug)]
+struct Published<T> {
+    value: T,
+    dependencies: Vec<LoadedModule>,
+}
+
+impl<T> Published<T> {
+    fn is_available(&self, store: &ModuleStoreInner) -> bool {
+        self.dependencies
+            .iter()
+            .all(|owner| store.resolve(owner).is_some())
+    }
+}
+
 type WitnessIndex = DescriptorIndex<
     Option<EnvironmentId>,
     Arc<[OperationWitness<DefinitionId>]>,
-    OperationBindings,
+    Published<OperationBindings>,
 >;
-type SharedIndex = DescriptorIndex<SharedScope, Arc<SharedCall<DefinitionId>>, TypeEnvironment>;
+type SharedIndex =
+    DescriptorIndex<SharedScope, Arc<SharedCall<DefinitionId>>, Published<TypeEnvironment>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct SharedScope {
@@ -34,10 +48,10 @@ pub(crate) struct SharedScope {
 
 #[derive(Debug, Default)]
 pub(super) struct LinkedDescriptors {
-    applications: DescriptorIndex<(), ApplicationKey, ApplicationId>,
+    applications: DescriptorIndex<(), ApplicationKey, Published<ApplicationId>>,
     witnesses: WitnessIndex,
     shared: SharedIndex,
-    native: DescriptorIndex<EnvironmentId, NativeImportId, Arc<NativeApplication>>,
+    native: DescriptorIndex<EnvironmentId, NativeImportId, Published<Arc<NativeApplication>>>,
 }
 
 trait Descriptor {

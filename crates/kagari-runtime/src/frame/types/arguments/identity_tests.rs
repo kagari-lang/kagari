@@ -41,6 +41,7 @@ fn argument(kind: BuiltinType) -> TypeArgument {
             origin: None,
             parameters: OnceLock::new(),
             variants: OnceLock::new(),
+            identity: OnceLock::new(),
         }),
     }
 }

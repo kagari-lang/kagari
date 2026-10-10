@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
+    frame::types::{arguments::TypeArgument, compatibility::TypeView},
     module::{LoadedModule, ModuleEpochRetention, StructLayoutRef},
     native::{
         binding::NativeResult,
@@ -12,7 +12,7 @@ use crate::{
 use kagari_bytecode::instruction::StructId;
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use kagari_contract::types::PublicItem;
-use kagari_types::{declaration::TypeDefKind, ty::GenericParam};
+use kagari_types::declaration::TypeDefKind;
 use std::sync::{Arc, Weak};
 
 #[derive(Debug, Default)]
@@ -93,19 +93,8 @@ impl Runtime {
                 ));
             }
         }
-        if arguments.iter().any(TypeArgument::has_origin) {
-            let parameters = (0..arguments.len())
-                .map(|position| GenericParam {
-                    owner: layout.layout().declaration,
-                    position,
-                })
-                .collect();
-            layout.environment = Some(Arc::new(TypeBindings::new(
-                self.definition_context(),
-                parameters,
-                arguments.to_vec(),
-            )?));
-        }
+        layout.environment =
+            self.prepare_layout_scope(&member, layout.layout().declaration, arguments)?;
         let result = self.retain_object_type(layout)?;
         if !result.0.public {
             return Err(RuntimeError::module_validation("object type is not public"));

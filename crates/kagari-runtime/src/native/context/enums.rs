@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeView},
+    frame::types::{arguments::TypeArgument, compatibility::TypeView},
     module::{EnumVariantRef, LoadedModule},
     native::{binding::NativeResult, context::CallContext, types::VariantRef},
     value::{EnumTag, EnumValueSnapshot, Value},
@@ -11,8 +11,8 @@ use kagari_common::identity::{
     mapping::{DefinitionMapper, DefinitionRecord},
     table::DefinitionId,
 };
-use kagari_types::ty::{GenericParam, Ty};
-use std::{slice, sync::Arc};
+use kagari_types::ty::Ty;
+use std::slice;
 
 impl Runtime {
     pub(crate) fn declared_enum_variant(
@@ -75,17 +75,8 @@ impl Runtime {
                 }
                 return Err(RuntimeError::module_validation("scoped enum payload differs from its concrete layout"));
             }
-            let parameters = (0..arguments.len())
-                .map(|position| GenericParam {
-                    owner: nominal.declaration,
-                    position,
-                })
-                .collect();
-            layout.environment = Some(Arc::new(TypeBindings::new(
-                self.definition_context(),
-                parameters,
-                arguments,
-            )?));
+            layout.environment =
+                self.prepare_layout_scope(&owner, nominal.declaration, &arguments)?;
         }
         enum_variants(&layout)
     }

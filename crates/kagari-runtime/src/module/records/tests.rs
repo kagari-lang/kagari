@@ -19,8 +19,11 @@ use kagari_bytecode::{
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::thread;
+use kagari_types::{
+    scalar::BuiltinType,
+    ty::{GenericParam, NominalTy, Ty},
+};
+use std::{slice, thread};
 
 fn fixture() -> (Runtime, LoadedModule, BytecodeProgram) {
     let mut builder = ModuleBuilder::new("test::probe", &DeclarationCatalog::default());
@@ -215,6 +218,138 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
         .applied_enum_variant(&loaded, enum_id, &args, 0)
         .unwrap();
     assert!(retained.matches_layout(&variant));
+}
+
+#[test]
+fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
+    let (runtime, loaded, code) = fixture();
+    let id = generic_structure(&loaded);
+    let declaration = loaded.bytecode.structures[id.index()].declaration;
+    let parameter = GenericParam {
+        owner: declaration,
+        position: 0,
+    };
+    let ty = Ty::Struct(NominalTy {
+        declaration,
+        arguments: vec![Ty::Builtin(BuiltinType::I32)],
+        associated_types: Default::default(),
+    });
+    let arguments = runtime
+        .resolve_type_arguments(&loaded, slice::from_ref(&ty))
+        .unwrap();
+    let scope = runtime
+        .prepare_layout_scope(&loaded, declaration, &arguments)
+        .unwrap()
+        .unwrap();
+    // Independently supplied facts and different members reuse the same program scope.
+    let supplied = runtime
+        .resolve_type_arguments(&loaded, slice::from_ref(&ty))
+        .unwrap();
+    let other = runtime
+        .prepare_layout_scope(&native_owner(&loaded), declaration, &supplied)
+        .unwrap()
+        .unwrap();
+    assert!(Arc::ptr_eq(&scope, &other));
+    let first = runtime
+        .modules
+        .applied_struct_layout(&loaded, id, slice::from_ref(&ty))
+        .unwrap();
+    let layout_probe = Arc::downgrade(first.applied.as_ref().unwrap());
+    drop(first);
+    let first_enum = runtime
+        .modules
+        .applied_enum_variant(&loaded, generic_enum(&loaded), slice::from_ref(&ty), 0)
+        .unwrap();
+    let enum_probe = Arc::downgrade(first_enum.applied.as_ref().unwrap());
+    drop(first_enum);
+    let scope_probe = Arc::downgrade(&scope);
+    drop((scope, other));
+    // More distinct applications than retained slots cannot keep the first alive.
+    for width in 1..=160 {
+        let ty = Ty::Tuple(vec![
+            ty.clone(),
+            Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]),
+        ]);
+        let arguments = runtime
+            .resolve_type_arguments(&loaded, slice::from_ref(&ty))
+            .unwrap();
+        runtime
+            .prepare_layout_scope(&loaded, declaration, &arguments)
+            .unwrap();
+        runtime
+            .modules
+            .applied_struct_layout(&loaded, id, slice::from_ref(&ty))
+            .unwrap();
+        runtime
+            .modules
+            .applied_enum_variant(&loaded, generic_enum(&loaded), &[ty], 0)
+            .unwrap();
+    }
+    assert!(scope_probe.upgrade().is_none());
+    assert!(layout_probe.upgrade().is_none());
+    assert!(enum_probe.upgrade().is_none());
+    // An independent owner keeps evicted facts readable, without an executable lease.
+    let retained = runtime
+        .prepare_layout_scope(&loaded, declaration, &arguments)
+        .unwrap()
+        .unwrap();
+    let candidate = runtime
+        .stage_reload_program(&loaded, "records", code)
+        .unwrap();
+    let latest = runtime.publish_staged_reload(candidate).unwrap();
+    let fresh = runtime
+        .resolve_type_arguments(&latest, slice::from_ref(&ty))
+        .unwrap();
+    let old_scope = runtime
+        .prepare_layout_scope(&latest, declaration, &arguments)
+        .unwrap()
+        .unwrap();
+    let new_scope = runtime
+        .prepare_layout_scope(&latest, declaration, &fresh)
+        .unwrap()
+        .unwrap();
+    assert!(!Arc::ptr_eq(&old_scope, &new_scope));
+    assert_ne!(arguments[0].identity(&latest), fresh[0].identity(&latest));
+    let collected = runtime.collect_garbage().unwrap();
+    assert!(
+        loaded
+            .members()
+            .all(|member| collected.reclaimed_modules.contains(&member.key()))
+    );
+    assert!(runtime.validate_loaded_module(&loaded).is_err());
+    assert_eq!(retained.resolve(&parameter.as_type()).unwrap(), ty);
+    assert_eq!(
+        old_scope
+            .argument(&declaration, 0)
+            .unwrap()
+            .identity(&latest),
+        arguments[0].identity(&latest)
+    );
+    let detached = runtime
+        .prepare_layout_scope(&loaded, declaration, &arguments)
+        .unwrap()
+        .unwrap();
+    assert_eq!(detached.resolve(&parameter.as_type()).unwrap(), ty);
+    let (foreign_runtime, foreign_owner, _) = fixture();
+    let foreign_ty = Ty::Struct(NominalTy {
+        declaration: foreign_owner.bytecode.structures[generic_structure(&foreign_owner).index()]
+            .declaration,
+        arguments: vec![Ty::Builtin(BuiltinType::I32)],
+        associated_types: Default::default(),
+    });
+    let foreign = foreign_runtime
+        .resolve_type_arguments(&foreign_owner, &[foreign_ty])
+        .unwrap();
+    assert!(
+        runtime
+            .prepare_layout_scope(&loaded, declaration, &foreign)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .prepare_layout_scope(&foreign_owner, declaration, &arguments)
+            .is_err()
+    );
 }
 
 #[test]

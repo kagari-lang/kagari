@@ -1,8 +1,5 @@
-//! One bounded publication/retention protocol for immutable linked execution facts.
-use crate::{
-    error::RuntimeError,
-    module::{LoadedModule, ModuleStoreInner},
-};
+//! Bounded retention for prepared facts; owners define validation and tracing.
+use crate::error::RuntimeError;
 use std::{
     borrow::Borrow,
     collections::{HashMap, VecDeque},
@@ -12,22 +9,8 @@ use std::{
 const RETAINED_DESCRIPTORS: usize = 128;
 
 #[derive(Debug)]
-pub(super) struct Published<T> {
-    pub(super) value: T,
-    pub(super) dependencies: Vec<LoadedModule>,
-}
-
-impl<T> Published<T> {
-    pub(super) fn is_available(&self, store: &ModuleStoreInner) -> bool {
-        self.dependencies
-            .iter()
-            .all(|owner| store.resolve(owner).is_some())
-    }
-}
-
-#[derive(Debug)]
 pub(super) struct DescriptorIndex<S, K, V> {
-    scopes: HashMap<S, HashMap<K, Published<V>>>,
+    scopes: HashMap<S, HashMap<K, V>>,
     order: VecDeque<(S, K)>,
 }
 
@@ -41,26 +24,21 @@ impl<S, K, V> Default for DescriptorIndex<S, K, V> {
 }
 
 impl<S: Eq + Hash + Clone, K: Eq + Hash + Clone, V> DescriptorIndex<S, K, V> {
-    pub(super) fn values(&self) -> impl Iterator<Item = &Published<V>> {
+    pub(super) fn values(&self) -> impl Iterator<Item = &V> {
         self.scopes.values().flat_map(|entries| entries.values())
     }
 
-    pub(super) fn get<Q: Eq + Hash + ?Sized>(&self, scope: &S, key: &Q) -> Option<&Published<V>>
+    pub(super) fn get<Q: Eq + Hash + ?Sized>(&self, scope: &S, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
     {
         self.scopes.get(scope)?.get(key)
     }
 
-    pub(super) fn insert(
-        &mut self,
-        scope: S,
-        key: K,
-        value: Published<V>,
-    ) -> Result<(), RuntimeError> {
+    pub(super) fn insert(&mut self, scope: S, key: K, value: V) -> Result<(), RuntimeError> {
         if self.get(&scope, &key).is_some() {
             return Err(RuntimeError::module_validation(
-                "duplicate executable descriptor",
+                "duplicate prepared descriptor",
             ));
         }
         self.scopes

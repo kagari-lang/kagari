@@ -2,17 +2,19 @@
 use crate::{
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     module::{
-        EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef, layout_identity::LayoutIdentity,
+        EnumVariantRef, LoadedModule, ModuleStore, StructLayoutRef,
+        descriptor_index::DescriptorIndex, layout_identity::LayoutIdentity,
+        layout_scope::LayoutScopes,
     },
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::{NominalTy, Ty};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 type LayoutApplications<Id, Layout> =
-    HashMap<Id, HashMap<Vec<Ty<DefinitionId>>, AppliedLayout<Layout>>>;
+    DescriptorIndex<Id, Arc<[Ty<DefinitionId>]>, AppliedLayout<Layout>>;
 
 #[derive(Debug)]
 struct AppliedLayout<L> {
@@ -24,6 +26,7 @@ struct AppliedLayout<L> {
 pub(super) struct LayoutCache {
     structures: LayoutApplications<StructId, StructLayout<DefinitionId>>,
     enumerations: LayoutApplications<EnumId, EnumLayout<DefinitionId>>,
+    pub(super) scopes: LayoutScopes,
 }
 
 impl LoadedModule {
@@ -152,12 +155,7 @@ impl ModuleStore {
             // Detached type provenance remains readable without executable storage.
             return owner.applied_struct_layout(id, arguments);
         };
-        if let Some(applied) = record
-            .layouts
-            .structures
-            .get(&id)
-            .and_then(|cache| cache.get(arguments))
-        {
+        if let Some(applied) = record.layouts.structures.get(&id, arguments) {
             return Some(StructLayoutRef {
                 module: owner.clone(),
                 id,
@@ -167,9 +165,12 @@ impl ModuleStore {
             });
         }
         let layout = owner.applied_struct_layout(id, arguments)?;
+        // Retention is optional: allocation failure leaves the complete immutable
+        // descriptor usable by its caller, without changing existing entries.
         if let Some(applied) = &layout.applied {
-            record.layouts.structures.entry(id).or_default().insert(
-                arguments.to_vec(),
+            let _ = record.layouts.structures.insert(
+                id,
+                Arc::from(arguments),
                 AppliedLayout {
                     layout: applied.clone(),
                     canonical: layout.canonical,
@@ -193,12 +194,7 @@ impl ModuleStore {
         else {
             return owner.applied_enum_variant(id, arguments, variant);
         };
-        if let Some(applied) = record
-            .layouts
-            .enumerations
-            .get(&id)
-            .and_then(|cache| cache.get(arguments))
-        {
+        if let Some(applied) = record.layouts.enumerations.get(&id, arguments) {
             applied.layout.variants.get(variant as usize)?;
             return Some(EnumVariantRef {
                 module: owner.clone(),
@@ -210,9 +206,12 @@ impl ModuleStore {
             });
         }
         let layout = owner.applied_enum_variant(id, arguments, variant)?;
+        // Retention is optional: allocation failure leaves the complete immutable
+        // descriptor usable by its caller, without changing existing entries.
         if let Some(applied) = &layout.applied {
-            record.layouts.enumerations.entry(id).or_default().insert(
-                arguments.to_vec(),
+            let _ = record.layouts.enumerations.insert(
+                id,
+                Arc::from(arguments),
                 AppliedLayout {
                     layout: applied.clone(),
                     canonical: layout.canonical,

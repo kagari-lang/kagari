@@ -13,7 +13,7 @@ use crate::{
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
-use kagari_types::ty::{GenericParam, Ty};
+use kagari_types::ty::Ty;
 use std::{borrow::Cow, slice, sync::Arc};
 
 impl ExecutionFrame {
@@ -103,17 +103,7 @@ impl ExecutionFrame {
                 .map(|environment| environment.types.clone()),
             arguments,
         )?;
-        if !arguments.iter().any(|argument| argument.has_origin()) {
-            return Ok(None);
-        }
-        let parameters = (0..arguments.len())
-            .map(|position| GenericParam {
-                owner: *declaration,
-                position,
-            })
-            .collect();
-        TypeBindings::new(runtime.definition_context(), parameters, arguments)
-            .map(|environment| Some(Arc::new(environment)))
+        runtime.prepare_layout_scope(self.loaded(), *declaration, &arguments)
     }
 
     pub fn struct_layout(
