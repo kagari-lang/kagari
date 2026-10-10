@@ -775,19 +775,27 @@ register replacement. Retirement releases these edges with the window.
 entry validates its lease and keeps it alive until window publication; internal dispatch
 does not construct that wrapper or refresh a host root container. Host/internal arguments
 and results use the same method-view signature checks and result adapters.
-Linked members also retain scoped interface-call contracts by verified function/PC
-and exact environment identity. These immutable descriptors contain the expected
-interface type with its lexical provenance, method type arguments and operation
-witnesses, independently of receiver values. They use the common bounded descriptor
-index and checked publication/GC tracing. Changed scopes receive different entries;
-an expired scope is rejected even if a cached descriptor remains. Receiver selection,
+Linked members own interface-call contracts containing the expected interface type
+with lexical provenance, method type arguments and operation witnesses, independently
+of receiver values. Sealed call records classify actual environment dependence and
+assign dense function-local ordinals. Closed contracts, including independent calls
+inside generic functions, are prepared before candidate publication. Linking validates
+their graph and proves that every executable dependency belongs to the same pinned
+program. Function entry admits its immutable call table once; calls borrow facts directly
+by ordinal while the active window's program root protects the table and its traced edges.
+These code-bounded links are not optional application caches and cannot be evicted.
+Environment-dependent contracts use the common bounded descriptor index keyed by
+verified function/PC and exact EnvironmentId, with checked publication/GC tracing.
+Changed scopes receive different entries; an expired scope is rejected even if a
+cached descriptor remains. The previous closed-scope dynamic index path is removed.
+Receiver selection,
 argument/result checks and cross-version interface compatibility still run per call.
 Application arguments share their prepared exact type identities. Each immutable
 interface method binding derives its structural selection identity once, without
 capturing the receiver or an applied result. The existing application index consumes
 these shared identities; host entry constructs the same argument bundle. No separate
-application solver or result cache is introduced. Closed contract preparation at
-linking and any remaining invocation-scaled semantic admission are still HP03 work.
+application solver or result cache is introduced. Remaining invocation-scaled type
+compatibility work is part of the HP03/HP05 admission review.
 Executable environments are published by the runtime after validating their complete
 parent/operation graph. The central environment record retains a flat list of exact
 program dependencies alongside its immutable edges. Frame entry checks the environment's

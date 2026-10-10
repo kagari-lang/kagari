@@ -6,7 +6,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution_metadata::{
-        call_contracts::InterfaceCallSite, groups::OperationId, operation::BoundOperation,
+        call_contracts::ScopedInterfaceCall, groups::OperationId, operation::BoundOperation,
     },
     frame::{
         ExecutionFrame,
@@ -103,11 +103,10 @@ impl Runtime {
     pub(crate) fn resolve_interface_invocation(
         &self,
         frame: &ExecutionFrame,
-        site: InterfaceCallSite,
+        call: &ScopedInterfaceCall,
         receiver: &Value,
     ) -> Result<(MethodInvocation, Value), RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
-        let call = self.prepare_interface_call(frame.loaded(), frame.environment(), site)?;
         if let Some(operation) = call.operation {
             let method = MethodInvocation::from_operation(self, operation)?;
             let method =

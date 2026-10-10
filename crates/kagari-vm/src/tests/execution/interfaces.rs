@@ -354,8 +354,14 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
     let source = r#"
         struct Item { val value: i32 }
         trait Capture {
+            fn identity<U>(self, value: U) -> U { value }
+            fn code(self) -> i32 { helper() }
             fn capture<T>(self, value: T) -> fn() -> i32 {
-                || { val held: T = value; helper() }
+                || {
+                    val source: Capture = 1;
+                    val held: T = source.identity(value);
+                    source.code()
+                }
             }
         }
         impl Capture for i32 {}

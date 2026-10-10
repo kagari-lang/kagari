@@ -8,7 +8,7 @@ use crate::{
         transfer::ReturnValue,
         types::{EnvironmentRecord, operations::OperationBindings},
     },
-    module::LoadedModule,
+    module::{LoadedModule, execution::calls::PreparedCallTarget},
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -522,8 +522,22 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
                     })
             })
             .unwrap();
-        let first_call = runtime.prepare_interface_call(&loaded, None, site).unwrap();
-        let second_call = runtime.prepare_interface_call(&loaded, None, site).unwrap();
+        let closed = || {
+            let PreparedCallTarget::Interface { index, .. } =
+                loaded.execution().functions[site.function.index()].calls[&site.pc].target
+            else {
+                unreachable!("interface call fixture");
+            };
+            runtime
+                .modules
+                .closed_interface_calls(&loaded, site.function)
+                .unwrap()
+                .get(index)
+                .unwrap()
+                .clone()
+        };
+        let first_call = closed();
+        let second_call = closed();
         assert!(Arc::ptr_eq(&first_call, &second_call));
         let first = first_call.operations.clone();
         assert!(!first.is_empty());
@@ -548,7 +562,7 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
                 )
                 .unwrap();
             let call = runtime
-                .prepare_interface_call(&loaded, Some(scope.clone()), site)
+                .prepare_scoped_interface_call(&loaded, scope.clone(), site)
                 .unwrap();
             assert_ne!(first.identity(), call.operations.identity());
             last_scope = Some(scope);
@@ -560,19 +574,37 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         // Retaining an index key cannot resurrect a stale caller environment.
         assert!(
             runtime
-                .prepare_interface_call(&loaded, last_scope, site)
+                .prepare_scoped_interface_call(&loaded, last_scope.unwrap(), site)
                 .is_err()
         );
         let candidate = runtime
             .stage_reload_verified_program(&loaded, "group", loaded.verified_program().clone())
             .unwrap();
+        let retired = loaded.clone();
         loaded = runtime.publish_staged_reload(candidate).unwrap();
         runtime.collect_garbage().unwrap();
         assert!(first.validate(&runtime.gc));
         drop(root);
         let collected = runtime.collect_garbage().unwrap();
         assert_eq!(collected.reclaimed_operation_groups, groups);
-        assert_eq!(runtime.gc.stats().operation_groups, 0);
+        // Linking prepares the new program's closed witness before publication.
+        // All old groups are gone; only that distinct live program's group remains.
+        assert_eq!(runtime.gc.stats().operation_groups, 1);
+        assert!(
+            runtime
+                .modules
+                .closed_interface_calls(&retired, site.function)
+                .is_none()
+        );
+        let linked = runtime
+            .modules
+            .closed_interface_calls(&loaded, site.function)
+            .unwrap();
+        assert!(linked.get(0).unwrap().operations.validate(&runtime.gc));
+        assert_ne!(
+            first.identity(),
+            linked.get(0).unwrap().operations.identity()
+        );
         assert_eq!(runtime.gc.stats().environments, 0);
         assert!(!first.validate(&runtime.gc));
         assert!(!runtime.is_quarantined());

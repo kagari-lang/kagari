@@ -51,11 +51,8 @@ pub(crate) struct SharedScope {
 
 #[derive(Debug, Default)]
 pub(super) struct LinkedDescriptors {
-    interface_calls: DescriptorIndex<
-        Option<EnvironmentId>,
-        InterfaceCallSite,
-        Published<Arc<ScopedInterfaceCall>>,
-    >,
+    interface_calls:
+        DescriptorIndex<EnvironmentId, InterfaceCallSite, Published<Arc<ScopedInterfaceCall>>>,
     applications: DescriptorIndex<(), ApplicationKey, Published<ApplicationId>>,
     witnesses: WitnessIndex,
     shared: SharedIndex,
@@ -141,7 +138,7 @@ impl ModuleStore {
     pub(crate) fn interface_call(
         &self,
         owner: &LoadedModule,
-        environment: Option<EnvironmentId>,
+        environment: EnvironmentId,
         site: InterfaceCallSite,
     ) -> Option<Arc<ScopedInterfaceCall>> {
         let records = self.inner.try_borrow().ok()?;
@@ -217,7 +214,7 @@ impl Runtime {
     pub(crate) fn publish_interface_call(
         &self,
         owner: &LoadedModule,
-        environment: Option<EnvironmentId>,
+        environment: EnvironmentId,
         site: InterfaceCallSite,
         prepared: Arc<ScopedInterfaceCall>,
     ) -> Result<(), RuntimeError> {

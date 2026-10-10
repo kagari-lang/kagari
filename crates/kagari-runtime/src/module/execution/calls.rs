@@ -6,6 +6,8 @@ use kagari_bytecode::{
     program::ModuleRef,
 };
 use kagari_common::identity::table::DefinitionId;
+use kagari_contract::callable::{interface::InterfaceCallContract, witness::OperationWitness};
+use kagari_types::ty::Ty;
 
 #[derive(Debug)]
 pub(crate) struct PreparedCall {
@@ -21,7 +23,10 @@ pub(crate) enum PreparedCallTarget {
         target: CallableTarget,
         shared: bool,
     },
-    Interface,
+    Interface {
+        index: usize,
+        closed: bool,
+    },
     Closure,
 }
 
@@ -50,7 +55,13 @@ impl ExecutionModule {
                         target,
                         shared: true,
                     },
-                    CallTarget::InterfaceMethod { .. } => PreparedCallTarget::Interface,
+                    CallTarget::InterfaceMethod { ref contract, .. } => {
+                        let index = prepared.interface_calls;
+                        prepared.interface_calls += 1;
+                        let closed = closed_interface_contract(contract);
+                        prepared.has_closed_interface_calls |= closed;
+                        PreparedCallTarget::Interface { index, closed }
+                    }
                     CallTarget::ClosureRegister { .. } => PreparedCallTarget::Closure,
                     _ => continue,
                 };
@@ -80,4 +91,26 @@ impl ExecutionModule {
             }
         }
     }
+}
+
+/// The verifier already proved each witness. This classifies lexical environment
+/// dependence only; it never selects another implementation or infers a type.
+fn closed_interface_contract(contract: &InterfaceCallContract<DefinitionId>) -> bool {
+    contract.receiver.is_none()
+        && Ty::Trait(contract.interface.clone()).is_concrete()
+        && contract.arguments.iter().all(Ty::is_concrete)
+        && contract.operations.iter().all(|operation| match operation {
+            OperationWitness::Selected(_) => true,
+            OperationWitness::Forward(_) => false,
+            OperationWitness::SharedMethod(selected) => {
+                selected
+                    .implementation
+                    .arguments
+                    .iter()
+                    .all(Ty::is_concrete)
+                    && selected.requirement.receiver.is_concrete()
+                    && Ty::Trait(selected.requirement.interface.clone()).is_concrete()
+                    && selected.requirement.arguments.iter().all(Ty::is_concrete)
+            }
+        })
 }

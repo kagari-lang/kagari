@@ -14,6 +14,7 @@ use crate::{
             calls::PreparedCall,
             layout::{FrameLayout, Location},
         },
+        linked_calls::LinkedFunctionCalls,
     },
     objects::invocation::MethodInvocation,
     resource::ResourceState,
@@ -398,6 +399,7 @@ enum NativeEntryState {
 }
 
 pub struct ExecutionFrame {
+    closed_calls: Option<Arc<LinkedFunctionCalls>>,
     environment: Option<TypeEnvironment>,
     loaded: LoadedModule,
     target: CallableTarget,
@@ -556,6 +558,21 @@ impl ExecutionFrame {
         if let Some(environment) = &environment {
             runtime.validate_environment(environment.id)?;
         }
+        let closed_calls = match target {
+            CallableTarget::Script(function)
+                if loaded.execution().functions[function.index()].has_closed_interface_calls =>
+            {
+                Some(
+                    runtime
+                        .modules
+                        .closed_interface_calls(&loaded, function)
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("missing linked function calls")
+                        })?,
+                )
+            }
+            _ => None,
+        };
         let slots = resources
             .frame_values
             .try_borrow_mut()
@@ -572,6 +589,7 @@ impl ExecutionFrame {
                 registers.clone(),
             )?;
         Ok(Self {
+            closed_calls,
             environment,
             loaded,
             target,

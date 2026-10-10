@@ -4,6 +4,7 @@ use crate::{
         LoadedModule, ModuleInstance, ModuleStore, ModuleStoreInner,
         descriptors::LinkedDescriptors,
         layouts::{LayoutCache, ProgramLayoutCache},
+        linked_calls::LinkedCalls,
     },
     native::binding::LinkedNativeFunction,
     value::Value,
@@ -18,6 +19,7 @@ pub(super) struct ModuleRecord {
     pub(super) layouts: LayoutCache,
     pub(super) constants: Vec<Option<Value>>,
     pub(super) descriptors: LinkedDescriptors,
+    pub(super) calls: Option<LinkedCalls>,
     native: Vec<Arc<LinkedNativeFunction>>,
     program_layouts: Option<Box<ProgramLayoutCache>>,
 }
@@ -32,6 +34,7 @@ impl ModuleRecord {
             module,
             native,
             descriptors: LinkedDescriptors::default(),
+            calls: None,
         }
     }
 

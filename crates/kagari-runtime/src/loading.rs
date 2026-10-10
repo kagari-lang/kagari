@@ -113,6 +113,9 @@ impl Runtime {
                 }
             }
         }
+        for owner in staged.module().members() {
+            self.link_interface_calls(&owner)?;
+        }
         Ok(staged)
     }
 

@@ -167,6 +167,8 @@ pub(crate) struct ExecutionFunction {
     /// coalescing may share a location: any live logical alias keeps it alive.
     pub awaits: BTreeMap<usize, Box<[u64]>>,
     pub calls: BTreeMap<usize, PreparedCall>,
+    pub interface_calls: usize,
+    pub has_closed_interface_calls: bool,
 }
 
 impl ExecutionModule {
@@ -215,6 +217,8 @@ impl ExecutionModule {
                         registers,
                         awaits,
                         calls: BTreeMap::new(),
+                        interface_calls: 0,
+                        has_closed_interface_calls: false,
                     }
                 })
                 .collect(),

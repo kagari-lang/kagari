@@ -1,6 +1,6 @@
 # Interpreter execution architecture plan (HP00-HP06)
 
-Status: active, authorized by the user on 2026-10-10; HP00–HP02 are complete; HP03 is in progress.
+Status: active, authorized by the user on 2026-10-10; HP00–HP03 are complete; HP04 is in progress.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) records
 activation; this document owns the finite phase order and progress ledger.
 
@@ -375,7 +375,7 @@ only content/link/diff checks. Use `Phase: HPxx` in implementation commit traile
 - [x] HP00 — Architecture audit, baseline and replacement map.
 - [x] HP01 — Runtime-linked executable identities and publication.
 - [x] HP02 — Active execution ownership and transitions.
-- [ ] HP03 — Unified call/return protocol.
+- [x] HP03 — Unified call/return protocol (local phase acceptance; final performance/CI gates remain open).
 - [ ] HP04 — Common prepared operation model.
 - [ ] HP05 — Unified layout admission and enum access.
 - [ ] HP06 — Old-path retirement and architecture evaluation.
@@ -1994,3 +1994,121 @@ links and diff checks pass. No build/test errors are carried; no full-workspace 
 or GitHub CI run was performed. HP03 remains open for closed linked-call admission
 and integration review, with immutable type compatibility work owned jointly with
 the already planned HP05 layout admission. The full HP00–HP06 objective is unchanged.
+
+2026-10-10 HP03, closed linked-call tables (in progress):
+Sealed interface sites now carry a dense function-local ordinal and an environment
+dependence classification. This inspects already-verified concrete inputs/witnesses;
+it does not infer types or select implementations. Closed calls inside generic bodies
+are included. Forwarded operations and receiver-bound calls remain environment-dependent.
+Runtime linking prepares closed contracts before candidate publication, checks the
+complete graph and requires all executable dependencies to belong to the same pinned
+program. Member records own immutable code-bounded tables, traced through the existing
+program graph. Function entry admits its table once; the active frame borrows a closed
+contract directly by ordinal without a scope hash lookup, fresh owner admission or
+per-call Arc clone. Its existing window program root keeps all table edges alive.
+
+Only genuinely environment-dependent contracts remain in the bounded dynamic index,
+whose key is now EnvironmentId rather than optional scope. Both forms use the same
+contract constructor, application index, semantic checks and call/return protocol.
+There is no optional closed cache or parallel execution implementation. Linking failure
+abandons the candidate through its existing lease/collection protocol. Candidate
+availability polling, dynamic method owner/generation checks and reentry boundaries
+are unchanged. Static tables retain exactly the facts required by their code and are
+not subject to dynamic cache eviction.
+
+The witness lifetime test initially failed with one remaining group instead of zero:
+the newly published program now prepares its own closed witness while linking. The
+updated assertion still requires every old group to be reclaimed, rejects lookup of
+the retired program's call table and proves the one surviving group belongs to the
+new program with a different identity. This is a lifecycle shift, not a weakened leak
+check. The existing generic closure/reload fixture now mixes a scoped generic method
+and a closed method in the same generic frame, exercising table holes and independent
+old-version dispatch without adding a duplicate test.
+
+Runtime application/lifetime contracts (5), metadata contracts (31), and VM interface
+execution contracts (23) pass. Native function boundary contracts (38) also passed
+before the final per-contract dependence classification; the interface suite covers
+the new mixed generic-frame case. Strict affected-target Clippy passes. No build/test
+error remains; measurement and final structural checks follow below. HP03 integration
+and HP04–HP06 remain pending until their acceptance evidence is complete.
+
+Closed-call measurement: all 72 diagnostic rows pass in
+`target/hp03/linked-calls-diagnostics.log`; deltas against scoped calls are in
+`target/hp03/linked-calls-diagnostic-delta.json`. Every warm method/interface/shared/
+operation preparation count remains zero. Closed interface preparation moves from
+one/two cold execution events to linking outside the counted execution; genuinely
+scoped witness calls still prepare once. This is shifted setup work, not eliminated
+work. Fixed/alternating simple interface and generic application warm allocations,
+objects and graph-validation counts are unchanged. At 2,500/5,000 fixed generic
+calls, requests remain 5,051/10,051 and graph validations remain two. Fixed/alternating
+closure requests remain 12/17 at both sizes. Immutable type compatibility, native
+conversion and layout work remain separate from call preparation.
+
+The new table adds traced edges and frame storage. Cold frame allocation grows by
+32 bytes in otherwise unaffected probes. GC-heavy witness/shared probes request
+15/30 additional allocations at 2,500/5,000 iterations, consistent with additional
+tracing scratch per collection, not renewed call preparation. The changing-layout
+cold probe collects 15/30 rather than 14/29 times. These retention/GC costs and the
+remaining large native/layout allocation slopes are not hidden by the warm call
+counter result; HP04–HP06 retain setup/metadata and representation evaluation.
+
+Ordinary paired source forms pass all checksums:
+`target/lua-comparison/20261010T055548Z-forms-paired/results.json`. Baseline is the
+preserved scoped-call executable; candidate `target/hp03/linked-calls-executable`
+has SHA-256 `9dd3fbaad233769745da70b3ed50fb6cd71b8f2da731192f8c19fdcffd50b89b`.
+Candidate/baseline ratios are direct 0.9383, helper 0.9640, concrete generic 0.9283,
+interface 0.8366, shared generic 0.8858, capture cell 0.9741, field 0.9610,
+native 0.9655, byte state 0.9218, host callback 0.9547, string constants 0.9191
+and string calls 0.9604. Interface/shared Lua controls are 1.0028/0.9951, with
+VM/Lua 37.61/70.73. The preceding interface regression is recovered. Other controls
+range 0.9631–1.0063; unrelated scalar improvements cannot be attributed exclusively
+to moving closed calls. Same recorded M1 Max/toolchain/default release environment,
+normal GC, three warmups and 22 pooled samples, sequential baseline/candidate/
+candidate/baseline; diagnostics are disabled and the 19.431 s build is excluded.
+
+The original-seven paired run also passes every checksum:
+`target/lua-comparison/20261010T055633Z-paired/results.json`, with the same hashes,
+environment and ordering, and a 0.077 s excluded build. Candidate/baseline ratios
+are entry 0.9892, arithmetic 0.9330, branches 0.9495, calls 0.9425, fibonacci 0.9625,
+arrays 0.9055 and maps 0.9717; Lua controls range 0.9886–1.0093. Calls/arrays/maps
+remain 22.70/55.89/75.55 times Lua. These are checkpoint comparisons, not final HP00
+or Lua acceptance. Median program linking across these workloads is 2.393–2.578 ms
+versus 2.440–2.671 ms; those programs do not isolate interface linking cost. Source
+forms omit setup timing, so their earlier cold-execution savings cannot establish
+lower total setup cost. HP04/HP06 setup and metadata accounting must include the
+eager table and witness preparation.
+
+2026-10-10 HP03 local phase acceptance and HP04 handoff:
+Final native function boundary contracts (38) pass on the completed classifier,
+including source-free applications, retained interface handles, reentry, GC, reload,
+cancellation and depth cleanup. Together with the application/lifetime (5), runtime
+metadata (31), VM interface (23) and staged-entry isolation (1) checks above, this
+closes the changed call/lifetime contracts. Strict affected-target diagnostics Clippy,
+formatting, structure review (1,010 files; zero violations/exceptions), local document
+links and diff checks pass. No build/test error is carried. Full-workspace validation
+and GitHub CI have not run and remain separate HP06/final acceptance work.
+
+The phase's ownership review is complete:
+
+| HP03 requirement | Implemented owner and evidence |
+| --- | --- |
+| One argument placement and rooted frame lifetime | `frame/arguments.rs` feeds `push_admitted_arguments` and frame-window publication for direct/shared/interface/closure calls. Receivers/captures are borrowed prefixes; callee placement owns copying. VM packing and internal host-rooted method construction are removed. |
+| One return retirement | `frame/returns.rs::finish_return` adapts before releasing callee roots, then retires depth/window state and publishes raw scalar packets or checked Values. The separate scalar retirement implementation is removed. Ordinary native instructions keep their necessary host adapter; framed native calls use the common retirement. |
+| Reuse immutable call facts and dependency proof | Linked closed call tables, exact-environment scoped facts and the common application index own preparation. Published environments own validated dependency sets; frame entry preserves current program availability and ID/generation checks. No fresh unchanged graph walk is performed per invocation. |
+| Changing inputs, lifetimes and allocation scaling | N/2N fixed/alternating receiver/type/capture probes show zero warm preparation and constant admission graph counts. Existing mixed generic-frame, result adapter, source-free, eviction, retained-root, reentry and reload contracts pass. GC still traces live metadata and reclaims retired versions. |
+
+HP03 completion is limited to those migration/semantic criteria. Remaining TypeView
+compatibility, native conversion and enum/layout allocation are explicitly HP04/HP05
+operation/admission work, not excuses to report allocation-free calls. Earlier scalar/
+call regressions still require final comparison against HP00, even though this paired
+checkpoint improves them. All 16-workload Lua parity and overall architectural/performance
+acceptance remain open; the shared generic Add lowering gap remains unchanged.
+
+HP04 begins with the existing prepared operation/active cursor boundary. Managed
+copies and warm constants currently return through `ExecutionInstruction::Boundary`
+and canonical VM decoding; prepared concrete fields still use logical operands and
+fallback handling. Migrate those responsibilities into physical prepared operations,
+then the already-scoped Vec index and String byte-length contracts. Preserve lazy
+allocation transitions, current access/bounds, aliases, traps, logical-PC polling and
+host callbacks. Retire migrated VM handlers instead of adding parallel fast paths;
+reuse the existing contract tests and count metadata/setup as well as execution.

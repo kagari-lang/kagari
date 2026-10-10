@@ -49,20 +49,29 @@ impl ScopedInterfaceCall {
 }
 
 impl Runtime {
-    pub(crate) fn prepare_interface_call(
+    pub(crate) fn prepare_scoped_interface_call(
+        &self,
+        owner: &LoadedModule,
+        environment: TypeEnvironment,
+        site: InterfaceCallSite,
+    ) -> Result<Arc<ScopedInterfaceCall>, RuntimeError> {
+        self.validate_loaded_module(owner)?;
+        let scope = environment.id;
+        self.validate_environment(scope)?;
+        if let Some(prepared) = self.modules.interface_call(owner, scope, site) {
+            return Ok(prepared);
+        }
+        let prepared = self.build_interface_call(owner, Some(environment), site)?;
+        self.publish_interface_call(owner, scope, site, prepared.clone())?;
+        Ok(prepared)
+    }
+
+    pub(crate) fn build_interface_call(
         &self,
         owner: &LoadedModule,
         environment: Option<TypeEnvironment>,
         site: InterfaceCallSite,
     ) -> Result<Arc<ScopedInterfaceCall>, RuntimeError> {
-        self.validate_loaded_module(owner)?;
-        let scope = environment.as_ref().map(|environment| environment.id);
-        if let Some(id) = scope {
-            self.validate_environment(id)?;
-        }
-        if let Some(prepared) = self.modules.interface_call(owner, scope, site) {
-            return Ok(prepared);
-        }
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::InterfaceCallPreparation);
         let invalid = || RuntimeError::module_validation("generic call operation environment");
@@ -115,7 +124,6 @@ impl Runtime {
             operation,
             slot: contract.method_slot as usize,
         });
-        self.publish_interface_call(owner, scope, site, prepared.clone())?;
         Ok(prepared)
     }
 }

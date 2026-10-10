@@ -52,6 +52,9 @@ impl ProgramGraph<'_> {
         for member in program.members() {
             let record = self.store.records.get(&member.key())?;
             record.descriptors.trace(&self.store, metadata);
+            if let Some(calls) = &record.calls {
+                calls.trace(metadata);
+            }
             record
                 .constants
                 .iter()

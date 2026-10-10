@@ -8,6 +8,7 @@ mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
 mod layouts;
+pub(crate) mod linked_calls;
 mod records;
 pub mod retention;
 pub(crate) mod staging;

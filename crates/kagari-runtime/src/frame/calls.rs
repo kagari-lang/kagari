@@ -74,7 +74,7 @@ impl ExecutionStack<'_> {
                     Some(call),
                 );
             }
-            PreparedCallTarget::Interface => {
+            PreparedCallTarget::Interface { index, closed } => {
                 let BytecodeInstruction::Call {
                     callee: CallTarget::InterfaceMethod { .. },
                     args,
@@ -91,11 +91,27 @@ impl ExecutionStack<'_> {
                         RuntimeError::module_validation("missing interface receiver")
                     })?;
                     let receiver = caller.read_register(runtime, *register)?;
-                    runtime.resolve_interface_invocation(
-                        &caller,
-                        InterfaceCallSite { function, pc },
-                        &receiver,
-                    )?
+                    let scoped_call;
+                    let call = if closed {
+                        caller
+                            .closed_calls
+                            .as_ref()
+                            .and_then(|calls| calls.get(index))
+                            .map(|call| call.as_ref())
+                            .ok_or_else(|| {
+                                RuntimeError::module_validation("invalid linked interface ordinal")
+                            })?
+                    } else {
+                        scoped_call = runtime.prepare_scoped_interface_call(
+                            &owner,
+                            environment.clone().ok_or_else(|| {
+                                RuntimeError::module_validation("missing interface call scope")
+                            })?,
+                            InterfaceCallSite { function, pc },
+                        )?;
+                        scoped_call.as_ref()
+                    };
+                    runtime.resolve_interface_invocation(&caller, call, &receiver)?
                 };
                 let arguments = FrameArguments::frame(slots, &call.arguments[1..])
                     .with_prefix(slice::from_ref(&receiver))?;
