@@ -190,7 +190,7 @@ pub(super) fn option(cx: &CallContext<'_>, value: Option<Value>) -> NativeResult
     static MEMBERS: OnceLock<NativeResult<(VariantRef, VariantRef)>> = OnceLock::new();
     let (some, none) = MEMBERS
         .get_or_init(|| {
-            let option = StandardDeclarations::default().enumeration("Option")?;
+            let option = StandardDeclarations::enumeration("Option")?;
             Ok((option.variant("Some")?, option.variant("None")?))
         })
         .as_ref()

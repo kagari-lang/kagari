@@ -204,18 +204,11 @@ fn for_each(
     loop {
         cx.poll()?;
         let value = cx.call_values(next, slice::from_ref(&cursor))?;
-        let (member, fields) = enums::inspect(cx, &value, "Option")?;
-        match member.as_str() {
-            "None" if fields.is_empty() => return Ok(()),
-            "Some" => {
-                let [item] = fields.as_slice() else {
-                    return Err(invalid());
-                };
-                let _item = cx.heap().root_value(*item).ok_or_else(invalid)?;
-                visit(cx, *item)?;
-            }
-            _ => return Err(invalid()),
-        }
+        let Some(item) = enums::option(cx, &value)? else {
+            return Ok(());
+        };
+        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
+        visit(cx, item)?;
     }
 }
 

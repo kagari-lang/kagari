@@ -70,7 +70,7 @@ impl<'call> Comparison<'call> {
                 .as_ref()
                 .ok_or_else(invalid)?
                 .call_values(cx, &[a, b])?;
-            return decode_ordering(cx, result);
+            return enums::ordering(cx, &result);
         }
         let (a, b, _root) = if matches!(self.algorithm, Algorithm::SortByKey) {
             let selector = self.callback.as_ref().ok_or_else(invalid)?;
@@ -86,7 +86,7 @@ impl<'call> Comparison<'call> {
             return value_semantics::builtin_order(cx.heap(), &a, &b)?.ok_or_else(invalid);
         }
         let result = cx.call_values(operation, &[a, b])?;
-        decode_ordering(cx, result)
+        enums::ordering(cx, &result)
     }
 
     pub(super) fn sort_scalars(&self, values: &mut SequenceEdit<'_>) -> NativeResult<bool> {
@@ -103,18 +103,5 @@ impl<'call> Comparison<'call> {
 
         scalars!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64, ISize:isize, U8:u8, U16:u16, U32:u32, U64:u64, USize:usize);
         Ok(true)
-    }
-}
-
-fn decode_ordering(cx: &CallContext<'_>, value: Value) -> NativeResult<Ordering> {
-    let (member, fields) = enums::inspect(cx, &value, "Ordering")?;
-    if !fields.is_empty() {
-        return Err(invalid());
-    }
-    match member.as_str() {
-        "Less" => Ok(Ordering::Less),
-        "Equal" => Ok(Ordering::Equal),
-        "Greater" => Ok(Ordering::Greater),
-        _ => Err(invalid()),
     }
 }

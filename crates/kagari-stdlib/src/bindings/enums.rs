@@ -6,6 +6,7 @@ use kagari_runtime::{
     native::{binding::NativeResult, context::CallContext},
     value::{EnumTag, Value},
 };
+use std::cmp::Ordering;
 
 pub(super) fn allocate(
     cx: &CallContext<'_>,
@@ -14,26 +15,27 @@ pub(super) fn allocate(
     member: &str,
     fields: Vec<Value>,
 ) -> NativeResult<Value> {
-    let variant = StandardDeclarations::default()
-        .enumeration(name)?
-        .variant(member)?;
+    let variant = StandardDeclarations::enumeration(name)?.variant(member)?;
     cx.allocate_enum(ty, &variant, fields)
 }
 
-pub(super) fn inspect(
+/// Project checked immutable members into owned scalars before allocation/reentry.
+/// The reader must not allocate on the script heap or invoke callbacks.
+pub(super) fn read<R>(
     cx: &CallContext<'_>,
     value: &Value,
     name: &str,
-) -> NativeResult<(String, Vec<Value>)> {
+    read: impl FnOnce(&str, &[Value]) -> R,
+) -> NativeResult<R> {
     let Value::Enum(id) = value else {
         return Err(RuntimeError::module_validation("library enum value"));
     };
-    let snapshot = cx
+    let view = cx
         .heap()
-        .enum_snapshot(*id)
+        .enum_view(*id)
         .ok_or_else(|| RuntimeError::module_validation("library enum handle"))?;
-    let EnumTag::Declared(layout) = snapshot.tag;
-    let enumeration = StandardDeclarations::default().enumeration(name)?;
+    let EnumTag::Declared(layout) = &view.tag;
+    let enumeration = StandardDeclarations::enumeration(name)?;
     let expected = layout
         .module()
         .definitions()
@@ -49,5 +51,27 @@ pub(super) fn inspect(
         .ok()
         .and_then(|member| member.segments().last().map(|segment| segment.name))
         .ok_or_else(|| RuntimeError::module_validation("library enum member"))?;
-    Ok((member.to_owned(), snapshot.fields))
+    Ok(read(member, &view.fields))
+}
+
+/// Copy at most one payload; its caller roots it before allocation or reentry.
+pub(super) fn option(cx: &CallContext<'_>, value: &Value) -> NativeResult<Option<Value>> {
+    read(cx, value, "Option", |member, fields| {
+        match (member, fields) {
+            ("None", []) => Ok(None),
+            ("Some", [value]) => Ok(Some(*value)),
+            _ => Err(RuntimeError::module_validation("library Option member")),
+        }
+    })?
+}
+
+pub(super) fn ordering(cx: &CallContext<'_>, value: &Value) -> NativeResult<Ordering> {
+    read(cx, value, "Ordering", |member, fields| {
+        match (member, fields) {
+            ("Less", []) => Ok(Ordering::Less),
+            ("Equal", []) => Ok(Ordering::Equal),
+            ("Greater", []) => Ok(Ordering::Greater),
+            _ => Err(RuntimeError::module_validation("library Ordering member")),
+        }
+    })?
 }

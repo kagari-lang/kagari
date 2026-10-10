@@ -138,12 +138,14 @@ impl StandardDeclarations {
     }
 
     /// Retrieve a library enum's ordinary authoring handle.
-    pub fn enumeration(&self, name: &str) -> NativeResult<TypeRef> {
+    pub fn enumeration(name: &str) -> NativeResult<TypeRef> {
         ENUM_TYPES.with(|cache| {
             let declarations = cache
                 .get_or_init(|| {
-                    let catalog = self.catalog()?;
-                    self.declarations
+                    let standard = Self::default();
+                    let catalog = standard.catalog()?;
+                    standard
+                        .declarations
                         .iter()
                         .flat_map(|module| {
                             module

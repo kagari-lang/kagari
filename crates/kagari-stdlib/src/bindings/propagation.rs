@@ -5,7 +5,7 @@ use kagari_runtime::{
     native::{binding::NativeResult, context::CallContext},
     value::Value,
 };
-use std::slice;
+use std::{ops::ControlFlow, slice};
 
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("propagation library contract")
@@ -18,16 +18,33 @@ fn branch(
     failure: &str,
 ) -> NativeResult<Value> {
     let original = cx.argument(0)?;
-    let (member, fields) = enums::inspect(cx, &original, name)?;
+    let branch = enums::read(cx, &original, name, |member, fields| {
+        match (member, fields) {
+            (member, [value]) if member == success => Ok(ControlFlow::Continue(*value)),
+            (member, []) if member == failure && name == "Option" => Ok(ControlFlow::Break(None)),
+            (member, [value]) if member == failure && name != "Option" => {
+                Ok(ControlFlow::Break(Some(*value)))
+            }
+            _ => Err(invalid()),
+        }
+    })?;
+    // Preserve result-type failure precedence over payload-shape rejection,
+    // without keeping a heap borrow across type preparation or allocation.
     let result = cx.result_type_argument()?;
-    if member == success && fields.len() == 1 {
-        return enums::allocate(cx, &result, "ControlFlow", "Continue", fields);
-    }
-    if member != failure || fields.len() != usize::from(name != "Option") {
-        return Err(invalid());
-    }
+    let payload = match branch? {
+        ControlFlow::Continue(value) => {
+            return enums::allocate(cx, &result, "ControlFlow", "Continue", vec![value]);
+        }
+        ControlFlow::Break(payload) => payload,
+    };
     let residual_type = cx.type_parameter(&result, 0)?;
-    let residual = enums::allocate(cx, &residual_type, name, failure, fields)?;
+    let residual = enums::allocate(
+        cx,
+        &residual_type,
+        name,
+        failure,
+        payload.into_iter().collect(),
+    )?;
     let _constructed = cx.heap().root_value(residual).ok_or_else(invalid)?;
     let residual = if name == "Result" {
         cx.forward_enum_origin(&original, &residual)?
@@ -50,19 +67,31 @@ fn from_output(cx: &mut CallContext<'_>, name: &str, success: &str) -> NativeRes
 
 fn from_residual(cx: &mut CallContext<'_>, name: &str, failure: &str) -> NativeResult<Value> {
     let original = cx.argument(0)?;
-    let (member, mut fields) = enums::inspect(cx, &original, name)?;
-    if member != failure || fields.len() != usize::from(name != "Option") {
-        return Err(invalid());
-    }
+    let mut payload = enums::read(cx, &original, name, |member, fields| {
+        match (member, fields) {
+            (member, []) if member == failure && name == "Option" => Ok(None),
+            (member, [value]) if member == failure && name != "Option" => Ok(Some(*value)),
+            _ => Err(invalid()),
+        }
+    })??;
     if name == "Result" {
         let selected = cx.selected_at(0)?;
-        fields[0] = cx.call_values(selected, slice::from_ref(&fields[0]))?;
+        payload = Some(cx.call_values(
+            selected,
+            slice::from_ref(payload.as_ref().ok_or_else(invalid)?),
+        )?);
     }
-    let _payload = fields
-        .first()
+    let _payload = payload
+        .as_ref()
         .map(|value| cx.heap().root_value(*value).ok_or_else(invalid))
         .transpose()?;
-    let result = enums::allocate(cx, &cx.result_type_argument()?, name, failure, fields)?;
+    let result = enums::allocate(
+        cx,
+        &cx.result_type_argument()?,
+        name,
+        failure,
+        payload.into_iter().collect(),
+    )?;
     if name != "Result" {
         return Ok(result);
     }

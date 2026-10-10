@@ -3962,3 +3962,158 @@ of small ratio changes. The affected comparison scaling probes are diagnostics, 
 these timed workloads. Maps remain 53.81x Lua, arrays 23.42x, fibonacci 30.71x and
 String constants 12.23x. This control run does not resolve the older HP04 gates or
 establish all-workload parity. target/release again holds the ordinary benchmark.
+
+2026-10-10 HP05, standard-library enum reader retirement:
+
+The remaining `stdlib::bindings::enums::inspect` API forced every caller to own a
+member String and cloned payload Vec. Its consumers only needed a comparison result,
+one iterator item or a propagation branch. The existing GC already provides a checked
+immutable enum view; the mismatch was the provider-facing read contract, not a missing
+cache or a new enum representation requirement.
+
+Replaced that API with one checked borrowed projection over the existing heap view.
+Nominal declaration and member resolution still use the value's supplying layout;
+heap ownership/generation/kind checks still happen before access. The projection
+cannot return borrowed fields and its internal readers perform no script allocation
+or callbacks. Option readers copy at most one Value, Ordering readers return Rust
+Ordering, and propagation retains a bounded ControlFlow/optional payload state. All
+borrows end before type preparation, allocation or reentry. Existing argument roots,
+iterator roots and explicit copied-payload roots remain at their original boundaries.
+Propagation still checks its result type before reporting shape failure, and preserves
+conversion/forwarded-error-origin order. Constructors allocate the payload container
+needed by the new ordinary enum object; that allocation is not hidden or counted as
+removed. Both iteration consumers now share the same Option reader. All five calls to
+the owned inspection helper and the separate list Ordering decoder are removed.
+
+The declaration inventory's existing thread-local enum-handle store remains the sole
+owner of these portable authoring handles. `StandardDeclarations::enumeration(name)`
+is now an associated operation: a StandardDeclarations instance/catalog is created
+only when populating the inventory, not on every warm enum lookup/construction.
+Updated all consumers, including the application-owned Try provider fixture. This is
+an unpublished Rust API change (instance call becomes an associated call), without a
+compatibility alias or format/ABI bump. No runtime cache, retained descriptor field,
+frame layout, bytecode operation or GC representation was added.
+
+Validation in `target/hp05/enum-readers/`:
+
+- Embed `conversion_traits` (15), `list_algorithms` (8), `try_protocols` (8) and
+  `generic_reload` (2): all 33 passed. Existing contracts cover native/custom iterators,
+  comparison callbacks, Option/Result/ControlFlow propagation, source-free execution,
+  cancellation/traps, threshold-1 collection and pinned reload.
+- Strict stdlib all-target Clippy with runtime execution diagnostics, formatting,
+  diff checks and structure review passed (1,023 files; zero violations/exceptions).
+  No full-workspace tests or CI acceptance was run at this checkpoint.
+- A temporary diagnostic source replaced only the separate protocol-scaling fixture
+  while measuring baseline 32e04f41 and the candidate with identical source. It loops
+  over a custom Counter iterator, alternates Some/None through `?`, and invokes sort
+  comparison callbacks. Each runs at 2,500 and 5,000 iterations; frozen throughput
+  sources are unchanged. Probe source, restoration script and baseline/candidate logs
+  are retained under `target/hp05/enum-readers/`. Both revisions passed all checksums.
+  The probe source and baseline substitutions were restored before final diagnostics.
+- Across the probe's 36 cold/warm rows, non-allocation counters and net retained bytes
+  are identical: no removed objects, collections, metadata validations, preparation
+  or execution transitions. After restoration, all original 86 diagnostic rows are
+  exactly identical to 32e04f41, including allocation requests/bytes/net retention.
+
+| Warm 5,000-iteration probe | Requests before → after | Requested bytes before → after |
+| --- | ---: | ---: |
+| custom iterator | 80,272 → 65,270 | 3,538,857 → 2,238,613 |
+| mixed Option propagation | 243,191 → 218,191 | 12,071,450 → 7,841,450 |
+| callback comparison | 310,703 → 300,703 | 22,517,921 → 21,297,921 |
+
+The matching 2,500-iteration probes establish warm savings of 3 requests/260 bytes
+per yielded iterator item plus 2 requests/244 bytes at termination, 5 requests/846
+bytes per mixed propagation iteration, and 2 requests/244 bytes per comparison.
+These are diagnostic allocation measurements, not execution-speed claims. First enum
+inventory initialization still contributes substantial one-time declaration work;
+its setup cost remains visible and belongs in HP06 accounting. No new retained-memory
+cost was introduced. Map remains at 2,001 ordinary objects, 2,178 allocation requests
+and five warm collections; this reader retirement does not settle its Option
+representation or protocol cost.
+
+Ordinary throughput controls used the existing interpreter-only paired driver against
+32e04f41's saved executable (`target/hp05/builtin-results/prepared-executable`, SHA-256
+`a3eb3c7a345ba61563f74bb91655ad3a46d4bd959f7c54dbd7343851cc54aa39`). Candidate:
+`target/hp05/enum-readers/prepared-executable`, SHA-256
+`b30d9400718ad7db6d42e485f5222c0c5fcf705d1b768c805abfe347b63fc3e1`.
+Raw runs under `target/lua-comparison/` are `20261010T111353Z-forms-paired`,
+`20261010T111502Z-paired` and the independent source-form control repeat
+`20261010T111740Z-forms-paired`. An attempted single-workload/saved-baseline command
+was rejected by driver argument validation before any execution; the original suite
+was then run through the supported paired command.
+
+Environment remains M1 Max/32 GiB/10 logical CPUs, arm64 macOS 26.6.2,
+rustc 1.98.1/LLVM 22.1.8, vendored Lua 5.4.8, workspace default release/target/
+parallelism, source/native features, diagnostics off, normal GC/allocator and warm
+build cache. Each pair has serial B/C/C/B processes, three warmups and 11 samples per
+process (22 pooled per variant). No build, test, profile or Rust edit overlapped timing;
+all checksums passed. Build wall times, excluded from execution: 6.373 s, 0.081 s, 0.085 s.
+
+| Workload | Kagari C/B | Lua control C/B | Repeat Kagari / Lua C/B |
+| --- | ---: | ---: | ---: |
+| arithmetic | 1.0053 | 1.0030 | — |
+| arrays | 1.0153 | 1.0308 | — |
+| branches | 1.0347 | 1.0038 | — |
+| calls | 0.9987 | 0.9984 | — |
+| entry | 0.9951 | 0.9964 | — |
+| fibonacci | 1.0004 | 1.0013 | — |
+| maps | 0.9929 | 0.9830 | — |
+| byte_state | 1.0138 | 1.0013 | 1.0224 / 1.0045 |
+| capture_cell | 0.9955 | 1.0035 | 0.9886 / 0.9698 |
+| concrete_generic | 1.0046 | 1.0272 | 1.0022 / 0.9907 |
+| direct | 1.0810 | 1.0510 | 0.9961 / 0.9694 |
+| field | 1.0018 | 0.9993 | 1.0113 / 1.0042 |
+| helper | 1.0097 | 1.0079 | 0.9921 / 1.0048 |
+| host_callback | 1.0030 | 1.0024 | 1.0064 / 0.9950 |
+| interface | 1.0051 | 1.0028 | 0.9864 / 0.9791 |
+| native | 1.0074 | 1.0043 | 1.0085 / 1.0056 |
+| shared_generic | 1.0059 | 1.0235 | 0.9923 / 1.0053 |
+| string_calls | 0.9896 | 0.9807 | 1.0096 / 0.9932 |
+| string_constants | 1.0101 | 0.9987 | 1.0091 / 1.0016 |
+
+The first direct-loop result (+8.1% Kagari, +5.1% Lua) prompted the independent repeat;
+it did not reproduce (-0.4% Kagari, -3.1% Lua). No stable >5% new Kagari regression is
+established. Other changes are small and do not establish an overall speedup. Map
+remains 55.50x Lua in this pair, arrays 23.34x, fibonacci 30.77x; repeated String
+constants are 12.40x. Prior HP04 gates and all-workload parity remain open.
+
+An independent warmed execution-only Map sample followed all timing:
+`prepared-executable --interpreter-only --profile=maps`, then `/usr/bin/sample PID 5 1`
+after PROFILE_READY. Raw evidence and its runner are under
+`target/hp05/enum-readers/maps-profile/` and `profile-maps.py`. The normal binary ran
+2,518 calls in the instrumented 10-second sampling window, with exactly 2,001 ordinary
+objects and five collections per call, zero live-object growth. This is not a throughput
+comparison. The separate observer pass counts 63,030 Kagari logical instructions
+versus 24,012 Lua instructions (2.62x), including 4,002 calls and 2,000 each of enum
+variant tests and payload reads. No instruction count is inferred from sampled stacks.
+
+Inclusive sample groups below exclude nested repetitions within each group; groups
+can overlap and must not be added. Denominator: 3,950 main-thread samples.
+
+| Sampled path | Samples | Share |
+| --- | ---: | ---: |
+| Native invocation and descendants | 2,165 | 54.8% |
+| CallContext enum construction and descendants | 619 | 15.7% |
+| Enum member admission and descendants | 477 | 12.1% |
+| Runtime/heap enum allocation and descendants | 131 | 3.3% |
+| GC collection and descendants | 161 | 4.1% |
+| Active-frame validation and descendants | 331 | 8.4% |
+
+The member-admission path still traverses DefinitionTable names/identities under
+CallContext::declared_enum_variant on every construction. This is separate from the
+already prepared nominal layout comparison proof. Together with dispatch/frame/native
+boundary work, it is evidence that boxed Option allocation alone does not explain the
+roughly 55x gap. Sampling does not bound all indirect representation costs or predict
+unboxing speedups. Keep ordinary Option for this checkpoint; an immediate niche/tagged
+representation migration is not justified by this profile. The finite next HP01/HP05
+integration is to review native member-selection contracts and carry checked member
+identity under the existing applied native/type owner, preserving foreign handles,
+payloads, pinned versions, failure order and roots. Do not add a Map-only exemption or
+skip validation. Reassess representation after that ownership gap is addressed.
+
+HP05 also still owes the remaining runtime snapshot-consumer audit (equality/format,
+range bounds, conversion, reflection and diagnostic/host access), retaining owned
+snapshots only where crossing a lifetime boundary actually requires them. HP06 owns
+full retrospective removal, cold setup/retained metadata accounting, integration and
+final HP00 comparisons. This checkpoint closes the named standard-library read helper;
+it does not claim that the full architecture, CI or Lua performance goal is accepted.

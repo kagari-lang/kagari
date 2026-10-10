@@ -649,6 +649,18 @@ tag/payload storage. A field read copies one Value without cloning the payload l
 The enclosing frame/native argument retains the root, and the borrow ends before
 collection, heap allocation or callbacks. Owning snapshots remain for consumers
 that cross those boundaries.
+Standard-library enum consumers use one checked borrowed projection for nominal
+declaration, member and payload inspection. Iterator/construction readers copy at
+most one Value, comparison readers return a Rust Ordering, and propagation copies
+a bounded branch/payload state. The borrow ends before type preparation, allocation
+or reentry; existing argument roots and explicit payload roots retain live values.
+New enum constructors allocate their own required payload containers. Propagation
+preserves result-type failure precedence and forwards failure origin metadata.
+The former owned member-name/payload inspection helper is removed. Standard enum
+authoring handles come from the declaration inventory's existing lazy store through
+`StandardDeclarations::enumeration(name)`; warm lookup no longer constructs a
+temporary StandardDeclarations instance. This declaration cache owns no runtime
+layouts, values or executable versions.
 
 Linked functions own one layout operand table for struct/enum construction, enum
 patterns and applied field access. Equal operands within a function share one entry;

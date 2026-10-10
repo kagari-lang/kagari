@@ -44,18 +44,11 @@ impl<'call> ReceiverCalls<'call> {
         loop {
             cx.poll()?;
             let value = cx.call_values(self.next, slice::from_ref(&cursor))?;
-            let (member, fields) = enums::inspect(cx, &value, "Option")?;
-            match member.as_str() {
-                "None" if fields.is_empty() => return Ok(id),
-                "Some" => {
-                    let [value] = fields.as_slice() else {
-                        return Err(invalid());
-                    };
-                    let _item = cx.heap().root_value(*value).ok_or_else(invalid)?;
-                    cx.heap().array_push(id, *value)?;
-                }
-                _ => return Err(invalid()),
-            }
+            let Some(value) = enums::option(cx, &value)? else {
+                return Ok(id);
+            };
+            let _item = cx.heap().root_value(value).ok_or_else(invalid)?;
+            cx.heap().array_push(id, value)?;
         }
     }
 
