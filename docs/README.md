@@ -47,6 +47,7 @@ These documents do not imply implemented APIs or active execution. The roadmap
 owns activation, dependencies and phase order.
 
 - [Rust value/opaque interoperability](rust-interop-design.md).
+- [Interpreter hot-path execution (HP00-HP06)](interpreter-hotpath-execution-plan.md).
 - [Host API unification](host-api-refactor.md).
 - [Packages and dependency resolution](package-design.md).
 - [Compatible reload and state replacement](update-model-design.md).
