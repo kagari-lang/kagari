@@ -565,6 +565,7 @@ impl<'a> Executor<'a> {
                 | CallTarget::ModuleFunction { .. }
                 | CallTarget::Shared { .. }
                 | CallTarget::InterfaceMethod { .. }
+                | CallTarget::ClosureRegister { .. }
         ) {
             return self
                 .stack
@@ -582,40 +583,12 @@ impl<'a> Executor<'a> {
             CallTarget::ModuleFunction { .. }
             | CallTarget::Function(_)
             | CallTarget::Shared { .. }
-            | CallTarget::InterfaceMethod { .. } => {
+            | CallTarget::InterfaceMethod { .. }
+            | CallTarget::ClosureRegister { .. } => {
                 unreachable!("prepared calls use frame windows")
             }
             CallTarget::Register(_) => {
                 Err(VmError::UnsupportedCallTarget(Box::new(callee.clone())))
-            }
-            CallTarget::ClosureRegister {
-                register,
-                ref params,
-                return_type,
-            } => {
-                let (params, return_type) = self
-                    .current_frame()?
-                    .closure_signature(register, params, return_type)
-                    .map_err(VmError::RuntimeError)?;
-                let value = self
-                    .current_frame()?
-                    .read_register(self.runtime, register)?;
-                let closure = self
-                    .runtime
-                    .resolve_closure(&value)
-                    .map_err(VmError::RuntimeError)?;
-                let (actual_params, actual_result) = closure
-                    .physical_signature()
-                    .map_err(VmError::RuntimeError)?;
-                if actual_result != return_type || actual_params != params {
-                    return Err(VmError::TypeMismatch("closure call contract"));
-                }
-                drop(actual_params);
-                drop(closure);
-                self.stack
-                    .push_closure(self.runtime, &value, &arg_values, dst)
-                    .map(|()| InstructionProgress::Call)
-                    .map_err(VmError::RuntimeError)
             }
             CallTarget::RuntimePrimitive(intrinsic) => self
                 .dispatch_standard_intrinsic(intrinsic, dst, arg_values)

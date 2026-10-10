@@ -15,7 +15,7 @@ use kagari_bytecode::instruction::NativeImportId;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{ids::FunctionRef, representation::semantic_representation};
 use kagari_types::ty::Ty;
-use std::{borrow::Cow, slice, sync::Arc};
+use std::{slice, sync::Arc};
 
 /// A checked closure may enter ordinary script code or an installed native entry.
 #[derive(Debug, Clone)]
@@ -92,20 +92,21 @@ impl ClosureValueSnapshot {
         Ok(Arc::new(ScopedSignature { params, result }))
     }
 
-    pub fn physical_signature(&self) -> Result<(Cow<'_, [ValueType]>, ValueType), RuntimeError> {
+    pub(crate) fn matches_physical_signature(
+        &self,
+        expected: impl ExactSizeIterator<Item = ValueType>,
+        result: ValueType,
+    ) -> Result<bool, RuntimeError> {
         let function = match &self.target {
             ClosureTarget::Native(native) => {
-                return Ok((
-                    Cow::Owned(
-                        native
-                            .signature
-                            .params
-                            .iter()
-                            .map(|ty| semantic_representation(ty.ty()))
-                            .collect(),
-                    ),
-                    semantic_representation(native.signature.result.ty()),
-                ));
+                return Ok(native.signature.params.len() == expected.len()
+                    && native
+                        .signature
+                        .params
+                        .iter()
+                        .zip(expected)
+                        .all(|(ty, expected)| semantic_representation(ty.ty()) == expected)
+                    && semantic_representation(native.signature.result.ty()) == result);
             }
             ClosureTarget::Script(function) => function,
         };
@@ -120,10 +121,8 @@ impl ClosureValueSnapshot {
             .params
             .get(self.captures.len()..)
             .ok_or_else(|| RuntimeError::module_validation("closure captures"))?;
-        if function.metadata.return_type != ValueType::Generic
-            && !parameters.contains(&ValueType::Generic)
-        {
-            return Ok((Cow::Borrowed(parameters), function.metadata.return_type));
+        if parameters.len() != expected.len() {
+            return Ok(false);
         }
         let resolve = |physical, semantic: Option<&Ty<DefinitionId>>| {
             if physical != ValueType::Generic {
@@ -137,21 +136,23 @@ impl ClosureValueSnapshot {
                 .ok_or_else(|| RuntimeError::module_validation("generic closure environment"))?;
             Ok(semantic_representation(&environment.types.resolve(ty)?))
         };
-        let params = function
-            .metadata
-            .params
-            .iter()
-            .enumerate()
-            .skip(self.captures.len())
-            .map(|(index, ty)| resolve(*ty, function.metadata.semantic.params.get(&index)))
-            .collect::<Result<_, _>>()?;
-        Ok((
-            Cow::Owned(params),
-            resolve(
-                function.metadata.return_type,
-                function.metadata.semantic.result.as_ref(),
-            )?,
-        ))
+        for (index, (actual, expected)) in parameters.iter().zip(expected).enumerate() {
+            if resolve(
+                *actual,
+                function
+                    .metadata
+                    .semantic
+                    .params
+                    .get(&(self.captures.len() + index)),
+            )? != expected
+            {
+                return Ok(false);
+            }
+        }
+        Ok(resolve(
+            function.metadata.return_type,
+            function.metadata.semantic.result.as_ref(),
+        )? == result)
     }
 
     pub(crate) fn matches_function(

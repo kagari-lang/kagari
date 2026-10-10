@@ -1,143 +1,136 @@
-//! Return publication reuses admitted stack access until an adaptation boundary.
+//! All call kinds share retirement and publication after any result adaptation.
 use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionStack, ReturnDestination, transfer::ReturnValue},
     value::Value,
 };
-use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::CallableTarget;
 
-enum ScalarReturn {
-    Adapt,
-    Caller,
-    Root,
-}
-
 impl ExecutionStack<'_> {
-    /// Admission has already checked runtime, active session and scope. Scalar
-    /// publication cannot allocate a heap object, adapt a result or call user code.
-    fn finish_scalar_return(
+    /// Adapt while the callee's arguments and executable dependencies remain rooted.
+    /// No exclusive stack or operand-bank borrow crosses an allocating adapter.
+    fn adapt_return(
         &self,
         runtime: &Runtime,
-        representation: ValueType,
-        bits: u64,
-    ) -> Result<ScalarReturn, RuntimeError> {
-        let mut frames = self
-            .session
-            .resources
-            .sessions
-            .frames_mut(self.session.id)
-            .ok_or_else(|| runtime.resources().quarantine("return stack is borrowed"))?;
-        let frame = frames
-            .last()
-            .filter(|_| frames.len() > self.base)
-            .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
-        if frame.environment.is_some() || frame.invocation.is_some() {
-            return Ok(ScalarReturn::Adapt);
-        }
-        let destination = frame.return_to;
-        let frame = frames.pop().expect("checked return frame");
-        frame.release_values(self.session.resources);
-        drop(frame);
-        self.session.resources.leave_call();
-        if frames.len() == self.base {
-            return Ok(ScalarReturn::Root);
-        }
-        if matches!(
-            destination,
-            ReturnDestination::Register(None) | ReturnDestination::Prepared(None)
-        ) {
-            return Ok(ScalarReturn::Caller);
-        }
-        runtime.gc.ensure_execution_allowed()?;
-        let caller = frames.last().expect("retained caller");
-        let mut values = runtime
-            .resources()
-            .frame_values
-            .try_borrow_mut()
-            .map_err(|_| runtime.resources().quarantine("return window borrowed"))?;
-        match destination {
-            ReturnDestination::Register(Some(register)) => {
-                values.set_scalar(caller.slots, register.index(), representation, bits)
+        packet: ReturnValue,
+    ) -> Result<ReturnValue, RuntimeError> {
+        let mut value = packet
+            .materialize()
+            .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
+        let frame = self.current()?;
+        if let Some(method) = frame.invocation() {
+            value = runtime.finish_method_result(method, value)?;
+        } else if let Some(environment) = frame.environment() {
+            let ty = match frame.target() {
+                CallableTarget::Script(_) => frame
+                    .function()
+                    .and_then(|function| function.metadata.semantic.result.as_ref()),
+                CallableTarget::Native(import) => frame
+                    .loaded()
+                    .bytecode
+                    .native_imports
+                    .get(import.index())
+                    .map(|import| &import.signature.result),
             }
-            ReturnDestination::Prepared(Some(location)) => {
-                values.set_scalar_location(caller.slots, location, representation, bits)
+            .ok_or_else(|| RuntimeError::module_validation("shared return contract"))?;
+            if !runtime.matches_type_in(&value, ty, frame.loaded(), Some(&environment.types)) {
+                return Err(RuntimeError::module_validation(
+                    "shared return type mismatch",
+                ));
             }
-            _ => unreachable!("present return destination"),
         }
-        .ok_or_else(|| RuntimeError::module_validation("scalar return destination"))?;
-        Ok(ScalarReturn::Caller)
+        Ok(ReturnValue::general(value))
     }
 
     pub fn finish_return(
         &self,
         runtime: &Runtime,
-        packet: ReturnValue,
+        mut packet: ReturnValue,
     ) -> Result<Option<Value>, RuntimeError> {
         self.validate_runtime(runtime)?;
-        if let Some((representation, bits)) = packet.payload() {
-            match self.finish_scalar_return(runtime, representation, bits)? {
-                ScalarReturn::Adapt => {}
-                ScalarReturn::Caller => return Ok(None),
-                ScalarReturn::Root => {
-                    let value = packet.materialize().ok_or_else(|| {
-                        RuntimeError::module_validation("scalar return representation")
-                    })?;
-                    return self.finish_factory_result(runtime, value);
-                }
-            }
-        }
-        let mut value = packet
-            .materialize()
-            .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
-        let destination = {
-            let frame = self.current()?;
-            if frame.invocation().is_none()
-                && let Some(environment) = frame.environment()
-            {
-                let ty = match frame.target() {
-                    CallableTarget::Script(_) => frame
-                        .function()
-                        .and_then(|function| function.metadata.semantic.result.as_ref()),
-                    CallableTarget::Native(import) => frame
-                        .loaded()
-                        .bytecode
-                        .native_imports
-                        .get(import.index())
-                        .map(|import| &import.signature.result),
-                }
-                .ok_or_else(|| RuntimeError::module_validation("shared return contract"))?;
-                if !runtime.matches_type_in(&value, ty, frame.loaded(), Some(&environment.types)) {
-                    return Err(RuntimeError::module_validation(
-                        "shared return type mismatch",
-                    ));
-                }
-            }
-            if let Some(method) = frame.invocation() {
-                value = runtime.finish_method_result(method, value)?;
-            }
-            frame.return_to
+        let borrow_frames = || {
+            self.session
+                .resources
+                .sessions
+                .frames_mut(self.session.id)
+                .ok_or_else(|| runtime.resources().quarantine("return stack is borrowed"))
         };
-        self.pop()?;
-        if self.is_empty()? {
+        let mut frames = borrow_frames()?;
+        let frame = frames
+            .last()
+            .filter(|_| frames.len() > self.base)
+            .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
+        if frame.environment.is_some() || frame.invocation.is_some() {
+            drop(frames);
+            packet = self.adapt_return(runtime, packet)?;
+            self.validate_runtime(runtime)?;
+            frames = borrow_frames()?;
+        }
+        let frame = frames
+            .last()
+            .filter(|_| frames.len() > self.base)
+            .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
+        let destination = frame.return_to;
+        let frame = frames.pop().expect("checked return frame");
+        frame.release_values(self.session.resources);
+        drop(frame);
+        self.session.resources.leave_call();
+        runtime.gc.ensure_execution_allowed()?;
+        if frames.len() == self.base {
+            drop(frames);
+            let value = packet
+                .materialize()
+                .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
             return self.finish_factory_result(runtime, value);
         }
-        match destination {
-            ReturnDestination::Register(Some(destination)) => {
-                self.current_mut()?
-                    .write_register(runtime, destination, value)?
-            }
-            ReturnDestination::Prepared(Some(location)) => {
-                let frame = self.current()?;
-                frame.validate_runtime(runtime)?;
-                frame
-                    .slots
-                    .set_location(runtime.gc(), location, value)
-                    .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))?;
-            }
-            ReturnDestination::Register(None) | ReturnDestination::Prepared(None) => {}
+        if matches!(
+            destination,
+            ReturnDestination::Register(None) | ReturnDestination::Prepared(None)
+        ) {
+            return Ok(None);
         }
+        let caller = frames.last().expect("retained caller");
+        if let ReturnDestination::Register(Some(register)) = destination
+            && register.index() >= caller.register_count
+        {
+            return Err(runtime.resources().quarantine("invalid frame register"));
+        }
+        // Retirement and publication form a closed transition: no allocation,
+        // collection or callback can observe an unrooted managed return value.
+        let mut values = runtime
+            .resources()
+            .frame_values
+            .try_borrow_mut()
+            .map_err(|_| runtime.resources().quarantine("return window borrowed"))?;
+        let published = if let Some((representation, bits)) = packet.payload() {
+            match destination {
+                ReturnDestination::Register(Some(register)) => {
+                    values.set_scalar(caller.slots, register.index(), representation, bits)
+                }
+                ReturnDestination::Prepared(Some(location)) => {
+                    values.set_scalar_location(caller.slots, location, representation, bits)
+                }
+                _ => unreachable!("present return destination"),
+            }
+        } else {
+            let value = packet
+                .materialize()
+                .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
+            if !runtime.gc.validate_value(&value) {
+                return Err(runtime.resources().quarantine("invalid return value"));
+            }
+            match destination {
+                ReturnDestination::Register(Some(register)) => {
+                    values.set(caller.slots, register.index(), value)
+                }
+                ReturnDestination::Prepared(Some(location)) => {
+                    values.set_location(caller.slots, location, value)
+                }
+                _ => unreachable!("present return destination"),
+            }
+        };
+        published.ok_or_else(|| runtime.resources().quarantine("invalid return destination"))?;
         Ok(None)
     }
 }

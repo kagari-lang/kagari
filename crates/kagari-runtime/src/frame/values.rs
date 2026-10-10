@@ -547,20 +547,6 @@ impl FrameSlots {
         let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
         values.set(self, index, value)
     }
-
-    pub(crate) fn set_location(
-        self,
-        heap: &GcHeap,
-        location: Location,
-        value: Value,
-    ) -> Option<()> {
-        heap.ensure_execution_allowed().ok()?;
-        if !heap.validate_value(&value) {
-            return None;
-        }
-        let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
-        values.set_location(self, location, value)
-    }
 }
 
 #[cfg(test)]

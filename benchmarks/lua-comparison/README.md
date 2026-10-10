@@ -588,6 +588,11 @@ combinations. Independent Rust checksums check receiver selection and results.
 A separate `T: Ord` comparison probe measures witness preparation that unbounded
 identity calls do not exercise. These probes do not replace or modify the frozen
 Lua comparison fixtures.
+Closure scaling probes also pass a nonempty argument list alongside a captured
+managed object, with fixed versus alternating closures at one callsite. They measure
+whether argument packing/capture publication scales with invocation count; their
+checksums distinguish the selected capture. These diagnostic probes are separate from
+the unchanged `capture_cell` Lua parity workload.
 
 On macOS, use the ordinary release binary for stack sampling:
 

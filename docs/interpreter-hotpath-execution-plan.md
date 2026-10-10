@@ -1681,3 +1681,110 @@ abandoned-program detection, remains intact; no check was weakened to recover ti
 Formatting, all 76 local document links and `git diff --check` pass after the final
 edits. Next HP03 work is scoped call preparation/environment admission and the remaining
 closure/return transitions; no new performance subproject is authorized by these results.
+
+2026-10-10 HP03, closure admission and common frame retirement (in progress):
+Sealed ClosureRegister sites now own the same physical argument sources/return
+destination as direct/shared/interface sites. The runtime borrows the selected closure
+once, checks the caller/callee physical signature, and feeds captures plus caller-window
+operands to the existing transactional frame admission. Host closure calls use the same
+closure policy with borrowed external arguments. Signature comparison consumes borrowed
+parameter iterators instead of allocating physical-signature vectors; scoped semantic
+substitution and nominal argument checks remain where required. A single checked prefix
+operation replaces separate capture/value and capture/window constructors.
+
+Closure policy moved from the frame facade into `frame/closures.rs`. The VM no longer
+packs closure parameters, resolves the closure twice or implements a separate signature
+check. Public `ExecutionFrame::closure_signature` and
+`ClosureValueSnapshot::physical_signature` are removed. A rejected closure call signature
+is now a runtime ScriptTrap with reason `closure call contract`, rather than the VM's
+separate TypeMismatch variant; rejection remains before callee execution. This is an
+unpublished Rust API/error-routing change, not relaxed signature validation.
+
+Frame returns now share one retirement/depth-release/publication sequence. An allocating
+interface adapter or shared result check completes while callee roots remain live and
+outside exclusive stack/bank borrows; authority is re-admitted afterwards. Unadapted
+scalar packets still publish raw bits, while general Values retain heap owner/generation,
+register bounds and representation checks. The common publication path does not reacquire
+the public current-frame wrapper per write. Scope-root/factory conversion happens after
+releasing the stack borrow. Retirement faults cannot report a successful return while
+the runtime is quarantined. The separate `finish_scalar_return` retirement path and its
+exit enum, plus the now-unused `FrameSlots::set_location` wrapper, are deleted. Ordinary
+native instructions still use their checked borrowed-argument entry adapter; framed
+script/interface/shared/closure and boxed-native returns converge here.
+
+Focused checks pass: VM closure contracts (9), GC/frame-window lifecycle contracts (9),
+native function/closure/interface-handle boundary contracts (38, including source-free
+shared applications and reentry/cancellation/depth cleanup), owned-drive contracts (2),
+runtime method-application/active-window eviction contracts (5), and strict affected-target
+diagnostics Clippy. Structure checks cover 1,008 Rust files with zero violations/exceptions.
+The only intermediate warning was the superseded slot wrapper, which was removed.
+No build/test error is carried; no full-workspace or GitHub CI run was performed.
+
+The frozen `capture_cell` comparison has no explicit parameters, so it cannot establish
+nonempty closure-argument allocation scaling. Two diagnostic-only fixtures now exercise
+captured managed objects plus a scalar parameter, with fixed versus alternating closures
+at one callsite. They extend the existing N/2N protocol probes without changing any
+matched Lua workload or growing the semantic test matrix. All 72 cold/warm rows pass in
+`target/hp03/closure-return-diagnostics.log`; every old warm request/byte/object,
+metadata-validation, driver-admission and slow-boundary count exactly matches the prior
+64-row invocation checkpoint (`target/hp03/closure-return-diagnostic-delta.json`). At both
+2,500 and 5,000 calls, fixed closures use 12 warm allocation requests/553 requested bytes,
+two heap objects and one metadata validation; alternating closures use 17/924, four
+objects and two validations. Driver admissions grow 5,003 to 10,003, confirming the calls
+still occur. Thus these concrete closure paths have no invocation-scaled allocation or
+graph admission. There is no earlier binary measurement of the newly added fixtures;
+this is N/2N evidence, not a fabricated before/after delta.
+
+HP03 remains open for scoped type/application preparation and repeated environment graph
+admission. Closure packing and separate frame-return retirement are now removed; the
+remaining preparation work must preserve the same generation/GC/source-free boundaries.
+
+Paired ordinary source forms against the invocation checkpoint are retained in
+`target/lua-comparison/20261010T050644Z-forms-paired/results.json`. Baseline is
+`target/hp03/invocation-executable` (hash above); candidate is
+`target/hp03/closure-return-executable`, SHA-256
+`5f819a4ebf4e3c13324451cc6e158634d16520fbe4848cf0555a6deef5bf5cdd`.
+All checksums pass. Candidate/baseline ratios are direct 0.9850, helper 1.0345,
+concrete generic 1.0596, interface 1.0272, shared generic 0.9993, capture cell 1.0014,
+field 0.9999, native 1.0015, byte state 1.0029, host callback 1.0196, string constants
+1.0116 and string calls 0.9930. Lua control ratios range 0.9972–1.0323. The original
+capture-cell workload allocates no nonempty parameter vector, so its flat timing and
+allocation counts must not be presented as evidence of savings from removing one.
+Helper/concrete-generic regressions remain integration debt; the common return model
+has not earned a general speedup claim.
+
+The environment remains M1 Max, macOS 26.6.2, rustc 1.98.1, default workspace release
+profile and Cargo parallelism; benchmark processes are single-threaded and sequential
+baseline/candidate/candidate/baseline. Three warmups and 22 pooled samples per variant
+exclude the 20.205 s incremental build. Diagnostic features are disabled for throughput,
+normal GC is included, and matched workloads/compiler flags are unchanged. Only the
+separate diagnostic source gained the documented closure scaling probes.
+
+The original-seven comparison is retained in
+`target/lua-comparison/20261010T050801Z-paired/results.json`; all checksums pass,
+with the same executable hashes/environment and a 0.088 s incremental build excluded.
+Candidate/baseline ratios are entry 1.0227, arithmetic 1.0179, branches 1.0140,
+calls 1.0708, fibonacci 1.0233, arrays 1.0334 and maps 1.0089. Lua controls range
+0.9947–1.0143. Calls remain 24.67 times Lua, and the 7.08% call-heavy regression
+prevents performance acceptance of this transition.
+
+Independent sequential calls sampling uses the preserved ordinary binaries and
+`scripts/profile_lua_macos.py::sample`: 5 s at 1 ms within a warmed 10 s window,
+with instruction counting afterwards and no concurrent build/test/throughput work.
+Both execute 210,015 Kagari instructions versus 110,007 Lua instructions, with zero
+heap object allocations and collections. Collapsed top samples for `finish_return`
+fall 107 to 56, while `ExecutionCursor::execute_region` rises 120 to 274 and the
+scalar loop rises 740 to 798. Sampling is observational and does not isolate a
+single cause; the whole profiled window also completes fewer calls (1,869 to 1,742).
+Return disassembly has fewer lines but increases its stack reservation by 64 bytes.
+These facts do not justify attributing the regression solely to return checks or
+adding compiler/alignment patches. Raw samples, execution logs, disassembly and
+hashes are in `target/hp03/closure-return-profiles/`. HP03 integration and HP04/HP06
+execution-region review retain responsibility for this regression alongside earlier
+scalar regressions; no required checks were removed to recover time.
+
+Final formatting, structure review, all 84 local document links and diff checks
+pass. This checkpoint completes closure packing removal and common frame retirement,
+not HP03 or the overall goal. Scoped type/application preparation and environment
+graph admission remain the next architectural work; full-workspace and CI acceptance
+remain deferred to their designated checkpoints.

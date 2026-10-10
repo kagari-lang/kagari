@@ -18,7 +18,7 @@ enum ExplicitArguments<'a> {
 
 #[derive(Clone, Copy)]
 pub(crate) struct FrameArguments<'args> {
-    captures: &'args [Value],
+    prefix: &'args [Value],
     explicit: ExplicitArguments<'args>,
     count: usize,
 }
@@ -26,49 +26,33 @@ pub(crate) struct FrameArguments<'args> {
 impl<'args> FrameArguments<'args> {
     pub(crate) fn plain(explicit: &'args [Value]) -> Self {
         Self {
-            captures: &[],
+            prefix: &[],
             explicit: ExplicitArguments::Values(explicit),
             count: explicit.len(),
         }
     }
 
-    pub(crate) fn captured(
-        captures: &'args [Value],
-        explicit: &'args [Value],
-    ) -> Result<Self, RuntimeError> {
-        let count = captures
-            .len()
-            .checked_add(explicit.len())
-            .ok_or_else(|| RuntimeError::module_validation("closure argument count"))?;
-        Ok(Self {
-            captures,
-            explicit: ExplicitArguments::Values(explicit),
-            count,
-        })
-    }
-
     pub(crate) fn frame(slots: FrameSlots, sources: &'args [Location]) -> Self {
         Self {
-            captures: &[],
+            prefix: &[],
             explicit: ExplicitArguments::Window(slots, sources),
             count: sources.len(),
         }
     }
 
-    pub(crate) fn captured_frame(
-        captures: &'args [Value],
-        slots: FrameSlots,
-        sources: &'args [Location],
-    ) -> Result<Self, RuntimeError> {
-        let count = captures
+    /// Attach the selected receiver or closure captures to explicit arguments.
+    pub(crate) fn with_prefix(mut self, prefix: &'args [Value]) -> Result<Self, RuntimeError> {
+        if !self.prefix.is_empty() {
+            return Err(RuntimeError::module_validation(
+                "call argument prefix already set",
+            ));
+        }
+        self.count = prefix
             .len()
-            .checked_add(sources.len())
+            .checked_add(self.count)
             .ok_or_else(|| RuntimeError::module_validation("call argument count"))?;
-        Ok(Self {
-            captures,
-            explicit: ExplicitArguments::Window(slots, sources),
-            count,
-        })
+        self.prefix = prefix;
+        Ok(self)
     }
 
     pub(crate) fn all(
@@ -134,10 +118,10 @@ impl<'args> FrameArguments<'args> {
 
     pub(crate) fn iter(self) -> impl Iterator<Item = ArgumentSource<'args>> + Clone {
         (0..self.count).map(move |index| {
-            if index < self.captures.len() {
-                return ArgumentSource::Value(&self.captures[index]);
+            if index < self.prefix.len() {
+                return ArgumentSource::Value(&self.prefix[index]);
             }
-            let index = index - self.captures.len();
+            let index = index - self.prefix.len();
             match self.explicit {
                 ExplicitArguments::Values(values) => ArgumentSource::Value(&values[index]),
                 ExplicitArguments::Window(slots, locations) => {

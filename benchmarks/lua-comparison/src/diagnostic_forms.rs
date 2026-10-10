@@ -21,6 +21,22 @@ impl Append for i32 {}
 impl Append for i64 {}
 struct Record { val value: i32 }
 struct OtherRecord { val value: i32 }
+fn captured_arguments(n: i32) -> i32 {
+    val captured = Record { value: 1 };
+    val next = |value: i32| value + captured.value;
+    var sum = 0; var i = 0;
+    while i < n { sum += next(i); i += 1; } sum
+}
+fn changing_captures(n: i32) -> i32 {
+    val first = Record { value: 1 }; val second = Record { value: 2 };
+    val left = |value: i32| value + first.value;
+    val right = |value: i32| value + second.value;
+    var sum = 0; var i = 0;
+    while i < n {
+        val next = if i % 2 == 0 { left } else { right };
+        sum += next(i); i += 1;
+    } sum
+}
 struct Holder<T> { val value: T }
 enum Wrapped<T> { Some(T) }
 trait Package {
@@ -120,6 +136,8 @@ pub(super) fn run() {
         "changing_native_application",
         "scoped_layout",
         "changing_scoped_layout",
+        "captured_arguments",
+        "changing_captures",
     ];
     let mut source = SOURCE.to_owned();
     for n in [2_500, 5_000] {
@@ -142,8 +160,8 @@ pub(super) fn run() {
             let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
             let expected = (0..n)
                 .map(|i| match entry {
-                    "fixed_interface" => i + 1,
-                    "changing_interface" => i + 1 + i % 2,
+                    "fixed_interface" | "captured_arguments" => i + 1,
+                    "changing_interface" | "changing_captures" => i + 1 + i % 2,
                     _ => i,
                 })
                 .sum();

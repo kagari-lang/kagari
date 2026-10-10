@@ -22,6 +22,7 @@ pub(crate) enum PreparedCallTarget {
         shared: bool,
     },
     Interface,
+    Closure,
 }
 
 impl ExecutionModule {
@@ -50,6 +51,7 @@ impl ExecutionModule {
                         shared: true,
                     },
                     CallTarget::InterfaceMethod { .. } => PreparedCallTarget::Interface,
+                    CallTarget::ClosureRegister { .. } => PreparedCallTarget::Closure,
                     _ => continue,
                 };
                 let arguments = args

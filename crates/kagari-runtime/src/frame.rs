@@ -1,6 +1,5 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
-    closure::ClosureTarget,
     error::{RuntimeError, RuntimeErrorKind},
     execution_metadata::MetadataRoot,
     frame::{
@@ -28,7 +27,7 @@ use kagari_bytecode::{
     program::ModuleRef,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{ids::FunctionRef, representation::semantic_representation};
+use kagari_contract::ids::FunctionRef;
 use kagari_types::ty::Ty;
 use std::{
     borrow::Cow,
@@ -41,6 +40,7 @@ use std::{
 
 pub(crate) mod arguments;
 mod calls;
+mod closures;
 pub mod cursor;
 pub mod driver;
 pub(crate) mod factory;
@@ -227,111 +227,6 @@ impl<'runtime> ExecutionStack<'runtime> {
                 entry: FrameEntry::Call,
                 invocation: Some(method.invocation),
                 environment,
-            },
-        )
-    }
-
-    pub fn push_closure(
-        &self,
-        runtime: &Runtime,
-        value: &Value,
-        args: &[Value],
-        return_dst: Option<Register>,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        let closure = runtime.resolve_closure(value)?;
-        runtime.validate_loaded_module(&closure.implementation)?;
-        let script_function = match &closure.target {
-            ClosureTarget::Native(native) => {
-                if !closure.captures.is_empty()
-                    || native.signature.params.len() != args.len()
-                    || native
-                        .signature
-                        .params
-                        .iter()
-                        .zip(args)
-                        .any(|(ty, value)| !ty.matches(runtime, value, &closure.implementation))
-                {
-                    return Err(RuntimeError::module_validation("native closure arguments"));
-                }
-                let owner = closure.implementation.clone();
-                let target = CallableTarget::Native(native.import);
-                let environment = closure.environment.clone();
-                drop(closure);
-                return self.push_arguments(
-                    runtime,
-                    owner,
-                    target,
-                    FrameArguments::plain(args),
-                    return_dst,
-                    FrameDispatch {
-                        prepared: None,
-                        entry: FrameEntry::Call,
-                        invocation: None,
-                        environment,
-                    },
-                );
-            }
-            ClosureTarget::Script(function) => *function,
-        };
-        let function = closure
-            .implementation
-            .bytecode
-            .functions
-            .get(script_function.index())
-            .ok_or_else(|| RuntimeError::module_validation("invalid closure function"))?;
-        let all = FrameArguments::captured(&closure.captures, args)?;
-        if all.len() != function.metadata.params.len()
-            || !all.all(runtime, |index, value| {
-                value.has_representation(function.metadata.params[index])
-            })?
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "closure call contract mismatch",
-            ));
-        }
-        if let Some(environment) = &closure.environment
-            && !all.all(runtime, |index, value| {
-                function
-                    .metadata
-                    .semantic
-                    .params
-                    .get(&index)
-                    .is_none_or(|ty| {
-                        if index < closure.captures.len() {
-                            runtime.matches_capture_type(
-                                value,
-                                ty,
-                                &closure.implementation,
-                                &environment.types,
-                            )
-                        } else {
-                            runtime.matches_type_in(
-                                value,
-                                ty,
-                                &closure.implementation,
-                                Some(&environment.types),
-                            )
-                        }
-                    })
-            })?
-        {
-            return Err(RuntimeError::module_validation(
-                "closure semantic argument mismatch",
-            ));
-        }
-        self.push_arguments(
-            runtime,
-            closure.implementation.clone(),
-            CallableTarget::Script(script_function),
-            all,
-            return_dst,
-            FrameDispatch {
-                prepared: None,
-                entry: FrameEntry::Call,
-                invocation: None,
-                environment: closure.environment.clone(),
             },
         )
     }
@@ -735,34 +630,6 @@ impl ExecutionFrame {
                 "missing generic call environment",
             )),
         }
-    }
-
-    pub fn closure_signature<'a>(
-        &self,
-        register: Register,
-        params: &'a [ValueType],
-        result: ValueType,
-    ) -> Result<(Cow<'a, [ValueType]>, ValueType), RuntimeError> {
-        if result != ValueType::Generic && !params.contains(&ValueType::Generic) {
-            return Ok((Cow::Borrowed(params), result));
-        }
-        let function = self
-            .function()
-            .ok_or_else(|| RuntimeError::module_validation("shared closure call function"))?;
-        let semantic = function
-            .metadata
-            .semantic
-            .registers
-            .get(&register.index())
-            .ok_or_else(|| RuntimeError::module_validation("shared closure call signature"))?;
-        let resolved = self.resolve_type(semantic)?;
-        let Ty::Function { params, result } = resolved.as_ref() else {
-            return Err(RuntimeError::module_validation("shared closure call type"));
-        };
-        Ok((
-            Cow::Owned(params.iter().map(semantic_representation).collect()),
-            semantic_representation(result),
-        ))
     }
 
     pub fn begin_collection_mutation(

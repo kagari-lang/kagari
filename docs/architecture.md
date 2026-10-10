@@ -750,18 +750,18 @@ incoming representations/domains. Unavailable scalar inspection produces Unit;
 executing an uninitialized operand quarantines. Frame entry reserves both banks
 before copying arguments; release clears managed roots and initialization state.
 
-Statically selected script, shared script/native and interface calls transfer arguments directly
-between disjoint frame banks. Sealed call sites own physical source locations and the
+Statically selected script, shared script/native, interface and closure calls transfer
+arguments directly between disjoint frame banks. Sealed call sites own physical source locations and the
 return destination; the selected callee's layout owns parameter placement and semantic
 admission. There is no duplicate per-call-site callee layout or source/target-pair table.
 Borrowed host values, captures and window sources feed the same argument iterator,
-transactional admission and frame publication; shared/interface calls do not pack a temporary
+transactional admission and frame publication; shared/interface/closure calls do not pack a temporary
 Value vector. Window identity, initialization, bounds and scalar domains are checked
 before growing the banks. Scalar-only sources skip heap-reference walks. Concrete scalar
 returns use an opaque packet until the caller slot or public host boundary;
 shared environments and interface adapters retain their full return validation.
-Function/ModuleFunction, Shared and InterfaceMethod call sites prepare physical arguments and return
-destinations once. The executing canonical PC selects the record; module slots bind
+Function/ModuleFunction, Shared, InterfaceMethod and ClosureRegister call sites prepare
+physical arguments and return destinations once. The executing canonical PC selects the record; module slots bind
 through the caller's pinned program descriptor. Shared calls select their HP01-owned
 environment and retain caller-scoped semantic argument checks before common admission.
 Interface calls retain a `MethodInvocation` containing checked selection/application
@@ -776,11 +776,21 @@ entry validates its lease and keeps it alive until window publication; internal 
 does not construct that wrapper or refresh a host root container. Host/internal arguments
 and results use the same method-view signature checks and result adapters. Frame-entry
 environment graph validation and scoped application-key preparation remain migration work.
+Closure selection and signature admission belong to the runtime call transition. It
+borrows the closure once, compares physical parameters without temporary representation
+vectors, then supplies captures as the same borrowed prefix used for method receivers.
+Host closure entry converges on this policy with a checked value slice. Capture ownership,
+semantic environments and parameter banks are admitted before frame publication; the
+heap borrow ends before script/native execution. Scoped semantic substitution remains
+part of closure signature admission where required.
 Shared verified records contain no runtime-local identities. Admission reuses one
 session/scope check until frame creation, while retaining dynamic argument, depth
-and cancellation checks. Scalar returns without environment/interface adaptation
-reuse the admitted stack borrow through retirement and caller publication; root
-conversion and adapters run after releasing that borrow. Arena allocation order
+and cancellation checks. All frame returns share retirement, depth release and caller
+publication. Required environment/interface adapters run before retirement while
+callee roots are live, with no exclusive frame/bank borrow across adaptation.
+Unadapted scalar packets retain raw payload transfers; general Values keep heap
+ownership and destination checks. Root/factory conversion releases the stack borrow.
+Arena allocation order
 allows last-allocated windows to truncate both banks; independent out-of-order
 retirement still compacts ranges and preserves surviving window identities.
 Native callable frames have prepared signature layouts. Native arithmetic and

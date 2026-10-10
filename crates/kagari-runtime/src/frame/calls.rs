@@ -45,6 +45,34 @@ impl ExecutionStack<'_> {
                 target,
                 shared,
             } => (module, target, shared),
+            PreparedCallTarget::Closure => {
+                let BytecodeInstruction::Call {
+                    callee:
+                        CallTarget::ClosureRegister {
+                            register,
+                            params,
+                            return_type,
+                        },
+                    ..
+                } = &owner.bytecode.functions[function.index()].instructions[pc]
+                else {
+                    return Err(runtime
+                        .resources()
+                        .quarantine("missing prepared closure contract"));
+                };
+                let caller = self.current()?;
+                let value = caller.read_register(runtime, *register)?;
+                let closure = runtime.resolve_closure(&value)?;
+                caller.validate_closure_call(&closure, *register, params, *return_type)?;
+                drop(caller);
+                return self.push_resolved_closure(
+                    runtime,
+                    &closure,
+                    FrameArguments::frame(slots, &call.arguments),
+                    None,
+                    Some(call),
+                );
+            }
             PreparedCallTarget::Interface => {
                 let BytecodeInstruction::Call {
                     callee: CallTarget::InterfaceMethod { contract, .. },
@@ -64,11 +92,8 @@ impl ExecutionStack<'_> {
                     let receiver = caller.read_register(runtime, *register)?;
                     runtime.resolve_interface_invocation(&caller, contract, &receiver)?
                 };
-                let arguments = FrameArguments::captured_frame(
-                    slice::from_ref(&receiver),
-                    slots,
-                    &call.arguments[1..],
-                )?;
+                let arguments = FrameArguments::frame(slots, &call.arguments[1..])
+                    .with_prefix(slice::from_ref(&receiver))?;
                 let view = invocation.view(runtime)?;
                 view.validate_arguments(runtime, arguments)?;
                 let loaded = view.implementation().clone();
