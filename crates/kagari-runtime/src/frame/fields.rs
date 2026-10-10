@@ -105,16 +105,7 @@ impl ExecutionStack<'_> {
             FieldAccess::Write { value } => FieldAction::Write(read(value)?),
         };
         action.validate(runtime)?;
-        let arguments = frame
-            .links
-            .as_ref()
-            .and_then(|links| links.field_arguments(index))
-            .ok_or_else(|| {
-                runtime
-                    .resources()
-                    .quarantine("missing linked field arguments")
-            })?;
-        let layout = frame.struct_layout(runtime, operation.structure, arguments)?;
+        let layout = frame.field_layout(runtime, operation.pc)?;
         let base = read(operation.base)?;
         if let Some(value) = action.execute(runtime, &layout, operation.slot as usize, base)? {
             let FieldAccess::Read { dst } = operation.access else {

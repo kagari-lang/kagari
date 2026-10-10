@@ -142,27 +142,15 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::EndIteration => {
                 self.current_frame_mut()?.end_iteration()?;
             }
-            BytecodeInstruction::TestEnumVariant {
-                dst,
-                value,
-                enumeration,
-                ref arguments,
-                variant,
-            } => {
-                let result = self.test_enum_variant(value, enumeration, arguments, variant)?;
+            BytecodeInstruction::TestEnumVariant { dst, value, .. } => {
+                let result = self.test_enum_variant(value)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, result)?;
             }
             BytecodeInstruction::ReadEnumPayload {
-                dst,
-                value,
-                enumeration,
-                ref arguments,
-                variant,
-                index,
+                dst, value, index, ..
             } => {
-                let result =
-                    self.read_enum_payload(value, enumeration, arguments, variant, index)?;
+                let result = self.read_enum_payload(value, index)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, result)?;
             }
@@ -357,23 +345,16 @@ impl<'a> Executor<'a> {
                     .write_register(self.runtime, dst, interface)?;
             }
             BytecodeInstruction::MakeEnum {
-                dst,
-                enumeration,
-                ref arguments,
-                variant,
-                ref fields,
+                dst, ref fields, ..
             } => {
-                let value = self.make_enum(enumeration, arguments, variant, fields)?;
+                let value = self.make_enum(fields)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }
             BytecodeInstruction::MakeStruct {
-                dst,
-                structure,
-                ref arguments,
-                ref fields,
+                dst, ref fields, ..
             } => {
-                let value = self.make_struct(structure, arguments, fields)?;
+                let value = self.make_struct(fields)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, value)?;
             }

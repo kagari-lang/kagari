@@ -1,17 +1,11 @@
 use crate::{error::VmError, executor::Executor};
-use kagari_bytecode::instruction::{EnumId, Register, StructId};
+use kagari_bytecode::instruction::Register;
 use kagari_common::identity::table::DefinitionId;
 use kagari_runtime::value::{EnumTag, Value};
 use kagari_types::ty::Ty;
 
 impl Executor<'_> {
-    pub(crate) fn test_enum_variant(
-        &self,
-        value: Register,
-        enumeration: EnumId,
-        arguments: &[Ty<DefinitionId>],
-        variant: u32,
-    ) -> Result<Value, VmError> {
+    pub(crate) fn test_enum_variant(&self, value: Register) -> Result<Value, VmError> {
         let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
@@ -20,23 +14,14 @@ impl Executor<'_> {
             .gc()
             .enum_view(handle)
             .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
-        let expected =
-            self.current_frame()?
-                .enum_variant(self.runtime, enumeration, arguments, variant)?;
+        let expected = self.current_frame()?.enum_variant(self.runtime)?;
         Ok(Value::Bool(matches!(
             &view.tag,
             EnumTag::Declared(actual) if actual.matches_layout(&expected)
         )))
     }
 
-    pub(crate) fn read_enum_payload(
-        &self,
-        value: Register,
-        enumeration: EnumId,
-        arguments: &[Ty<DefinitionId>],
-        variant: u32,
-        index: u32,
-    ) -> Result<Value, VmError> {
+    pub(crate) fn read_enum_payload(&self, value: Register, index: u32) -> Result<Value, VmError> {
         let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
@@ -45,9 +30,7 @@ impl Executor<'_> {
             .gc()
             .enum_view(handle)
             .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
-        let expected =
-            self.current_frame()?
-                .enum_variant(self.runtime, enumeration, arguments, variant)?;
+        let expected = self.current_frame()?.enum_variant(self.runtime)?;
         if !matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
             return Err(VmError::TypeMismatch("enum pattern variant mismatch"));
         }
@@ -57,13 +40,7 @@ impl Executor<'_> {
             .ok_or(VmError::TypeMismatch("invalid enum payload index"))
     }
 
-    pub(crate) fn make_enum(
-        &self,
-        enumeration: EnumId,
-        arguments: &[Ty<DefinitionId>],
-        variant: u32,
-        fields: &[Register],
-    ) -> Result<Value, VmError> {
+    pub(crate) fn make_enum(&self, fields: &[Register]) -> Result<Value, VmError> {
         let fields = fields
             .iter()
             .map(|register| {
@@ -73,9 +50,7 @@ impl Executor<'_> {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let layout =
-            self.current_frame()?
-                .enum_variant(self.runtime, enumeration, arguments, variant)?;
+        let layout = self.current_frame()?.enum_variant(self.runtime)?;
         self.runtime
             .alloc_enum(EnumTag::Declared(layout), fields)
             .map(Value::Enum)
@@ -124,21 +99,14 @@ impl Executor<'_> {
         Ok(Value::Array(handle))
     }
 
-    pub(crate) fn make_struct(
-        &self,
-        structure: StructId,
-        arguments: &[Ty<DefinitionId>],
-        fields: &[Register],
-    ) -> Result<Value, VmError> {
+    pub(crate) fn make_struct(&self, fields: &[Register]) -> Result<Value, VmError> {
         let fields = fields
             .iter()
             .map(|field| {
                 Ok::<_, VmError>(self.current_frame()?.read_register(self.runtime, *field)?)
             })
             .collect::<Result<Vec<_>, VmError>>()?;
-        let layout = self
-            .current_frame()?
-            .struct_layout(self.runtime, structure, arguments)?;
+        let layout = self.current_frame()?.struct_layout(self.runtime)?;
         let handle = self
             .runtime
             .alloc_struct(layout, fields)

@@ -530,7 +530,7 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
             };
             runtime
                 .modules
-                .linked_function(&loaded, site.function)
+                .linked_function(&loaded, site.function, None)
                 .unwrap()
                 .call(index)
                 .unwrap()
@@ -593,12 +593,12 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         assert!(
             runtime
                 .modules
-                .linked_function(&retired, site.function)
+                .linked_function(&retired, site.function, None)
                 .is_none()
         );
         let linked = runtime
             .modules
-            .linked_function(&loaded, site.function)
+            .linked_function(&loaded, site.function, None)
             .unwrap();
         assert!(linked.call(0).unwrap().operations.validate(&runtime.gc));
         assert_ne!(

@@ -3322,3 +3322,164 @@ shortcut. The 5,000-iteration scoped-layout warm probe still makes 1,936,291 req
 removing snapshots is plainly insufficient. Ordinary Option representation remains a
 separate measured decision. HP04 admission/performance, remaining HP05, HP06 retirement,
 full local integration, CI and Lua parity all remain open.
+
+
+2026-10-10 HP05, function-owned layout operands and environment applications:
+The linked function owns one deduplicated layout table serving MakeStruct, MakeEnum,
+TestEnumVariant, ReadEnumPayload and scoped fields. Original PCs select exact operands.
+Closed layouts prepare during linking; scoped entries prepare only on first use at the
+original instruction in the admitted immutable environment. Failed preparation is not
+cached. The linked member's lazy common DescriptorIndex retains up to 128 exact
+FunctionRef/EnvironmentId applications. Frames use their existing linked-execution
+reference; application descriptors share immutable call/primitive tables, constants
+and operands while owning their layout cells. Eviction cannot invalidate an active
+frame, and generational keys cannot alias reused environment slots. Debug builds also
+assert application environment identity.
+
+These cells own immutable type provenance, not Values, executable environment leases
+or new GC roots. Existing frame admission checks environment ownership/generation and
+roots its graph. Public frame layout access checks runtime ownership/execution state.
+Retirement drops the optional index; detached pure facts do not authorize execution.
+No module-store borrow crosses GC/callbacks. Closed execution allocates no application
+index. Ready scoped fields now use the ordinary cursor's physical field kernel; only
+first-use preparation exits it. Dynamic heap/access/bounds checks and error order stay
+with the shared field action. LinkedField and its argument boxes, frame per-access
+layout_arguments/layout_environment and raw VM layout operands are removed. Public
+ExecutionFrame struct_layout/enum_variant now read the current checked program point;
+no compatibility overload or unpublished ABI bump is added.
+
+An earlier candidate put an extra application reference in every frame (264 -> 272
+bytes) and retained separate per-function application indices. It removed repeated
+layout work and Map time fell to 0.8861x af254d6b (Lua 0.9946), but String constants
+regressed to 1.0985x (Lua 1.0000), repeated at 1.1064x (Lua 1.0016). That candidate is
+not accepted. Its ordinary binary is target/hp05/function-layouts/prepared-executable,
+SHA-256 c185b1aa4dce02e255edfe1451cc87bd6e7c4ccf21df0115c588f5a199f3cfe8;
+raw paired results: 20261010T094329Z-paired, 20261010T094602Z-forms-paired and
+20261010T094804Z-forms-paired under target/lua-comparison/. Those runs do not prove
+that frame size alone caused the regression. The ownership review instead removed
+that universal frame cost: application state belongs in the exact function execution
+descriptor, selected at frame admission and retained under the linked member. The
+per-frame cell and per-function mutex/index are deleted, not retained as alternatives.
+No String-specific branch, bypassed check or timing-selected code is introduced.
+
+Focused validation on the revised model: six VM native-enum contracts; eight shared
+generic/provenance contracts (including scoped fields, mixed nominal generations and
+closure retention); four program-cycle/environment contracts; seven native control
+contracts; four embed payload and two source-free native-enum contracts; physical
+metadata budget and witness retirement/bounded retention. Runtime/VM/benchmark
+all-target Clippy with diagnostics and warnings denied passes. An initial missing
+DefinitionId parameter and three internal test callers missing the new environment
+argument were fixed. No production compatibility shim was added and no assertion was
+weakened. No full workspace or CI acceptance is claimed at this checkpoint.
+
+The revised 64-bit metadata budget restores ExecutionFrame to 264 bytes and keeps
+LinkedFunction at the original 56. FunctionLayouts is 40 bytes, AggregateLayout 56
+and each scoped OnceLock cell 64. AppliedLayouts is 40 bytes in debug, including its
+24-byte EnvironmentId check; production stores only the boxed cell slice. Logical
+instructions/execution functions stay 24/128 bytes; native slots stay 40 and region
+error/exit/result 24/24/32. Each layout table owns sorted 16-byte PC/operand pairs and
+unique closed/scoped operands. Call and primitive tables now share Arc slice storage
+across applications (including reference-count headers), rather than copying tables
+per application. Optional function retention belongs to the linked member and is
+allocated only on scoped entry. Setup and retained-memory costs remain acceptance
+items, independent of reduced hot-path allocation counts.
+
+Shared TypeArgument/StorageType facts, ordinary Option representation evaluation and
+HP06 retirement/integration remain required. HP04 regressions and full acceptance
+stay open; this checkpoint does not redefine the goal around Map alone.
+
+
+Revised-model diagnostics (target/hp05/function-applications/): all 72 source-form/
+scaling and 14 original rows succeed. Scoped layout prepares two operands cold at
+both 2,500/5,000 iterations; changing scoped layout prepares four. Warm and all other
+executed rows prepare zero operands. Closed preparation is outside execution counts.
+Every pre-existing protocol/GC/object counter is unchanged. Ready field execution no
+longer leaves the cursor; the existing slow_boundaries counter counts canonical
+fallbacks, not the removed internal field-preparation transitions.
+
+Map cold/warm each loses 12,000 requests and 96,000 requested bytes versus af254d6b.
+Warm totals are 14,183 requests/1,150,848 bytes, still 2,001 ordinary objects, five
+collections, 8,002 canonical boundaries and three driver admissions. Scoped layout
+warm at 5,000 iterations loses 315,000 requests/26,960,000 bytes, reaching
+1,621,291/156,387,115; changing scopes has the same reduction. At 2,500 iterations
+the reduction is 157,500/13,480,000. Native-application loops lose 6*n+3 requests and
+48*n+24 bytes; changing-native loops lose 6*n+6 and 48*n+48. Other rows, including
+all unaffected cold counts, now match af254d6b exactly. The discarded candidate's
+extra frame-capacity bytes are gone. Cold scoped net bytes decrease 456; changing
+scopes decrease 1,112 at both sizes. These execution counts exclude linked setup
+and are not peak or post-collection retained memory measurements.
+
+
+Final ordinary binary: target/hp05/function-applications/prepared-executable, SHA-256
+3fa86eb34ee0b08875095e031aafdb14119b154477df0338330fa5082152b976.
+Comparison remains against af254d6b's preserved ordinary binary (b13dd45f9687bf98...
+recorded above), without redefining the accepted String baseline. Paired data under
+target/lua-comparison/: 20261010T095615Z-forms-paired and 20261010T095648Z-paired;
+confirmation runs 20261010T095920Z-forms-paired and 20261010T095933Z-paired. Same
+M1 Max/32 GiB/ten logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8,
+vendored PUC Lua 5.4.8, workspace release/default parallelism/target, normal GC and
+allocator. Diagnostics are off, frozen inputs unchanged, three warmups/22 pooled
+samples per route and serial baseline/candidate/candidate/baseline processes.
+No build/test/profile overlaps timing. All checksums pass. Builds (excluded): 20.471 s
+for the first forms run, 0.084/0.081/0.080 s for subsequent no-change builds.
+
+| Workload | Candidate / af254d6b | Lua control | Repeat candidate / af254d6b | Repeat Lua control |
+| --- | ---: | ---: | ---: | ---: |
+| arithmetic | 1.0608 | 1.0078 | 1.0526 | 0.9704 |
+| arrays | 1.0089 | 1.0058 | 1.0070 | 0.9985 |
+| branches | 1.0594 | 0.9980 | 1.0796 | 0.9982 |
+| calls | 1.0095 | 1.0164 | 1.0014 | 1.0017 |
+| entry (boundary diagnostic) | 1.0226 | 0.9913 | 0.9934 | 0.9736 |
+| fibonacci | 0.9956 | 0.9943 | 1.0128 | 1.0138 |
+| maps | 0.9105 | 1.0237 | 0.9009 | 0.9688 |
+| byte_state | 1.0417 | 1.0160 | 0.9963 | 0.9766 |
+| capture_cell | 1.0055 | 1.0188 | 0.9861 | 0.9805 |
+| concrete_generic | 1.0124 | 1.0401 | 1.0033 | 1.0146 |
+| direct | 1.0455 | 0.9909 | 1.0558 | 1.0000 |
+| field | 1.0346 | 0.9834 | 1.0136 | 0.9741 |
+| helper | 0.9785 | 1.0004 | 1.0012 | 1.0093 |
+| host_callback (boundary diagnostic) | 1.0109 | 1.0433 | 0.9946 | 0.9989 |
+| interface | 0.9987 | 0.9982 | 1.0045 | 0.9935 |
+| native (boundary diagnostic) | 1.0059 | 1.0019 | 0.9904 | 0.9735 |
+| shared_generic | 1.0060 | 1.0139 | 0.9960 | 0.9992 |
+| string_calls | 1.0139 | 1.0214 | 0.9906 | 0.9846 |
+| string_constants | 1.1196 | 1.0223 | 1.0436 | 0.9842 |
+
+Map improves in both paired comparisons but still takes 58.70/58.82x Lua. Repeatable
+arithmetic/branch/direct regressions and the unresolved String-constants regression
+block performance acceptance. Restoring frame size did not recover these controls;
+it is not an established explanation for the original regression. Field/byte-state
+ratios also require caution given moving Lua controls. Do not select the favorable
+String repeat or report this as an across-the-board speedup. Earlier HP04 regressions
+remain open as well. This is an implementation checkpoint, not a new performance
+acceptance baseline.
+
+First-run setup baseline/candidate medians (ms): source forms source
+1179.434/1145.647, preparation 265.522/263.868, runtime init 112.535/111.065 and link
+3.060/2.959; Map source 889.385/889.978, preparation 264.754/264.773, runtime init
+110.536/109.970 and link 2.675/2.625. These setup samples do not isolate descriptor
+storage overhead or establish lower cold-start cost.
+
+Separate serial ordinary sampling uses the existing macOS sampler's five-second
+window after PROFILE_READY for String constants. Both binaries execute 100,012 Kagari
+and 52,506 Lua logical instructions, with zero new heap objects/collections. Collapsed
+leaf samples are similar: ScalarCursor::execute 1,734 -> 1,681; region 695 -> 714;
+fixed native helper 99 -> 127. Sampling is wall-clock evidence with incomplete inline
+attribution, not throughput or exact CPU percentages. It does not identify a new
+layout preparation path in the String loop.
+
+LLVM objdump of the preserved ordinary binaries gives a concrete follow-up lead:
+ScalarCursor::execute grows from 456 to 510 machine instructions despite unchanged
+source; both stack frames reserve 0xd0 bytes. The candidate reloads the optional slice
+count and spills/reloads more control state around polling and scalar calls. The region
+entry has 874 instructions in both binaries. These are complete-function instruction
+counts including cold/error branches, not dynamically executed instruction counts or
+proof of sole causality. Raw disassembly/diffs and sampling are under
+ target/hp05/function-applications/{assembly,profiles}/.
+Review scalar control-state ownership/aliasing at the admitted-region boundary before
+further tuning; do not add a String-specific workaround. Shared prepared type facts
+remain required HP05 work in parallel with this carried HP04/HP06 execution review.
+Final formatting, structure review (1,021 files, zero violations/exceptions), document
+links and diff checks pass. No build/test error is carried. Full local integration,
+complete CI, architecture acceptance and Lua parity remain open. target/release now
+contains the ordinary binary, also preserved separately above.

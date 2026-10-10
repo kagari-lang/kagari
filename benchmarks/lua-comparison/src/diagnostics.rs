@@ -48,7 +48,7 @@ fn count(
     );
     let after = runtime.runtime().gc().stats();
     println!(
-        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},interface_call_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_comparisons={},environment_allocations={},metadata_validations={},slow_boundaries={},driver_admissions={},await_polls={}",
+        "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},interface_call_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_operand_preparations={},layout_comparisons={},environment_allocations={},metadata_validations={},slow_boundaries={},driver_admissions={},await_polls={}",
         allocations.requests,
         allocations.requested_bytes,
         allocations.net_bytes,
@@ -63,6 +63,7 @@ fn count(
         execution.operation_preparations,
         execution.native_preparations,
         execution.layout_scope_preparations,
+        execution.layout_operand_preparations,
         execution.layout_comparisons,
         execution.environment_allocations,
         execution.metadata_validations,

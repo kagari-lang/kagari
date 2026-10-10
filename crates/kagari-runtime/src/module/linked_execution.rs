@@ -1,4 +1,5 @@
 //! Runtime-local execution links are admitted with their supplying program.
+pub(crate) mod layouts;
 mod primitives;
 use crate::{
     Runtime,
@@ -6,31 +7,27 @@ use crate::{
     execution_metadata::{
         MetadataEdge,
         call_contracts::{InterfaceCallSite, ScopedInterfaceCall},
+        environments::EnvironmentId,
     },
     module::{
         LoadedModule, ModuleStore,
         constants::ConstantPool,
+        descriptor_index::DescriptorIndex,
         execution::{calls::PreparedCallTarget, layout::Location},
+        linked_execution::layouts::{AppliedLayouts, FunctionLayouts},
     },
     native::{binding::LinkedNativeFunction, primitive::NativePrimitive},
 };
-use kagari_bytecode::instruction::BytecodeInstruction;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::ids::FunctionRef;
-use kagari_types::ty::Ty;
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct LinkedFunction {
     pub(crate) constants: Arc<ConstantPool>,
-    calls: Box<[Option<Arc<ScopedInterfaceCall>>]>,
-    fields: Box<[Option<LinkedField>]>,
-    primitives: Box<[Option<LinkedPrimitive>]>,
-}
-
-#[derive(Debug)]
-struct LinkedField {
-    arguments: Box<[Ty<DefinitionId>]>,
+    calls: Arc<[Option<Arc<ScopedInterfaceCall>>]>,
+    pub(crate) layouts: Option<Arc<FunctionLayouts>>,
+    primitives: Arc<[Option<LinkedPrimitive>]>,
+    pub(crate) applied_layouts: Option<Arc<AppliedLayouts>>,
 }
 
 #[derive(Debug)]
@@ -57,18 +54,17 @@ impl LinkedFunction {
         self.primitives.get(index)
     }
 
-    pub(crate) fn field_arguments(&self, index: usize) -> Option<&[Ty<DefinitionId>]> {
-        Some(&self.fields.get(index)?.as_ref()?.arguments)
-    }
-
     pub(crate) fn call(&self, index: usize) -> Option<&Arc<ScopedInterfaceCall>> {
         self.calls.get(index)?.as_ref()
     }
 }
 
+type FunctionApplications = DescriptorIndex<EnvironmentId, FunctionRef, Arc<LinkedFunction>>;
+
 #[derive(Debug)]
 pub(super) struct LinkedExecution {
     functions: Box<[Option<Arc<LinkedFunction>>]>,
+    applications: Option<Box<FunctionApplications>>,
 }
 
 impl LinkedExecution {
@@ -139,36 +135,12 @@ impl Runtime {
                 }
                 calls.push(Some(call));
             }
-            let fields = if prepared.has_scoped_fields {
-                prepared
-                    .fields
-                    .iter()
-                    .map(|operation| {
-                        if operation.concrete {
-                            return Ok(None);
-                        }
-                        let field = match &function.instructions[operation.pc] {
-                            BytecodeInstruction::ReadAggregateField { field, .. }
-                            | BytecodeInstruction::WriteAggregateField { field, .. } => field,
-                            _ => {
-                                return Err(RuntimeError::module_validation(
-                                    "invalid linked field origin",
-                                ));
-                            }
-                        };
-                        Ok(Some(LinkedField {
-                            arguments: field.arguments.clone().into_boxed_slice(),
-                        }))
-                    })
-                    .collect::<Result<Box<[_]>, RuntimeError>>()?
-            } else {
-                Box::default()
-            };
             functions.push(Some(Arc::new(LinkedFunction {
-                primitives: self.link_primitives(owner, function, prepared)?,
-                fields,
+                primitives: self.link_primitives(owner, function, prepared)?.into(),
+                layouts: FunctionLayouts::link(self, owner, function, prepared)?,
+                applied_layouts: None,
                 constants: constants.clone(),
-                calls: calls.into_boxed_slice(),
+                calls: calls.into(),
             })));
         }
         let mut records = self.modules.inner.try_borrow_mut().map_err(|_| {
@@ -182,6 +154,7 @@ impl Runtime {
         }
         record.execution = Some(LinkedExecution {
             functions: functions.into_boxed_slice(),
+            applications: None,
         });
         Ok(())
     }
@@ -192,14 +165,32 @@ impl ModuleStore {
         &self,
         owner: &LoadedModule,
         function: FunctionRef,
+        environment: Option<EnvironmentId>,
     ) -> Option<Arc<LinkedFunction>> {
-        let records = self.inner.try_borrow().ok()?;
-        records
-            .resolve(owner)?
-            .execution
-            .as_ref()?
-            .functions
-            .get(function.index())?
-            .clone()
+        let mut records = self.inner.try_borrow_mut().ok()?;
+        let execution = records.resolve_mut(owner)?.execution.as_mut()?;
+        let linked = execution.functions.get(function.index())?.as_ref()?;
+        let Some(layouts) = linked
+            .layouts
+            .as_ref()
+            .filter(|layouts| layouts.is_scoped())
+        else {
+            return Some(linked.clone());
+        };
+        let environment = environment?;
+        let applications = execution
+            .applications
+            .get_or_insert_with(|| Box::new(DescriptorIndex::default()));
+        if let Some(applied) = applications.get(&environment, &function) {
+            return Some(applied.clone());
+        }
+        // One exact function/environment descriptor is the frame's sole execution
+        // reference. Its layout cells contain pure facts, not executable edges.
+        let mut applied = linked.as_ref().clone();
+        applied.applied_layouts = Some(layouts.application(environment));
+        let applied = Arc::new(applied);
+        // Optional retention failure cannot revoke the new frame's reference.
+        let _ = applications.insert(environment, function, applied.clone());
+        Some(applied)
     }
 }

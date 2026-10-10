@@ -1,4 +1,4 @@
-//! Concrete fields use physical operands and the same storage kernels as applied fields.
+//! Admitted concrete and scoped fields share physical operands and storage kernels.
 use crate::{
     frame::{
         cursor::{
@@ -20,7 +20,10 @@ impl ExecutionCursor<'_> {
             .frame
             .prepared_field(index)
             .ok_or_else(|| self.invalid())?;
-        let Some(layout) = operation.concrete_layout(self.frame.loaded()) else {
+        let Some(layout) = operation
+            .concrete_layout(self.frame.loaded())
+            .or_else(|| self.frame.ready_field_layout(operation.pc).cloned())
+        else {
             return Ok(Some(CursorExit::Transition(PreparedTransition::Field {
                 index,
             })));

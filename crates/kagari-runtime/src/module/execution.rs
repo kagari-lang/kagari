@@ -120,14 +120,14 @@ pub(crate) struct ExecutionFunction {
     pub interface_calls: usize,
     pub has_closed_interface_calls: bool,
     has_linked_constants: bool,
-    pub(crate) has_scoped_fields: bool,
+    pub(crate) has_layout_operands: bool,
 }
 
 impl ExecutionFunction {
     pub(crate) fn needs_runtime_links(&self) -> bool {
         self.has_closed_interface_calls
             || self.has_linked_constants
-            || self.has_scoped_fields
+            || self.has_layout_operands
             || self.native_calls != 0
     }
 }
@@ -198,7 +198,16 @@ impl ExecutionModule {
                         registers,
                         awaits,
                         calls: BTreeMap::new(),
-                        has_scoped_fields: fields.iter().any(|field| !field.concrete),
+                        has_layout_operands: fields.iter().any(|field| !field.concrete)
+                            || function.instructions.iter().any(|instruction| {
+                                matches!(
+                                    instruction,
+                                    BytecodeInstruction::MakeStruct { .. }
+                                        | BytecodeInstruction::MakeEnum { .. }
+                                        | BytecodeInstruction::TestEnumVariant { .. }
+                                        | BytecodeInstruction::ReadEnumPayload { .. }
+                                )
+                            }),
                         fields: fields.into_boxed_slice(),
                         indices: indices.into_boxed_slice(),
                         native_calls,
@@ -408,7 +417,10 @@ mod tests {
             ExecutionFrame,
             cursor::kernel::{RegionError, RegionExit},
         },
-        module::linked_execution::{LinkedFunction, LinkedPrimitive},
+        module::linked_execution::{
+            LinkedFunction, LinkedPrimitive,
+            layouts::{AggregateLayout, AppliedLayouts, FunctionLayouts},
+        },
         native::primitive::PrimitiveResult,
     };
     use std::{mem::size_of, sync::OnceLock};
@@ -416,6 +428,13 @@ mod tests {
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
+        eprintln!(
+            "layout metadata bytes: function={}, application={}, operand={}, application_cell={}",
+            size_of::<FunctionLayouts>(),
+            size_of::<AppliedLayouts>(),
+            size_of::<AggregateLayout>(),
+            size_of::<OnceLock<AggregateLayout>>()
+        );
         eprintln!(
             "linked primitive bytes: slot={}, operand={}, result={}",
             size_of::<Option<LinkedPrimitive>>(),

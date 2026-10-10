@@ -606,8 +606,8 @@ producer's code or runtime resources alive. A lazy mutex protects optional evide
 type facts cross threads; graph comparison runs outside the lock. Missing identities,
 eviction or unavailable cache access retain full checks. A new version cannot inherit an
 old proof, and a proof never authorizes execution, a heap handle or mutable access.
-Raw type-expression checks still need prepared producer/consumer facts before they can
-use admission; that migration and operand preparation remain in the active HP plan.
+Raw type-expression checks outside prepared operands still need shared validated
+type facts; that migration remains in the active HP plan.
 Every value access continues to validate heap ownership, slot generation and access.
 Enum variant comparison goes directly through this shared admission policy after
 runtime/variant checks; the older same-member/Arc shortcut is removed. Interpreter
@@ -615,8 +615,26 @@ patterns, native enum argument access and raw enum type checks borrow immutable
 tag/payload storage. A field read copies one Value without cloning the payload list.
 The enclosing frame/native argument retains the root, and the borrow ends before
 collection, heap allocation or callbacks. Owning snapshots remain for consumers
-that cross those boundaries. Frame layout operand reconstruction still requires
-the applied-function preparation work in the active HP plan.
+that cross those boundaries.
+
+Linked functions own one layout operand table for struct/enum construction, enum
+patterns and applied field access. Equal operands within a function share one entry;
+the logical PC selects it without reconstructing type arguments. Closed operands are
+prepared before candidate publication. Scoped operands prepare at their first original
+instruction, using the frame's exact immutable type environment, and publish only
+successful layout facts. The same prepared table serves later reads and constructions.
+Each linked member lazily retains at most 128 function/environment applications
+through the common bounded index, keyed by FunctionRef and complete EnvironmentId
+including owner and generation. Function entry selects that exact execution descriptor;
+the frame uses its existing execution reference without a separate application field.
+Descriptors share immutable call/primitive tables, constants and layout operands, and
+own their applied layout cells. Optional eviction cannot invalidate an active frame's
+descriptor. A debug-only environment field checks application identity. These cells
+store immutable layout provenance, not Values or executable environment leases;
+runtime ownership and environment generation admission stay with the frame. No store
+borrow crosses collection or callbacks. Closed execution allocates no application
+index. This replaces per-operation type resolution and the separate scoped-field
+argument copies; ordinary enum heap allocation is unchanged.
 
 Typed callbacks borrow their enclosing synchronous call's program retention.
 Public standalone conversion scopes and escaping handles retain independent leases.
@@ -801,7 +819,7 @@ assign dense function-local ordinals. Closed contracts, including independent ca
 inside generic functions, are prepared before candidate publication. Linking validates
 their graph and proves that every executable dependency belongs to the same pinned
 program. Function entry admits one linked execution record containing the immutable
-call table, its module's constant pool and scoped field arguments when needed;
+call table, its module's constant pool and layout operands when needed;
 functions with no runtime links need no such record.
 Calls borrow facts directly by ordinal while the active window's program root protects
 the record and its traced edges.
@@ -955,8 +973,9 @@ still check operand bounds and initialization, but no longer recover the loaded
 function or bank range per operand. These borrows end before object handoff or
 region exit; no pointer or exclusive borrow survives a callback or arena growth.
 Canonical instructions remain one-to-one with prepared instructions.
-Scoped field layouts retain an explicit preparation transition; reuse of their applied
-layout admission remains part of the layout work. Other unmigrated operations still
+Scoped fields use the same physical execution kernel as concrete fields once their
+function/environment's layout operand is ready. Only first-use preparation exits the
+cursor; subsequent accesses keep its admitted frame/window scope. Other unmigrated operations still
 use the ordinary canonical boundary; field migration does not imply their completion.
 The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks

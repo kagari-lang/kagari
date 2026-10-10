@@ -566,7 +566,11 @@ impl ExecutionFrame {
                 Some(
                     runtime
                         .modules
-                        .linked_function(&loaded, function)
+                        .linked_function(
+                            &loaded,
+                            function,
+                            environment.as_ref().map(|scope| scope.id),
+                        )
                         .ok_or_else(|| {
                             RuntimeError::module_validation("missing linked function execution")
                         })?,

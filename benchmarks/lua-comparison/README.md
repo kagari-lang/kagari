@@ -588,6 +588,11 @@ combinations. Independent Rust checksums check receiver selection and results.
 A separate `T: Ord` comparison probe measures witness preparation that unbounded
 identity calls do not exercise. These probes do not replace or modify the frozen
 Lua comparison fixtures.
+The scoped-layout probes exercise generic aggregate construction and access.
+`layout_operand_preparations` counts first-use preparation of a function's exact
+layout operands, separately from scope preparation and full compatibility comparisons.
+Closed operands prepare at linking, outside execution counts. Compare both iteration
+sizes and cold/warm phases to distinguish application preparation from per-access work.
 Closure scaling probes also pass a nonempty argument list alongside a captured
 managed object, with fixed versus alternating closures at one callsite. They measure
 whether argument packing/capture publication scales with invocation count; their

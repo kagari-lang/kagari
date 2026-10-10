@@ -4,14 +4,13 @@ use crate::{
     error::RuntimeError,
     frame::{ExecutionFrame, types::arguments::TypeArgument},
     gc::HeapObjectId,
-    module::{EnumVariantRef, StructLayoutRef, layout_scope::LayoutScope},
+    module::{EnumVariantRef, StructLayoutRef, linked_execution::layouts::AggregateLayout},
     native::storage_type::StorageType,
     value::Value,
 };
-use kagari_bytecode::instruction::{EnumId, StructId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
-use std::{borrow::Cow, slice, sync::Arc};
+use std::{slice, sync::Arc};
 
 impl ExecutionFrame {
     pub fn type_arguments(
@@ -71,80 +70,68 @@ impl ExecutionFrame {
         )
     }
 
-    fn layout_arguments<'a>(
-        &self,
-        arguments: &'a [Ty<DefinitionId>],
-    ) -> Result<Cow<'a, [Ty<DefinitionId>]>, RuntimeError> {
-        if arguments.iter().all(Ty::is_concrete) {
-            return Ok(Cow::Borrowed(arguments));
-        }
-        arguments
-            .iter()
-            .map(|ty| self.resolve_type(ty).map(Cow::into_owned))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Cow::Owned)
-    }
-
-    fn layout_environment(
+    fn aggregate_layout(
         &self,
         runtime: &Runtime,
-        declaration: &DefinitionId,
-        arguments: &[Ty<DefinitionId>],
-    ) -> Result<Option<Arc<LayoutScope>>, RuntimeError> {
-        if arguments.iter().all(Ty::is_concrete) {
-            return Ok(None);
-        }
-        let arguments = runtime.type_arguments(
+        pc: usize,
+    ) -> Result<&AggregateLayout, RuntimeError> {
+        self.validate_runtime(runtime)?;
+        let links = self
+            .links
+            .as_ref()
+            .ok_or_else(|| RuntimeError::module_validation("missing function execution"))?;
+        let layouts = links
+            .layouts
+            .as_deref()
+            .ok_or_else(|| RuntimeError::module_validation("missing function layout operands"))?;
+        layouts.resolve(
+            runtime,
             self.loaded(),
-            self.environment()
-                .map(|environment| environment.types.clone()),
-            arguments,
-        )?;
-        runtime.prepare_layout_scope(self.loaded(), *declaration, &arguments)
+            self.environment.as_ref(),
+            links.applied_layouts.as_deref(),
+            pc,
+        )
     }
 
-    pub fn struct_layout(
+    pub(super) fn ready_field_layout(&self, pc: usize) -> Option<&StructLayoutRef> {
+        let links = self.links.as_ref()?;
+        let AggregateLayout::Struct(layout) = links
+            .layouts
+            .as_ref()?
+            .ready(links.applied_layouts.as_deref(), pc)?
+        else {
+            return None;
+        };
+        Some(layout)
+    }
+
+    pub(super) fn field_layout(
         &self,
         runtime: &Runtime,
-        id: StructId,
-        arguments: &[Ty<DefinitionId>],
+        pc: usize,
     ) -> Result<StructLayoutRef, RuntimeError> {
-        let template = self
-            .loaded()
-            .bytecode
-            .structures
-            .get(id.index())
-            .ok_or_else(|| RuntimeError::module_validation("invalid struct layout application"))?;
-        let scope = self.layout_environment(runtime, &template.declaration, arguments)?;
-        runtime
-            .modules
-            .applied_struct_layout(self.loaded(), id, &self.layout_arguments(arguments)?, scope)
-            .ok_or_else(|| RuntimeError::module_validation("invalid struct layout application"))
+        let AggregateLayout::Struct(layout) = self.aggregate_layout(runtime, pc)? else {
+            return Err(RuntimeError::module_validation(
+                "expected prepared struct layout",
+            ));
+        };
+        Ok(layout.clone())
     }
 
-    pub fn enum_variant(
-        &self,
-        runtime: &Runtime,
-        id: EnumId,
-        arguments: &[Ty<DefinitionId>],
-        variant: u32,
-    ) -> Result<EnumVariantRef, RuntimeError> {
-        let template = self
-            .loaded()
-            .bytecode
-            .enumerations
-            .get(id.index())
-            .ok_or_else(|| RuntimeError::module_validation("invalid enum layout application"))?;
-        let scope = self.layout_environment(runtime, &template.declaration, arguments)?;
-        runtime
-            .modules
-            .applied_enum_variant(
-                self.loaded(),
-                id,
-                &self.layout_arguments(arguments)?,
-                variant,
-                scope,
-            )
-            .ok_or_else(|| RuntimeError::module_validation("invalid enum layout application"))
+    /// Resolve the checked struct operand at this frame's current program point.
+    pub fn struct_layout(&self, runtime: &Runtime) -> Result<StructLayoutRef, RuntimeError> {
+        self.field_layout(runtime, self.instruction_offset())
+    }
+
+    /// Resolve the checked enum operand at this frame's current program point.
+    pub fn enum_variant(&self, runtime: &Runtime) -> Result<EnumVariantRef, RuntimeError> {
+        let AggregateLayout::Enum(layout) =
+            self.aggregate_layout(runtime, self.instruction_offset())?
+        else {
+            return Err(RuntimeError::module_validation(
+                "expected prepared enum layout",
+            ));
+        };
+        Ok(layout.clone())
     }
 }
