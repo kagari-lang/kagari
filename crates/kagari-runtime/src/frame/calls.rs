@@ -94,9 +94,9 @@ impl ExecutionStack<'_> {
                     let scoped_call;
                     let call = if closed {
                         caller
-                            .closed_calls
+                            .links
                             .as_ref()
-                            .and_then(|calls| calls.get(index))
+                            .and_then(|links| links.call(index))
                             .map(|call| call.as_ref())
                             .ok_or_else(|| {
                                 RuntimeError::module_validation("invalid linked interface ordinal")

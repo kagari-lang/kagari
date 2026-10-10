@@ -8,14 +8,24 @@ use crate::{
         cursor::{ExecutionCursor, scalars::ScalarExit},
         transfer::ReturnValue,
     },
-    module::execution::managed::{ManagedOperation, PreparedManagedOperation},
+    module::execution::{
+        layout::Location,
+        managed::{ManagedOperation, PreparedManagedOperation},
+    },
 };
+
+use kagari_bytecode::instruction::ConstantId;
 
 pub enum RegionExit {
     Slice,
     Safepoint,
     Boundary,
     Return(ReturnValue),
+}
+
+pub(super) enum CursorExit {
+    Region(RegionExit),
+    Constant { dst: Location, constant: ConstantId },
 }
 
 impl ExecutionCursor<'_> {
@@ -26,7 +36,7 @@ impl ExecutionCursor<'_> {
     pub(super) fn execute_region(
         &mut self,
         remaining: &mut Option<usize>,
-    ) -> Result<RegionExit, RuntimeError> {
+    ) -> Result<CursorExit, RuntimeError> {
         // A closed region cannot allocate heap records, mutate executable metadata
         // or change collector policy. Field operations copy rooted Values using
         // checked storage methods; no destructor/callback runs on replacement.
@@ -37,13 +47,35 @@ impl ExecutionCursor<'_> {
         let mut first = true;
         loop {
             match self.scalars()?.execute(remaining, collection_due, first)? {
-                ScalarExit::Slice => return Ok(RegionExit::Slice),
-                ScalarExit::Safepoint => return Ok(RegionExit::Safepoint),
-                ScalarExit::Return(value) => return Ok(RegionExit::Return(value)),
+                ScalarExit::Slice => return Ok(CursorExit::Region(RegionExit::Slice)),
+                ScalarExit::Safepoint => return Ok(CursorExit::Region(RegionExit::Safepoint)),
+                ScalarExit::Return(value) => {
+                    return Ok(CursorExit::Region(RegionExit::Return(value)));
+                }
                 ScalarExit::Boundary => {
                     #[cfg(feature = "execution-diagnostics")]
                     diagnostics::record(Event::SlowBoundary);
-                    return Ok(RegionExit::Boundary);
+                    return Ok(CursorExit::Region(RegionExit::Boundary));
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Constant {
+                    dst,
+                    constant,
+                })) => {
+                    let pool = &self
+                        .frame
+                        .links
+                        .as_ref()
+                        .ok_or_else(|| self.invalid())?
+                        .constants;
+                    let Some(value) = pool.get(constant) else {
+                        return Ok(CursorExit::Constant { dst, constant });
+                    };
+                    if !self.runtime.gc().validate_value(&value) {
+                        return Err(self.invalid());
+                    }
+                    self.values
+                        .write_location(dst, value)
+                        .ok_or_else(|| self.invalid())?;
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Copy {
                     dst,
@@ -74,7 +106,9 @@ impl ExecutionCursor<'_> {
                         .get(value.index())
                         .copied()
                         .ok_or_else(|| self.invalid())?;
-                    return Ok(RegionExit::Return(ReturnValue::general(value)));
+                    return Ok(CursorExit::Region(RegionExit::Return(
+                        ReturnValue::general(value),
+                    )));
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::ReadField {
                     dst,
@@ -84,7 +118,7 @@ impl ExecutionCursor<'_> {
                     if !self.read_field(dst, base, field)? {
                         #[cfg(feature = "execution-diagnostics")]
                         diagnostics::record(Event::SlowBoundary);
-                        return Ok(RegionExit::Boundary);
+                        return Ok(CursorExit::Region(RegionExit::Boundary));
                     }
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::WriteField {
@@ -95,7 +129,7 @@ impl ExecutionCursor<'_> {
                     if !self.write_field(base, value, field)? {
                         #[cfg(feature = "execution-diagnostics")]
                         diagnostics::record(Event::SlowBoundary);
-                        return Ok(RegionExit::Boundary);
+                        return Ok(CursorExit::Region(RegionExit::Boundary));
                     }
                 }
             }

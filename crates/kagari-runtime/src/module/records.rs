@@ -2,12 +2,12 @@
 use crate::{
     module::{
         LoadedModule, ModuleInstance, ModuleStore, ModuleStoreInner,
+        constants::ConstantPool,
         descriptors::LinkedDescriptors,
         layouts::{LayoutCache, ProgramLayoutCache},
-        linked_calls::LinkedCalls,
+        linked_execution::LinkedExecution,
     },
     native::binding::LinkedNativeFunction,
-    value::Value,
 };
 use kagari_bytecode::instruction::NativeImportId;
 use std::sync::Arc;
@@ -17,9 +17,9 @@ pub(super) struct ModuleRecord {
     pub(super) module: LoadedModule,
     pub(super) instance: ModuleInstance,
     pub(super) layouts: LayoutCache,
-    pub(super) constants: Vec<Option<Value>>,
+    pub(super) constants: Arc<ConstantPool>,
     pub(super) descriptors: LinkedDescriptors,
-    pub(super) calls: Option<LinkedCalls>,
+    pub(super) execution: Option<LinkedExecution>,
     native: Vec<Arc<LinkedNativeFunction>>,
     program_layouts: Option<Box<ProgramLayoutCache>>,
 }
@@ -28,13 +28,13 @@ impl ModuleRecord {
     pub(super) fn new(module: LoadedModule, native: Vec<Arc<LinkedNativeFunction>>) -> Self {
         Self {
             instance: ModuleInstance::new(&module),
-            constants: vec![None; module.bytecode.constants.len()],
+            constants: Arc::new(ConstantPool::new(module.bytecode.constants.len())),
             layouts: LayoutCache::default(),
             program_layouts: None,
             module,
             native,
             descriptors: LinkedDescriptors::default(),
-            calls: None,
+            execution: None,
         }
     }
 

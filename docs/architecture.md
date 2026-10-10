@@ -699,8 +699,19 @@ Canonical `LoadConst` refers to a deduplicated module constant table by checked
 `ConstantId`. Equality of portable float constants uses their exact bits. Shared
 verified programs contain no runtime heap identities. Each runtime module record
 lazily materializes its own string constants and traces them as edges of that
-version. Repeated loads copy only the Value. Reclaiming an obsolete module releases
-its cache; independently rooted escaped strings keep their bytes without retaining
+version. A module-owned ConstantPool uses single-assignment cells shared by its
+runtime-local function links. Frame entry admits the links together with closed
+interface calls; warmed prepared loads address a physical destination and checked
+constant ordinal without resolving the module store again. They retain heap identity
+and destination representation checks. An empty cell exits the cursor, releases all
+transient frame/bank/session borrows, and invokes the same materializer as the checked
+public/native entry. Allocation cannot collect or invoke user code; it publishes the
+module edge before the next safepoint. The active frame roots that exact version
+through materialization and destination publication. The cold transition consumes no
+extra logical instruction and recomputes GC state at the successor. Neither the pool
+nor its function links supply independent roots or live in shared verified code.
+Repeated loads copy only the Value. Reclaiming an obsolete module releases
+its pool; independently rooted escaped strings keep their bytes without retaining
 the old module state. Standard string input operations borrow scoped UTF-8 views;
 owned Rust String conversion remains an explicit copy at the host boundary.
 
@@ -781,8 +792,10 @@ of receiver values. Sealed call records classify actual environment dependence a
 assign dense function-local ordinals. Closed contracts, including independent calls
 inside generic functions, are prepared before candidate publication. Linking validates
 their graph and proves that every executable dependency belongs to the same pinned
-program. Function entry admits its immutable call table once; calls borrow facts directly
-by ordinal while the active window's program root protects the table and its traced edges.
+program. Function entry admits one linked execution record containing the immutable
+call table and its module's constant pool; scalar-only functions need no such record.
+Calls borrow facts directly by ordinal while the active window's program root protects
+the record and its traced edges.
 These code-bounded links are not optional application caches and cannot be evicted.
 Environment-dependent contracts use the common bounded descriptor index keyed by
 verified function/PC and exact EnvironmentId, with checked publication/GC tracing.
@@ -849,25 +862,29 @@ handlers without releasing its frame/window access. Keeping those handlers outsi
 the scalar loop prevents their storage checks from changing its inlining budget;
 the handoff retains original logical PC and instruction-slice accounting.
 `PreparedManagedOperation` is an opaque sealed record shared by instructions and
-this handoff. Its internal variants cover physical value copies, managed returns
-and the existing field read/write operations. It cannot represent a scalar opcode
+this handoff. Its internal variants cover physical value copies, linked constant loads,
+managed returns and the existing field read/write operations. It cannot represent a scalar opcode
 or require an unreachable generic-operation arm. Managed local/register copies use
 prepared physical locations and the ordinary bank read/write representation rules,
 retaining heap owner/generation/kind validation without repeating public frame
 admission. Both slots remain traced in the admitted window. Managed returns carry
 the rooted value to common frame retirement; there is no separate VM return decoder.
-The previous VM LoadLocal/StoreLocal/Move/Return handlers are removed.
+The previous VM LoadConst/LoadLocal/StoreLocal/Move/Return handlers are removed.
 Scalar exits explicitly distinguish boundary, slice, safepoint, return and managed
 operation. The region reconstructs payload-free exits directly; only returns and
-managed operations carry data across that internal boundary.
+managed operations carry data across that internal boundary. A cold constant miss
+additionally carries its destination and ordinal out of the complete cursor, where
+allocation runs after all transient borrows end.
 Each scalar segment splits the admitted Rust borrow into an immutable code slice,
-mutable logical-PC fields and bounded scalar/initialization slices. Instructions
+mutable logical-PC fields and bounded scalar/initialization slices. Fetch borrows
+one immutable instruction; dispatch then reads only its selected payload rather
+than copying the complete nested enum before classifying it. Instructions
 still check operand bounds and initialization, but no longer recover the loaded
 function or bank range per operand. These borrows end before object handoff or
 region exit; no pointer or exclusive borrow survives a callback or arena growth.
 Canonical instructions remain one-to-one with prepared instructions.
-Shared generic layouts, constants and other unmigrated operations still use the
-ordinary boundary; their remaining HP04 migration is not implied by managed copies.
+Shared generic field layouts and other unmigrated operations still use the ordinary
+boundary; their remaining HP04 migration is not implied by managed copies or constants.
 The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks
 cancellation, observer requests and candidate-reclamation notifications at each

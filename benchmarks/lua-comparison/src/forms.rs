@@ -178,17 +178,31 @@ pub(super) fn run(options: &Options) {
             Default::default(),
         )
         .expect("source forms compilation");
-    eprintln!("forms source_to_artifact_ns={}", start.elapsed().as_nanos());
+    println!(
+        "source_to_artifact,forms_module,kagari_vm,{N},1,0,{},0",
+        start.elapsed().as_nanos()
+    );
     let start = Instant::now();
     let prepared =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
             .expect("forms verification");
-    eprintln!("forms artifact_prepare_ns={}", start.elapsed().as_nanos());
+    println!(
+        "artifact_prepare,forms_module,kagari_vm,{N},1,0,{},0",
+        start.elapsed().as_nanos()
+    );
     let context = ExecutionContext::default();
+    let start = Instant::now();
     let mut runtime = engine.runtime(context.clone());
+    println!(
+        "runtime_init,forms_module,kagari_vm,{N},1,0,{},0",
+        start.elapsed().as_nanos()
+    );
     let start = Instant::now();
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
-    eprintln!("forms link_ns={}", start.elapsed().as_nanos());
+    println!(
+        "program_link,forms_module,kagari_vm,{N},1,0,{},0",
+        start.elapsed().as_nanos()
+    );
     let lua = Lua::new();
     lua.globals()
         .set(

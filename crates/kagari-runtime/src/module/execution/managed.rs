@@ -1,6 +1,6 @@
 //! Closed managed operations retain physical locations from verified code.
 use crate::module::execution::{OperandSlot, PreparedField, layout::Location};
-use kagari_bytecode::instruction::Register;
+use kagari_bytecode::instruction::{ConstantId, Register};
 
 /// Only preparation can construct operations consumed by the admitted cursor.
 #[derive(Debug, Clone, Copy)]
@@ -8,6 +8,10 @@ pub struct PreparedManagedOperation(pub(crate) ManagedOperation);
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ManagedOperation {
+    Constant {
+        dst: Location,
+        constant: ConstantId,
+    },
     Copy {
         dst: Location,
         src: Location,

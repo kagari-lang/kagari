@@ -166,13 +166,6 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, result)?;
             }
-            BytecodeInstruction::LoadConst { dst, constant } => {
-                let value = self
-                    .runtime
-                    .read_constant(self.current_frame()?.loaded(), constant)?;
-                self.current_frame_mut()?
-                    .write_register(self.runtime, dst, value)?;
-            }
             BytecodeInstruction::LoadModule { dst, slot } => {
                 let loaded = self.current_loaded()?;
                 let value = self.runtime.read_module_slot(&loaded, slot)?;
@@ -504,7 +497,8 @@ impl<'a> Executor<'a> {
                 self.stack.begin_await(self.runtime, value, dst, future)?;
                 return Ok(InstructionProgress::Await);
             }
-            BytecodeInstruction::Jump { .. }
+            BytecodeInstruction::LoadConst { .. }
+            | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. }
             | BytecodeInstruction::LoadLocal { .. }
             | BytecodeInstruction::StoreLocal { .. }

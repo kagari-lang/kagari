@@ -1,6 +1,6 @@
 mod applied_layout_identity;
 pub(crate) mod collection;
-mod constants;
+pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
 pub mod execution;
@@ -8,7 +8,7 @@ mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
 mod layouts;
-pub(crate) mod linked_calls;
+pub(crate) mod linked_execution;
 mod records;
 pub mod retention;
 pub(crate) mod staging;

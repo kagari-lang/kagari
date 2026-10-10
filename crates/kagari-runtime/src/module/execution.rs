@@ -156,6 +156,13 @@ pub(crate) struct ExecutionFunction {
     pub calls: BTreeMap<usize, PreparedCall>,
     pub interface_calls: usize,
     pub has_closed_interface_calls: bool,
+    has_linked_constants: bool,
+}
+
+impl ExecutionFunction {
+    pub(crate) fn needs_runtime_links(&self) -> bool {
+        self.has_closed_interface_calls || self.has_linked_constants
+    }
 }
 
 impl ExecutionModule {
@@ -192,7 +199,7 @@ impl ExecutionModule {
                             (point.instruction(), retained.into_boxed_slice())
                         })
                         .collect();
-                    let instructions = function
+                    let instructions: Box<[_]> = function
                         .instructions
                         .iter()
                         .map(|instruction| {
@@ -200,6 +207,14 @@ impl ExecutionModule {
                         })
                         .collect();
                     ExecutionFunction {
+                        has_linked_constants: instructions.iter().any(|operation| {
+                            matches!(
+                                operation,
+                                ExecutionInstruction::Managed(PreparedManagedOperation(
+                                    ManagedOperation::Constant { .. }
+                                ))
+                            )
+                        }),
                         instructions,
                         registers,
                         awaits,
@@ -257,10 +272,18 @@ impl ExecutionInstruction {
                     ConstantOperand::U64(v) => Value::U64(v),
                     ConstantOperand::F32(v) => Value::F32(v),
                     ConstantOperand::F64(v) => Value::F64(v),
-                    ConstantOperand::Str(_) => return Self::Boundary,
+                    ConstantOperand::Str(_) => {
+                        return Self::managed(ManagedOperation::Constant {
+                            dst: location(dst),
+                            constant,
+                        });
+                    }
                 };
                 let Some(dst) = slot(dst).scalar() else {
-                    return Self::Boundary;
+                    return Self::managed(ManagedOperation::Constant {
+                        dst: location(dst),
+                        constant,
+                    });
                 };
                 Self::Constant {
                     dst,
@@ -368,10 +391,19 @@ impl ExecutionInstruction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem::size_of;
+    use crate::{frame::ExecutionFrame, module::linked_execution::LinkedFunction};
+    use std::{mem::size_of, sync::OnceLock};
 
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
+        eprintln!(
+            "execution metadata bytes: instruction={}, frame={}, linked_function={}, constant_cell={}, previous_constant_cell={}",
+            size_of::<ExecutionInstruction>(),
+            size_of::<ExecutionFrame>(),
+            size_of::<LinkedFunction>(),
+            size_of::<OnceLock<Value>>(),
+            size_of::<Option<Value>>()
+        );
     }
 }

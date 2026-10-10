@@ -1,4 +1,4 @@
-//! Closed call contracts are immutable links owned by their supplying program.
+//! Runtime-local execution links are admitted with their supplying program.
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -6,28 +6,31 @@ use crate::{
         MetadataEdge,
         call_contracts::{InterfaceCallSite, ScopedInterfaceCall},
     },
-    module::{LoadedModule, ModuleStore, execution::calls::PreparedCallTarget},
+    module::{
+        LoadedModule, ModuleStore, constants::ConstantPool, execution::calls::PreparedCallTarget,
+    },
 };
 use kagari_contract::ids::FunctionRef;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub(crate) struct LinkedFunctionCalls {
+pub(crate) struct LinkedFunction {
+    pub(crate) constants: Arc<ConstantPool>,
     calls: Box<[Option<Arc<ScopedInterfaceCall>>]>,
 }
 
-impl LinkedFunctionCalls {
-    pub(crate) fn get(&self, index: usize) -> Option<&Arc<ScopedInterfaceCall>> {
+impl LinkedFunction {
+    pub(crate) fn call(&self, index: usize) -> Option<&Arc<ScopedInterfaceCall>> {
         self.calls.get(index)?.as_ref()
     }
 }
 
 #[derive(Debug)]
-pub(super) struct LinkedCalls {
-    functions: Box<[Option<Arc<LinkedFunctionCalls>>]>,
+pub(super) struct LinkedExecution {
+    functions: Box<[Option<Arc<LinkedFunction>>]>,
 }
 
-impl LinkedCalls {
+impl LinkedExecution {
     pub(super) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
         pending.extend(self.functions.iter().flatten().flat_map(|function| {
             function
@@ -40,11 +43,22 @@ impl LinkedCalls {
 }
 
 impl Runtime {
-    pub(crate) fn link_interface_calls(&self, owner: &LoadedModule) -> Result<(), RuntimeError> {
+    pub(crate) fn link_execution(&self, owner: &LoadedModule) -> Result<(), RuntimeError> {
+        let constants = self
+            .modules
+            .inner
+            .try_borrow()
+            .map_err(|_| {
+                RuntimeError::module_validation("module store borrowed during execution linking")
+            })?
+            .resolve(owner)
+            .ok_or_else(|| RuntimeError::module_validation("invalid execution link owner"))?
+            .constants
+            .clone();
         let mut functions = Vec::with_capacity(owner.bytecode.functions.len());
         for function in &owner.bytecode.functions {
             let prepared = &owner.execution().functions[function.id.index()];
-            if !prepared.has_closed_interface_calls {
+            if !prepared.needs_runtime_links() {
                 functions.push(None);
                 continue;
             }
@@ -84,20 +98,21 @@ impl Runtime {
                 }
                 calls.push(Some(call));
             }
-            functions.push(Some(Arc::new(LinkedFunctionCalls {
+            functions.push(Some(Arc::new(LinkedFunction {
+                constants: constants.clone(),
                 calls: calls.into_boxed_slice(),
             })));
         }
         let mut records = self.modules.inner.try_borrow_mut().map_err(|_| {
-            RuntimeError::module_validation("module store borrowed during call linking")
+            RuntimeError::module_validation("module store borrowed during execution linking")
         })?;
         let record = records
             .resolve_mut(owner)
-            .ok_or_else(|| RuntimeError::module_validation("invalid linked call owner"))?;
-        if record.calls.is_some() {
-            return Err(RuntimeError::module_validation("duplicate linked calls"));
+            .ok_or_else(|| RuntimeError::module_validation("invalid execution link owner"))?;
+        if record.execution.is_some() {
+            return Err(RuntimeError::module_validation("duplicate execution links"));
         }
-        record.calls = Some(LinkedCalls {
+        record.execution = Some(LinkedExecution {
             functions: functions.into_boxed_slice(),
         });
         Ok(())
@@ -105,15 +120,15 @@ impl Runtime {
 }
 
 impl ModuleStore {
-    pub(crate) fn closed_interface_calls(
+    pub(crate) fn linked_function(
         &self,
         owner: &LoadedModule,
         function: FunctionRef,
-    ) -> Option<Arc<LinkedFunctionCalls>> {
+    ) -> Option<Arc<LinkedFunction>> {
         let records = self.inner.try_borrow().ok()?;
         records
             .resolve(owner)?
-            .calls
+            .execution
             .as_ref()?
             .functions
             .get(function.index())?

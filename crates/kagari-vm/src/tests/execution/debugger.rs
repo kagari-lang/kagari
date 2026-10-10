@@ -6,6 +6,7 @@ use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 fn debug_session_resolves_breakpoints_and_inspects_live_locals() {
     let source = r#"
 fn main() -> i32 {
+    val text = "debug constant";
     val value = 3;
     value + 4
 }
@@ -15,6 +16,22 @@ fn main() -> i32 {
         .load_program("debug.kgr", compile_test_bytecode(source))
         .expect("debug module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
+    let constant_pc = loaded
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap()
+        .instructions
+        .iter()
+        .position(|instruction| matches!(instruction, BytecodeInstruction::LoadConst { .. }))
+        .unwrap();
+    let before_text = session
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
+            "debug.kgr",
+            source.find("val text").unwrap(),
+        ))
+        .unwrap();
     let before_store = session
         .add_breakpoint(SourceBreakpoint::at_source_offset(
             "debug.kgr",
@@ -49,6 +66,18 @@ fn main() -> i32 {
     let debug = vm
         .debug_session()
         .expect("debug session should be attached");
+    assert_eq!(
+        debug
+            .pauses()
+            .iter()
+            .filter(
+                |pause| pause.reason == DebugPauseReason::Breakpoint(before_text)
+                    && pause.top_frame().unwrap().instruction_offset == constant_pc
+            )
+            .count(),
+        1,
+        "cold materialization must consume one logical instruction"
+    );
     let initial_pause = debug
         .pauses()
         .iter()

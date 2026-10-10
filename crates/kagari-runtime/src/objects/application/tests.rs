@@ -530,9 +530,9 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
             };
             runtime
                 .modules
-                .closed_interface_calls(&loaded, site.function)
+                .linked_function(&loaded, site.function)
                 .unwrap()
-                .get(index)
+                .call(index)
                 .unwrap()
                 .clone()
         };
@@ -593,17 +593,17 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         assert!(
             runtime
                 .modules
-                .closed_interface_calls(&retired, site.function)
+                .linked_function(&retired, site.function)
                 .is_none()
         );
         let linked = runtime
             .modules
-            .closed_interface_calls(&loaded, site.function)
+            .linked_function(&loaded, site.function)
             .unwrap();
-        assert!(linked.get(0).unwrap().operations.validate(&runtime.gc));
+        assert!(linked.call(0).unwrap().operations.validate(&runtime.gc));
         assert_ne!(
             first.identity(),
-            linked.get(0).unwrap().operations.identity()
+            linked.call(0).unwrap().operations.identity()
         );
         assert_eq!(runtime.gc.stats().environments, 0);
         assert!(!first.validate(&runtime.gc));

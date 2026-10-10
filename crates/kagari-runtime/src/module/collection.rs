@@ -71,15 +71,10 @@ impl ProgramGraph<'_> {
         for member in program.members() {
             let record = self.store.records.get(&member.key())?;
             record.descriptors.trace(&self.store, metadata);
-            if let Some(calls) = &record.calls {
+            if let Some(calls) = &record.execution {
                 calls.trace(metadata);
             }
-            record
-                .constants
-                .iter()
-                .flatten()
-                .rev()
-                .for_each(&mut *visit);
+            record.constants.iter().rev().for_each(&mut *visit);
             record
                 .instance
                 .module_slots

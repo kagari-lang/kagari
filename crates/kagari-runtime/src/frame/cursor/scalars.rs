@@ -65,7 +65,7 @@ impl ExecutionCursor<'_> {
     }
 }
 
-impl ScalarCursor<'_> {
+impl<'code> ScalarCursor<'code> {
     // Keep object handlers out of this loop's register allocation and inlining
     // budget while reusing the same admitted cursor across both operation kinds.
     #[inline(never)]
@@ -105,7 +105,7 @@ impl ScalarCursor<'_> {
                 .resources()
                 .quarantine("verified function fell through")
         })?;
-        let (dst, value) = match instruction {
+        let (dst, value) = match *instruction {
             ExecutionInstruction::Constant { dst, value } => (dst, value),
             ExecutionInstruction::Move { dst, src } => (dst, self.payload(src)?),
             ExecutionInstruction::Scalar {
@@ -194,8 +194,11 @@ impl ScalarCursor<'_> {
                 && self.runtime.modules.abandonment_pending())
     }
 
-    fn next_instruction(&mut self) -> Option<ExecutionInstruction> {
-        let instruction = self.instructions.get(*self.ip).copied()?;
+    fn next_instruction(&mut self) -> Option<&'code ExecutionInstruction> {
+        // The admitted code slice is immutable for this region. Borrow the
+        // instruction so only the selected handler reads its payload; copying
+        // the whole enum before dispatch also decodes unrelated managed fields.
+        let instruction = self.instructions.get(*self.ip)?;
         *self.executing = Some(*self.ip);
         *self.ip += 1;
         Some(instruction)

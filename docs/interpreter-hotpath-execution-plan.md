@@ -2349,3 +2349,164 @@ runs. Keep `target/hp04/lease-executable` as the next checkpoint baseline. No bu
 error is carried. HP04 remains open for linked constants, remaining field operands,
 Vec index/String byte-length contracts, obsolete-handler retirement and integrated
 setup/metadata/performance review; HP05–HP06, complete CI and Lua parity remain open.
+
+2026-10-10 HP04, linked constant storage (in progress):
+The old runtime-local pool already avoided duplicate strings, but each interpreter
+load still resolved ModuleStore and admitted its owner through the external API.
+Generalized the existing linked function-call record into LinkedFunction, admitting
+its module ConstantPool and closed call table together at frame entry. Scalar-only
+functions still need no linked record. Pool cells are single-assignment OnceLock
+values: they permit immutable sharing and runtime thread transfer without unsafe
+interior mutability or a lock per warmed load. The pool remains runtime-local;
+VerifiedProgram and LoadedModule's shared descriptor acquire no heap IDs or pool roots.
+
+Prepared constant operations retain physical destinations and checked ConstantId.
+A populated cell is copied inside the admitted region with ordinary heap identity
+and destination representation checks. A miss returns a private cursor transition;
+all frame/bank/session borrows end before the common materializer runs. The active
+frame keeps the exact program version rooted, and non-collecting/non-reentrant
+allocation publishes the pool edge before any safepoint. Destination publication
+then re-admits the frame window, and the successor recomputes collection state.
+The miss consumes no additional logical PC or slice unit. Public/native read_constant
+retains module ownership, availability and borrow checks and uses that same allocator.
+The canonical VM LoadConst handler is removed; no second constant implementation,
+unchecked public entry, independent root or per-site cache replaces it.
+
+Runtime-private linkage/isolation/constant reclamation (1), linked witness retirement
+(1), prepared instruction budget (1), owned-drive slicing/GC/source-free iteration
+(2), debugger and installed debugger-access contracts (6) pass. The first added
+cold-debug assertion incorrectly equated a source-line breakpoint with one instruction;
+LoadConst and StoreLocal share that source location. It now identifies the actual
+LoadConst PC and verifies one observation, rather than suppressing either legitimate
+pause. The corrected affected test passes; no production correction or weakened
+contract was needed. Strict runtime/VM/benchmark all-target diagnostics Clippy passes.
+No full-workspace or CI run has been performed.
+
+Measured 64-bit metadata sizes (`physical_instruction_budget -- --nocapture`) are
+prepared instruction 24 bytes, ExecutionFrame 264 bytes and LinkedFunction 24 bytes.
+The frame's existing optional Arc is reused, so it gains no field. A constant cell
+changes from 16-byte Option<Value> to 24-byte OnceLock<Value>; the previous call-only
+record was 16 bytes. Each module additionally owns a shared pool allocation (two-word
+Box plus Arc counters); its record stores an Arc instead of the previous Vec. Each
+function needing constants but no closed calls now needs one linked function record.
+These bounded setup/storage costs are intentional and must not be reported as free.
+There is no per-load allocation for these links.
+
+Source-form setup durations now use the benchmark's existing CSV schema for
+source_to_artifact, artifact_prepare, runtime_init and program_link, with one
+forms_module setup sample per fresh process. Execution source bodies, checksums,
+warmups and engine order are unchanged. Earlier preserved binaries still emit
+source/prepare/link durations only to stderr; their missing runtime-init measurements
+cannot be reconstructed. Original-suite setup remains directly comparable.
+
+All 72 diagnostic rows retain the previous allocation, byte, heap-object, collection,
+preparation, validation and driver counts. The only differences are canonical slow
+boundaries: string_constants 10,000 to 5,000, string_calls 15,000 to 10,000, in both
+cold and warm runs. Cold materialization remains a real transition even though it
+no longer reaches canonical slow dispatch. Warm string workloads retain seven
+allocation requests and zero new string objects. Logs: target/hp04/constants-*.log.
+
+Initial paired candidate (`target/hp04/constants-executable`, SHA-256
+19a32644b3311761b6e8215461413e4b0ee4b74eac118106c0f6b59cbc54bc85) passed checksums
+but is not the accepted performance result. Against lease-executable, source forms
+in target/lua-comparison/20261010T065624Z-forms-paired/results.json measured string
+constants 0.6762, string calls 0.8107, direct 1.0706; corresponding Lua controls
+were 1.0220, 1.0031, 1.0011. Original controls in
+20261010T065722Z-paired/results.json confirmed arithmetic 1.0798 and branches 1.0835
+with Lua controls 0.9863/0.9922. Arrays/maps were 1.0073/1.0038. Builds of 19.265 s
+and 0.085 s were excluded. These scalar regressions required architectural review,
+not a string-only success claim.
+
+Post-timing disassembly showed ScalarCursor::execute growing from 521 to 558 machine
+instructions with unchanged 0x130 stack size. Its Rust loop and protocol counts were
+unchanged, but ScalarExit/CursorProgress still transported the complete expanding
+managed-operation enum. This let managed variants affect scalar return construction
+and register allocation despite moving their handlers out of the loop. Changed that
+responsibility boundary: scalar dispatch now reports a payload-free Managed exit;
+the object handler reads the sealed operation at the already-consumed prepared PC.
+There is one owning operation record, no canonical decode, duplicate semantic
+implementation, extra admission or additional logical instruction. No alignment,
+padding, compiler flag or first-PC-loop experiment is used. This costs one prepared
+lookup per managed operation; fresh scalar/string/control measurements below decide
+whether it is retained. Owned-drive (2), debugger (4), strict affected-target Clippy
+and operand-borrow quarantine (1) are the focused checks for this boundary change.
+
+The payload-free handoff experiment is rejected. Preserved binary
+`target/hp04/constants-handoff-executable` has SHA-256
+a6e6cf485d71f808583fc6dde549dc337ae9fcbbea8a3234bbc8e812d74c05a4.
+Source forms (20261010T070207Z-forms-paired) measured direct 1.1171 (Lua 1.0307),
+field 1.0468 (Lua 0.9984), string constants 0.6862 and string calls 0.8301.
+Original controls (20261010T070239Z-paired) still measured arithmetic 1.0544
+(Lua 0.9656) and branches 1.0786 (Lua 0.9863); all checksums passed and builds
+19.161/0.083 s were excluded. Scalar function size was still 555 instructions.
+This does not establish payload transport as the regression's cause. Reverted the
+handoff experiment: its extra prepared lookup did not recover scalar performance
+and worsened the field control, so it is not retained as speculative architecture.
+
+The next review targets instruction ownership at fetch. next_instruction copied the
+complete nested ExecutionInstruction enum before dispatch; disassembly loaded both
+its discriminant and all payload words unconditionally. The admitted immutable code
+slice already lives for the entire scalar region. Fetch now returns a reference into
+that slice, letting the selected handler read its payload directly. Existing managed
+handoff stays intact and copies its sealed record only for an actual managed opcode.
+No operation table, repeated lookup, extra authority, altered poll cadence or new
+metadata storage is introduced. This implements the existing borrowed-code boundary
+consistently; fresh measurements below determine its performance, rather than assuming
+that a Rust reference alone guarantees faster execution.
+
+Borrowed instruction fetch passes owned-drive (2), debugger (4) and strict affected-
+target diagnostics Clippy. The first fresh ordinary paired run passes all checksums:
+`target/lua-comparison/20261010T070530Z-forms-paired/results.json`. Versus the unchanged
+lease baseline, candidate/baseline ratios are string constants 0.6527, string calls
+0.7949, direct 0.9799, helper 0.9861, field 0.9663, concrete generic 1.0092,
+interface 0.9981, shared generic 0.9962, capture cell 1.0095, native 1.0078,
+byte state 1.0038 and host callback 0.9980. String Lua controls are 0.9969/0.9877;
+the 34.73%/20.51% execution reductions exceed control drift. Direct's control is
+0.9842, so its 2.01% reduction establishes recovery of the prior regression, not
+an independently proven scalar speedup. Small non-string changes are not universal
+speed claims. String constants/calls still take 28.98/35.50 times Lua; parity remains
+open. All workloads and compiler settings are unchanged, diagnostics are disabled,
+normal GC is included, and the 19.282 s build is excluded.
+
+Original controls also pass every checksum in
+`target/lua-comparison/20261010T070602Z-paired/results.json` (0.086 s build excluded).
+Ratios versus lease are entry 1.0020, arithmetic 1.0275, branches 1.0264, calls
+1.0113, fibonacci 1.0154, arrays 1.0032 and maps 0.9834. Lua controls respectively
+are 0.9856, 1.0104, 0.9972, 0.9910, 0.9802, 1.0047 and 0.9766. The initial roughly
+8% arithmetic/branch regressions are reduced, but the residual 2.75%/2.64% increases
+remain visible and require integrated HP04 control review. Do not claim complete
+scalar recovery from the direct-only result. Arithmetic/branches/arrays/maps remain
+5.34/3.09/42.02/68.04 times Lua. No further layout/alignment/compiler tuning is added
+for this checkpoint.
+
+Same M1 Max/32 GiB/10 logical CPUs, macOS 26.6.2 arm64, rustc 1.98.1/LLVM 22.1.8,
+workspace release/default parallelism and vendored Lua 5.4.8. Fresh sequential
+baseline/candidate/candidate/baseline processes use three warmups and 22 pooled
+samples per variant, single-threaded execution, normal GC and diagnostics disabled.
+No CPU-heavy build/test/profile runs alongside throughput. The retained ordinary
+candidate is `target/hp04/constants-borrowed-executable`, SHA-256
+03f9c70e89856c0fdb416cd1ae55daf7906beaf615d04e8a6fef1a49d1ac306b.
+Use this binary for the next checkpoint; constants-executable and
+constants-handoff-executable are superseded experiments. Post-timing disassembly
+(`target/hp04/constants-borrowed-scalar-assembly.txt`) has 509 instructions and a
+0xd0 stack, versus lease's 521/0x130 and initial constants' 558/0x130. Fetch now
+classifies the instruction before reading variant-specific payloads. Code-size
+reduction alone is not the performance proof; paired results above determine claims.
+
+Source-form setup has two candidate samples: source-to-artifact median 1,134.685 ms,
+artifact preparation 263.221 ms, runtime initialization 109.748 ms and linking
+2.917 ms. Baseline stderr gives source 1,134.632 ms, preparation 259.826 ms and
+linking 2.824 ms, with no runtime-init sample. The measured link increase is about
+0.092 ms; two samples cannot establish a stable cost bound. Original-suite six-
+sample per-workload medians span runtime-init 108.133–109.320 ms baseline and
+107.671–108.922 ms candidate; link 2.422–2.580 versus 2.412–2.606 ms. These coarse
+setup measurements do not isolate pool allocation or justify claiming free linking.
+
+Final borrowed-fetch diagnostics match all 72 initial linked-constant rows exactly,
+including the documented string-boundary reductions and unchanged allocations/GC.
+Final structure review passes (1,011 Rust files, zero violations/exceptions), as do
+formatting, 41 local document links and diff checks. The final Rust implementation
+has passed strict affected-target Clippy; there is no carried build/test error.
+No full-workspace or CI run was performed. HP04 remains open for field operands and
+fallback retirement, Vec index/String byte-length contracts, integrated metadata/setup
+accounting and residual control regressions. HP05–HP06, CI and Lua parity remain open.
