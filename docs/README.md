@@ -27,23 +27,30 @@ parallel migration documents.
   [Kagari/Lua benchmarks](../benchmarks/lua-comparison/README.md).
 - [Review findings](review.md): the shared document for ongoing repository reviews.
 - [Runnable examples](../examples/README.md).
-- [Async execution](async-execution-design.md), [host task scopes](host-task-scope-design.md)
-  and the [AX00-AX06 execution plan](async-execution-plan.md); the roadmap separates
-  focused local acceptance from full GitHub CI.
+- [HIR reading guide](architecture/hir.md) and the completed
+  [HIR](hir-documentation-plan.md) / [syntax](syntax-documentation-plan.md)
+  documentation contracts.
+- [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md).
+- [Async contracts](async-execution-design.md), [host task scopes](host-task-scope-design.md)
+  and the [AX00-AX06 acceptance record](async-execution-plan.md).
+- [Compact values/interpreter acceptance (VE00-VE09)](interpreter-value-execution-plan.md).
+  Implementation is complete locally; Lua parity and full CI remain open.
+- Completed semantic contracts: [nominal enums/propagation](enum-propagation-plan.md),
+  [imports and namespaces](import-resolution-plan.md),
+  [Type/Value namespaces and import solving](name-resolution-plan.md), and
+  [native default bodies](native-default-bodies-plan.md). The roadmap distinguishes
+  implementation completion from pending CI; these are not queued migrations.
 
 ## Queued designs
 
 These documents do not imply implemented APIs or active execution. The roadmap
 owns activation, dependencies and phase order.
 
-- [Syntax documentation completion](syntax-documentation-plan.md).
-- [Compact values and interpreter execution (VE00-VE08)](interpreter-value-execution-plan.md).
-- [Contract/common and declaration ownership cleanup](architecture.md#contract-and-common-responsibility-cleanup).
-- [Nominal enum registration and protocol-based propagation](enum-propagation-plan.md).
-- [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md).
-- [Import and namespace resolution (SA4, IR01-IR03)](import-resolution-plan.md).
-- [Type/value namespaces and import solving (SA8, SA2, SA3, NR01-NR05)](name-resolution-plan.md).
 - [Rust value/opaque interoperability](rust-interop-design.md).
 - [Host API unification](host-api-refactor.md).
 - [Packages and dependency resolution](package-design.md).
 - [Compatible reload and state replacement](update-model-design.md).
+
+Historical per-phase logs are recoverable with
+`git show 9dfeba3c:docs/implementation-roadmap.md` and the corresponding plan/report
+path. Current reading guides, specifications and design contracts remain in-tree.
