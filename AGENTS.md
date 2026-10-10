@@ -64,6 +64,38 @@ Prefer cohesive, reviewable changes with explicit responsibility boundaries.
 For structural migrations, follow the active plan's phase size and intermediate
 build policy.
 
+### Architecture Before Optimization and Feature Changes
+
+- Before recommending or implementing a performance optimization or feature change,
+  review the affected architecture and existing implementation. Trace responsibility
+  boundaries, data flow, ownership/lifetimes, invariant enforcement and execution
+  paths. Identify whether the problem comes from the architecture, its implementation
+  or an unavoidable semantic cost; do not start with a list of local patches.
+- When a boundary or data model is unsuitable, prioritize a coherent replacement
+  over adding caches, special cases, adapters or parallel paths around it. Review
+  earlier optimizations and workarounds on the affected paths too: retain sound
+  foundations, merge overlapping mechanisms and remove superseded ones as part of
+  the replacement. A previous benchmark improvement does not exempt a design from
+  this review. Temporary migration bridges need an explicit removal checkpoint.
+- Where useful, consult mature language/runtime architectures and their primary
+  documentation or source. Explain which ideas fit Kagari's static typing, GC,
+  host boundaries, hot reload and execution semantics, and which assumptions differ.
+  Treat these designs as references, not authority for copying an incompatible model
+  or claiming an unmeasured performance benefit.
+- Ground recommendations in the reviewed architecture and evidence. State the root
+  cause or remaining uncertainty, the intended responsibility/data-model change,
+  affected existing mechanisms and how correctness and improvement will be verified.
+  A missed performance target calls for renewed architectural diagnosis before
+  proposing another local optimization.
+- Caches and specialized paths are appropriate only with a clear semantic owner,
+  validity/lifetime contract and measured or otherwise concrete justification. They
+  must not conceal repeated preparation, duplicate semantics or misplaced validation.
+  Preserve required correctness guarantees while changing where they are established.
+- Scale the review to the task. If the architecture is sound and the defect is local,
+  make the focused fix and explain why it belongs there. Architecture-first work does
+  not justify speculative abstraction, empty future-use crates or unrelated rewrites.
+  Keep migrations finite and record material decisions in the existing active plan.
+
 ### Code Structure
 
 - Split code by crate and module responsibility. Keep `lib.rs` and facades focused
@@ -95,8 +127,6 @@ build policy.
   that mix unrelated policies.
 - Keep feature-specific policy out of generic execution loops. Do not move mixed
   responsibilities into `common` merely to make a dependency cycle disappear.
-- Adjust an incorrect boundary instead of repeatedly patching around it. Avoid
-  speculative abstraction and empty crates created only for future features.
 - Write source comments, API documentation and repository documents in English.
   Use the user's language for conversation and progress updates.
 
