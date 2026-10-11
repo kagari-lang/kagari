@@ -6,7 +6,9 @@ use crate::{
     trait_bounds, verifier,
     verifier::BytecodeVerificationError,
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, metadata::scope_record, reference::DefinitionReference,
+};
 use kagari_contract::{
     host, layout,
     types::{PublicItem, verify},
@@ -222,7 +224,12 @@ pub(crate) fn verify_with_suspensions(
             if let Some(kind) = Protocol::from_id(&instance.declaration)
                 && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
                     || instance.declaration.module != table.declaration.module
-                        && owners.owner(&table.for_type).as_ref()
+                        && scope_record(&table.for_type, &Default::default())
+                            .ok()
+                            .and_then(|receiver| {
+                                owners.owner(receiver.records(), receiver.definitions())
+                            })
+                            .as_ref()
                             != Some(&table.declaration.module)
                         && kind != Protocol::From
                         && !matches!(

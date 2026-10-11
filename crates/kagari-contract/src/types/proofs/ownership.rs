@@ -2,7 +2,10 @@ use crate::{
     language::primitive as intrinsic,
     types::proofs::{Budget, ProofCatalog, implementation::Implementation},
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, mapping::DefinitionMappingError, metadata::scope_record},
+};
 use kagari_types::{
     declaration::{conversion::ConversionAdapter, ownership::ReceiverOwners},
     language::Protocol,
@@ -92,7 +95,8 @@ impl ProofCatalog<'_> {
                     nominal.declaration.module == table.declaration().module
                 }
                 Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => {
-                    owners.owner(table.receiver()).as_ref() == Some(&table.declaration().module)
+                    receiver_owner(owners, table.receiver(), budget.cancel)?.as_ref()
+                        == Some(&table.declaration().module)
                 }
                 _ => false,
             });
@@ -128,10 +132,15 @@ impl ProofCatalog<'_> {
                 return Ok(false);
             }
             let owner = &table.declaration().module;
-            return Ok(interface.declaration.module == *owner
-                || iter::once(table.receiver())
-                    .chain(&interface.arguments)
-                    .any(|ty| owners.owner(ty).as_ref() == Some(owner)));
+            if interface.declaration.module == *owner {
+                return Ok(true);
+            }
+            for ty in iter::once(table.receiver()).chain(&interface.arguments) {
+                if receiver_owner(owners, ty, budget.cancel)?.as_ref() == Some(owner) {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
         }
         let Some(kind) = kind else {
             return Ok(true);
@@ -145,7 +154,10 @@ impl ProofCatalog<'_> {
         let (Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal)) =
             table.receiver()
         else {
-            return Ok(owners.owner(table.receiver()).as_ref() == Some(&table.declaration().module));
+            return Ok(
+                receiver_owner(owners, table.receiver(), budget.cancel)?.as_ref()
+                    == Some(&table.declaration().module),
+            );
         };
         if nominal.declaration.module != table.declaration().module {
             return Ok(false);
@@ -172,6 +184,20 @@ impl ProofCatalog<'_> {
         }
         Ok(true)
     }
+}
+
+// The linked proof records still use authoring identities until SI04. Adopt at
+// this caller boundary; the receiver ownership algorithm only accepts scoped IDs.
+fn receiver_owner(
+    owners: &ReceiverOwners,
+    receiver: &Ty,
+    cancel: &CancellationToken,
+) -> Result<Option<ModuleIdentity>, TypeTransformError> {
+    let receiver = scope_record(receiver, cancel).map_err(|error| match error {
+        DefinitionMappingError::Cancelled => TypeTransformError::Cancelled,
+        _ => TypeTransformError::InvalidContract,
+    })?;
+    Ok(owners.owner(receiver.records(), receiver.definitions()))
 }
 
 fn overlapping(left: &Ty, right: &Ty) -> bool {

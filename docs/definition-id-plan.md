@@ -407,3 +407,37 @@ Update this ledger with validation results, deviations and owning follow-ups; do
 not create another progress queue. On completion, move contracts to their
 architecture/spec owners and remaining work/CI status to the roadmap, then remove
 this plan.
+
+### SI02 receiver ownership checkpoint
+
+`ReceiverOwners::owner` now requires a fixed-ID receiver and its retained table.
+Nominal ownership resolves that ID in the supplied scope; an equal path in another
+context, or an ID newer than the retained prefix, does not establish ownership.
+The intrinsic scalar/Array rules and declaration-supplied constructor ownership
+are unchanged. Catalog owner collection visits ID-keyed entries and borrows their
+module identities, removing its whole-type path projection and canonical path sort.
+Constructor shape checking shares the existing field/variant/arity algorithm for
+both remaining authoring declarations and scoped declarations; its temporary Rust
+identity parameter is removed with `TypeDef` in SI06.
+
+ModuleDecl, builder inputs, HIR native import and executable proof records still
+carry paths at this checkpoint. Their receiver query explicitly adopts the input
+before invoking the single scoped ownership algorithm. These are temporary caller
+adapters, not a second ownership implementation. Remove runtime registration and
+builder adapters with SI02, HIR native import adoption with SI03, and the contract
+proof/ABI and bytecode adapters with SI04. The proof adapter propagates cancellation
+and invalid identity conversion separately. Whole ModuleDecl validation and
+ProofCatalog migration remain the next coupled work; SI02 is still incomplete.
+
+Selected validation passed 12 tests: the two types receiver-ownership cases,
+contract `nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prerequisites`,
+six runtime module scope/dependency/installation cases, and three native builder
+cases (`builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations`
+and the two `receiver_groups` cases). These exercise the changed ownership contract
+and immediate registration/proof consumers. Runtime/compiler library checking and
+types/contract/runtime library Clippy passed. Structural checking passed with 1037
+Rust files and no violations or exceptions; formatting and diff checks passed.
+No build failure is carried. Existing source-free/reload evidence is unchanged;
+SI04-SI06 must reselect those contracts when their records and codecs migrate.
+Full workspace/backend/feature validation remains CI-owned. No performance result
+is claimed; remaining path callers now perform temporary input adoption.

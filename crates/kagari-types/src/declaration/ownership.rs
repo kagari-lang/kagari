@@ -5,7 +5,10 @@ use crate::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    ModuleIdentity, PackageId,
+    table::{DefinitionId, DefinitionTable},
+};
 use std::collections::BTreeMap;
 
 /// Constructor ownership is supplied by declarations, independent of API names.
@@ -15,8 +18,8 @@ pub struct ReceiverOwners {
 }
 
 impl ReceiverOwners {
-    pub fn from_types<'a>(
-        types: impl IntoIterator<Item = (&'a ModuleIdentity, &'a TypeDef)>,
+    pub fn from_types<'a, I: 'a>(
+        types: impl IntoIterator<Item = (&'a ModuleIdentity, &'a TypeDef<I>)>,
     ) -> Result<Self, DeclarationError> {
         let mut owners = Self::default();
         for (module, declaration) in types {
@@ -41,10 +44,19 @@ impl ReceiverOwners {
         Ok(owners)
     }
 
-    pub fn owner(&self, ty: &Ty) -> Option<ModuleIdentity> {
+    /// Resolve receiver ownership in the supplied identity scope. Unknown or
+    /// foreign nominal IDs never establish ownership.
+    pub fn owner(
+        &self,
+        ty: &Ty<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> Option<ModuleIdentity> {
         let constructor = match ty {
             Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
-                return Some(nominal.declaration.module.clone());
+                return definitions
+                    .resolve(nominal.declaration)
+                    .ok()
+                    .map(|view| view.module().clone());
             }
             // Primitive scalar identity is part of language semantics, not a library recipe.
             Ty::Builtin(kind) if *kind != BuiltinType::String => {
@@ -55,9 +67,13 @@ impl ReceiverOwners {
             }
             Ty::Builtin(BuiltinType::String) => NativeTypeConstructor::String,
             Ty::Trait(interface)
-                if Protocol::from_id(&interface.declaration) == Some(Protocol::Iterator) =>
+                if Protocol::from_reference(&interface.declaration, Some(definitions))
+                    == Some(Protocol::Iterator) =>
             {
-                return Some(interface.declaration.module.clone());
+                return definitions
+                    .resolve(interface.declaration)
+                    .ok()
+                    .map(|view| view.module().clone());
             }
             Ty::Array(..) => {
                 return Some(ModuleIdentity {
@@ -79,8 +95,12 @@ impl ReceiverOwners {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{collection::CollectionAccess, declaration::module::ModuleDecl, ty::GenericParam};
-    use kagari_common::identity::DefinitionKind;
+    use crate::{
+        collection::CollectionAccess,
+        declaration::module::ModuleDecl,
+        ty::{GenericParam, NominalTy},
+    };
+    use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 
     fn sequence(module: &ModuleDecl) -> TypeDef {
         TypeDef {
@@ -100,15 +120,22 @@ mod tests {
     fn native_family_ownership_comes_from_validated_bindings() {
         let left = ModuleDecl::new(ModuleIdentity::single_file("left.kgr"));
         let right = ModuleDecl::new(ModuleIdentity::single_file("right.kgr"));
+        let definitions = DefinitionContext::new().unwrap().snapshot();
         let receiver = Ty::Set(
             Box::new(Ty::Builtin(BuiltinType::I32)),
             CollectionAccess::Mutable,
         );
-        assert_eq!(ReceiverOwners::default().owner(&receiver), None);
+        assert_eq!(
+            ReceiverOwners::default().owner(&receiver, &definitions),
+            None
+        );
         let left_type = sequence(&left);
         let right_type = sequence(&right);
         let owners = ReceiverOwners::from_types([(&left.identity, &left_type)]).unwrap();
-        assert_eq!(owners.owner(&receiver), Some(left.identity.clone()));
+        assert_eq!(
+            owners.owner(&receiver, &definitions),
+            Some(left.identity.clone())
+        );
         assert!(
             ReceiverOwners::from_types([
                 (&left.identity, &left_type),
@@ -119,5 +146,37 @@ mod tests {
         let mut invalid = left_type;
         invalid.generic_params.clear();
         assert!(ReceiverOwners::from_types([(&left.identity, &invalid)]).is_err());
+    }
+
+    #[test]
+    fn nominal_receiver_ownership_requires_its_retained_scope() {
+        let context = DefinitionContext::new().unwrap();
+        let module = ModuleIdentity::single_file("owner.kgr");
+        let root = context.intern_root(&module).unwrap();
+        let before = context.snapshot();
+        let id = context
+            .intern_child(root, DefinitionKind::Struct, "Value", 0)
+            .unwrap();
+        let receiver = Ty::Struct(NominalTy {
+            declaration: id,
+            arguments: vec![],
+            associated_types: BTreeMap::new(),
+        });
+        let owners = ReceiverOwners::default();
+        let retained = context.snapshot();
+        assert_eq!(owners.owner(&receiver, &retained), Some(module));
+        assert_eq!(owners.owner(&receiver, &before), None);
+        let foreign = DefinitionContext::new().unwrap();
+        let path = retained.resolve(id).unwrap().to_path();
+        let foreign_id = foreign.intern(&path).unwrap();
+        assert_ne!(id, foreign_id);
+        assert_eq!(owners.owner(&receiver, &foreign.snapshot()), None);
+        context
+            .intern_child(root, DefinitionKind::Struct, "Later", 0)
+            .unwrap();
+        assert_eq!(
+            owners.owner(&receiver, &retained),
+            owners.owner(&receiver, &context.snapshot())
+        );
     }
 }

@@ -6,7 +6,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity,
-    identity::{DefinitionKind, ModuleIdentity},
+    identity::{DefinitionKind, ModuleIdentity, metadata::scope_record},
 };
 use kagari_types::declaration::verify::{
     Parameters, aggregate_shape_valid, bounds_valid, function_valid, owner, parameters,
@@ -93,7 +93,13 @@ pub fn validate(
                 params.is_some_and(|params| {
                     let mut names = HashSet::new();
                     !table.methods.is_empty()
-                        && receivers.owner(&table.for_type).as_ref() == Some(module)
+                        && scope_record(&table.for_type, cancel)
+                            .ok()
+                            .and_then(|receiver| {
+                                receivers.owner(receiver.records(), receiver.definitions())
+                            })
+                            .as_ref()
+                            == Some(module)
                         && bounds_valid(&table.bounds, &params, cancel)
                         && type_valid(&table.for_type, &params, None, cancel)
                         && table.methods.iter().all(|method| {

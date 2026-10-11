@@ -34,7 +34,12 @@ impl DeclarationCatalog {
         let owners = catalog.receiver_owners(None)?;
         for module in &modules {
             module
-                .validate(&|receiver| owners.owner(receiver))
+                .validate(&|receiver| {
+                    catalog
+                        .scope(receiver)
+                        .ok()
+                        .and_then(|receiver| owners.owner(&receiver, &catalog.definitions()))
+                })
                 .map_err(conflict)?;
         }
         catalog.check_implementations(modules.iter().copied())?;
@@ -46,16 +51,24 @@ impl DeclarationCatalog {
         &self,
         extra: Option<&ModuleDecl>,
     ) -> Result<ReceiverOwners, RuntimeError> {
+        let extra = extra
+            .map(|module| {
+                self.scope(&module.types)
+                    .map(|types| (&module.identity, types))
+            })
+            .transpose()?;
+        let definitions = self.definitions();
         let types = self
             .types
-            .iter()
-            .map(|(id, ty)| Ok((id.module, self.paths(ty)?)))
-            .collect::<Result<Vec<_>, RuntimeError>>()?;
+            .entries()
+            .map(|(id, ty)| definitions.resolve(id).map(|view| (view.module(), ty)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(conflict)?;
         ReceiverOwners::from_types(
-            types.iter().map(|(module, ty)| (module, ty)).chain(
+            types.into_iter().chain(
                 extra
-                    .into_iter()
-                    .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
+                    .iter()
+                    .flat_map(|(module, types)| types.iter().map(|ty| (*module, ty))),
             ),
         )
         .map_err(conflict)

@@ -12,7 +12,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord},
+    identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord, metadata::scope_record},
 };
 use kagari_source::{
     source::SourceFile,
@@ -58,7 +58,11 @@ pub(crate) fn import_source(
             .iter()
             .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
     )?;
-    definition.validate(&|receiver| owners.owner(receiver))?;
+    definition.validate(&|receiver| {
+        scope_record(receiver, cancel)
+            .ok()
+            .and_then(|receiver| owners.owner(receiver.records(), receiver.definitions()))
+    })?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())

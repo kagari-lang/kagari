@@ -160,7 +160,12 @@ impl ModuleBuilder {
         }
         let owners = catalog.receiver_owners(Some(&candidate))?;
         candidate
-            .validate(&|receiver| owners.owner(receiver))
+            .validate(&|receiver| {
+                catalog
+                    .scope(receiver)
+                    .ok()
+                    .and_then(|receiver| owners.owner(&receiver, &catalog.definitions()))
+            })
             .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
         let function = self.define_function(declaration)?;
         if let Some(produces) = produces {

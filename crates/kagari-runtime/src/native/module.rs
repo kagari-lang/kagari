@@ -45,7 +45,12 @@ impl NativeModule {
     ) -> NativeResult<Self> {
         let owners = providers.receiver_owners(Some(&declaration))?;
         declaration
-            .validate(&|receiver| owners.owner(receiver))
+            .validate(&|receiver| {
+                providers
+                    .scope(receiver)
+                    .ok()
+                    .and_then(|receiver| owners.owner(&receiver, &providers.definitions()))
+            })
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let owned = DeclarationCatalog::declared([&declaration])?;
         let mut entries = BTreeMap::new();
@@ -171,7 +176,12 @@ impl NativeModule {
                 .collect::<Vec<_>>(),
         );
         declaration
-            .validate(&|receiver| owners.owner(receiver))
+            .validate(&|receiver| {
+                providers
+                    .scope(receiver)
+                    .ok()
+                    .and_then(|receiver| owners.owner(&receiver, &providers.definitions()))
+            })
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let mut indexed_storage = DefinitionMap::new(owned.types.context().clone());
         for (id, storage) in storage {

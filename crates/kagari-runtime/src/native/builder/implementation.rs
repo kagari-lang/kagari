@@ -35,7 +35,15 @@ impl<'module> ImplementationBuilder<'module> {
         if !self
             .module
             .declaration
-            .owns_inherent_receiver(&self.receiver.0, &|receiver| owners.owner(receiver))
+            .owns_inherent_receiver(&self.receiver.0, &|receiver| {
+                self.module
+                    .providers
+                    .scope(receiver)
+                    .ok()
+                    .and_then(|receiver| {
+                        owners.owner(&receiver, &self.module.providers.definitions())
+                    })
+            })
         {
             return Err(RuntimeError::metadata_conflict(
                 "inherent methods belong to the type's defining module",
