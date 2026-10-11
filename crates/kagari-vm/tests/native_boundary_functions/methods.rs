@@ -109,7 +109,8 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
     let mut builder = ModuleBuilder::new(
         "example::methods",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     builder
         .add_function(
             FunctionSpec::new("collect"),

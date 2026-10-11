@@ -39,7 +39,7 @@ struct Registration {
 
 fn registration() -> Registration {
     let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("example::managed", &language.catalog().unwrap());
+    let mut module = ModuleBuilder::new("example::managed", &language.catalog().unwrap()).unwrap();
     let mut storage = ManagedStorage::<State>::new();
     let name = storage
         .field::<String>(
@@ -49,9 +49,9 @@ fn registration() -> Registration {
         .unwrap();
     assert!(storage.field::<String>("name", Type::i32()).is_err());
     let callback = storage
-        .field::<Callback>("callback", Type::function([], Type::i32()))
+        .field::<Callback>("callback", Type::function([], Type::i32()).unwrap())
         .unwrap();
-    let mut ty = module.define_type("Holder");
+    let mut ty = module.define_type("Holder").unwrap();
     ty.native_storage(storage.finish()).unwrap();
     let ty = ty.finish().unwrap();
     let new = module
@@ -62,7 +62,7 @@ fn registration() -> Registration {
                     "name",
                     String::kagari_type(&language.catalog().unwrap()).unwrap(),
                 )
-                .parameter("callback", Type::function([], Type::i32()))
+                .parameter("callback", Type::function([], Type::i32()).unwrap())
                 .returns(ty.apply([]).unwrap()),
         )
         .unwrap();
@@ -104,7 +104,7 @@ fn registration() -> Registration {
         .define_function(
             FunctionDecl::new("install")
                 .parameter("holder", ty.apply([]).unwrap())
-                .parameter("callback", Type::function([], Type::i32())),
+                .parameter("callback", Type::function([], Type::i32()).unwrap()),
         )
         .unwrap();
     let token = callback.clone();
@@ -381,10 +381,10 @@ impl IntoKagari for Converted {
 #[test]
 fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
     let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("example::managed", &language.catalog().unwrap());
+    let mut module = ModuleBuilder::new("example::managed", &language.catalog().unwrap()).unwrap();
     let mut storage = ManagedStorage::<()>::new();
     let callback_token = storage
-        .field::<Callback>("callback", Type::function([], Type::i32()))
+        .field::<Callback>("callback", Type::function([], Type::i32()).unwrap())
         .unwrap();
     let text_token = storage
         .field::<Converted>(
@@ -392,14 +392,14 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
             String::kagari_type(&language.catalog().unwrap()).unwrap(),
         )
         .unwrap();
-    let mut ty = module.define_type("Holder");
+    let mut ty = module.define_type("Holder").unwrap();
     ty.native_storage(storage.finish()).unwrap();
     let ty = ty.finish().unwrap();
     let mut wrong_storage = ManagedStorage::<()>::new();
     let wrong_token = wrong_storage
-        .field::<i32>("wrong", Type::function([], Type::i32()))
+        .field::<i32>("wrong", Type::function([], Type::i32()).unwrap())
         .unwrap();
-    let mut wrong_ty = module.define_type("Wrong");
+    let mut wrong_ty = module.define_type("Wrong").unwrap();
     wrong_ty.native_storage(wrong_storage.finish()).unwrap();
     let wrong_ty = wrong_ty.finish().unwrap();
     let (vm, owner) = fixture(
@@ -508,8 +508,9 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
     let mut module = ModuleBuilder::new(
         "example::managed",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut ty = module.define_type("Boxed");
+    )
+    .unwrap();
+    let mut ty = module.define_type("Boxed").unwrap();
     let parameter = ty.type_parameter("T").unwrap();
     let mut storage = ManagedStorage::<()>::new();
     let value_token = storage
@@ -521,8 +522,8 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
     module
         .function(&wrap, |f| {
             let parameter = f.type_parameter("T")?.ty();
-            f.parameter("value", parameter.clone());
-            f.returns(ty.apply([parameter])?);
+            f.parameter("value", parameter.clone())?;
+            f.returns(ty.apply([parameter])?)?;
             Ok(())
         })
         .unwrap();
@@ -543,8 +544,8 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
     module
         .function(&read, |f| {
             let parameter = f.type_parameter("T")?.ty();
-            f.parameter("value", ty.apply([parameter.clone()])?);
-            f.returns(parameter);
+            f.parameter("value", ty.apply([parameter.clone()])?)?;
+            f.returns(parameter)?;
             Ok(())
         })
         .unwrap();

@@ -18,8 +18,9 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
     let mut module = ModuleBuilder::new(
         "example::methods",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut declaration = module.define_type("Player");
+    )
+    .unwrap();
+    let mut declaration = module.define_type("Player").unwrap();
     declaration
         .native_storage(NativeStorage::data::<PlayerState>())
         .unwrap();
@@ -58,8 +59,8 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                 let echo = methods.define_method(MethodDecl::instance("echo"))?;
                 methods.method(&echo, |signature| {
                     let output = signature.type_parameter("Output")?;
-                    signature.parameter("value", output.ty());
-                    signature.returns(output.ty());
+                    signature.parameter("value", output.ty())?;
+                    signature.returns(output.ty())?;
                     Ok(())
                 })?;
                 methods.bind_typed_method(
@@ -91,7 +92,15 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     let ty = runtime
         .bind_native_type::<PlayerState>(&owner, &declaration, &[])
         .unwrap();
-    let member = ty.method_declaration(damage_declaration.id()).unwrap();
+    let member = ty
+        .method_declaration(
+            &damage_declaration
+                .definitions()
+                .resolve(damage_declaration.id())
+                .unwrap()
+                .to_path(),
+        )
+        .unwrap();
     let damage = runtime
         .bind_method_declaration::<(i32,), i32>(&member)
         .unwrap();
@@ -159,8 +168,9 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
     let mut module = ModuleBuilder::new(
         "example::generic_methods",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut declaration = module.define_type("Holder");
+    )
+    .unwrap();
+    let mut declaration = module.define_type("Holder").unwrap();
     declaration.type_parameter("Element").unwrap();
     declaration
         .native_storage(NativeStorage::data::<PlayerState>())
@@ -200,8 +210,8 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                 )?;
                 methods.method(&choose, |signature| {
                     let output = signature.type_parameter("Output")?;
-                    signature.parameter("value", output.ty());
-                    signature.returns(output.ty());
+                    signature.parameter("value", output.ty())?;
+                    signature.returns(output.ty())?;
                     Ok(())
                 })?;
                 methods.bind_typed_method(
@@ -270,13 +280,14 @@ fn native_method_requirements_use_selected_generic_evidence() {
     let mut module = ModuleBuilder::new(
         "example::bounded_methods",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut contract = module.define_trait("Read");
+    )
+    .unwrap();
+    let mut contract = module.define_trait("Read").unwrap();
     contract
         .define_method(MethodDecl::instance("read").returns(Type::i32()))
         .unwrap();
     let contract = contract.finish().unwrap();
-    let mut declaration = module.define_type("Holder");
+    let mut declaration = module.define_type("Holder").unwrap();
     declaration.type_parameter("Element").unwrap();
     declaration
         .native_storage(NativeStorage::data::<PlayerState>())
@@ -303,11 +314,11 @@ fn native_method_requirements_use_selected_generic_evidence() {
                         .returns(Type::i32()),
                 )?;
                 let selected = methods.method(&read, |signature| {
-                    signature.bound(element.clone(), contract.apply([]));
-                    Ok(signature.requires(CallableRequirement::method(
+                    signature.bound(element.clone(), contract.apply([])?)?;
+                    signature.requires(CallableRequirement::method(
                         element,
                         contract.method("read")?,
-                    )))
+                    )?)
                 })?;
                 methods.bind_typed_method(
                     read,

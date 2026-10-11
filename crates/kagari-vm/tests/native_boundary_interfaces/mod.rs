@@ -1,7 +1,6 @@
 use super::{compile, compile_program};
-use kagari_bytecode::{
-    artifact::KbcArtifact, program::verify_program, verifier::BytecodeVerificationError,
-};
+use crate::support::round_trip_program;
+use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_runtime::{
     Runtime,
@@ -30,8 +29,9 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut declaration = module.define_trait("Identity");
+    )
+    .unwrap();
+    let mut declaration = module.define_trait("Identity").unwrap();
     declaration.type_parameter("Item").unwrap();
     let identity = declaration
         .define_method(MethodDecl::instance("identity"))
@@ -39,8 +39,8 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     declaration
         .method(&identity, |method| {
             let value = method.type_parameter("T")?.ty();
-            method.parameter("value", value.clone());
-            method.returns(value);
+            method.parameter("value", value.clone())?;
+            method.returns(value)?;
             Ok(())
         })
         .unwrap();
@@ -57,7 +57,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     let observed = calls.clone();
     module
         .implement(Type::i32(), |group| {
-            group.trait_impl(contract.apply([Type::i32()]), |methods| {
+            group.trait_impl(contract.apply([Type::i32()])?, |methods| {
                 methods.bind_with(
                     "identity",
                     NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
@@ -111,7 +111,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         Some(&module),
     );
     for mutation in 0..3 {
-        let mut forged = program.clone();
+        let (definitions, mut forged) = program.clone().into_parts();
         let import = forged
             .modules
             .iter_mut()
@@ -124,12 +124,11 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
             _ => import.signature.result = Type::bool().abi().clone(),
         }
         assert!(
-            verify_program(&forged).is_err(),
+            verify_program(&forged, &definitions).is_err(),
             "native mutation {mutation}"
         );
     }
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded = round_trip_program(program);
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
@@ -137,9 +136,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     )
     .unwrap();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime
-        .load_program("shared-native", decoded.program)
-        .unwrap();
+    let loaded = runtime.load_program("shared-native", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main")
@@ -184,8 +181,9 @@ fn registered_default_calls_the_selected_receiver_operation() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut declaration = module.define_trait("Read");
+    )
+    .unwrap();
+    let mut declaration = module.define_trait("Read").unwrap();
     let read = declaration
         .define_method(MethodDecl::instance("read").returns(Type::i32()))
         .unwrap();
@@ -194,23 +192,19 @@ fn registered_default_calls_the_selected_receiver_operation() {
         .unwrap();
     let operation = declaration.operation(&read).unwrap();
     let selected = declaration
-        .method(&twice, |method| Ok(method.requires(operation)))
+        .method(&twice, |method| method.requires(operation))
         .unwrap();
     declaration
         .bind_default_with(
             twice,
-            NativeBinding::new(
-                vec![Codec::Value],
-                Codec::Scalar(Type::i32().abi().clone()),
-                move |cx| {
-                    let receiver = cx.argument(0)?;
-                    let target = cx.selected(&selected)?;
-                    let Value::I32(value) = cx.call_values(target, &[receiver])? else {
-                        return Err(RuntimeError::module_validation("checked Read result"));
-                    };
-                    Ok(Value::I32(value * 2))
-                },
-            ),
+            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
+                let receiver = cx.argument(0)?;
+                let target = cx.selected(&selected)?;
+                let Value::I32(value) = cx.call_values(target, &[receiver])? else {
+                    return Err(RuntimeError::module_validation("checked Read result"));
+                };
+                Ok(Value::I32(value * 2))
+            }),
         )
         .unwrap();
     declaration.finish().unwrap();
@@ -268,15 +262,14 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
         "use std::collections::{List};\nfn sum(values: List<i32>) -> i32 { var n = 0; for x in values { n += x; } n } fn main() -> i32 { sum(Vec::from([20, 22])) }",
         None,
     );
-    let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded = round_trip_program(program.clone());
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
-    let loaded = runtime.load_program("round-trip", decoded.program).unwrap();
+    let loaded = runtime.load_program("round-trip", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main")
@@ -287,6 +280,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
         Value::I32(42)
     );
     let (owner, table) = program
+        .records()
         .modules
         .iter()
         .enumerate()
@@ -299,10 +293,10 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
         })
         .unwrap();
     for corruption in 0..5 {
-        let mut forged = program.clone();
+        let (definitions, mut forged) = program.clone().into_parts();
         let table = &mut forged.modules[owner].interface_tables[table];
         let identity = ConcreteFunctionIdentity {
-            declaration: table.declaration.clone(),
+            declaration: table.declaration,
             arguments: table.arguments.clone(),
         };
         let view = table.view.as_mut().unwrap();
@@ -315,7 +309,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
         }
         assert!(
             matches!(
-                verify_program(&forged),
+                verify_program(&forged, &definitions),
                 Err(BytecodeVerificationError::InvalidInterfaceTable)
             ),
             "corruption {corruption}"
@@ -330,7 +324,8 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let collect = builder
         .define_function(FunctionDecl::new("collect").returns(Type::unit()))
         .unwrap();
@@ -462,21 +457,22 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     let mut module = ModuleBuilder::new(
         "example::comparison",
         &language.catalog().expect("explicit standard providers"),
-    );
-    let mut declaration = module.define_trait("Compare");
+    )
+    .unwrap();
+    let mut declaration = module.define_trait("Compare").unwrap();
     let compare = declaration
-        .define_method(MethodDecl::instance("compare").returns(language.ordering()))
+        .define_method(MethodDecl::instance("compare").returns(language.ordering().unwrap()))
         .unwrap();
     let selected = declaration
         .method(&compare, |method| {
             let key = method.type_parameter("K")?.ty();
-            method.parameter("left", key.clone());
-            method.parameter("right", key.clone());
-            method.bound(key.clone(), language.ord().apply([]));
-            Ok(method.requires(CallableRequirement::method(
+            method.parameter("left", key.clone())?;
+            method.parameter("right", key.clone())?;
+            method.bound(key.clone(), language.ord().apply([])?)?;
+            method.requires(CallableRequirement::method(
                 key,
                 language.ord().method("cmp")?,
-            )))
+            )?)
         })
         .unwrap();
     declaration
@@ -517,8 +513,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     "#,
         Some(&module),
     );
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded = round_trip_program(program);
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
@@ -526,9 +521,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     )
     .unwrap();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime
-        .load_program("native-constraint", decoded.program)
-        .unwrap();
+    let loaded = runtime.load_program("native-constraint", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main")
@@ -557,8 +550,7 @@ fn main() -> i32 {
 "#,
         Some(&module),
     );
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded = round_trip_program(program);
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
@@ -566,9 +558,7 @@ fn main() -> i32 {
     )
     .unwrap();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime
-        .load_program("shared-helper", decoded.program)
-        .unwrap();
+    let loaded = runtime.load_program("shared-helper", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main")
@@ -585,15 +575,16 @@ pub(super) fn generic_identity_module() -> NativeModule {
     let mut module = ModuleBuilder::new(
         "example::generic_helper",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let identity = module
         .define_function(FunctionDecl::new("identity"))
         .unwrap();
     module
         .function(&identity, |function| {
             let value = function.type_parameter("T")?.ty();
-            function.parameter("value", value.clone());
-            function.returns(value);
+            function.parameter("value", value.clone())?;
+            function.returns(value)?;
             Ok(())
         })
         .unwrap();
@@ -609,8 +600,8 @@ pub(super) fn generic_identity_module() -> NativeModule {
     module
         .function(&singleton, |function| {
             let item = function.type_parameter("T")?.ty();
-            function.parameter("value", item.clone());
-            function.returns(language.vec(item));
+            function.parameter("value", item.clone())?;
+            function.returns(language.vec(item)?)?;
             Ok(())
         })
         .unwrap();
@@ -724,8 +715,9 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut declaration = module.define_trait("Read");
+    )
+    .unwrap();
+    let mut declaration = module.define_trait("Read").unwrap();
     let read = declaration
         .define_method(MethodDecl::instance("read").returns(Type::i32()))
         .unwrap();
@@ -736,9 +728,9 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
     let selected = declaration
         .method(&echo, |method| {
             let value = method.type_parameter("T")?.ty();
-            method.parameter("value", value.clone());
-            method.returns(value);
-            Ok(method.requires(operation))
+            method.parameter("value", value.clone())?;
+            method.returns(value)?;
+            method.requires(operation)
         })
         .unwrap();
     declaration
@@ -797,16 +789,17 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut declaration = module.define_trait("Identity");
+    )
+    .unwrap();
+    let mut declaration = module.define_trait("Identity").unwrap();
     let method = declaration
         .define_method(MethodDecl::instance("identity"))
         .unwrap();
     declaration
         .method(&method, |method| {
             let value = method.type_parameter("T")?.ty();
-            method.parameter("value", value.clone());
-            method.returns(value);
+            method.parameter("value", value.clone())?;
+            method.returns(value)?;
             Ok(())
         })
         .unwrap();
@@ -816,14 +809,14 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
         .function(&invoke, |function| {
             let source = function.type_parameter("S")?.ty();
             let value = function.type_parameter("T")?.ty();
-            function.parameter("source", source.clone());
-            function.parameter("value", value.clone());
-            function.returns(value.clone());
-            function.bound(source.clone(), contract.apply([]));
-            Ok(function.requires(
-                CallableRequirement::method(source, contract.method("identity")?)
-                    .arguments([value]),
-            ))
+            function.parameter("source", source.clone())?;
+            function.parameter("value", value.clone())?;
+            function.returns(value.clone())?;
+            function.bound(source.clone(), contract.apply([])?)?;
+            function.requires(
+                CallableRequirement::method(source, contract.method("identity")?)?
+                    .arguments([value])?,
+            )
         })
         .unwrap();
     module

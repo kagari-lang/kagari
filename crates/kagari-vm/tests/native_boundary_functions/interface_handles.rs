@@ -62,6 +62,7 @@ impl KagariType for IntList {
         Ok(StandardDeclarations::default()
             .list()
             .apply([i32::kagari_type(catalog)?])
+            .unwrap()
             .ty())
     }
 }
@@ -73,7 +74,8 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
     let mut builder = ModuleBuilder::new(
         "example::interface_handles",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     builder
         .add_function(
             FunctionSpec::new("retain").parameter_names(["value"]),

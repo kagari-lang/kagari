@@ -79,8 +79,9 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
     let mut builder = ModuleBuilder::new(
         "fixture::transfer",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut declaration = builder.define_type("Counter");
+    )
+    .unwrap();
+    let mut declaration = builder.define_type("Counter").unwrap();
     declaration
         .native_storage(NativeStorage::new(move |_| {
             Ok(Counter {
@@ -111,24 +112,20 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
     builder
         .bind_with(
             bump,
-            NativeBinding::new(
-                vec![counter.codec()],
-                Codec::Scalar(Type::i32().abi().clone()),
-                |cx| {
-                    cx.with_payload::<Counter, _>(0, |counter| {
-                        let next = counter.count.get() + 1;
-                        counter.count.set(next);
-                        Ok(Value::I32(next))
-                    })
-                },
-            ),
+            NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
+                cx.with_payload::<Counter, _>(0, |counter| {
+                    let next = counter.count.get() + 1;
+                    counter.count.set(next);
+                    Ok(Value::I32(next))
+                })
+            }),
         )
         .unwrap();
     let remember = builder
-        .define_function(
-            FunctionDecl::new("remember")
-                .parameter("callback", Type::function([Type::i32()], Type::i32())),
-        )
+        .define_function(FunctionDecl::new("remember").parameter(
+            "callback",
+            Type::function([Type::i32()], Type::i32()).unwrap(),
+        ))
         .unwrap();
     let stored = held.clone();
     builder

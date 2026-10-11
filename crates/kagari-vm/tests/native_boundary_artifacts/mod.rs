@@ -1,19 +1,24 @@
+use crate::support::round_trip_program;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register},
     program::{BytecodeProgram, verify_program},
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_compiler::bytecode::lower_program_to_bytecode;
+use kagari_common::identity::{
+    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+    table::DefinitionId,
+};
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::callable::witness::OperationWitness;
-use kagari_runtime::{Runtime, value::Value};
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_runtime::{Runtime, native::module::NativeModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
 
-fn fixture(dependency_source: &str) -> BytecodeProgram {
+fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in [
@@ -35,12 +40,12 @@ fn fixture(dependency_source: &str) -> BytecodeProgram {
             .unwrap();
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
-    let mut analysis = kagari_hir::analysis::AnalysisDatabase::default();
+    let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         foundation::modules()
             .unwrap()
             .iter()
-            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
     let snapshot = analysis
@@ -49,8 +54,7 @@ fn fixture(dependency_source: &str) -> BytecodeProgram {
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
-    let ir = kagari_compiler::source::program::lower_program_to_mir(&checked, &Default::default())
-        .unwrap();
+    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     lower_program_to_bytecode(&ir).unwrap()
 }
 
@@ -65,6 +69,11 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         }
     "#,
     );
+    let context = DefinitionContext::new().unwrap();
+    let (definitions, program) = program
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_parts();
     let imports: Vec<_> = program
         .modules
         .iter()
@@ -77,9 +86,9 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         "$foundation_list_index",
     ] {
         assert!(
-            imports.iter().any(|import| import
-                .binding
-                .path
+            imports.iter().any(|import| definitions
+                .resolve(import.binding)
+                .unwrap()
                 .last()
                 .is_some_and(|part| part.name == expected)),
             "missing {expected}"
@@ -88,18 +97,18 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
     assert!(
         imports
             .iter()
-            .all(|import| import.host.is_none() && import.structurally_valid())
+            .all(|import| import.host.is_none() && import.structurally_valid(&definitions))
     );
-    let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    decoded.validate_for_loader(&Default::default()).unwrap();
-    for program in [program, decoded.program] {
+    let decoded = round_trip_program(
+        DefinitionMetadata::checked(definitions.clone(), program.clone(), &Default::default())
+            .unwrap(),
+    );
+    for program in [
+        DefinitionMetadata::checked(definitions.clone(), program, &Default::default()).unwrap(),
+        decoded,
+    ] {
         let mut runtime = Runtime::default();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut runtime,
-        )
-        .unwrap();
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         let loaded = runtime.load_program("native-imports", program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
@@ -119,6 +128,11 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
     let program = fixture(
         "use std::collections::{HashSet};\npub fn answer() -> i32 { val set: HashSet<i32> = HashSet::new(); set.insert(42); if set.contains(42) { 42 } else { 0 } }",
     );
+    let context = DefinitionContext::new().unwrap();
+    let (definitions, program) = program
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_parts();
     let (member, slot) = program
         .modules
         .iter()
@@ -128,9 +142,9 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
                 .native_imports
                 .iter()
                 .position(|import| {
-                    import
-                        .binding
-                        .path
+                    definitions
+                        .resolve(import.binding)
+                        .unwrap()
                         .last()
                         .is_some_and(|part| part.name == "$foundation_set_contains")
                 })
@@ -152,14 +166,17 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
         let mut forged = program.clone();
         let import = &mut forged.modules[member].native_imports[slot];
         match corrupt {
-            0 => import.binding.path.last_mut().unwrap().name = "uninstalled".into(),
+            0 => import.binding = renamed(&context, import.binding, "uninstalled"),
             1 => {
                 import.signature.params.pop().unwrap();
             }
             2 => import.signature.result = Ty::Builtin(BuiltinType::I32),
             3 => import.requirements.clear(),
             4 => import.instance.arguments.clear(),
-            5 => import.instance.declaration.path.last_mut().unwrap().name = "unpublished".into(),
+            5 => {
+                import.instance.declaration =
+                    renamed(&context, import.instance.declaration, "unpublished")
+            }
             6 => {
                 let instruction = forged.modules[member]
                     .functions
@@ -183,21 +200,23 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&forged).is_err(),
+            verify_program(&forged, &context.snapshot()).is_err(),
             "accepted corruption {corrupt}"
         );
         assert!(
-            KbcArtifact::from_program(forged.clone(), Default::default()).is_err(),
+            KbcArtifact::from_program(forged.clone(), Default::default(), &context).is_err(),
             "artifact accepted corruption {corrupt}"
         );
         let mut runtime = Runtime::default();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut runtime,
-        )
-        .unwrap();
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         assert!(
-            runtime.load_program("forged-native", forged).is_err(),
+            runtime
+                .load_program(
+                    "forged-native",
+                    DefinitionMetadata::checked(context.snapshot(), forged, &Default::default())
+                        .unwrap()
+                )
+                .is_err(),
             "runtime accepted corruption {corrupt}"
         );
         assert_eq!(runtime.gc().active_roots(), 0);
@@ -212,6 +231,11 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         values[0] + match values.get(1usize) { Some(value) => value, None => 0 }
     }"#,
     );
+    let context = DefinitionContext::new().unwrap();
+    let (definitions, program) = program
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_parts();
     assert!(
         program
             .modules
@@ -219,18 +243,19 @@ fn concrete_collection_native_signatures_preserve_element_types() {
             .flat_map(|module| &module.native_imports)
             .any(|import| matches!(
                 import.signature.params.first(),
-                Some(kagari_types::ty::Ty::NativeObject(nominal)) if nominal.arguments == [Ty::Builtin(BuiltinType::I32)]
+                Some(Ty::NativeObject(nominal)) if nominal.arguments == [Ty::Builtin(BuiltinType::I32)]
             ))
     );
-    let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    for program in [program, decoded.program] {
+    let decoded = round_trip_program(
+        DefinitionMetadata::checked(definitions.clone(), program.clone(), &Default::default())
+            .unwrap(),
+    );
+    for program in [
+        DefinitionMetadata::checked(definitions.clone(), program, &Default::default()).unwrap(),
+        decoded,
+    ] {
         let mut runtime = Runtime::default();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut runtime,
-        )
-        .unwrap();
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         let loaded = runtime.load_program("native-collections", program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
@@ -255,6 +280,11 @@ pub fn answer() -> i32 {
         if values.contains(42) { 42 } else { 0 }
     }"#,
     );
+    let context = DefinitionContext::new().unwrap();
+    let (definitions, program) = program
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_parts();
     let (owner, import) = program
         .modules
         .iter()
@@ -281,7 +311,7 @@ pub fn answer() -> i32 {
     missing.modules[owner].native_imports[import]
         .callables
         .clear();
-    assert!(verify_program(&missing).is_err());
+    assert!(verify_program(&missing, &definitions).is_err());
     let mut forged = program.clone();
     let OperationWitness::Selected(selected) =
         &mut forged.modules[owner].native_imports[import].callables[0]
@@ -289,18 +319,13 @@ pub fn answer() -> i32 {
         panic!("concrete callable");
     };
     selected.implementation = CallableImplementation::Required;
-    assert!(verify_program(&forged).is_err());
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    assert!(verify_program(&forged, &context.snapshot()).is_err());
+    let decoded = round_trip_program(
+        DefinitionMetadata::checked(definitions.clone(), program, &Default::default()).unwrap(),
+    );
     let mut runtime = Runtime::default();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
-    let loaded = runtime
-        .load_program("native-witnesses", decoded.program)
-        .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    let loaded = runtime.load_program("native-witnesses", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main")
@@ -315,7 +340,7 @@ pub fn answer() -> i32 {
 
 #[test]
 fn native_storage_writes_reject_element_type_forgery() {
-    let mut program = fixture(
+    let program = fixture(
         r#"pub fn answer() -> i32 {
         val values = Vec::from([Vec::from([42])]);
         val wrong = Vec::from(["bad"]);
@@ -324,14 +349,19 @@ fn native_storage_writes_reject_element_type_forgery() {
         values[0][0]
     }"#,
     );
+    let context = DefinitionContext::new().unwrap();
+    let (definitions, mut program) = program
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_parts();
     let member = program
         .modules
         .iter()
         .position(|module| {
             module.native_imports.iter().any(|import| {
-                import
-                    .binding
-                    .path
+                definitions
+                    .resolve(import.binding)
+                    .unwrap()
                     .last()
                     .is_some_and(|part| part.name == "$foundation_list_push_fluent")
             })
@@ -353,21 +383,33 @@ fn native_storage_writes_reject_element_type_forgery() {
                 .then_some(Register::new(*index))
         })
         .unwrap();
-    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if imports[id.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_list_push_fluent") && matches!(&imports[id.index()].signature.params[0], Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::NativeObject(_)])))).unwrap();
+    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if definitions.resolve(imports[id.index()].binding).unwrap().last().is_some_and(|part| part.name == "$foundation_list_push_fluent") && matches!(&imports[id.index()].signature.params[0], Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::NativeObject(_)])))).unwrap();
     let BytecodeInstruction::Call { args, .. } = instruction else {
         unreachable!()
     };
     // The values share a physical heap-handle representation; the concrete
     // element contract must reject substituting Vec<String> for Vec<i32>.
     args[1] = wrong;
-    assert!(verify_program(&program).is_err());
-    assert!(KbcArtifact::from_program(program.clone(), Default::default()).is_err());
+    assert!(verify_program(&program, &definitions).is_err());
+    assert!(KbcArtifact::from_program(program.clone(), Default::default(), &context).is_err());
     let mut runtime = Runtime::default();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
-    assert!(runtime.load_program("forged-storage", program).is_err());
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    assert!(
+        runtime
+            .load_program(
+                "forged-storage",
+                DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap()
+            )
+            .is_err()
+    );
     assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+fn renamed(context: &DefinitionContext, id: DefinitionId, name: &str) -> DefinitionId {
+    let definitions = context.snapshot();
+    let parent = definitions.parent(id).unwrap().unwrap();
+    let segment = definitions.resolve(id).unwrap().last().unwrap();
+    context
+        .intern_child(parent, segment.kind, name, segment.occurrence)
+        .unwrap()
 }

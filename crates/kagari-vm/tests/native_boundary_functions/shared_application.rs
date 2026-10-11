@@ -1,12 +1,15 @@
 //! A portable producer may emit a closed use of a shared native template. Keep
 //! this source-free binding path covered independently of source specialization.
-use crate::{compile_program, native_boundary_interfaces::generic_identity_module};
+use crate::{
+    compile_program,
+    native_boundary_interfaces::generic_identity_module,
+    support::{declaration_query, round_trip_program},
+};
 use kagari_bytecode::{
-    artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget, NativeImportId},
     module::CallableTarget,
 };
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_contract::callable::shared::SharedCall;
 use kagari_runtime::{
     Runtime,
@@ -22,11 +25,8 @@ use std::slice;
 #[test]
 fn source_free_closed_shared_application_retains_and_releases_its_environment() {
     let module = generic_identity_module();
-    let declaration = module
-        .to_declaration()
-        .unwrap()
-        .definition(DefinitionKind::Function, "identity");
-    let mut program = compile_program(
+    let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
+    let program = compile_program(
         r#"
         use example::generic_helper::identity;
         trait Forward { fn forward<T>(self, value: T) -> T { identity(value) } }
@@ -38,17 +38,19 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     "#,
         Some(&module),
     );
+    let (definitions, mut program) = program.into_parts();
+    let scoped = definitions.lookup(&declaration).unwrap();
     let root_slot = program.root;
     let root = &mut program.modules[root_slot.index()];
     let concrete = root
         .native_imports
         .iter()
-        .position(|import| import.instance.declaration == declaration && import.generic.is_none())
+        .position(|import| import.instance.declaration == scoped && import.generic.is_none())
         .unwrap();
     let template = root
         .native_imports
         .iter()
-        .position(|import| import.instance.declaration == declaration && import.generic.is_some())
+        .position(|import| import.instance.declaration == scoped && import.generic.is_some())
         .unwrap();
     let application = root.native_imports[concrete].clone();
     let shared = root.native_imports[template].clone();
@@ -96,14 +98,13 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
             .flat_map(|table| &table.methods)
             .all(|method| matches!(method.target, CallableTarget::Script(_)))
     );
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded = round_trip_program(
+        DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),
+    );
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
-    let owner = runtime
-        .load_program("shared-application", decoded.program)
-        .unwrap();
+    let owner = runtime.load_program("shared-application", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.execute_typed::<(), i32>(&owner, "evidence", ()).unwrap(),

@@ -105,7 +105,8 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
     let mut builder = ModuleBuilder::new(
         "example::interface_applications",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     builder
         .add_function(
             FunctionSpec::new("collect"),

@@ -67,7 +67,8 @@ fn custom_key_factories_pin_selected_operations_through_reentry_and_reload() {
     let mut module = ModuleBuilder::new(
         "example::keys",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     module
         .add_function(
             FunctionSpec::new("probe"),
@@ -169,7 +170,8 @@ fn typed_native_callbacks_create_collections_with_the_same_checked_factory() {
     let mut module = ModuleBuilder::new(
         "example::factory",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     module
         .add_function(
             FunctionSpec::new("fresh"),

@@ -3559,3 +3559,58 @@ foreign IDs or project semantic records.
 
 Native boundary integration consumers still own the package lint build failure;
 remaining embed consumers and documentation cleanup remain required SI06 work.
+
+### SI06 VM Native boundary integration
+
+Native boundary fixtures now handle fallible registration, applied traits, callable
+requirements and exact typed codecs without discarding errors. Compiled programs,
+edited module-state fixtures and shared-call producers retain their definition tables.
+The integration codec helper preserves a real encode/decode/adopt/loader-validation
+route; negative artifacts remain separate raw-record mutations with their original
+verifier and runtime rejection assertions. Deliberately renamed invalid bindings are
+interned under their original parent in the same authoring context.
+
+Host composite signatures import their parameter/result metadata into a fresh
+registration context before creating the function identity. Installed standard
+nominals resolve against the runtime table. External declaration-query APIs receive
+only a single path materialized from the registered handle's retained scope; shared
+native import matching resolves that query into the program scope first. There is
+no whole-record path projection, hidden foreign-ID comparison or validation bypass.
+
+Focused local evidence:
+
+- Five native_boundary_artifacts cases pass, covering source-free imports, concrete
+  collection signatures, selected operation witnesses, forged imports and nominal
+  storage-write forgery. Their existing verifier/artifact/runtime rejection checks
+  remain intact.
+- Ten selected cases pass: all four native_boundary_host cases, the source-free
+  closed shared application, runtime primitive authority across independent runtimes,
+  the caller's ordering operation and three selected_methods contracts. These cover
+  foreign/stale handles, nested borrow escape, callback roots, generic results,
+  checked arguments and selected handle retention through GC/reload.
+- Four additional distinct boundary cases pass: registered enum variant identities,
+  detached environment snapshot rejection after dependency release, forged dynamic
+  iterator tables and old-generation hash protocol/module-cycle retention. Total:
+  19 selected Native boundary integration cases; the other 142 remain CI scope.
+- The package `cargo clippy -p kagari-vm --lib --tests --message-format=short --
+  -D warnings` attempt reached all VM targets with only 13 needless-question-mark
+  diagnostics in Native boundary fixtures. After the repair and a correction to an
+  over-broad local rewrite, `cargo clippy -p kagari-vm --test native_boundary
+  --message-format=short -- -D warnings` passes. The earlier VM library and other
+  integration compile/lint carry is resolved; unaffected targets were not rerun for
+  another all-green transcript.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Review covers explicit scope provenance, mutation/revalidation,
+  external query boundaries, unchanged assertions, test-only helper visibility and
+  no new re-exports or structural exceptions.
+
+The next dependent check, `cargo clippy -p kagari-embed --lib --tests
+--message-format=short -- -D warnings`, exposes 208 consumer diagnostics, with no
+production-library failure reported. Main groups: host_interfaces (77),
+native_provider_reset and its support (47), offline_composite (23), offline_functions
+and library language_contract/preparation (15 each), generic_reload (13),
+list_algorithms (7), engine_sessions and result_option (5 each), and
+string_interpolation (1). SI06 owns adapting these scoped artifacts, Host declarations,
+standard provider results and queries. No embed tests executed in this check. Embed
+consumer integration and lasting documentation cleanup/plan retirement remain required;
+exhaustive workspace/features/backend validation remains CI scope.

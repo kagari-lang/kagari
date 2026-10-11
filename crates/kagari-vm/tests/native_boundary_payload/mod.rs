@@ -36,13 +36,14 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
     let mut module = ModuleBuilder::new(
         "example::data",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut declaration = module.define_type("Player");
+    )
+    .unwrap();
+    let mut declaration = module.define_type("Player").unwrap();
     declaration
         .native_storage(NativeStorage::data::<PlayerState>())
         .unwrap();
     let player_type = declaration.finish().unwrap();
-    let mut declaration = module.define_type("ReadOnlyPayload");
+    let mut declaration = module.define_type("ReadOnlyPayload").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<PlayerState>())
         .unwrap();
@@ -195,18 +196,19 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
     let mut module = ModuleBuilder::new(
         "example::payload",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut declaration = module.define_type("Counter");
+    )
+    .unwrap();
+    let mut declaration = module.define_type("Counter").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<Counter>())
         .unwrap();
     let counter = declaration.finish().unwrap();
-    let mut declaration = module.define_type("Other");
+    let mut declaration = module.define_type("Other").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<Counter>())
         .unwrap();
     let other = declaration.finish().unwrap();
-    let mut declaration = module.define_type("Edge");
+    let mut declaration = module.define_type("Edge").unwrap();
     declaration.type_parameter("T").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<Edge>())
@@ -384,7 +386,7 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
     );
     let native = vm
         .runtime()
-        .bind_native_type_declaration::<Edge>(&owner, edge.id(), &[element])
+        .bind_native_type_declaration::<Edge>(&owner, edge.id(), edge.definitions(), &[element])
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let child: NativeObject<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();

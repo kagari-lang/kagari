@@ -47,11 +47,15 @@ fn function_arguments_call_captured_script_closures_synchronously() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let apply = builder
         .define_function(
             FunctionDecl::new("apply")
-                .parameter("callback", Type::function([Type::i32()], Type::i32()))
+                .parameter(
+                    "callback",
+                    Type::function([Type::i32()], Type::i32()).unwrap(),
+                )
                 .parameter("value", Type::i32())
                 .parameter("count", Type::usize())
                 .returns(Type::i32()),
@@ -103,12 +107,13 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let remember = builder
-        .define_function(
-            FunctionDecl::new("remember")
-                .parameter("callback", Type::function([Type::i32()], Type::i32())),
-        )
+        .define_function(FunctionDecl::new("remember").parameter(
+            "callback",
+            Type::function([Type::i32()], Type::i32()).unwrap(),
+        ))
         .unwrap();
     let stored = held.clone();
     builder
@@ -198,8 +203,9 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut declaration = builder.define_type("Handler");
+    )
+    .unwrap();
+    let mut declaration = builder.define_type("Handler").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<StoredCallable>())
         .unwrap();
@@ -207,7 +213,10 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
     let new = builder
         .define_function(
             FunctionDecl::new("new")
-                .parameter("callback", Type::function([Type::i32()], Type::i32()))
+                .parameter(
+                    "callback",
+                    Type::function([Type::i32()], Type::i32()).unwrap(),
+                )
                 .returns(handler.apply([]).unwrap()),
         )
         .unwrap();
@@ -271,15 +280,16 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let function = builder
         .define_function(FunctionDecl::new("identity"))
         .unwrap();
     builder
         .function(&function, |signature| {
             let item = signature.type_parameter("T")?;
-            signature.parameter("value", item.ty());
-            signature.returns(item.ty());
+            signature.parameter("value", item.ty())?;
+            signature.returns(item.ty())?;
             Ok(())
         })
         .unwrap();
@@ -339,12 +349,13 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
     let mut builder = ModuleBuilder::new(
         "example::fold",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let fold = builder
         .define_function(
             FunctionDecl::new("fold")
-                .parameter("values", language.vec(Type::i32()))
-                .parameter("map", Type::function([Type::i32()], Type::i32()))
+                .parameter("values", language.vec(Type::i32()).unwrap())
+                .parameter("map", Type::function([Type::i32()], Type::i32()).unwrap())
                 .returns(Type::i32()),
         )
         .unwrap();

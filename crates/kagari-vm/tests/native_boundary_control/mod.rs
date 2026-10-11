@@ -1,7 +1,6 @@
 //! Retained control-boundary behavior using ordinary synchronous application natives.
-use crate::publish_unused_version;
+use crate::{publish_unused_version, support::round_trip_program};
 use kagari_bytecode::{
-    artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget},
     program::BytecodeProgram,
 };
@@ -41,12 +40,13 @@ fn module() -> NativeModule {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let choose = module
         .define_function(
             FunctionDecl::new("choose")
                 .parameter("run", Type::bool())
-                .parameter("callback", Type::function([], Type::i32()))
+                .parameter("callback", Type::function([], Type::i32()).unwrap())
                 .returns(Type::i32()),
         )
         .unwrap();
@@ -62,7 +62,7 @@ fn module() -> NativeModule {
     module.finish().unwrap()
 }
 
-fn compile_test_bytecode(text: &str) -> BytecodeProgram {
+fn compile_test_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let native = module();
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -75,8 +75,9 @@ fn compile_test_bytecode(text: &str) -> BytecodeProgram {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         foundation_catalog::shared()
+            .unwrap()
             .into_iter()
-            .chain([Arc::new(native.to_declaration().unwrap())])
+            .chain([Arc::new(native.to_declaration())])
             .collect(),
     );
     let (definitions, log) = standard_log().unwrap().into_parts();
@@ -117,16 +118,12 @@ fn runtime(limits: RuntimeLimits) -> Runtime {
     runtime
 }
 
-fn route(program: &BytecodeProgram, encoded: bool) -> BytecodeProgram {
+fn route(
+    program: &DefinitionMetadata<BytecodeProgram>,
+    encoded: bool,
+) -> DefinitionMetadata<BytecodeProgram> {
     if encoded {
-        KbcArtifact::from_bytes(
-            &KbcArtifact::from_program(program.clone(), Default::default())
-                .unwrap()
-                .to_bytes()
-                .unwrap(),
-        )
-        .unwrap()
-        .program
+        round_trip_program(program.clone())
     } else {
         program.clone()
     }
@@ -233,7 +230,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
 fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
     let source = "fn main() -> i32 { boundary::choose(true, || { host::log(\"effect\"); val n = 2147483647; n + 1 }) }";
     let program = compile_test_bytecode(source);
-    let caller_offset = program.modules[program.root.index()]
+    let caller_offset = program.records().modules[program.records().root.index()]
         .functions
         .iter()
         .find(|function| function.name == "main")
@@ -323,7 +320,7 @@ fn inner() -> i32 { boundary::choose(true, || { host::log("inner"); 7 }) }
 fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
 "#,
     );
-    let root = &program.modules[program.root.index()];
+    let root = &program.records().modules[program.records().root.index()];
     let inner = root
         .functions
         .iter()
@@ -404,7 +401,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
     };
     let old_program = program(41);
     let new_program = program(42);
-    let consume = new_program.modules[new_program.root.index()]
+    let consume = new_program.records().modules[new_program.records().root.index()]
         .functions
         .iter()
         .find(|function| function.name == "consume")
@@ -567,7 +564,8 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
             &StandardDeclarations::default()
                 .catalog()
                 .expect("explicit standard providers"),
-        );
+        )
+        .unwrap();
         let work = native
             .define_function(FunctionDecl::new("work").returns(Type::i32()))
             .unwrap();

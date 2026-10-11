@@ -31,12 +31,13 @@ impl MutationFixture {
             &StandardDeclarations::default()
                 .catalog()
                 .expect("explicit standard providers"),
-        );
+        )
+        .unwrap();
         let function = module.define_function(FunctionDecl::new("retain")).unwrap();
         module
             .function(&function, |function| {
                 let ty = function.type_parameter("T")?;
-                function.parameter("value", ty.ty());
+                function.parameter("value", ty.ty())?;
                 Ok(())
             })
             .unwrap();

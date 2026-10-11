@@ -1,10 +1,8 @@
-use kagari_runtime::value_semantics::script_equal;
 mod vector_edits;
-use crate::{compile_program, publish_unused_version};
-use kagari_bytecode::artifact::KbcArtifact;
+use crate::{compile_program, publish_unused_version, support::round_trip_program};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, PackageId},
+    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -26,6 +24,7 @@ use kagari_runtime::{
         types::Type,
     },
     value::Value,
+    value_semantics::script_equal,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::module::ModuleDecl;
@@ -39,6 +38,7 @@ use std::sync::{
 fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let module = ModuleBuilder::new("example::typed", &catalog)
+        .unwrap()
         .finish()
         .unwrap();
     let (vm, loaded) = source_free_vm(
@@ -75,7 +75,7 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
 #[test]
 fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog);
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
     module
         .add_function(
             FunctionSpec::new("append").parameter_names(["values"]),
@@ -115,7 +115,14 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
                 path: vec!["typed".into()],
             });
             catalog
-                .type_reference(&module.definition(DefinitionKind::Enum, "Label"))?
+                .type_reference(&DefinitionPath {
+                    module: module.identity,
+                    path: vec![DefinitionPathSegment {
+                        kind: DefinitionKind::Enum,
+                        name: "Label".into(),
+                        occurrence: 0,
+                    }],
+                })?
                 .apply([])
         }
     }
@@ -139,8 +146,8 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
         }
     }
     let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog);
-    let mut label = module.define_enum("Label");
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let mut label = module.define_enum("Label").unwrap();
     label
         .variant("Text", [String::kagari_type(&catalog).unwrap()])
         .unwrap();
@@ -193,11 +200,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
 
 fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, LoadedModule) {
     let program = compile_program(source, Some(module));
-    let bytes = KbcArtifact::from_program(program, Default::default())
-        .unwrap()
-        .to_bytes()
-        .unwrap();
-    let program = KbcArtifact::from_bytes(&bytes).unwrap().program;
+    let program = round_trip_program(program);
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
@@ -213,7 +216,7 @@ fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, LoadedModule) {
 #[test]
 fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loading() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog);
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
     module
         .add_function(
             FunctionSpec::new("wrap").parameter_names(["input"]),
@@ -274,8 +277,9 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
     let list = standard
         .list()
         .apply([String::kagari_type(&catalog).unwrap()])
+        .unwrap()
         .ty();
-    let mut module = ModuleBuilder::new("example::typed", &catalog);
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
     module
         .add_function(
             FunctionSpec::new("split")
@@ -327,7 +331,7 @@ fn invalid_typed_registration_is_atomic_and_failed_output_preserves_callback_eff
         }
     }
     let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog);
+    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
     assert!(
         module
             .add_function(
@@ -428,6 +432,7 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
         "example::typed",
         &StandardDeclarations::default().catalog().unwrap(),
     )
+    .unwrap()
     .finish()
     .unwrap();
     let (vm, loaded) = source_free_vm(
@@ -487,7 +492,8 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
     let mut module = ModuleBuilder::new(
         "example::typed",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     module
@@ -534,6 +540,7 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
         "example::typed",
         &StandardDeclarations::default().catalog().unwrap(),
     )
+    .unwrap()
     .finish()
     .unwrap();
     let (vm, loaded) = source_free_vm(
@@ -567,7 +574,8 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
     let mut module = ModuleBuilder::new(
         "example::typed",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     module
         .add_function(
             FunctionSpec::new("gather"),

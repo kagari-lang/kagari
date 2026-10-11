@@ -1,5 +1,8 @@
 use super::fixture;
-use crate::{compile_program, native_boundary_interfaces::generic_identity_module};
+use crate::{
+    compile_program, native_boundary_interfaces::generic_identity_module,
+    support::declaration_query,
+};
 use kagari_common::identity::DefinitionKind;
 use kagari_runtime::{
     native::{
@@ -26,10 +29,7 @@ use std::{
 #[test]
 fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applications() {
     let module = generic_identity_module();
-    let declaration = module
-        .to_declaration()
-        .unwrap()
-        .definition(DefinitionKind::Function, "identity");
+    let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let (vm, owner) = fixture(
         r#"
         use example::generic_helper::identity;
@@ -94,14 +94,8 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
 #[test]
 fn generic_native_calls_return_retained_objects_collections_and_closures() {
     let module = generic_identity_module();
-    let identity_id = module
-        .to_declaration()
-        .unwrap()
-        .definition(DefinitionKind::Function, "identity");
-    let singleton_id = module
-        .to_declaration()
-        .unwrap()
-        .definition(DefinitionKind::Function, "singleton");
+    let identity_id = declaration_query(&module, DefinitionKind::Function, "identity");
+    let singleton_id = declaration_query(&module, DefinitionKind::Function, "singleton");
     let (vm, owner) = fixture(
         r#"
         use example::generic_helper::{identity, singleton};
@@ -173,10 +167,7 @@ fn generic_native_calls_return_retained_objects_collections_and_closures() {
 #[test]
 fn generic_bindings_pin_their_program_and_weak_cache_releases_it() {
     let module = generic_identity_module();
-    let declaration = module
-        .to_declaration()
-        .unwrap()
-        .definition(DefinitionKind::Function, "identity");
+    let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let source = r#"
         use example::generic_helper::identity;
         pub struct Item { pub val value: i32 }
@@ -279,8 +270,9 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
     let mut builder = ModuleBuilder::new(
         "example::bound",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut step = builder.define_trait("Step");
+    )
+    .unwrap();
+    let mut step = builder.define_trait("Step").unwrap();
     step.define_method(
         MethodDecl::instance("step")
             .parameter("value", Type::i32())
@@ -291,13 +283,13 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
     let repeat = builder
         .define_function(FunctionDecl::new("repeat").returns(Type::i32()))
         .unwrap();
-    let declaration = repeat.id().clone();
+    let declaration = repeat.definitions().resolve(repeat.id()).unwrap().to_path();
     let selected = builder
         .function(&repeat, |function| {
             let item = function.type_parameter("T")?.ty();
-            function.parameter("item", item.clone());
-            function.bound(item.clone(), step.apply([]));
-            Ok(function.requires(CallableRequirement::method(item, step.method("step")?)))
+            function.parameter("item", item.clone())?;
+            function.bound(item.clone(), step.apply([])?)?;
+            function.requires(CallableRequirement::method(item, step.method("step")?)?)
         })
         .unwrap();
     let effects = Arc::new(AtomicUsize::new(0));

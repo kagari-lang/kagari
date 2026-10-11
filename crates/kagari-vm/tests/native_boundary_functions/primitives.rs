@@ -1,7 +1,7 @@
 //! Primitive authority follows the installed implementation across shared portable code.
 use super::fixture;
-use crate::compile_program;
-use kagari_bytecode::artifact::KbcArtifact;
+use crate::{compile_program, support::round_trip_program};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -34,7 +34,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
     let primitive = || NativeBinding::primitive(NativePrimitive::StringByteLength);
     // String and usize are semantic types, not merely pointer/integer layouts.
     for (argument, result) in [(Type::i32(), Type::usize()), (string.clone(), Type::u64())] {
-        let mut builder = ModuleBuilder::new("example::primitives", &catalog);
+        let mut builder = ModuleBuilder::new("example::primitives", &catalog).unwrap();
         let function = builder
             .define_function(
                 FunctionDecl::new("count")
@@ -48,8 +48,8 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let callback = NativeBinding::new(
-        vec![Codec::Scalar(Ty::Builtin(BuiltinType::String))],
-        Codec::Scalar(Ty::Builtin(BuiltinType::USize)),
+        vec![Codec::Exact(Type::scalar(BuiltinType::String))],
+        Codec::Exact(Type::usize()),
         move |_| {
             observed.fetch_add(1, Ordering::Relaxed);
             Ok(Value::U64(41))
@@ -57,7 +57,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
     );
     let mut modules = Vec::new();
     for binding in [primitive(), callback] {
-        let mut builder = ModuleBuilder::new("example::primitives", &catalog);
+        let mut builder = ModuleBuilder::new("example::primitives", &catalog).unwrap();
         let function = builder
             .define_function(
                 FunctionDecl::new("count")
@@ -65,7 +65,11 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
                     .returns(Type::usize()),
             )
             .unwrap();
-        let id = function.id().clone();
+        let id = function
+            .definitions()
+            .resolve(function.id())
+            .unwrap()
+            .to_path();
         builder.bind_with(function, binding).unwrap();
         modules.push((builder.finish().unwrap(), id));
     }
@@ -77,15 +81,10 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
             count("aé文") + callable("é")
         }
     "#;
-    let artifact = KbcArtifact::from_program(
-        compile_program(source, Some(&modules[0].0)),
-        Default::default(),
-    )
-    .unwrap();
+    let context = DefinitionContext::new().unwrap();
     let verified = VerifiedProgram::new(
-        KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
-            .unwrap()
-            .program,
+        round_trip_program(compile_program(source, Some(&modules[0].0))),
+        &context,
     )
     .unwrap();
     // The same verified prepared instructions link separately in both runtimes.
@@ -124,12 +123,20 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
 #[test]
 fn vector_primitives_preserve_element_access_aliases_and_bounds() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
-    let vector = || StandardDeclarations::default().vec(Type::i32());
-    let array = || Type::from_semantic(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))));
+    let vector = || StandardDeclarations::default().vec(Type::i32()).unwrap();
+    let definitions = DefinitionContext::new().unwrap().snapshot();
+    let array = || {
+        Type::from_semantic(
+            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+            &definitions,
+        )
+        .unwrap()
+    };
     let list = || {
         StandardDeclarations::default()
             .list()
             .apply([Type::i32()])
+            .unwrap()
             .ty()
     };
     for (body, receiver, value, result) in [
@@ -160,7 +167,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
             list(),
         ),
     ] {
-        let mut builder = ModuleBuilder::new("example::vector", &catalog);
+        let mut builder = ModuleBuilder::new("example::vector", &catalog).unwrap();
         let mut declaration = FunctionDecl::new("operation")
             .parameter("values", receiver)
             .parameter("index", Type::usize())
@@ -175,7 +182,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
                 .is_err()
         );
     }
-    let mut builder = ModuleBuilder::new("example::vector", &catalog);
+    let mut builder = ModuleBuilder::new("example::vector", &catalog).unwrap();
     for (name, body, write, result) in [
         ("read", NativePrimitive::VecIndex, false, Type::i32()),
         ("replace", NativePrimitive::VecSet, true, Type::unit()),

@@ -3,17 +3,28 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionTable,
+};
 use kagari_runtime::{
-    Runtime, RuntimeConfig, host::HostFunction, module::LoadedModule, value::Value,
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    metadata::TypeId,
+    module::LoadedModule,
+    native::module::NativeModule,
+    value::Value,
 };
 use kagari_stdlib::{identity, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
     declaration::module::ModuleDecl,
     host_interface::{
-        HostFunctionDeclaration, HostParameter, HostPassingStyle, value_type::HostValueType as Type,
+        HostFunctionDeclaration, HostParameter, HostPassingStyle,
+        type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
+        value_type::HostValueType as Type,
     },
+    language::binding,
     scalar::BuiltinType,
     ty::Ty,
 };
@@ -25,11 +36,7 @@ use std::sync::{
 
 fn runtime() -> Runtime {
     let mut runtime = Runtime::new(RuntimeConfig::default());
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     runtime
 }
 
@@ -37,16 +44,25 @@ fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
     runtime
         .load_program(
             "allocation-owner",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap()
 }
 
-fn echo(name: &str, ty: Type) -> HostFunctionDeclaration {
-    HostFunctionDeclaration::new(
+fn echo(
+    name: &str,
+    ty: Type,
+    definitions: &DefinitionTable,
+) -> DefinitionMetadata<HostFunctionDeclaration> {
+    signature(
         name,
         vec![HostParameter {
             name: "value".into(),
@@ -54,6 +70,7 @@ fn echo(name: &str, ty: Type) -> HostFunctionDeclaration {
             passing: HostPassingStyle::Owned,
         }],
         ty,
+        definitions,
     )
 }
 
@@ -102,6 +119,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         panic!("eight fixtures")
     };
     let runtime = vm.runtime_mut();
+    let definitions = runtime.host().definitions();
     let enumeration = |ty, member, fields| {
         let applied = runtime
             .resolve_type_arguments(&loaded, &[ty])
@@ -117,7 +135,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             _ => BuiltinType::I32,
         };
         enumeration(
-            kagari_types::language::binding::option(Ty::Builtin(ty)),
+            binding::option(&definitions, Ty::Builtin(ty)).unwrap(),
             "Some",
             vec![value],
         )
@@ -129,10 +147,12 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             BuiltinType::I32
         };
         enumeration(
-            kagari_types::language::binding::result(
+            binding::result(
+                &definitions,
                 Ty::Builtin(BuiltinType::I32),
                 Ty::Builtin(error),
-            ),
+            )
+            .unwrap(),
             member,
             vec![value],
         )
@@ -160,14 +180,18 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         (
             Type::Vec(
                 ModuleDecl::new(namespaces::type_owner("Vec"))
-                    .definition(DefinitionKind::AssociatedType, "Vec"),
+                    .definition(DefinitionKind::AssociatedType, "Vec", &definitions)
+                    .unwrap(),
                 Box::new(Type::I32),
             ),
             *vector,
             *array,
         ),
         (
-            Type::List(identity::trait_id("List"), Box::new(Type::I32)),
+            Type::List(
+                definitions.lookup(&identity::trait_id("List")).unwrap(),
+                Box::new(Type::I32),
+            ),
             *list,
             *vector,
         ),
@@ -187,7 +211,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         ),
         (
             Type::Option(
-                kagari_types::language::binding::option_declaration(),
+                definitions.lookup(&binding::option_declaration()).unwrap(),
                 Box::new(Type::I32),
             ),
             some(Value::I32(7)),
@@ -195,11 +219,11 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         ),
         (
             Type::Option(
-                kagari_types::language::binding::option_declaration(),
+                definitions.lookup(&binding::option_declaration()).unwrap(),
                 Box::new(Type::I32),
             ),
             enumeration(
-                kagari_types::language::binding::option(Ty::Builtin(BuiltinType::I32)),
+                binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
                 "None",
                 vec![],
             ),
@@ -207,23 +231,23 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         ),
         (
             Type::Option(
-                kagari_types::language::binding::option_declaration(),
+                definitions.lookup(&binding::option_declaration()).unwrap(),
                 Box::new(Type::I32),
             ),
             enumeration(
-                kagari_types::language::binding::option(Ty::Builtin(BuiltinType::I32)),
+                binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
                 "None",
                 vec![],
             ),
             enumeration(
-                kagari_types::language::binding::option(Ty::Builtin(BuiltinType::Bool)),
+                binding::option(&definitions, Ty::Builtin(BuiltinType::Bool)).unwrap(),
                 "None",
                 vec![],
             ),
         ),
         (
             Type::Result {
-                declaration: kagari_types::language::binding::result_declaration(),
+                declaration: definitions.lookup(&binding::result_declaration()).unwrap(),
                 ok: Box::new(Type::I32),
                 error: Box::new(Type::String),
             },
@@ -232,7 +256,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         ),
         (
             Type::Result {
-                declaration: kagari_types::language::binding::result_declaration(),
+                declaration: definitions.lookup(&binding::result_declaration()).unwrap(),
                 ok: Box::new(Type::I32),
                 error: Box::new(Type::String),
             },
@@ -245,7 +269,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         let called = calls.clone();
         let id = runtime
             .register_host_function(HostFunction::new(
-                echo(&format!("host.echo{index}"), ty.clone()),
+                echo(&format!("host.echo{index}"), ty.clone(), &definitions),
                 move |_, args| {
                     called.fetch_add(1, Ordering::SeqCst);
                     Ok(args[0])
@@ -267,7 +291,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         let called = calls.clone();
         let output = runtime
             .register_host_function(HostFunction::new(
-                HostFunctionDeclaration::new(format!("host.bad{index}"), vec![], ty),
+                signature(format!("host.bad{index}"), vec![], ty, &definitions),
                 move |_, _| {
                     called.fetch_add(1, Ordering::SeqCst);
                     Ok(bad)
@@ -290,6 +314,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
             echo(
                 "host.echo",
                 Type::Tuple(vec![Type::Array(Box::new(Type::I32))]),
+                &runtime.host().definitions(),
             ),
             move |context, args| {
                 called.fetch_add(1, Ordering::SeqCst);
@@ -310,11 +335,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     );
     assert!(runtime.gc().array_snapshot(array).is_some());
     let mut other = Runtime::default();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut other,
-    )
-    .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut other).unwrap();
     let other_owner = allocation_owner(&mut other);
     let foreign = other
         .gc()
@@ -337,19 +358,24 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
 
 #[test]
 fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
-    use kagari_runtime::{error::RuntimeErrorKind, host::HostObjectId, metadata::TypeId};
     let mut runtime = runtime();
     let owner = allocation_owner(&mut runtime);
+    let context = DefinitionContext::new().unwrap();
+    let object = HostTypeDeclaration::new(&context, "host.Object")
+        .unwrap()
+        .id;
+    let definitions = context.snapshot();
     let id = runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new(
+            signature(
                 "host.consume",
                 vec![HostParameter {
                     name: "value".into(),
-                    ty: Type::Tuple(vec![Type::Tuple(vec![Type::opaque("host.Object")])]),
+                    ty: Type::Tuple(vec![Type::Tuple(vec![Type::Opaque(object)])]),
                     passing: HostPassingStyle::Owned,
                 }],
                 Type::Unit,
+                &definitions,
             ),
             |_, _| panic!("an owned parameter must reject nested borrows before the callback"),
         ))
@@ -401,10 +427,6 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
 
 #[test]
 fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
-    use kagari_runtime::host::{HostObjectId, HostSchemaEpoch, HostTypeRegistration};
-    use kagari_types::host_interface::type_declaration::{
-        HostTypeDeclaration, HostTypeOwnership, PathAccess,
-    };
     let mut runtime = runtime();
     let program = compile_program(
         "use std::collections::{HashMap, HashSet, List};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
@@ -426,11 +448,16 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         panic!("handles")
     };
     let runtime = vm.runtime_mut();
-    let mut declaration = HostTypeDeclaration::new("External");
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = HostTypeDeclaration::new(&context, "External").unwrap();
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadOnly;
     let ty = runtime
-        .register_host_type(HostTypeRegistration::new(declaration, "External"))
+        .register_host_type(HostTypeRegistration::new(
+            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                .unwrap(),
+            "External",
+        ))
         .unwrap();
     let host = runtime
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
@@ -451,4 +478,26 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         assert_eq!(heap.map_len(*map), Some(0));
         assert_eq!(heap.set_len(*set), Some(0));
     }
+}
+
+fn signature(
+    name: impl Into<String>,
+    parameters: Vec<HostParameter>,
+    result: Type,
+    definitions: &DefinitionTable,
+) -> DefinitionMetadata<HostFunctionDeclaration> {
+    let context = DefinitionContext::new().unwrap();
+    let parameters =
+        DefinitionMetadata::checked(definitions.clone(), parameters, &Default::default())
+            .unwrap()
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+    let result = DefinitionMetadata::checked(definitions.clone(), result, &Default::default())
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let declaration = HostFunctionDeclaration::new(&context, name, parameters, result).unwrap();
+    DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap()
 }

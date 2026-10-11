@@ -1,3 +1,4 @@
+use kagari_common::identity::metadata::DefinitionMetadata;
 mod payload_failures;
 mod program_cycles;
 use super::{compile, compile_program};
@@ -307,10 +308,11 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
 
 #[test]
 fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
-    let mut module = compile_program(
+    let module = compile_program(
         "fn init() -> Vec<i32> { Vec::from([7]) } fn main() -> i32 { 42 }",
         None,
     );
+    let (definitions, mut module) = module.into_parts();
     module.modules[module.root.index()]
         .module_slots
         .push(BytecodeModuleSlot {
@@ -318,6 +320,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
             ty: ValueType::HeapObject,
             mutable: true,
         });
+    let module = DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap();
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),

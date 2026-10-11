@@ -1,8 +1,15 @@
 use super::fixture;
-use crate::{compile_program, native_boundary_interfaces::generic_identity_module};
+use crate::{
+    compile_program,
+    native_boundary_interfaces::generic_identity_module,
+    support::{declaration_query, round_trip_program},
+};
 use kagari_abi::representation::ValueType;
-use kagari_bytecode::{artifact::KbcArtifact, instruction::ModuleSlot, module::BytecodeModuleSlot};
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, metadata::DefinitionMetadata},
+};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -41,7 +48,8 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     let mut module = ModuleBuilder::new(
         "example::boxed",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let observed = calls.clone();
     let add = module
         .add_function(
@@ -69,21 +77,20 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     let through = module
         .define_function(
             FunctionDecl::new("through")
-                .parameter("f", Type::function([Type::i32(), Type::i32()], Type::i32()))
+                .parameter(
+                    "f",
+                    Type::function([Type::i32(), Type::i32()], Type::i32()).unwrap(),
+                )
                 .returns(Type::i32()),
         )
         .unwrap();
     module
         .bind_with(
             through,
-            NativeBinding::new(
-                vec![Codec::Value],
-                Codec::Scalar(Type::i32().abi().clone()),
-                |cx| {
-                    let callback = cx.callable(0)?;
-                    callback.call_values(cx, &[Value::I32(20), Value::I32(22)])
-                },
-            ),
+            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), |cx| {
+                let callback = cx.callable(0)?;
+                callback.call_values(cx, &[Value::I32(20), Value::I32(22)])
+            }),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -103,7 +110,10 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     // frame must retain the result without repeating the callback on resume.
     let callback = vm
         .runtime()
-        .bind_function_declaration::<(), String>(&old, text.id())
+        .bind_function_declaration::<(), String>(
+            &old,
+            &text.definitions().resolve(text.id()).unwrap().to_path(),
+        )
         .unwrap();
     let callback = ConversionContext::new(vm.runtime(), &old)
         .unwrap()
@@ -147,7 +157,10 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     drop(owner);
     let function = vm
         .runtime()
-        .bind_function_declaration::<(i32, i32), i32>(&old, add.id())
+        .bind_function_declaration::<(i32, i32), i32>(
+            &old,
+            &add.definitions().resolve(add.id()).unwrap().to_path(),
+        )
         .unwrap();
     assert_eq!(
         vm.execute_typed::<_, i32>(&old, "invoke", (function.clone(), 20, 22))
@@ -210,10 +223,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
 fn generic_native_function_values_retain_applied_nominal_scopes() {
     type Identity = PinnedFunction<(Object,), Object>;
     let module = generic_identity_module();
-    let declaration = module
-        .to_declaration()
-        .unwrap()
-        .definition(DefinitionKind::Function, "identity");
+    let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let source = r#"
         use example::generic_helper::identity;
         pub struct Item { pub var value: i32 }
@@ -265,10 +275,7 @@ fn generic_native_function_values_retain_applied_nominal_scopes() {
 #[test]
 fn native_function_values_cannot_invent_a_missing_nested_application() {
     let module = generic_identity_module();
-    let declaration = module
-        .to_declaration()
-        .unwrap()
-        .definition(DefinitionKind::Function, "identity");
+    let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let (vm, owner) = fixture(
         r#"
         use example::generic_helper::identity;
@@ -300,7 +307,8 @@ fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
     let mut module = ModuleBuilder::new(
         "example::boxed",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let add = module
         .add_function(
             FunctionSpec::new("add").parameter_names(["a", "b"]),
@@ -308,10 +316,11 @@ fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let mut program = compile_program(
+    let program = compile_program(
         "use example::boxed::add; pub fn evidence() -> i32 { add(20, 22) }",
         Some(&module),
     );
+    let (definitions, mut program) = program.into_parts();
     program.modules[program.root.index()]
         .module_slots
         .push(BytecodeModuleSlot {
@@ -319,10 +328,9 @@ fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
             ty: ValueType::HeapObject,
             mutable: true,
         });
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let program = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
-        .unwrap()
-        .program;
+    let program = round_trip_program(
+        DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),
+    );
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
@@ -330,7 +338,10 @@ fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
     let vm = Vm::new(runtime);
     let native = vm
         .runtime()
-        .bind_function_declaration::<(i32, i32), i32>(&old, add.id())
+        .bind_function_declaration::<(i32, i32), i32>(
+            &old,
+            &add.definitions().resolve(add.id()).unwrap().to_path(),
+        )
         .unwrap();
     let root = ConversionContext::new(vm.runtime(), &old)
         .unwrap()

@@ -1,4 +1,5 @@
 use kagari_bytecode::program::BytecodeProgram;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
@@ -44,7 +45,10 @@ mod native_boundary_storage;
 mod native_boundary_transfer;
 mod support;
 
-fn compile_program(text: &str, module: Option<&NativeModule>) -> BytecodeProgram {
+fn compile_program(
+    text: &str,
+    module: Option<&NativeModule>,
+) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("main.kgr", text.into(), SourceLayer::Base)
@@ -60,7 +64,7 @@ fn compile_program(text: &str, module: Option<&NativeModule>) -> BytecodeProgram
                 })
             })
             .chain(module)
-            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
     let snapshot = analysis
@@ -71,17 +75,10 @@ fn compile_program(text: &str, module: Option<&NativeModule>) -> BytecodeProgram
     lower_program_to_bytecode(&mir).unwrap()
 }
 
-fn compile(
-    text: &str,
-    module: Option<&NativeModule>,
-) -> (Vm, kagari_runtime::module::LoadedModule) {
+fn compile(text: &str, module: Option<&NativeModule>) -> (Vm, LoadedModule) {
     let program = compile_program(text, module);
     let mut runtime = Runtime::default();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     if let Some(module) = module {
         module.install(&mut runtime).unwrap();
     }
@@ -110,7 +107,8 @@ fn scalar_function_executes_through_the_checked_registration() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let add = module
         .define_function(
             FunctionDecl::new("add")
@@ -147,7 +145,8 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let function = module
         .define_function(FunctionDecl::new("broken").returns(Type::i32()))
         .unwrap();
@@ -241,8 +240,9 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut step = module.define_trait("Step");
+    )
+    .unwrap();
+    let mut step = module.define_trait("Step").unwrap();
     step.define_method(
         MethodDecl::instance("step")
             .parameter("value", Type::i32())
@@ -256,18 +256,21 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
     let selected = module
         .function(&repeat, |function| {
             let item = function.type_parameter("T")?;
-            function.parameter("item", item.ty());
-            function.parameter("count", Type::i32());
-            function.bound(item.ty(), step.apply([]));
-            Ok(function.requires(CallableRequirement::method(item.ty(), step.method("step")?)))
+            function.parameter("item", item.ty())?;
+            function.parameter("count", Type::i32())?;
+            function.bound(item.ty(), step.apply([])?)?;
+            function.requires(CallableRequirement::method(
+                item.ty(),
+                step.method("step")?,
+            )?)
         })
         .unwrap();
     module
         .bind_with(
             repeat,
             NativeBinding::new(
-                vec![Codec::Value, Codec::Scalar(Type::i32().abi().clone())],
-                Codec::Scalar(Type::i32().abi().clone()),
+                vec![Codec::Value, Codec::Exact(Type::i32())],
+                Codec::Exact(Type::i32()),
                 move |cx| {
                     let receiver = cx.argument(0)?;
                     let Value::I32(count) = cx.argument(1)? else {
@@ -341,8 +344,9 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut declaration = builder.define_type("Counter");
+    )
+    .unwrap();
+    let mut declaration = builder.define_type("Counter").unwrap();
     declaration.type_parameter("T").unwrap();
     declaration
         .native_storage(NativeStorage::new(move |context| {
@@ -379,7 +383,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
             read,
             NativeBinding::new(
                 vec![counter.codec()],
-                Codec::Scalar(Type::i32().abi().clone()),
+                Codec::Exact(Type::i32()),
                 |context| {
                     context.with_payload::<TracedCounter, _>(0, |payload| {
                         // Collection and execution cannot invalidate this scoped Rust borrow.
@@ -436,8 +440,9 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut declaration = builder.define_type("Buffer");
+    )
+    .unwrap();
+    let mut declaration = builder.define_type("Buffer").unwrap();
     let item = declaration.type_parameter("T").unwrap();
     declaration.sequence_storage(&item).unwrap();
     let buffer = declaration.finish().unwrap();
@@ -466,8 +471,8 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         .bind_with(
             push,
             NativeBinding::new(
-                vec![buffer.codec(), Codec::Scalar(Type::i32().abi().clone())],
-                Codec::Scalar(Type::unit().abi().clone()),
+                vec![buffer.codec(), Codec::Exact(Type::i32())],
+                Codec::Exact(Type::unit()),
                 |context| {
                     context.sequence_push(0, context.argument(1)?)?;
                     Ok(Value::Unit)
@@ -527,8 +532,9 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
     let mut builder = ModuleBuilder::new(
         "example::arrays",
         &language.catalog().expect("explicit standard providers"),
-    );
-    let array = language.vec(Type::i32());
+    )
+    .unwrap();
+    let array = language.vec(Type::i32()).unwrap();
     let probe = builder
         .define_function(
             FunctionDecl::new("probe")
@@ -539,20 +545,14 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
     builder
         .bind_with(
             probe,
-            NativeBinding::new(
-                vec![Codec::Sequence],
-                Codec::Scalar(Type::i32().abi().clone()),
-                |cx| {
-                    assert!(cx.with_sequence::<u32, _>(0, |_| Ok(())).is_err());
-                    cx.with_sequence_mut::<i32, _>(0, |values| {
-                        values.reverse();
-                        Ok(())
-                    })?;
-                    cx.with_sequence::<i32, _>(0, |values| {
-                        Ok(Value::I32(values.iter().copied().sum()))
-                    })
-                },
-            ),
+            NativeBinding::new(vec![Codec::Sequence], Codec::Exact(Type::i32()), |cx| {
+                assert!(cx.with_sequence::<u32, _>(0, |_| Ok(())).is_err());
+                cx.with_sequence_mut::<i32, _>(0, |values| {
+                    values.reverse();
+                    Ok(())
+                })?;
+                cx.with_sequence::<i32, _>(0, |values| Ok(Value::I32(values.iter().copied().sum())))
+            }),
         )
         .unwrap();
     let module = builder.finish().unwrap();
@@ -619,11 +619,12 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
     let mut builder = ModuleBuilder::new(
         "example::views",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let len = builder
         .define_function(
             FunctionDecl::new("len")
-                .parameter("values", language.vec(Type::i32()))
+                .parameter("values", language.vec(Type::i32()).unwrap())
                 .returns(Type::usize()),
         )
         .unwrap();
@@ -632,7 +633,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         .define_function(
             FunctionDecl::new("transform")
                 .parameter("increment", Type::i32())
-                .parameter("values", language.vec(Type::i32()))
+                .parameter("values", language.vec(Type::i32()).unwrap())
                 .parameter("scale", Type::i32())
                 .returns(Type::i32()),
         )
@@ -799,7 +800,8 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
     let mut builder = ModuleBuilder::new(
         "example::scalar_arrays",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut expressions = Vec::new();
     macro_rules! check {
@@ -808,7 +810,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
             let function = builder
                 .define_function(
                     FunctionDecl::new(name)
-                        .parameter("values", language.vec(Type::scalar(BuiltinType::$kind)))
+                        .parameter("values", language.vec(Type::scalar(BuiltinType::$kind)).unwrap())
                         .returns(Type::bool()),
                 )
                 .unwrap();
@@ -818,7 +820,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
                     function,
                     NativeBinding::new(
                         vec![Codec::Sequence],
-                        Codec::Scalar(Type::bool().abi().clone()),
+                        Codec::Exact(Type::bool()),
                         move |cx| {
                             cx.with_sequence::<$rust, _>(0, |values| {
                                 assert!(values.is_empty() || values.len() == 2);
@@ -878,7 +880,8 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let collect = builder
         .define_function(FunctionDecl::new("collect").returns(Type::i64()))
         .unwrap();
@@ -1027,9 +1030,12 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     let mut builder = ModuleBuilder::new(
         "example::cursors",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let hold = builder
-        .define_function(FunctionDecl::new("hold").returns(language.collection_cursor(Type::i32())))
+        .define_function(
+            FunctionDecl::new("hold").returns(language.collection_cursor(Type::i32()).unwrap()),
+        )
         .unwrap();
     let slot = Arc::new(Mutex::new(None::<kagari_runtime::gc::roots::RootedValue>));
     let capture = slot.clone();
@@ -1100,8 +1106,9 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     let mut builder = ModuleBuilder::new(
         "example::provided",
         &language.catalog().expect("explicit standard providers"),
-    );
-    let mut declaration = builder.define_type("Counter");
+    )
+    .unwrap();
+    let mut declaration = builder.define_type("Counter").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<TracedCounter>())
         .unwrap();
@@ -1111,7 +1118,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     let new = builder
         .define_function(
             FunctionDecl::new("new")
-                .parameter("values", language.vec(Type::i32()))
+                .parameter("values", language.vec(Type::i32()).unwrap())
                 .returns(ty.clone()),
         )
         .unwrap();
@@ -1149,20 +1156,16 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     builder
         .bind_with(
             read,
-            NativeBinding::new(
-                vec![counter.codec()],
-                Codec::Scalar(Type::i32().abi().clone()),
-                |cx| {
-                    cx.with_payload::<TracedCounter, _>(0, |payload| {
-                        let Value::GcHandle(id) = payload.values else {
-                            return Err(RuntimeError::module_validation("counter child"));
-                        };
-                        cx.heap()
-                            .sequence_get(id, 0)
-                            .ok_or_else(|| RuntimeError::module_validation("counter element"))
-                    })
-                },
-            ),
+            NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
+                cx.with_payload::<TracedCounter, _>(0, |payload| {
+                    let Value::GcHandle(id) = payload.values else {
+                        return Err(RuntimeError::module_validation("counter child"));
+                    };
+                    cx.heap()
+                        .sequence_get(id, 0)
+                        .ok_or_else(|| RuntimeError::module_validation("counter element"))
+                })
+            }),
         )
         .unwrap();
     let module = builder.finish().unwrap();

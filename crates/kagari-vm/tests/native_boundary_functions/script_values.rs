@@ -19,16 +19,17 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
     let mut module = ModuleBuilder::new(
         "example::script_values",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut contract = module.define_trait("Identity");
+    )
+    .unwrap();
+    let mut contract = module.define_trait("Identity").unwrap();
     let member = contract
         .define_method(MethodDecl::instance("identity"))
         .unwrap();
     contract
         .method(&member, |method| {
             let value = method.type_parameter("T")?.ty();
-            method.parameter("value", value.clone());
-            method.returns(value);
+            method.parameter("value", value.clone())?;
+            method.returns(value)?;
             Ok(())
         })
         .unwrap();
@@ -38,14 +39,14 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         .function(&invoke, |function| {
             let source = function.type_parameter("S")?.ty();
             let value = function.type_parameter("T")?.ty();
-            function.parameter("source", source.clone());
-            function.parameter("value", value.clone());
-            function.returns(value.clone());
-            function.bound(source.clone(), contract.apply([]));
-            Ok(function.requires(
-                CallableRequirement::method(source, contract.method("identity")?)
-                    .arguments([value]),
-            ))
+            function.parameter("source", source.clone())?;
+            function.parameter("value", value.clone())?;
+            function.returns(value.clone())?;
+            function.bound(source.clone(), contract.apply([])?)?;
+            function.requires(
+                CallableRequirement::method(source, contract.method("identity")?)?
+                    .arguments([value])?,
+            )
         })
         .unwrap();
     module
@@ -180,8 +181,9 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
     let mut module = ModuleBuilder::new(
         "example::associated_values",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut contract = module.define_trait("Producer");
+    )
+    .unwrap();
+    let mut contract = module.define_trait("Producer").unwrap();
     let items = contract.associated_type("Items", []).unwrap();
     let get = contract
         .define_method(MethodDecl::instance("items").returns(items.clone()))
@@ -191,7 +193,7 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
         .unwrap();
     let operation = contract.operation(&get).unwrap();
     let selected = contract
-        .method(&again, |method| Ok(method.requires(operation)))
+        .method(&again, |method| method.requires(operation))
         .unwrap();
     contract
         .bind_default_method(

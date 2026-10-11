@@ -3,6 +3,7 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::ModuleSlot, module::BytecodeModuleSlot, program::BytecodeProgram,
 };
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -14,7 +15,7 @@ use kagari_stdlib::modules;
 use kagari_vm::vm::Vm;
 use std::collections::HashSet;
 
-fn program(answer: i32) -> BytecodeProgram {
+fn program(answer: i32) -> DefinitionMetadata<BytecodeProgram> {
     with_state(compile_program(
         &format!(
             "fn make() -> fn() -> i32 {{ val data = [{answer}]; || data[0] }} \
@@ -24,7 +25,8 @@ fn program(answer: i32) -> BytecodeProgram {
     ))
 }
 
-fn with_state(mut program: BytecodeProgram) -> BytecodeProgram {
+fn with_state(program: DefinitionMetadata<BytecodeProgram>) -> DefinitionMetadata<BytecodeProgram> {
+    let (definitions, mut program) = program.into_parts();
     program.modules[program.root.index()]
         .module_slots
         .push(BytecodeModuleSlot {
@@ -32,10 +34,10 @@ fn with_state(mut program: BytecodeProgram) -> BytecodeProgram {
             ty: ValueType::HeapObject,
             mutable: true,
         });
-    program
+    DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap()
 }
 
-fn generic_program() -> BytecodeProgram {
+fn generic_program() -> DefinitionMetadata<BytecodeProgram> {
     with_state(compile_program(
         "use std::cmp::Ordering; \
          trait Keep { fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool { a.cmp(b); || a.cmp(b) == Ordering::Less } } \

@@ -1,3 +1,4 @@
+use kagari_common::identity::metadata::DefinitionMetadata;
 mod construction;
 use crate::{compile_program, native_boundary_functions::fixture, publish_unused_version};
 use kagari_abi::representation::ValueType;
@@ -138,7 +139,8 @@ fn custom_hash_handles_use_selected_calls_with_gc_reentry_and_trap_cleanup() {
     let mut module = ModuleBuilder::new(
         "example::keys",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let alias = held.clone();
     let observed = visits.clone();
     module
@@ -219,7 +221,7 @@ fn stored_key_protocol_keeps_old_code_and_collects_its_module_cycle() {
         )
     };
     let code = |version| {
-        let mut program = compile_program(&source(version), None);
+        let (definitions, mut program) = compile_program(&source(version), None).into_parts();
         program.modules[program.root.index()]
             .module_slots
             .push(BytecodeModuleSlot {
@@ -227,7 +229,7 @@ fn stored_key_protocol_keeps_old_code_and_collects_its_module_cycle() {
                 ty: ValueType::HeapObject,
                 mutable: true,
             });
-        program
+        DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap()
     };
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
@@ -294,7 +296,8 @@ fn typed_native_hash_arguments_share_script_storage_and_return_handles() {
     let mut module = ModuleBuilder::new(
         "example::maps",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     module
         .add_function(
             FunctionSpec::new("edit").parameter_names(["map", "set"]),

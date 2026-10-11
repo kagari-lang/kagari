@@ -50,9 +50,10 @@ fn module(faults: &Arc<Faults>) -> NativeModule {
     let mut builder = ModuleBuilder::new(
         "fixture::payload",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let faults = faults.clone();
-    let mut declaration = builder.define_type("Payload");
+    let mut declaration = builder.define_type("Payload").unwrap();
     declaration
         .native_storage(NativeStorage::new(move |_| Ok(Payload(faults.clone()))))
         .unwrap();

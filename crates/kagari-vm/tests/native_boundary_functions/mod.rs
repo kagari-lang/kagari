@@ -10,7 +10,7 @@ mod script_values;
 mod selected_methods;
 mod shared_application;
 use super::compile_program;
-use kagari_bytecode::artifact::KbcArtifact;
+use crate::support::round_trip_program;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -33,9 +33,7 @@ use std::sync::{
 type ScalarCallback = PinnedFunction<(i32,), i32>;
 
 pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, LoadedModule) {
-    let artifact =
-        KbcArtifact::from_program(compile_program(source, module), Default::default()).unwrap();
-    let bytes = artifact.to_bytes().unwrap();
+    let program = round_trip_program(compile_program(source, module));
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
@@ -49,12 +47,7 @@ pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, Loade
     if let Some(module) = module {
         module.install(&mut runtime).unwrap();
     }
-    let owner = runtime
-        .load_program(
-            "functions",
-            KbcArtifact::from_bytes(&bytes).unwrap().program,
-        )
-        .unwrap();
+    let owner = runtime.load_program("functions", program).unwrap();
     (Vm::new(runtime), owner)
 }
 
@@ -64,7 +57,8 @@ fn bound_entries_check_visibility_signature_and_return_retained_objects() {
     let mut module = ModuleBuilder::new(
         "example::functions",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let observed = calls.clone();
     module
         .add_function(
@@ -124,7 +118,7 @@ fn bound_entries_check_visibility_signature_and_return_retained_objects() {
 fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let remembered: Arc<Mutex<Option<ScalarCallback>>> = Arc::default();
-    let mut module = ModuleBuilder::new("example::functions", &catalog);
+    let mut module = ModuleBuilder::new("example::functions", &catalog).unwrap();
     let saved = remembered.clone();
     module
         .add_function(
@@ -254,7 +248,8 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
     let mut module = ModuleBuilder::new(
         "example::functions",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     module
         .add_function(
             FunctionSpec::new("apply").parameter_names(["callback", "value"]),
@@ -340,7 +335,8 @@ fn native_declaration_handles_bind_checked_installed_entries_directly() {
     let mut module = ModuleBuilder::new(
         "example::functions",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let add = module
         .add_function(
             FunctionSpec::new("add").parameter_names(["left", "right"]),
@@ -355,7 +351,10 @@ fn native_declaration_handles_bind_checked_installed_entries_directly() {
     );
     let function = vm
         .runtime()
-        .bind_function_declaration::<(i32, i32), i32>(&owner, add.id())
+        .bind_function_declaration::<(i32, i32), i32>(
+            &owner,
+            &add.definitions().resolve(add.id()).unwrap().to_path(),
+        )
         .unwrap();
     assert_eq!(vm.call(&function, (20, 22)).unwrap(), 42);
 }

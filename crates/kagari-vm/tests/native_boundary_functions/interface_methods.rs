@@ -31,7 +31,14 @@ fn prepared_interface_members_call_inherited_and_default_methods_on_multiple_rec
     let second: Interface = vm.execute_typed(&owner, "make", (40,)).unwrap();
     let member = player.member(vm.runtime(), "get").unwrap();
     let direct = player
-        .member_declaration(vm.runtime(), member.declaration())
+        .member_declaration(
+            vm.runtime(),
+            &member
+                .definitions()
+                .resolve(member.declaration())
+                .unwrap()
+                .to_path(),
+        )
         .unwrap();
     let get = vm
         .runtime()
@@ -96,7 +103,15 @@ fn interface_method_results_use_existing_native_and_inherited_adapters() {
         .unwrap();
     let direct = vm
         .runtime()
-        .interface_member_declaration(&owner, list.type_argument(), registered.id())
+        .interface_member_declaration(
+            &owner,
+            list.type_argument(),
+            &registered
+                .definitions()
+                .resolve(registered.id())
+                .unwrap()
+                .to_path(),
+        )
         .unwrap();
     let len = vm
         .runtime()
@@ -207,7 +222,8 @@ fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
     let mut builder = ModuleBuilder::new(
         "example::interface_methods",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     builder
         .add_function(
             FunctionSpec::new("collect"),

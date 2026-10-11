@@ -28,7 +28,8 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     let mut module = ModuleBuilder::new(
         "example::selected",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
+    )
+    .unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     module
@@ -41,7 +42,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
             },
         )
         .unwrap();
-    let mut contract = module.define_trait("Read");
+    let mut contract = module.define_trait("Read").unwrap();
     let read = contract
         .define_method(
             MethodDecl::instance("read")
@@ -57,7 +58,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         .unwrap();
     let operation = contract.operation(&read).unwrap();
     let required = contract
-        .method(&twice, |method| Ok(method.requires(operation)))
+        .method(&twice, |method| method.requires(operation))
         .unwrap();
     contract
         .bind_default_method(
@@ -75,9 +76,9 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     let wrong_key = module
         .function(&wrong, |function| {
             let item = function.type_parameter("T")?.ty();
-            function.parameter("item", item.clone());
-            function.bound(item.clone(), contract.apply([]));
-            Ok(function.requires(CallableRequirement::method(item, contract.method("read")?)))
+            function.parameter("item", item.clone())?;
+            function.bound(item.clone(), contract.apply([])?)?;
+            function.requires(CallableRequirement::method(item, contract.method("read")?)?)
         })
         .unwrap();
     module
@@ -92,18 +93,18 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     let (read_key, twice_key, base_key) = module
         .function(&capture, |function| {
             let item = function.type_parameter("T")?.ty();
-            function.parameter("item", item.clone());
-            function.bound(item.clone(), contract.apply([]));
+            function.parameter("item", item.clone())?;
+            function.bound(item.clone(), contract.apply([])?)?;
             Ok((
                 function.requires(CallableRequirement::method(
                     item.clone(),
                     contract.method("read")?,
-                )),
+                )?)?,
                 function.requires(CallableRequirement::method(
                     item.clone(),
                     contract.method("twice")?,
-                )),
-                function.requires(CallableRequirement::method(item, contract.method("base")?)),
+                )?)?,
+                function.requires(CallableRequirement::method(item, contract.method("base")?)?)?,
             ))
         })
         .unwrap();
@@ -230,16 +231,17 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
     let mut module = ModuleBuilder::new(
         "example::selected_generic",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut contract = module.define_trait("Identity");
+    )
+    .unwrap();
+    let mut contract = module.define_trait("Identity").unwrap();
     let method = contract
         .define_method(MethodDecl::instance("identity"))
         .unwrap();
     contract
         .method(&method, |method| {
             let item = method.type_parameter("T")?.ty();
-            method.parameter("item", item.clone());
-            method.returns(item);
+            method.parameter("item", item.clone())?;
+            method.returns(item)?;
             Ok(())
         })
         .unwrap();
@@ -249,13 +251,14 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
         .function(&invoke, |function| {
             let source = function.type_parameter("S")?.ty();
             let item = function.type_parameter("T")?.ty();
-            function.parameter("source", source.clone());
-            function.parameter("item", item.clone());
-            function.returns(item.clone());
-            function.bound(source.clone(), contract.apply([]));
-            Ok(function.requires(
-                CallableRequirement::method(source, contract.method("identity")?).arguments([item]),
-            ))
+            function.parameter("source", source.clone())?;
+            function.parameter("item", item.clone())?;
+            function.returns(item.clone())?;
+            function.bound(source.clone(), contract.apply([])?)?;
+            function.requires(
+                CallableRequirement::method(source, contract.method("identity")?)?
+                    .arguments([item])?,
+            )
         })
         .unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
@@ -331,7 +334,8 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
 #[test]
 fn selected_primitive_operations_use_checked_typed_arguments() {
     let declarations = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("example::selected_hash", &declarations.catalog().unwrap());
+    let mut module =
+        ModuleBuilder::new("example::selected_hash", &declarations.catalog().unwrap()).unwrap();
     let hash = declarations.hash();
     let function = module
         .define_function(FunctionDecl::new("repeat").returns(Type::i64()))
@@ -339,9 +343,9 @@ fn selected_primitive_operations_use_checked_typed_arguments() {
     let key = module
         .function(&function, |function| {
             let item = function.type_parameter("T")?.ty();
-            function.parameter("item", item.clone());
-            function.bound(item.clone(), hash.apply([]));
-            Ok(function.requires(CallableRequirement::method(item, hash.method("hash")?)))
+            function.parameter("item", item.clone())?;
+            function.bound(item.clone(), hash.apply([])?)?;
+            function.requires(CallableRequirement::method(item, hash.method("hash")?)?)
         })
         .unwrap();
     module

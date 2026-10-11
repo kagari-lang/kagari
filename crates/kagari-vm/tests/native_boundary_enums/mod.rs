@@ -272,12 +272,13 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
     let mut module = ModuleBuilder::new(
         "example::events",
         &StandardDeclarations::default().catalog().unwrap(),
-    );
-    let mut builder = module.define_enum("Event");
+    )
+    .unwrap();
+    let mut builder = module.define_enum("Event").unwrap();
     let element = builder.type_parameter("T").unwrap();
     let data = builder.variant("Data", [element.ty()]).unwrap();
     let event = builder.finish().unwrap();
-    let mut other = module.define_enum("Other");
+    let mut other = module.define_enum("Other").unwrap();
     let wrong = other.variant("Data", [Type::i32()]).unwrap();
     other.finish().unwrap();
     let module = module.finish().unwrap();
@@ -294,10 +295,17 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
         .unwrap();
     let applied = vm
         .runtime()
-        .bind_enum_type_declaration(&owner, event.id(), &[element])
+        .bind_enum_type_declaration(
+            &owner,
+            &event.definitions().resolve(event.id()).unwrap().to_path(),
+            &[element],
+        )
         .unwrap();
     let member = applied
-        .variant_declaration(vm.runtime(), data.id())
+        .variant_declaration(
+            vm.runtime(),
+            &data.definitions().resolve(data.id()).unwrap().to_path(),
+        )
         .unwrap();
     let variant = vm
         .runtime()
@@ -305,7 +313,10 @@ fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
         .unwrap();
     assert!(
         applied
-            .variant_declaration(vm.runtime(), wrong.id())
+            .variant_declaration(
+                vm.runtime(),
+                &wrong.definitions().resolve(wrong.id()).unwrap().to_path()
+            )
             .is_err()
     );
     let duplicate = variant.clone();
