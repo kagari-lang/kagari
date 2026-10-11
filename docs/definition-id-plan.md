@@ -2386,3 +2386,62 @@ backend matrix, generated-artifact refresh or performance measurement ran. Share
 semantic model parameters and remaining generic Serde support must be removed with
 the aggregate private wire owners in SI05/SI06; final integration/docs cleanup and the
 previous compiler fixture failure remain open.
+
+
+### SI05 private Host envelope/value records and offline integration
+
+KHI encoding/decoding and all Host fingerprints now use private wire records for
+serialized declarations, members, trait bindings and path declarations. The encoder
+visits scoped references, constructs the canonical table and explicitly writes local
+references. The decoder reads bounded records, validates the file table, resolves
+references directly to IDs, and applies the existing Host contract checks before
+returning scoped metadata. It does not build HostInterface/HostValueType with file
+references, use arbitrary Rebind for codec conversion, or create execution evidence.
+The private Encode trait only selects an owner's fixed serialized record.
+
+The flat Host value reader shares its bounded node reader and shape builder with
+remaining generic Serde consumers. Nodes no longer have a default path parameter.
+Envelope field order, value tags, fingerprint domains, declaration/member/node/depth
+and byte limits are retained; no format identifier changed. Per-record private wire
+conversions preserve ordered fields, parameters, trait arguments and path segments.
+Generic Host semantic models/Serde and other aggregate codecs remain SI05/SI06 work;
+this checkpoint does not claim their migration is complete.
+
+Existing malformed-node and forged-reference cases now target private wire records;
+collection round trips use the real KHI envelope. The existing canonical test imports
+into reversed type allocation order with an unrelated root and compares bytes and
+fingerprints. The offline_host integration target now constructs IDs in explicit
+contexts, retains metadata scopes and uses explicit imports. Its obsolete path
+constructors, generic rebinding helper and path mutation were removed; all assertions
+for callback suppression, handle ownership, old snapshots and rejected publication
+remain. Its stale permissions/cost test name now describes identity/signature/borrow/
+effect checking.
+
+Focused local validation selects the changed Host codec contracts and their runtime
+registration/link/reload consumer, not a workspace sweep:
+
+- `cargo test -p kagari-types --lib host_interface:: --message-format=short
+  --no-fail-fast`: 17 cases pass; the canonical case also passes after strengthening
+  allocation-order coverage.
+- `cargo test -p kagari-runtime --test offline_host --message-format=short
+  --no-fail-fast`: all eight cases pass. Initial fixture compilation found five
+  residual Option declaration-constructor errors; explicit context interning resolves
+  them and the rerun executes every selected case.
+- Private wire associated types initially had narrower visibility than the private
+  Encode trait (E0446); they now share the Host module boundary. The structure checker
+  incorrectly treated `pub(in crate::host_interface)` as an importable use-site path.
+  It now excludes only visibility syntax, retaining field/signature/import/re-export
+  checks; its 43 self-tests pass. No visibility expansion outside Host or structural
+  exception was used.
+- `cargo clippy -p kagari-types --lib --message-format=short -- -D warnings` and
+  `cargo clippy -p kagari-runtime --test offline_host --message-format=short --
+  -D warnings` pass. The selected integration build also compiles its compiler and
+  standard-library dependencies; this is not full compiler/backend acceptance.
+
+Manual review covers every serialized declaration field and leaf tag, reference
+collection, decode ownership, limits, retained validation, private visibility,
+production imports and unchanged fingerprint domains. Structure checks 1063 Rust
+files with zero violations/exceptions; formatting and diff checks pass. No full
+workspace/backend matrix, artifact regeneration or performance measurement ran.
+The prior compiler lib-test fixture failure remains open, along with aggregate wire
+migration, shared model parameter removal and final integration/document cleanup.

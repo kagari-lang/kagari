@@ -775,6 +775,8 @@ mod tests {
         context
             .intern_root(&ModuleIdentity::single_file("unrelated"))
             .unwrap();
+        // Import into a different allocation order, not just a different table number.
+        HostTypeDeclaration::new(&context, "pkg.B").unwrap();
         let imported = decoded.import_into(&context, &Default::default()).unwrap();
         assert_ne!(decoded.definitions().id(), imported.definitions().id());
         assert_eq!(

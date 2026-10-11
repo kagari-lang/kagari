@@ -78,6 +78,17 @@ fn f() {
 macro_rules! make { () => { $crate::private::run(); }; }
 '''), [])
 
+    def test_restricted_visibility_names_ancestors_without_imports(self):
+        for visibility in ["pub(in crate::owner)", "pub(in super::super)"]:
+            with self.subTest(visibility=visibility):
+                self.assertEqual(rules(f"{visibility} struct Record;"), [])
+                # The visibility exclusion must not hide field/signature paths
+                # or waive the enclosing re-export's separate approval rule.
+                self.assertEqual(rules(f"{visibility} struct Record {{ value: crate::owner::Type }}"),
+                                 ["qualified-path"])
+                self.assertEqual(rules(f"{visibility} use crate::owner::Type;"),
+                                 ["reexport-whitelist"])
+
     def test_reexports_require_whitelist_in_every_file_and_scope(self):
         text = "pub use crate::a::A; pub(crate) use crate::b::B;"
         for path in ["src/lib.rs", "src/feature/mod.rs", "src/worker.rs", "tests/api.rs"]:

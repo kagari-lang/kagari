@@ -310,7 +310,10 @@ def inspect(source: Source, test_only: bool) -> list[dict]:
         if node.type in OPAQUE:
             # Macro bodies are token trees, not parsed Rust items/expressions.
             return
-        if node.type in {"attribute_item", "inner_attribute_item"}:
+        if node.type in {"attribute_item", "inner_attribute_item", "visibility_modifier"}:
+            # Restricted visibility names an ancestor syntactically; Rust does not
+            # permit replacing it with an imported alias. Re-exports are still
+            # checked at their enclosing use_declaration.
             return
         if node.type in ITEM_SCOPES:
             for rule, following in unseparated_items(node, source.data):

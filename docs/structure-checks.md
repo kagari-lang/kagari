@@ -63,8 +63,11 @@ fn render(error: Arc<RuntimeError>) -> fmt::Result {
 Short `fmt::Display`, `io::Result`, `hir::Expr`, `Type::method` and a single
 `super::item` are allowed. Generic argument paths are checked independently.
 Qualified trait calls such as `<Type as Trait>::method`, attributes and derive
-paths are excluded from the verbose-path rule. A short imported alias is allowed;
-the checker does not resolve names or determine whether an alias is meaningful.
+paths are excluded from the verbose-path rule. Restricted visibility such as
+`pub(in crate::owner)` names an ancestor directly and cannot use an imported alias;
+its path is excluded while the enclosing declaration remains checked. A short
+imported alias is allowed at ordinary use sites; the checker does not resolve
+names or determine whether an alias is meaningful.
 
 Re-export authorization is independent of file location. An intentional public
 boundary must explain its owner and consumers in a whitelist entry. Moving a

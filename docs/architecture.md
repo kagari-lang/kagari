@@ -828,6 +828,14 @@ node/binding vectors, then explicit decoding checks shape, depth, canonical bind
 order and references while building scoped types. It creates no execution evidence.
 The type-set path does not instantiate the semantic type model with file references.
 
+The KHI envelope and Host fingerprints also use private serialized declaration and
+flat value records. Encoding visits the scoped reference closure and builds the
+canonical file table before writing records. Decoding validates that table, resolves
+file references directly into IDs, checks bounded value shape and Host contracts,
+and returns records with their retained scope. Declaration/member/node/byte limits
+remain at their existing owners; no file-reference Host semantic model or execution
+seal is produced. Fields, parameters, trait arguments and path segments retain order.
+
 Runtime preparation normalizes independent verified inputs into its own context
 while retaining original immutable version identity and dependency versions.
 Host registration shares that context with the Native catalog. Function and type

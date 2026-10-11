@@ -27,19 +27,14 @@ mod tests {
 
     use super::*;
     use crate::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostInterfaceError, MAGIC, VERSION, codec,
+        HostFunctionDeclaration, HostInterface, HostInterfaceError,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration, PathAccess},
         value_type::HostValueType,
     };
     use bincode::Options;
     use kagari_common::identity::{
-        MAX_IDENTITY_PATH_SEGMENTS,
-        map::DefinitionContext,
-        table::{
-            DefinitionId, DefinitionTableError,
-            wire::{PortableDefinitionRef, PortableDefinitionTable},
-        },
+        MAX_IDENTITY_PATH_SEGMENTS, map::DefinitionContext, table::DefinitionTableError,
     };
 
     #[derive(Debug, Deserialize)]
@@ -96,28 +91,6 @@ mod tests {
             decode_fixture(&bytes, &context),
             Err(HostInterfaceError::Encoding)
         );
-    }
-
-    #[test]
-    fn khi_file_references_must_resolve_before_host_validation() {
-        let context = DefinitionContext::new().unwrap();
-        let interface = HostInterface {
-            types: vec![HostTypeDeclaration::new(&context, "demo.Player").unwrap()],
-            ..Default::default()
-        };
-        let bytes = interface.to_bytes(&context.snapshot()).unwrap();
-        let (mut records, table): (
-            HostInterface<PortableDefinitionRef>,
-            PortableDefinitionTable,
-        ) = codec().deserialize(&bytes[6..]).unwrap();
-        records.types[0].id = codec().deserialize(&u32::MAX.to_le_bytes()).unwrap();
-        let mut invalid = MAGIC.to_vec();
-        invalid.extend(VERSION.to_le_bytes());
-        invalid.extend(codec().serialize(&(records, table)).unwrap());
-        assert!(matches!(
-            HostInterface::<DefinitionId>::from_bytes(&invalid),
-            Err(HostInterfaceError::InvalidDeclaration)
-        ));
     }
 
     #[test]

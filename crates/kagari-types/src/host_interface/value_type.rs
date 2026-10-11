@@ -1,17 +1,21 @@
 //! Composite declarations use bounded, flat preorder encoding on the wire.
 use super::HostInterfaceError;
 use crate::{collection::CollectionAccess, host_interface::wire, language::binding};
-use kagari_common::identity::{
-    DefinitionKind, DefinitionPath,
-    reference::DefinitionReference,
-    table::{DefinitionId, DefinitionTable},
+use kagari_common::{
+    decode_limits::bounded_vec,
+    identity::{
+        DefinitionKind, DefinitionPath,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use serde::{
-    Deserialize, Deserializer, Serialize, Serializer, de,
-    de::{Error as DecodeError, SeqAccess, Visitor},
+    Deserialize, Deserializer, Serialize, Serializer, de, de::Error as DecodeError,
     ser::Error as EncodeError,
 };
-use std::{fmt, marker::PhantomData, vec::IntoIter};
+use std::vec::IntoIter;
+
+pub(super) mod codec;
 
 const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 4096;
@@ -237,11 +241,7 @@ impl HostValueType<DefinitionId> {
 // Wire nodes contain no recursive type references. Decoding cannot grow the
 // Rust call stack until node count and depth have been bounded explicitly.
 #[derive(Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-enum Node<I = DefinitionPath> {
+enum Node<I> {
     Unit,
     Bool,
     I32,
@@ -268,41 +268,23 @@ impl<I: DefinitionReference + Serialize> Serialize for HostValueType<I> {
     }
 }
 
+fn read_nodes<'de, D, I>(deserializer: D) -> Result<Vec<Node<I>>, D::Error>
+where
+    D: Deserializer<'de>,
+    I: Deserialize<'de>,
+{
+    bounded_vec(deserializer, MAX_NODES, "host type node")
+}
+
 impl<'de, I: DefinitionReference + Deserialize<'de>> Deserialize<'de> for HostValueType<I> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct TypeVisitor<I>(PhantomData<I>);
-
-        impl<'de, I: DefinitionReference + Deserialize<'de>> Visitor<'de> for TypeVisitor<I> {
-            type Value = HostValueType<I>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a bounded preorder host type")
-            }
-
-            fn visit_seq<A: SeqAccess<'de>>(
-                self,
-                mut sequence: A,
-            ) -> Result<Self::Value, A::Error> {
-                if sequence.size_hint().is_some_and(|count| count > MAX_NODES) {
-                    return Err(DecodeError::custom("host type node limit"));
-                }
-                let mut nodes = Vec::new();
-                while let Some(node) = sequence.next_element::<Node<I>>()? {
-                    if nodes.len() >= MAX_NODES {
-                        return Err(DecodeError::custom("host type node limit"));
-                    }
-                    nodes.push(node);
-                }
-                let mut nodes = nodes.into_iter();
-                let ty = build::<I, A::Error>(&mut nodes, 1)?;
-                if nodes.next().is_some() {
-                    return Err(DecodeError::custom("trailing host type nodes"));
-                }
-                ty.validate().map_err(DecodeError::custom)?;
-                Ok(ty)
-            }
+        let mut nodes = read_nodes(deserializer)?.into_iter();
+        let ty = build::<I, D::Error>(&mut nodes, 1)?;
+        if nodes.next().is_some() {
+            return Err(DecodeError::custom("trailing host type nodes"));
         }
-        deserializer.deserialize_seq(TypeVisitor(PhantomData))
+        ty.validate().map_err(DecodeError::custom)?;
+        Ok(ty)
     }
 }
 
@@ -393,12 +375,7 @@ mod tests {
         host_interface::{HostFunctionDeclaration, HostInterface},
     };
 
-    use kagari_common::identity::{
-        DefinitionKind, ModuleIdentity,
-        map::DefinitionContext,
-        metadata::{DefinitionMetadata, PortableMetadata},
-        table::wire::PortableDefinitionRef,
-    };
+    use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 
     fn collection_identity(context: &DefinitionContext, list: bool) -> DefinitionId {
         let root = context
@@ -472,22 +449,15 @@ mod tests {
                 readable.fingerprint(&context.snapshot()).unwrap()
             );
             for ty in [writable, readable] {
-                let metadata = DefinitionMetadata::checked(
-                    context.snapshot(),
-                    ty.clone(),
-                    &Default::default(),
-                )
-                .unwrap();
-                let bytes = bincode::serialize(&metadata.to_portable(&Default::default()).unwrap())
-                    .unwrap();
-                let portable: PortableMetadata<HostValueType<PortableDefinitionRef>> =
-                    bincode::deserialize(&bytes).unwrap();
-                let decoded = portable
-                    .decode(&Default::default())
-                    .unwrap()
-                    .import_into(&context, &Default::default())
-                    .unwrap();
-                assert_eq!(decoded.records(), &ty);
+                let interface = HostInterface {
+                    functions: vec![
+                        HostFunctionDeclaration::new(&context, "host.roundtrip", vec![], ty)
+                            .unwrap(),
+                    ],
+                    ..Default::default()
+                };
+                let bytes = interface.to_bytes(&context.snapshot()).unwrap();
+                assert_eq!(decode_fixture(&bytes, &context).unwrap(), interface);
             }
         }
         let mut legacy = HostInterface::default()
@@ -539,39 +509,6 @@ mod tests {
         assert_eq!(
             decode_fixture(&bytes, &context),
             Err(HostInterfaceError::Version)
-        );
-    }
-
-    #[test]
-    fn malformed_wire_types_reject_depth_counts_arity_and_invalid_hash_keys() {
-        for nodes in [
-            vec![],
-            vec![Node::<PortableDefinitionRef>::I32, Node::Bool],
-            vec![Node::Tuple(u32::MAX)],
-            vec![Node::Map(CollectionAccess::Mutable), Node::F32, Node::I32],
-            (0..MAX_DEPTH)
-                .map(|_| Node::Array)
-                .chain([Node::I32])
-                .collect(),
-            (0..=MAX_NODES).map(|_| Node::I32).collect(),
-        ] {
-            let bytes = bincode::serialize(&nodes).unwrap();
-            assert!(bincode::deserialize::<HostValueType<PortableDefinitionRef>>(&bytes).is_err());
-        }
-        let mut ty = HostValueType::<PortableDefinitionRef>::I32;
-        for _ in 1..MAX_DEPTH {
-            ty = HostValueType::Array(Box::new(ty));
-        }
-        let bytes = bincode::serialize(&ty).unwrap();
-        assert_eq!(
-            bincode::deserialize::<HostValueType<PortableDefinitionRef>>(&bytes).unwrap(),
-            ty
-        );
-        assert!(HostValueType::Array(Box::new(ty)).validate().is_err());
-        assert!(
-            HostValueType::Tuple(vec![HostValueType::<PortableDefinitionRef>::I32; MAX_NODES])
-                .validate()
-                .is_err()
         );
     }
 }
