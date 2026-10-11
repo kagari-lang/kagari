@@ -2,15 +2,16 @@
 use crate::{
     error::VmError,
     executor::Executor,
+    tests::common::round_trip_bytecode,
     vm::{Vm, owned::DriveResult},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    artifact::KbcArtifact,
     instruction::{BytecodeInstruction as I, CallTarget, LocalSlot, NativeImportId, Register},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
@@ -102,27 +103,36 @@ impl Fixture {
     }
 
     fn with_functions(edit: impl FnOnce(&mut Vec<BytecodeFunction>)) -> Self {
+        let context = DefinitionContext::new().unwrap();
         let sent = Arc::new(Mutex::new(Vec::new()));
         let starts = Arc::new(AtomicUsize::new(0));
         let cancels = Arc::new(AtomicUsize::new(0));
-        let mut vector = ModuleBuilder::new("kagari-alloc::vec", &DeclarationCatalog::default());
-        let mut ty = vector.define_type("Vec");
+        let mut vector =
+            ModuleBuilder::new("kagari-alloc::vec", &DeclarationCatalog::default()).unwrap();
+        let mut ty = vector.define_type("Vec").unwrap();
         ty.type_parameter("T").unwrap();
         ty.native_storage(NativeStorage::sequence(0)).unwrap();
         ty.finish().unwrap();
         let vector = vector.finish().unwrap();
-        let vector_declaration = vector.to_declaration().unwrap();
-        let mut builder = ModuleBuilder::new("test::io", &vector.catalog());
-        let mut future = builder.define_type("Future");
+        let vector_declaration = vector
+            .to_declaration()
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        let mut builder = ModuleBuilder::new("test::io", &vector.catalog()).unwrap();
+        let mut future = builder.define_type("Future").unwrap();
         future.type_parameter("T").unwrap();
         future.native_storage(NativeStorage::future()).unwrap();
-        let future = future
-            .finish()
-            .unwrap()
-            .apply([Type::i32()])
-            .unwrap()
-            .abi()
-            .clone();
+        let future = future.finish().unwrap().apply([Type::i32()]).unwrap();
+        let future = DefinitionMetadata::checked(
+            future.definitions().unwrap().clone(),
+            future.abi().clone(),
+            &Default::default(),
+        )
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
         let (sent_to, started, cancelled) = (sent.clone(), starts.clone(), cancels.clone());
         builder
             .add_async_function::<(Vec<i32>,), i32>(
@@ -164,8 +174,14 @@ impl Fixture {
             )
             .unwrap();
         let native = builder.finish().unwrap();
-        let declaration = native.to_declaration().unwrap();
-        let mut native_declarations = declaration.native_declarations();
+        let declaration = native
+            .to_declaration()
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        let mut native_declarations = declaration
+            .native_declarations(&context.snapshot())
+            .unwrap();
         native_declarations.sort_by_key(|entry| entry.function.name != "request");
         let request = &native_declarations[0];
         let array = request.function.params[0].ty.clone();
@@ -217,10 +233,10 @@ impl Fixture {
                 .iter()
                 .map(|entry| NativeImport {
                     instance: ConcreteFunctionIdentity {
-                        declaration: entry.declaration.clone(),
+                        declaration: entry.declaration,
                         arguments: vec![],
                     },
-                    binding: entry.declaration.clone(),
+                    binding: entry.declaration,
                     signature: Signature {
                         params: entry.function.params.iter().map(|p| p.ty.clone()).collect(),
                         result: entry.function.return_type.clone(),
@@ -254,35 +270,34 @@ impl Fixture {
             functions,
             ..Default::default()
         };
-        let artifact = KbcArtifact::from_program(
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![
-                    module,
-                    BytecodeModule {
-                        identity: vector_declaration.identity,
-                        public_items: vector_declaration
-                            .types
-                            .into_iter()
-                            .map(PublicItem::Type)
-                            .collect(),
-                        ..Default::default()
-                    },
-                ],
-            },
-            Default::default(),
-        )
-        .unwrap();
-        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        decoded.validate_for_loader(&Default::default()).unwrap();
+        let decoded = round_trip_bytecode(
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![
+                        module,
+                        BytecodeModule {
+                            identity: vector_declaration.identity,
+                            public_items: vector_declaration
+                                .types
+                                .into_iter()
+                                .map(PublicItem::Type)
+                                .collect(),
+                            ..Default::default()
+                        },
+                    ],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        );
         let mut config = RuntimeConfig::default();
         config.async_limits.max_pending_operations = NonZeroUsize::new(1).unwrap();
         let mut runtime = Runtime::new(config);
         vector.install(&mut runtime).unwrap();
         native.install(&mut runtime).unwrap();
-        let module = runtime
-            .load_program("native-wait", decoded.program)
-            .unwrap();
+        let module = runtime.load_program("native-wait", decoded).unwrap();
         Self {
             vm: Vm::new(runtime),
             module,

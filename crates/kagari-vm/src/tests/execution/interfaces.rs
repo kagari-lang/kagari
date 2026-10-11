@@ -1,7 +1,13 @@
 use super::*;
-use crate::{executor::Executor, tests::common::standard_runtime};
-use kagari_bytecode::instruction::ConstantId;
-use kagari_bytecode::instruction::StructId;
+use crate::{
+    executor::Executor,
+    tests::common::{module_program, round_trip_bytecode, standard_runtime},
+};
+use kagari_bytecode::{
+    instruction::{ConstantId, StructId},
+    program::{BytecodeProgram, identity, verify_program},
+    verifier::verify_module,
+};
 use kagari_contract::types::PublicItem;
 use kagari_runtime::{Runtime, frame::transfer::ReturnValue, module::LoadedModule};
 use kagari_types::ty::{NominalTy, Ty};
@@ -53,7 +59,6 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 
 #[test]
 fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
-    use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
     let (runtime, loaded) = load_test_module(
         "trait Other {} trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
     );
@@ -324,10 +329,10 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
         .find(|f| f.name == "read")
         .unwrap()
         .id;
-    let mut old_call = crate::executor::Executor::new(&runtime, &new, read, &[old_value]).unwrap();
+    let mut old_call = Executor::new(&runtime, &new, read, &[old_value]).unwrap();
     assert_eq!(old_call.run().unwrap(), Value::I32(8));
     drop(old_call);
-    let mut new_call = crate::executor::Executor::new(&runtime, &new, read, &[new_value]).unwrap();
+    let mut new_call = Executor::new(&runtime, &new, read, &[new_value]).unwrap();
     assert_eq!(new_call.run().unwrap(), Value::I32(9));
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert!(
@@ -476,16 +481,10 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
 
 #[test]
 fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
-    use kagari_bytecode::{
-        artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
-        instruction::InterfaceTableRef,
-        program::{BytecodeProgram, ModuleRef},
-        verifier::verify_module,
-    };
     let module = interface_instruction_module();
-    verify_module(&module).unwrap();
+    verify_module(module.records(), module.definitions()).unwrap();
 
-    let mut invalid = module.clone();
+    let (definitions, mut invalid) = module.clone().into_parts();
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
         dst: Register::new(1),
         value: Register::new(0),
@@ -493,7 +492,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         implementation: InterfaceTableRef::new(1),
         arguments: vec![],
     };
-    assert!(verify_module(&invalid).is_err());
+    assert!(verify_module(&invalid, &definitions).is_err());
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
         dst: Register::new(1),
         value: Register::new(1),
@@ -501,23 +500,12 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         implementation: InterfaceTableRef::new(0),
         arguments: vec![],
     };
-    assert!(verify_module(&invalid).is_err());
+    assert!(verify_module(&invalid, &definitions).is_err());
 
-    let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![module],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    decoded
-        .validate_for_loader(&ArtifactCompatibility::default())
-        .unwrap();
+    let decoded = round_trip_bytecode(module_program(module));
     let mut runtime = standard_runtime(Default::default());
     let loaded = runtime
-        .load_program("interface-instruction", decoded.program)
+        .load_program("interface-instruction", decoded)
         .unwrap();
     let vm = Vm::new(runtime);
     let value = vm
@@ -532,14 +520,11 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
 
 #[test]
 fn interface_instruction_uses_a_reachable_dependency_table() {
-    use kagari_bytecode::{
-        artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
-        instruction::InterfaceTableRef,
-        program::{BytecodeProgram, ModuleRef, verify_program},
-    };
-    use kagari_common::identity::ModuleIdentity;
-
-    let dependency = interface_instruction_module();
+    let context = DefinitionContext::new().unwrap();
+    let dependency = interface_instruction_module()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
     let mut consumer = verified_module(
         vec![test_function(
             0,
@@ -569,21 +554,19 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
         root: ModuleRef::new(1),
         modules: vec![dependency, consumer],
     };
-    verify_program(&program).unwrap();
+    let definitions =
+        identity::collect(&program.modules.iter().collect::<Vec<_>>(), &context).unwrap();
+    verify_program(&program, &definitions).unwrap();
     let mut detached = program.clone();
     detached.modules[1].dependencies.clear();
-    assert!(verify_program(&detached).is_err());
+    assert!(verify_program(&detached, &definitions).is_err());
 
-    let artifact = KbcArtifact::from_program(program, ArtifactBuildOptions::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    decoded
-        .validate_for_loader(&ArtifactCompatibility::default())
-        .unwrap();
+    let decoded = round_trip_bytecode(
+        DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),
+    );
 
     let mut runtime = standard_runtime(Default::default());
-    let loaded = runtime
-        .load_program("interface-consumer", decoded.program)
-        .unwrap();
+    let loaded = runtime.load_program("interface-consumer", decoded).unwrap();
     let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
     let vm = Vm::new(runtime);
     let value = vm

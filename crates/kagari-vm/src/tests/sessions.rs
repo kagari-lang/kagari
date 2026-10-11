@@ -2,13 +2,13 @@ use crate::{
     error::VmError,
     reentry::reenter,
     tests::{
-        common::{compile_test_bytecode, standard_runtime},
+        common::{compile_test_bytecode, round_trip_bytecode, standard_runtime},
         native_fixtures,
     },
     vm::Vm,
 };
-use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
-use kagari_common::cancellation::CancellationToken;
+use kagari_bytecode::program::BytecodeProgram;
+use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::NativeInvocationFailure},
@@ -18,7 +18,7 @@ use kagari_runtime::{
     resource::RuntimeLimits,
     value::Value,
 };
-use kagari_types::{host_interface::standard_log, scalar::BuiltinType, ty::Ty};
+use kagari_types::{host_interface::standard_log, language::binding, scalar::BuiltinType, ty::Ty};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -33,14 +33,14 @@ fn runtime() -> Runtime {
     })
 }
 
-fn route(program: BytecodeProgram, encoded: bool) -> BytecodeProgram {
+fn route(
+    program: DefinitionMetadata<BytecodeProgram>,
+    encoded: bool,
+) -> DefinitionMetadata<BytecodeProgram> {
     if !encoded {
         return program;
     }
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    decoded.validate_for_loader(&Default::default()).unwrap();
-    decoded.program
+    round_trip_bytecode(program)
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let module = compile_test_bytecode(
                 "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> [i32] { print(\"inner\"); [n, 8] }",
             );
-            let make = module.modules[module.root.index()]
+            let make = module.records().modules[module.records().root.index()]
                 .functions
                 .iter()
                 .find(|f| f.name == "make")
@@ -172,7 +172,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let module = compile_test_bytecode(
                     "fn main() -> i32 { print(\"outer\"); 42 } fn nested() -> i32 { print(\"inner\"); 7 }",
                 );
-                let nested = module.modules[module.root.index()]
+                let nested = module.records().modules[module.records().root.index()]
                     .functions
                     .iter()
                     .find(|f| f.name == "nested")
@@ -255,13 +255,13 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let module = compile_test_bytecode(
         "fn main() -> i32 { print(\"enter\"); 42 } fn echo(value: Vec<i32>) -> Vec<i32> { value }",
     );
-    let main = module.modules[module.root.index()]
+    let main = module.records().modules[module.records().root.index()]
         .functions
         .iter()
         .find(|f| f.name == "main")
         .unwrap()
         .id;
-    let echo = module.modules[module.root.index()]
+    let echo = module.records().modules[module.records().root.index()]
         .functions
         .iter()
         .find(|f| f.name == "echo")
@@ -331,7 +331,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             )
         };
         let first = program(7);
-        let function = first.modules[first.root.index()]
+        let function = first.records().modules[first.records().root.index()]
             .functions
             .iter()
             .find(|f| f.name == "value")
@@ -375,7 +375,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let module = compile_test_bytecode(
         "fn main() -> i32 { print(\"enter\"); 42 } fn fail(n: i32) -> i32 { val kept = [n]; n + 1 }",
     );
-    let fail = module.modules[module.root.index()]
+    let fail = module.records().modules[module.records().root.index()]
         .functions
         .iter()
         .find(|f| f.name == "fail")
@@ -566,7 +566,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
     for encoded in [false, true] {
         let module =
             compile_test_bytecode("fn main()->i32 { print(\"entry\");42 } fn fail()->i32 {42/0}");
-        let fail = module.modules[module.root.index()]
+        let fail = module.records().modules[module.records().root.index()]
             .functions
             .iter()
             .find(|f| f.name == "fail")
@@ -580,10 +580,12 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                 standard_log().unwrap(),
                 move |context, _| {
                     let owner = context.runtime().execution_root().unwrap();
-                    let ty = kagari_types::language::binding::result(
+                    let ty = binding::result(
+                        &context.runtime().host().definitions(),
                         Ty::Builtin(BuiltinType::I32),
                         Ty::Builtin(BuiltinType::String),
-                    );
+                    )
+                    .unwrap();
                     let applied = context
                         .runtime()
                         .resolve_type_arguments(&owner, &[ty])

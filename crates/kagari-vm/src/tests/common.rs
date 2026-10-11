@@ -1,5 +1,6 @@
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
+    artifact::KbcArtifact,
     instruction::{BytecodeInstruction, ConstantOperand},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
@@ -26,22 +27,49 @@ pub fn load_bytecode_module_with_runtime(
     name: &str,
     bytecode: DefinitionMetadata<BytecodeModule>,
 ) -> (Runtime, LoadedModule) {
-    let (definitions, bytecode) = bytecode.into_parts();
     let loaded = runtime
-        .load_program(
-            name,
-            DefinitionMetadata::checked(
-                definitions,
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![bytecode],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
+        .load_program(name, module_program(bytecode))
         .expect("test module should load");
     (runtime, loaded)
+}
+
+/// Retain a module's identity table while creating a single-member program.
+pub fn module_program(
+    module: DefinitionMetadata<BytecodeModule>,
+) -> DefinitionMetadata<BytecodeProgram> {
+    let (definitions, module) = module.into_parts();
+    DefinitionMetadata::checked(
+        definitions,
+        BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![module],
+        },
+        &Default::default(),
+    )
+    .unwrap()
+}
+
+/// Exercise the actual source-free codec and loader validation with a fresh receiving context.
+pub fn round_trip_bytecode(
+    program: DefinitionMetadata<BytecodeProgram>,
+) -> DefinitionMetadata<BytecodeProgram> {
+    let context = DefinitionContext::new().unwrap();
+    let program = program
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let artifact = KbcArtifact::from_program(program, Default::default(), &context).unwrap();
+    let encoded = artifact.to_bytes(&context.snapshot()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
+    let receiver = DefinitionContext::new().unwrap();
+    let decoded = decoded
+        .import_into(&receiver, &Default::default())
+        .unwrap()
+        .into_records();
+    decoded
+        .validate_for_loader(&Default::default(), &receiver)
+        .unwrap();
+    DefinitionMetadata::checked(receiver.snapshot(), decoded.program, &Default::default()).unwrap()
 }
 
 pub fn load_bytecode_program(

@@ -1,6 +1,7 @@
 use super::*;
 use crate::tests::common::load_bytecode_program;
-use kagari_bytecode::artifact::KbcArtifact;
+use crate::tests::common::round_trip_bytecode;
+
 use kagari_runtime::value_semantics::script_equal;
 
 #[test]
@@ -56,14 +57,7 @@ fn main()->(usize,bool,usize,bool){
 }
 "#,
     );
-    let decoded = KbcArtifact::from_bytes(
-        &KbcArtifact::from_program(program, Default::default())
-            .unwrap()
-            .to_bytes()
-            .unwrap(),
-    )
-    .unwrap()
-    .program;
+    let decoded = round_trip_bytecode(program);
     let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");

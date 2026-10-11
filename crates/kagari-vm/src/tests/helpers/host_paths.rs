@@ -1,17 +1,21 @@
 use super::*;
 use crate::{
-    error::VmError, reentry::reenter, tests::native_fixtures, vm::native::PreparedNativeEntry,
+    error::VmError,
+    reentry::reenter,
+    tests::{
+        common::{module_program, round_trip_bytecode, with_host_imports},
+        native_fixtures,
+    },
+    vm::native::PreparedNativeEntry,
 };
-use kagari_bytecode::instruction::ConstantId;
-use kagari_bytecode::{
-    instruction::NativeImportId,
-    program::{BytecodeProgram, ModuleRef},
-};
+use kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT;
+use kagari_bytecode::instruction::{ConstantId, NativeImportId};
 use kagari_runtime::{
     backend::{BackendInvocationError, native::NativeInvocationFailure},
-    host::HostPathDescriptorId,
+    host::{HostCallContext, HostPathDescriptorId},
+    jit_abi::jit_poll_execution,
 };
-use kagari_types::host_interface::value_type::HostValueType;
+use kagari_types::host_interface::{HostParameter, HostPassingStyle, value_type::HostValueType};
 use std::sync::{Arc, Mutex};
 
 #[test]
@@ -19,22 +23,29 @@ fn executes_runtime_host_helper_call() {
     let mut runtime = host_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::HostFunctionDeclaration::new(
-                "host.add_i32",
-                vec![
-                    kagari_types::host_interface::HostParameter {
-                        name: "lhs".into(),
-                        ty: HostValueType::I32,
-                        passing: kagari_types::host_interface::HostPassingStyle::Owned,
-                    },
-                    kagari_types::host_interface::HostParameter {
-                        name: "rhs".into(),
-                        ty: HostValueType::I32,
-                        passing: kagari_types::host_interface::HostPassingStyle::Owned,
-                    },
-                ],
-                HostValueType::I32,
-            ),
+            {
+                let context = DefinitionContext::new().unwrap();
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "host.add_i32",
+                    vec![
+                        HostParameter {
+                            name: "lhs".into(),
+                            ty: HostValueType::I32,
+                            passing: HostPassingStyle::Owned,
+                        },
+                        HostParameter {
+                            name: "rhs".into(),
+                            ty: HostValueType::I32,
+                            passing: HostPassingStyle::Owned,
+                        },
+                    ],
+                    HostValueType::I32,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             |_, args| match args {
                 [Value::I32(lhs), Value::I32(rhs)] => Ok(Value::I32(lhs + rhs)),
                 _ => Err(HostError::new("host.add_i32 expects two i32 arguments")),
@@ -45,49 +56,57 @@ fn executes_runtime_host_helper_call() {
     let loaded = runtime
         .load_program(
             "helper.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![crate::tests::common::with_host_imports(
-                    test_function_module(
-                        "main",
-                        vec![
-                            BytecodeInstruction::LoadConst {
-                                dst: Register::new(0),
-                                constant: ConstantId::new(0),
-                            },
-                            BytecodeInstruction::LoadConst {
-                                dst: Register::new(1),
-                                constant: ConstantId::new(1),
-                            },
-                            BytecodeInstruction::Call {
-                                dst: Some(Register::new(2)),
-                                callee: CallTarget::Native(NativeImportId::new(0)),
-                                args: vec![Register::new(0), Register::new(1)],
-                            },
-                            BytecodeInstruction::Return(Some(Register::new(2))),
-                        ],
-                        ValueType::I32,
-                        vec![ValueType::I32, ValueType::I32, ValueType::I32],
-                        vec![ConstantOperand::I32(40), ConstantOperand::I32(2)],
-                    ),
-                    vec![kagari_types::host_interface::HostFunctionDeclaration::new(
+            module_program(with_host_imports(
+                test_function_module(
+                    "main",
+                    vec![
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(0),
+                            constant: ConstantId::new(0),
+                        },
+                        BytecodeInstruction::LoadConst {
+                            dst: Register::new(1),
+                            constant: ConstantId::new(1),
+                        },
+                        BytecodeInstruction::Call {
+                            dst: Some(Register::new(2)),
+                            callee: CallTarget::Native(NativeImportId::new(0)),
+                            args: vec![Register::new(0), Register::new(1)],
+                        },
+                        BytecodeInstruction::Return(Some(Register::new(2))),
+                    ],
+                    ValueType::I32,
+                    vec![ValueType::I32, ValueType::I32, ValueType::I32],
+                    vec![ConstantOperand::I32(40), ConstantOperand::I32(2)],
+                ),
+                vec![{
+                    let context = DefinitionContext::new().unwrap();
+                    let declaration = HostFunctionDeclaration::new(
+                        &context,
                         "host.add_i32",
                         vec![
-                            kagari_types::host_interface::HostParameter {
+                            HostParameter {
                                 name: "lhs".into(),
                                 ty: HostValueType::I32,
-                                passing: kagari_types::host_interface::HostPassingStyle::Owned,
+                                passing: HostPassingStyle::Owned,
                             },
-                            kagari_types::host_interface::HostParameter {
+                            HostParameter {
                                 name: "rhs".into(),
                                 ty: HostValueType::I32,
-                                passing: kagari_types::host_interface::HostPassingStyle::Owned,
+                                passing: HostPassingStyle::Owned,
                             },
                         ],
                         HostValueType::I32,
-                    )],
-                )],
-            },
+                    )
+                    .unwrap();
+                    DefinitionMetadata::checked(
+                        context.snapshot(),
+                        declaration,
+                        &Default::default(),
+                    )
+                    .unwrap()
+                }],
+            )),
         )
         .expect("helper module should load");
 
@@ -105,7 +124,6 @@ fn executes_runtime_host_helper_call() {
 
 #[test]
 fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_execution() {
-    use kagari_bytecode::artifact::KbcArtifact;
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
@@ -136,38 +154,32 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let prepared = native_fixtures::unsupported();
             let native = native_fixtures::install_i32::<42>(&runtime, &scalar, false);
             let scalar_entry = PreparedNativeEntry::Native(native.clone());
-            let program = BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![path_module(
-                    &runtime,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeImportId::new(0)),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(1),
-                            constant: ConstantId::new(0),
-                        },
-                        BytecodeInstruction::SetPath {
-                            root_or_view: Register::new(0),
-                            path: PathId::new(0),
-                            dynamic_args: vec![],
-                            value: Register::new(1),
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(1))),
-                    ],
-                    ValueType::I32,
-                    vec![ConstantOperand::I32(20)],
-                )],
-            };
+            let program = module_program(path_module(
+                &runtime,
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::Native(NativeImportId::new(0)),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(1),
+                        constant: ConstantId::new(0),
+                    },
+                    BytecodeInstruction::SetPath {
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                        value: Register::new(1),
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(1))),
+                ],
+                ValueType::I32,
+                vec![ConstantOperand::I32(20)],
+            ));
             let program = if encoded {
-                let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-                let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-                decoded.validate_for_loader(&Default::default()).unwrap();
-                decoded.program
+                round_trip_bytecode(program)
             } else {
                 program
             };
@@ -205,8 +217,8 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             assert!(matches!(vm.runtime().invoke_native_function(&native),
                 Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(ref error), .. }) if error.kind() == RuntimeErrorKind::EngineFault));
             assert_eq!(
-                unsafe { kagari_runtime::jit_abi::jit_poll_execution(vm.runtime(), 0) },
-                kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT
+                unsafe { jit_poll_execution(vm.runtime(), 0) },
+                JIT_STATUS_ENGINE_FAULT
             );
             assert_eq!(vm.runtime().resources().counters(), before);
         }
@@ -215,9 +227,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 
 #[test]
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
-    use kagari_bytecode::artifact::KbcArtifact;
-
-    fn assert_reentry(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
+    fn assert_reentry(call: &HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
         let scope = call
             .runtime()
@@ -237,7 +247,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             let bytecode = compile_test_bytecode(
                 "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> [i32] { [7] }",
             );
-            let compute = bytecode.modules[bytecode.root.index()]
+            let compute = bytecode.records().modules[bytecode.records().root.index()]
                 .functions
                 .iter()
                 .find(|f| f.name == "compute")
@@ -295,14 +305,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .unwrap();
             let mut program = bytecode;
             if encoded {
-                program = KbcArtifact::from_bytes(
-                    &KbcArtifact::from_program(program, Default::default())
-                        .unwrap()
-                        .to_bytes()
-                        .unwrap(),
-                )
-                .unwrap()
-                .program;
+                program = round_trip_bytecode(program);
             }
             let loaded = runtime.load_program("path-reentry.kgr", program).unwrap();
             let vm = Vm::new(runtime);
@@ -353,57 +356,54 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
     let loaded = runtime
         .load_program(
             "paths.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![path_module(
-                    &runtime,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeImportId::new(0)),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::ReadPath {
-                            dst: Register::new(1),
-                            root_or_view: Register::new(0),
-                            path: PathId::new(0),
-                            dynamic_args: vec![],
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(2),
-                            constant: ConstantId::new(0),
-                        },
-                        BytecodeInstruction::SetPath {
-                            root_or_view: Register::new(0),
-                            path: PathId::new(0),
-                            dynamic_args: vec![],
-                            value: Register::new(2),
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(3),
-                            constant: ConstantId::new(1),
-                        },
-                        BytecodeInstruction::ModifyPath {
-                            dst: Some(Register::new(4)),
-                            root_or_view: Register::new(0),
-                            path: PathId::new(0),
-                            dynamic_args: vec![],
-                            op: BinaryOp::Add,
-                            value: Register::new(3),
-                        },
-                        BytecodeInstruction::MakePathView {
-                            dst: Register::new(5),
-                            root_or_view: Register::new(0),
-                            path: PathId::new(0),
-                            dynamic_args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(4))),
-                    ],
-                    ValueType::I32,
-                    vec![ConstantOperand::I32(5), ConstantOperand::I32(2)],
-                )],
-            },
+            module_program(path_module(
+                &runtime,
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::Native(NativeImportId::new(0)),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::ReadPath {
+                        dst: Register::new(1),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(2),
+                        constant: ConstantId::new(0),
+                    },
+                    BytecodeInstruction::SetPath {
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                        value: Register::new(2),
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(3),
+                        constant: ConstantId::new(1),
+                    },
+                    BytecodeInstruction::ModifyPath {
+                        dst: Some(Register::new(4)),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                        op: BinaryOp::Add,
+                        value: Register::new(3),
+                    },
+                    BytecodeInstruction::MakePathView {
+                        dst: Register::new(5),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(4))),
+                ],
+                ValueType::I32,
+                vec![ConstantOperand::I32(5), ConstantOperand::I32(2)],
+            )),
         )
         .unwrap();
 
@@ -427,33 +427,30 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
     let error = runtime
         .load_program(
             "readonly_path.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![path_module(
-                    &runtime,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeImportId::new(0)),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(1),
-                            constant: ConstantId::new(0),
-                        },
-                        BytecodeInstruction::SetPath {
-                            root_or_view: Register::new(0),
-                            path: PathId::new(0),
-                            dynamic_args: vec![],
-                            value: Register::new(1),
-                        },
-                        BytecodeInstruction::Return(None),
-                    ],
-                    ValueType::Unit,
-                    vec![ConstantOperand::I32(2)],
-                )],
-            },
+            module_program(path_module(
+                &runtime,
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::Native(NativeImportId::new(0)),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(1),
+                        constant: ConstantId::new(0),
+                    },
+                    BytecodeInstruction::SetPath {
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                        value: Register::new(1),
+                    },
+                    BytecodeInstruction::Return(None),
+                ],
+                ValueType::Unit,
+                vec![ConstantOperand::I32(2)],
+            )),
         )
         .unwrap_err();
 
@@ -466,80 +463,7 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
     let loaded = runtime
         .load_program(
             "path_capability.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![path_module(
-                    &runtime,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeImportId::new(0)),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::ReadPath {
-                            dst: Register::new(1),
-                            root_or_view: Register::new(0),
-                            path: PathId::new(0),
-                            dynamic_args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(1))),
-                    ],
-                    ValueType::I32,
-                    vec![],
-                )],
-            },
-        )
-        .unwrap();
-
-    let vm = Vm::new(runtime);
-    assert_eq!(
-        vm.execute(&loaded, "main")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(10)
-    );
-}
-
-#[test]
-fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
-    use kagari_bytecode::artifact::KbcArtifact;
-    for encoded in [false, true] {
-        for jit in [false, true] {
-            let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            let original = runtime
-                .host()
-                .path_descriptor(HostPathDescriptorId::new(0))
-                .unwrap()
-                .clone();
-            let declaration = runtime
-                .host()
-                .host_type(original.root_type)
-                .unwrap()
-                .declaration
-                .fields[0]
-                .id
-                .clone();
-            let registration = HostPathDescriptorRegistration {
-                root_type: original.root_type,
-                result_type: original.result_type,
-                segments: vec![HostPathSegmentRegistration::Field { declaration }],
-                access: PathAccess::ReadOnly,
-                schema_epoch: HostSchemaEpoch::new(0),
-            };
-            let target = runtime
-                .register_host_path_descriptor(registration.clone())
-                .unwrap();
-            assert_eq!(target.index(), 1);
-            runtime
-                .register_host_path_adapter(
-                    target,
-                    HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(73))),
-                )
-                .unwrap();
-            let mut bytecode = path_module(
+            module_program(path_module(
                 &runtime,
                 "main",
                 vec![
@@ -558,7 +482,77 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 ],
                 ValueType::I32,
                 vec![],
-            );
+            )),
+        )
+        .unwrap();
+
+    let vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, "main")
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(10)
+    );
+}
+
+#[test]
+fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
+    for encoded in [false, true] {
+        for jit in [false, true] {
+            let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
+            let original = runtime
+                .host()
+                .path_descriptor(HostPathDescriptorId::new(0))
+                .unwrap()
+                .clone();
+            let declaration = runtime
+                .host()
+                .host_type(original.root_type)
+                .unwrap()
+                .declaration
+                .fields[0]
+                .id;
+            let registration = HostPathDescriptorRegistration {
+                definitions: runtime.host().definitions(),
+                root_type: original.root_type,
+                result_type: original.result_type,
+                segments: vec![HostPathSegmentDeclaration::Field(declaration)],
+                access: PathAccess::ReadOnly,
+                schema_epoch: HostSchemaEpoch::new(0),
+            };
+            let target = runtime
+                .register_host_path_descriptor(registration.clone())
+                .unwrap();
+            assert_eq!(target.index(), 1);
+            runtime
+                .register_host_path_adapter(
+                    target,
+                    HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(73))),
+                )
+                .unwrap();
+            let (definitions, mut bytecode) = path_module(
+                &runtime,
+                "main",
+                vec![
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(0)),
+                        callee: CallTarget::Native(NativeImportId::new(0)),
+                        args: vec![],
+                    },
+                    BytecodeInstruction::ReadPath {
+                        dst: Register::new(1),
+                        root_or_view: Register::new(0),
+                        path: PathId::new(0),
+                        dynamic_args: vec![],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(1))),
+                ],
+                ValueType::I32,
+                vec![],
+            )
+            .into_parts();
             bytecode.paths[0].contract_fingerprint = runtime
                 .host()
                 .path_descriptor(target)
@@ -567,22 +561,21 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 .0;
             bytecode.paths[0].read_only = true;
             bytecode.paths[0].debug_name = "deliberately unrelated diagnostic label".into();
-            let program = BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![bytecode],
-            };
-            let mut missing = program.clone();
+            let program = module_program(
+                DefinitionMetadata::checked(definitions.clone(), bytecode, &Default::default())
+                    .unwrap(),
+            );
+            let (definitions, mut missing) = program.clone().into_parts();
             missing.modules[0].paths[0].contract_fingerprint ^= 1;
+            let missing =
+                DefinitionMetadata::checked(definitions, missing, &Default::default()).unwrap();
             assert_eq!(
                 runtime.load_program("missing", missing).unwrap_err().kind(),
                 RuntimeErrorKind::TypedPathValidation
             );
             assert_eq!(runtime.modules().loaded_count(), 0);
             let program = if encoded {
-                let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-                KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
-                    .unwrap()
-                    .program
+                round_trip_bytecode(program)
             } else {
                 program
             };
@@ -629,17 +622,25 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
         .clone();
     let target = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: field.root_type,
             result_type: field.result_type,
-            segments: vec![HostPathSegmentRegistration::Index {
-                declaration: HostIndexSegmentDeclaration {
+            segments: vec![HostPathSegmentDeclaration::Index(
+                HostIndexSegmentDeclaration {
                     slot: 0,
-                    collection: HostValueType::opaque("game.Player"),
+                    collection: HostValueType::Opaque(
+                        runtime
+                            .host()
+                            .host_type(field.root_type)
+                            .unwrap()
+                            .declaration
+                            .id,
+                    ),
                     index: HostValueType::I32,
                     result: HostValueType::I32,
                     access: PathAccess::ReadWrite,
                 },
-            }],
+            )],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
         })
@@ -686,7 +687,7 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                     dynamic_args: args,
                 },
             };
-            let mut module = path_module(
+            let (definitions, mut module) = path_module(
                 &runtime,
                 "main",
                 vec![
@@ -704,15 +705,16 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                 ],
                 ValueType::Unit,
                 vec![ConstantOperand::I32(3)],
-            );
+            )
+            .into_parts();
             module.paths[0].contract_fingerprint = fingerprint;
             let before = runtime.modules().loaded_count();
             let result = runtime.load_program(
                 format!("operation{operation}"),
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                },
+                module_program(
+                    DefinitionMetadata::checked(definitions.clone(), module, &Default::default())
+                        .unwrap(),
+                ),
             );
             if valid {
                 assert_eq!(result.unwrap().path_binding(PathId::new(0)), Some(target));

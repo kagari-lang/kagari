@@ -1,3 +1,4 @@
+use crate::tests::common::round_trip_bytecode;
 use crate::{
     debug::{DebugSession, SourceBreakpoint},
     tests::{
@@ -6,7 +7,8 @@ use crate::{
     },
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
+use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
@@ -35,10 +37,7 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             let mut runtime = runtime();
             let program = module.clone();
             let program = if encoded {
-                let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-                let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-                decoded.validate_for_loader(&Default::default()).unwrap();
-                decoded.program
+                round_trip_bytecode(program)
             } else {
                 program
             };
@@ -140,7 +139,8 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
 
 #[test]
 fn malformed_closure_function_is_rejected_before_execution() {
-    let mut module = compile_test_bytecode("fn main() -> i32 { val call = || 42; call() }");
+    let (definitions, mut module) =
+        compile_test_bytecode("fn main() -> i32 { val call = || 42; call() }").into_parts();
     let instruction = module.modules[module.root.index()]
         .functions
         .iter_mut()
@@ -153,7 +153,10 @@ fn malformed_closure_function_is_rejected_before_execution() {
     let mut runtime = runtime();
     assert!(
         runtime
-            .load_program("malformed_closure.kgr", module)
+            .load_program(
+                "malformed_closure.kgr",
+                DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap()
+            )
             .is_err()
     );
 }

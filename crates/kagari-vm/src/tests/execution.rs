@@ -7,22 +7,36 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
-        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, ModuleSlot, Register,
-        RuntimeHelper,
+        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, InterfaceTableRef,
+        ModuleSlot, Register, RuntimeHelper,
     },
     module::{
         BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
-        InstructionSourceSpan, RootSlotLayout, SafeDebugPoint, SafeDebugPointKind,
+        InstructionSourceSpan, InterfaceTableRecord, RootSlotLayout, SafeDebugPoint,
+        SafeDebugPointKind,
     },
     program::ModuleRef,
 };
-use kagari_common::span::Span;
-use kagari_contract::ids::{DebugPointId, FunctionRef};
+use kagari_common::{
+    identity::{
+        DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    },
+    span::Span,
+};
+use kagari_contract::{
+    ids::{DebugPointId, FunctionRef},
+    types::{InterfaceTable, PublicItem},
+};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     module::ModuleEpochRetention,
     resource::RuntimeLimits,
     value::{StructValueField, Value},
+};
+use kagari_types::{
+    declaration::TraitDef,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
 };
 
 fn test_function(
@@ -161,29 +175,11 @@ fn debug_runtime(_module_name: &str) -> Runtime {
     })
 }
 
-fn interface_instruction_module() -> BytecodeModule {
-    use kagari_bytecode::{instruction::InterfaceTableRef, module::InterfaceTableRecord};
-    use kagari_common::identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-    };
-    use {
-        kagari_contract::types::{InterfaceTable, PublicItem},
-        kagari_types::{
-            declaration::TraitDef,
-            scalar::BuiltinType,
-            ty::{NominalTy, Ty},
-        },
-    };
-
+fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
     let identity = ModuleIdentity::single_file("interface-instruction.kgr");
-    let declaration = |kind, name: &str| DefinitionPath {
-        module: identity.clone(),
-        path: vec![DefinitionPathSegment {
-            kind,
-            name: name.into(),
-            occurrence: 0,
-        }],
-    };
+    let context = DefinitionContext::new().unwrap();
+    let root = context.intern_root(&identity).unwrap();
+    let declaration = |kind, name: &str| context.intern_child(root, kind, name, 0).unwrap();
     let trait_id = declaration(DefinitionKind::Trait, "Tag");
     let impl_id = declaration(DefinitionKind::Impl, "");
     let mut module = verified_module(
@@ -226,7 +222,7 @@ fn interface_instruction_module() -> BytecodeModule {
             associated_type_families: Vec::new(),
             associated_consts: Vec::new(),
             host_bridge: false,
-            declaration: impl_id.clone(),
+            declaration: impl_id,
             name: String::new(),
             generic_params: vec![],
             bounds: vec![],
@@ -246,7 +242,7 @@ fn interface_instruction_module() -> BytecodeModule {
         declaration: impl_id,
         methods: vec![],
     }];
-    module
+    DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
 }
 
 mod debugger;

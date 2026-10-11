@@ -79,10 +79,15 @@ fn rejects_unverified_bytecode_before_publication() {
     let error = runtime
         .load_program(
             "unverified.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![bytecode],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect_err("runtime must reject unverified bytecode before publication");
 
@@ -139,10 +144,15 @@ fn rejects_unsupported_bytecode_before_publication() {
         let error = runtime
             .load_program(
                 name,
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![bytecode],
-                },
+                DefinitionMetadata::checked(
+                    DefinitionContext::new().unwrap().snapshot(),
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![bytecode],
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
             )
             .expect_err("unsupported calls must fail bytecode verification");
         assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
@@ -176,10 +186,15 @@ fn unsupported_dynamic_invocation_is_rejected() {
     let error = runtime
         .load_program(
             "dynamic_call_capable.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![dynamic_call],
-            },
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![dynamic_call],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect_err("unimplemented call forms remain rejected");
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
@@ -289,19 +304,24 @@ fn unreachable_instruction_is_a_script_trap() {
     let loaded = runtime
         .load_program(
             "trap.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![verified_module(
-                    vec![test_function(
-                        0,
-                        "main",
-                        vec![BytecodeInstruction::Unreachable],
-                        ValueType::Unit,
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![verified_module(
+                        vec![test_function(
+                            0,
+                            "main",
+                            vec![BytecodeInstruction::Unreachable],
+                            ValueType::Unit,
+                            vec![],
+                        )],
                         vec![],
                     )],
-                    vec![],
-                )],
-            },
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("module should load");
 
@@ -421,10 +441,15 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
     let loaded = runtime
         .load_program(
             "module-slot-writes",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_mutable_slot(7)],
-            },
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_mutable_slot(7)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let vm = Vm::new(runtime);
@@ -474,10 +499,15 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let first_loaded = runtime
         .load_program(
             "hot_reload.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![reloadable_value_module(1)],
-            },
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![reloadable_value_module(1)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("first module epoch should load");
     let retention = runtime
@@ -488,10 +518,15 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .stage_reload_program(
             &first_loaded,
             "hot_reload.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![reloadable_value_module(2)],
-            },
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![reloadable_value_module(2)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("compatible reload should publish a new epoch");
     let second_loaded = runtime.publish_staged_reload(second_loaded).unwrap();
@@ -544,14 +579,14 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
 fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
     // Semantic receiver contracts reject layout substitution before execution.
     for write in [false, true] {
-        let mut bytecode = compile_test_bytecode(
+        let (definitions, mut bytecode) = compile_test_bytecode(
             "struct P { var x: i32 } struct Q { var x: i32 } fn main() -> i32 { val p = P { x: 1 }; p.x = 42; p.x }",
-        );
+        ).into_parts();
         let wrong = StructId::new(
             bytecode.modules[bytecode.root.index()]
                 .structures
                 .iter()
-                .position(|layout| layout.name() == "Q")
+                .position(|layout| layout.name(&definitions) == Some("Q"))
                 .unwrap(),
         );
         for instruction in bytecode.modules[bytecode.root.index()]
@@ -569,6 +604,6 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
                 _ => {}
             }
         }
-        assert!(verify_program(&bytecode).is_err());
+        assert!(verify_program(&bytecode, &definitions).is_err());
     }
 }

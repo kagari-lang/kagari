@@ -3489,3 +3489,48 @@ Focused evidence and intermediate build status:
 
 The VM library-test build, remaining VM/embed consumers and final contract-document
 transfer/plan retirement remain required. Exhaustive validation remains CI scope.
+
+### SI06 VM library consumer integration
+
+VM library fixtures now preserve DefinitionMetadata through read-only inspection,
+editable negative cases, single-module wrapping and runtime loading. The shared
+codec helper imports into an authoring context, encodes file references, decodes
+into scoped metadata, adopts into an independent receiving context and runs loader
+validation. It does not project records to paths or skip verification. Handwritten
+interface fixtures register trait/implementation IDs before publishing their table;
+composed dependency fixtures collect implicit definitions in the shared context.
+Native Future fixtures import declarations and applied types before composing their
+source-free program. Host descriptors retain installed runtime definition snapshots,
+while independently authored signatures retain their own source scopes.
+
+Focused local evidence:
+
+- The carried `cargo test -p kagari-vm --lib tests::execution:: --no-fail-fast
+  --message-format=short` now passes all 44 selected tests. This covers executable
+  verification, nominal receiver rejection, interfaces, retained closures, pinned
+  descendant calls, reload generations, frame cleanup and debugger behavior.
+- A second library selection passes 13 cases: all eight helpers::host_paths cases,
+  sessions::reentry_uses_the_root_version and sessions::host_created_err,
+  native_wait::async_native_completion_contract_cleanup_quarantine,
+  gc::malformed_closure_function and conformance::ambiguous_entry. These exercise
+  the changed source-free, host commit/reentry, scoped Result, cleanup and negative
+  fixture routes without running the whole VM library suite.
+- Two additional cases pass: installed_access::installed_host_reflection and
+  jit::source_artifact_and_jit_fallback. All 59 selected cases pass; other library
+  tests and exhaustive feature/backend validation remain outside local execution.
+- Package test-target Clippy exposed five library let-and-return diagnostics (now
+  repaired) and integration consumer build failures: library_measurements (5),
+  native_allocations (7), library_collections and children (37), native_boundary and
+  children (534). Reproduction: `cargo clippy -p kagari-vm --lib --tests
+  --message-format=short -- -D warnings`. SI06 owns migration of these old builder,
+  type/codec, raw program and path-query consumers; this command has not passed.
+  Do not repeat it until those consumers are repaired. The passing library test
+  builds do not establish integration compilation or complete lint acceptance.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Manual review checks table lifetime, independent adoption,
+  mutation/revalidation boundaries, preserved negative assertions, module imports
+  and test-only scopes. No production API or language behavior changes in this batch.
+
+This resolves the carried VM library-test build and execution selection. VM integration
+and embed consumers, remaining lint acceptance, lasting documentation transfer and
+plan retirement remain required. Full-workspace validation remains CI scope.

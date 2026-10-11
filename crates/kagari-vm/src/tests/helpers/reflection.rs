@@ -1,7 +1,7 @@
 use super::*;
+use crate::tests::common::module_program;
 use crate::tests::{common, common::standard_runtime};
 use kagari_bytecode::instruction::ConstantId;
-use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 use kagari_runtime::value_semantics::script_equal;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -92,35 +92,32 @@ fn declared_reflection_reads_are_available() {
     let loaded = metadata_only
         .load_program(
             "reflect_read_denied.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![common::point_function_module(
-                    "main",
-                    vec![
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(0),
-                            constant: ConstantId::new(0),
-                        },
-                        BytecodeInstruction::MakeStruct {
-                            dst: Register::new(1),
-                            structure: StructId::new(0),
-                            arguments: vec![],
-                            fields: vec![Register::new(0)],
-                        },
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(2)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                                "x".to_owned(),
-                            )),
-                            args: vec![Register::new(1)],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(2))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
-                    vec![ConstantOperand::I32(1)],
-                )],
-            },
+            module_program(common::point_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantId::new(0),
+                    },
+                    BytecodeInstruction::MakeStruct {
+                        dst: Register::new(1),
+                        structure: StructId::new(0),
+                        arguments: vec![],
+                        fields: vec![Register::new(0)],
+                    },
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(2)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
+                            "x".to_owned(),
+                        )),
+                        args: vec![Register::new(1)],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(2))),
+                ],
+                ValueType::I32,
+                vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
+                vec![ConstantOperand::I32(1)],
+            )),
         )
         .unwrap();
     let vm = Vm::new(metadata_only);
@@ -142,44 +139,41 @@ fn declared_reflection_writes_are_available() {
     let loaded = read_only
         .load_program(
             "reflect_write_denied.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![common::point_function_module(
-                    "main",
-                    vec![
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(0),
-                            constant: ConstantId::new(0),
-                        },
-                        BytecodeInstruction::MakeStruct {
-                            dst: Register::new(1),
-                            structure: StructId::new(0),
-                            arguments: vec![],
-                            fields: vec![Register::new(0)],
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(2),
-                            constant: ConstantId::new(1),
-                        },
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(3)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
-                                "x".to_owned(),
-                            )),
-                            args: vec![Register::new(1), Register::new(2)],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(3))),
-                    ],
+            module_program(common::point_function_module(
+                "main",
+                vec![
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(0),
+                        constant: ConstantId::new(0),
+                    },
+                    BytecodeInstruction::MakeStruct {
+                        dst: Register::new(1),
+                        structure: StructId::new(0),
+                        arguments: vec![],
+                        fields: vec![Register::new(0)],
+                    },
+                    BytecodeInstruction::LoadConst {
+                        dst: Register::new(2),
+                        constant: ConstantId::new(1),
+                    },
+                    BytecodeInstruction::Call {
+                        dst: Some(Register::new(3)),
+                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
+                            "x".to_owned(),
+                        )),
+                        args: vec![Register::new(1), Register::new(2)],
+                    },
+                    BytecodeInstruction::Return(Some(Register::new(3))),
+                ],
+                ValueType::HeapObject,
+                vec![
+                    ValueType::I32,
                     ValueType::HeapObject,
-                    vec![
-                        ValueType::I32,
-                        ValueType::HeapObject,
-                        ValueType::I32,
-                        ValueType::HeapObject,
-                    ],
-                    vec![ConstantOperand::I32(1), ConstantOperand::I32(2)],
-                )],
-            },
+                    ValueType::I32,
+                    ValueType::HeapObject,
+                ],
+                vec![ConstantOperand::I32(1), ConstantOperand::I32(2)],
+            )),
         )
         .unwrap();
     let vm = Vm::new(read_only);

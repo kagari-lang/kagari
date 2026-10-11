@@ -1,16 +1,20 @@
 use crate::{
     debug::{DebugSession, SourceBreakpoint},
     error::VmError,
-    tests::{common::standard_runtime, native_fixtures},
+    tests::{
+        common::{round_trip_bytecode, standard_runtime},
+        native_fixtures,
+    },
     vm::{JitExecutionStatus, Vm},
 };
-use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
-use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_compiler::bytecode::lower_program_to_bytecode;
+use kagari_bytecode::program::BytecodeProgram;
+use kagari_common::identity::{ModuleIdentity, PackageId, metadata::DefinitionMetadata};
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{RuntimeConfig, error::RuntimeErrorKind, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
-fn fixture(dependency_source: &str) -> BytecodeProgram {
+fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in [
@@ -32,14 +36,13 @@ fn fixture(dependency_source: &str) -> BytecodeProgram {
             .unwrap();
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
-    let snapshot = kagari_hir::analysis::AnalysisDatabase::default()
+    let snapshot = AnalysisDatabase::default()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
-    let ir = kagari_compiler::source::program::lower_program_to_mir(&checked, &Default::default())
-        .unwrap();
+    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     lower_program_to_bytecode(&ir).unwrap()
 }
 
@@ -51,10 +54,8 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
         } else {
             "pub fn answer() -> i32 { 40 + 2 }"
         });
-        let artifact = KbcArtifact::from_program(source.clone(), Default::default()).unwrap();
-        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        decoded.validate_for_loader(&Default::default()).unwrap();
-        for program in [source, decoded.program] {
+        let decoded = round_trip_bytecode(source.clone());
+        for program in [source, decoded] {
             for jit in [false, true] {
                 let mut runtime = standard_runtime(RuntimeConfig {
                     ..Default::default()

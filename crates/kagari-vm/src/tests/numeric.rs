@@ -1,10 +1,11 @@
 //! Numeric source forms and source-free execution share the language contract.
+use crate::tests::common::round_trip_bytecode;
 use crate::{
     error::VmError,
     tests::common::{compile_test_bytecode, standard_runtime},
     vm::Vm,
 };
-use kagari_bytecode::artifact::KbcArtifact;
+
 use kagari_runtime::{error::RuntimeErrorKind, value::Value};
 
 const INTEGERS: [(&str, u32, bool); 10] = [
@@ -24,13 +25,11 @@ fn check(source: &str, entries: &[String], traps: bool) {
     println!("numeric source: {source}");
     let source_program =
         compile_test_bytecode(&format!("{source}\nfn numeric_ready() -> bool {{ true }}"));
-    let artifact = KbcArtifact::from_program(source_program.clone(), Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    decoded.validate_for_loader(&Default::default()).unwrap();
+    let decoded = round_trip_bytecode(source_program.clone());
     // These fixtures only use scalar locals. Install/load once per artifact
     // route; the successful probe after every entry checks independent calls
     // still work after traps. The two routes retain separate heaps and roots.
-    for (route, program) in [("direct", source_program), ("decoded", decoded.program)] {
+    for (route, program) in [("direct", source_program), ("decoded", decoded)] {
         let mut runtime = standard_runtime(Default::default());
         let loaded = runtime.load_program("numeric", program).unwrap();
         let vm = Vm::new(runtime);

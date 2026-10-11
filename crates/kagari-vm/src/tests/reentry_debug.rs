@@ -1,3 +1,4 @@
+use crate::tests::common::round_trip_bytecode;
 use crate::{
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
     reentry::reenter,
@@ -7,10 +8,7 @@ use crate::{
     },
     vm::Vm,
 };
-use kagari_bytecode::{
-    artifact::KbcArtifact,
-    instruction::{BytecodeInstruction, CallTarget},
-};
+use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_runtime::{RuntimeConfig, host::HostFunction, value::Value};
 use kagari_types::host_interface::standard_log;
 
@@ -20,13 +18,13 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
         for jit in [false, true] {
             let source = "fn main() -> i32 { val kept = [42]; print(\"enter\"); kept[0] } fn nested(n: i32) -> i32 { val doubled = n + n; doubled + 2147483647 }";
             let module = compile_test_bytecode(source);
-            let nested = module.modules[module.root.index()]
+            let nested = module.records().modules[module.records().root.index()]
                 .functions
                 .iter()
                 .find(|f| f.name == "nested")
                 .unwrap()
                 .id;
-            let caller_offset = module.modules[module.root.index()]
+            let caller_offset = module.records().modules[module.records().root.index()]
                 .functions
                 .iter()
                 .find(|f| f.name == "main")
@@ -39,20 +37,13 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                         BytecodeInstruction::Call {
                             callee: CallTarget::Native(id),
                             ..
-                        } if module.modules[module.root.index()].native_imports[id.index()].host.is_some()
+                        } if module.records().modules[module.records().root.index()].native_imports[id.index()].host.is_some()
                     )
                 })
                 .unwrap();
             let mut program = module;
             if encoded {
-                program = KbcArtifact::from_bytes(
-                    &KbcArtifact::from_program(program, Default::default())
-                        .unwrap()
-                        .to_bytes()
-                        .unwrap(),
-                )
-                .unwrap()
-                .program;
+                program = round_trip_bytecode(program);
             }
             let mut runtime = standard_runtime(RuntimeConfig {
                 ..Default::default()

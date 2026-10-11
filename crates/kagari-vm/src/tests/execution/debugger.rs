@@ -225,10 +225,15 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     let loaded = runtime
         .load_program(
             "debug_trap.kbc",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
-            },
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("trap module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");

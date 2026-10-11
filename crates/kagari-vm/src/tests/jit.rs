@@ -10,33 +10,27 @@ use kagari_bytecode::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
     },
 };
-use kagari_common::span::Span;
+use kagari_common::{
+    identity::{map::DefinitionContext, metadata::DefinitionMetadata},
+    span::Span,
+};
 use kagari_contract::ids::{DebugPointId, FunctionRef};
-use kagari_runtime::value_semantics::script_equal;
-use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
+use kagari_runtime::{
+    Runtime, RuntimeConfig, host::HostFunction, value::Value, value_semantics::script_equal,
+};
+
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, standard_log, value_type::HostValueType,
+};
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
-    use kagari_bytecode::artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact};
-    use kagari_runtime::host::HostFunction;
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, standard_log, value_type::HostValueType,
-    };
-    use std::sync::{Arc, Mutex};
     let bytecode = common::compile_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
     for artifact in [false, true] {
         for jit in [false, true] {
             let module = if artifact {
-                let encoded =
-                    KbcArtifact::from_program(bytecode.clone(), ArtifactBuildOptions::default())
-                        .unwrap()
-                        .to_bytes()
-                        .unwrap();
-                let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
-                decoded
-                    .validate_for_loader(&ArtifactCompatibility::default())
-                    .unwrap();
-                decoded.program
+                common::round_trip_bytecode(bytecode.clone())
             } else {
                 bytecode.clone()
             };
@@ -45,7 +39,22 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             });
             runtime
                 .register_host_function(HostFunction::new(
-                    HostFunctionDeclaration::new("host.unrelated", vec![], HostValueType::Unit),
+                    {
+                        let context = DefinitionContext::new().unwrap();
+                        let declaration = HostFunctionDeclaration::new(
+                            &context,
+                            "host.unrelated",
+                            vec![],
+                            HostValueType::Unit,
+                        )
+                        .unwrap();
+                        DefinitionMetadata::checked(
+                            context.snapshot(),
+                            declaration,
+                            &Default::default(),
+                        )
+                        .unwrap()
+                    },
                     |_, _| panic!("import 0 must not invoke registry slot 0"),
                 ))
                 .unwrap();
@@ -445,8 +454,8 @@ fn jit_runtime() -> Runtime {
     })
 }
 
-fn debug_test_module(value: i32) -> BytecodeModule {
-    let mut module = common::test_function_module(
+fn debug_test_module(value: i32) -> DefinitionMetadata<BytecodeModule> {
+    let (definitions, mut module) = common::test_function_module(
         "main",
         vec![
             BytecodeInstruction::LoadConst {
@@ -458,7 +467,8 @@ fn debug_test_module(value: i32) -> BytecodeModule {
         ValueType::I32,
         vec![ValueType::I32],
         vec![ConstantOperand::I32(value)],
-    );
+    )
+    .into_parts();
     let span = Span::new(0, 4);
     let function = &mut module.functions[0];
     function.metadata.debug.source_spans = vec![InstructionSourceSpan {
@@ -477,5 +487,5 @@ fn debug_test_module(value: i32) -> BytecodeModule {
         span,
         kind: SafeDebugPointKind::FunctionEntry,
     }];
-    module
+    DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap()
 }

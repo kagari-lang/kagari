@@ -2,11 +2,12 @@ use crate::{
     debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
     error::VmError,
     tests::{
-        common::{compile_test_bytecode, load_test_module, standard_runtime},
+        common::{compile_test_bytecode, load_test_module, round_trip_bytecode, standard_runtime},
         native_fixtures,
     },
     vm::Vm,
 };
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -54,15 +55,11 @@ fn main() -> i32 {
 
 #[test]
 fn missing_entry_is_rejected_before_execution() {
-    use kagari_bytecode::artifact::KbcArtifact;
     let bytecode = compile_test_bytecode("fn main() -> i32 { 42 }");
     for encoded in [false, true] {
         let program = bytecode.clone();
         let program = if encoded {
-            let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-            let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-            decoded.validate_for_loader(&Default::default()).unwrap();
-            decoded.program
+            round_trip_bytecode(program)
         } else {
             program
         };
@@ -89,8 +86,8 @@ fn missing_entry_is_rejected_before_execution() {
 
 #[test]
 fn ambiguous_entry_is_rejected_on_all_load_routes() {
-    use kagari_bytecode::artifact::KbcArtifact;
-    let mut bytecode = compile_test_bytecode("fn first() -> i32 { 1 } fn second() -> i32 { 2 }");
+    let (definitions, mut bytecode) =
+        compile_test_bytecode("fn first() -> i32 { 1 } fn second() -> i32 { 2 }").into_parts();
     let second = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
@@ -98,13 +95,11 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
         .unwrap();
     bytecode.modules[bytecode.root.index()].functions[second].name = "first".into();
     bytecode.modules[bytecode.root.index()].function_table[second].name = "first".into();
+    let bytecode = DefinitionMetadata::checked(definitions, bytecode, &Default::default()).unwrap();
     for encoded in [false, true] {
         let program = bytecode.clone();
         let program = if encoded {
-            let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-            let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-            decoded.validate_for_loader(&Default::default()).unwrap();
-            decoded.program
+            round_trip_bytecode(program)
         } else {
             program
         };

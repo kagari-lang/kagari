@@ -1,10 +1,11 @@
+use crate::tests::common::round_trip_bytecode;
 use crate::{
     error::VmError,
     reentry::reenter,
     tests::common::{compile_test_bytecode, standard_runtime},
     vm::{Vm, owned::DriveResult},
 };
-use kagari_bytecode::artifact::KbcArtifact;
+
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, resource::RuntimeLimits,
@@ -46,7 +47,7 @@ fn async_owned_drive_contract() {
         fn ping() -> i32 { 7 }
     "#,
     );
-    let ping = program.modules[program.root.index()]
+    let ping = program.records().modules[program.records().root.index()]
         .functions
         .iter()
         .find(|function| function.name == "ping")
@@ -246,9 +247,7 @@ fn async_owned_drive_contract_iterator_invalidation() {
         fn ping() -> i32 { 42 }
     "#,
     );
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let artifact = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    artifact.validate_for_loader(&Default::default()).unwrap();
+    let artifact = round_trip_bytecode(program);
     let seen = Arc::new(Mutex::new(0));
     let observed = seen.clone();
     let mut runtime = standard_runtime(Default::default());
@@ -258,9 +257,7 @@ fn async_owned_drive_contract_iterator_invalidation() {
             Ok(Value::Unit)
         }))
         .unwrap();
-    let loaded = runtime
-        .load_program("owned-iteration", artifact.program)
-        .unwrap();
+    let loaded = runtime.load_program("owned-iteration", artifact).unwrap();
     let vm = Vm::new(runtime);
     let slice = NonZeroUsize::new(1).unwrap();
     // Each case parks an actual collection loop after its first item. Normal
