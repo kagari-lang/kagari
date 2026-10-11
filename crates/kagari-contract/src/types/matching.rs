@@ -3,6 +3,7 @@ use crate::types::InterfaceTable;
 use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
     declaration::TraitDef,
+    language::Protocol,
     ty::{
         NominalTy, Ty,
         matching::{ImplementationPattern, match_pattern},
@@ -22,6 +23,7 @@ pub fn match_implementation<'a>(
     };
     match_pattern(
         ImplementationPattern {
+            protocol: Protocol::from_id(&implemented.declaration),
             storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: &table.generic_params,
             receiver: &table.for_type,
@@ -202,6 +204,7 @@ mod tests {
         assert_eq!(
             projection_output(
                 ImplementationPattern {
+                    protocol: Protocol::from_id(&interface.declaration),
                     storage_access: None,
                     parameters: &table.generic_params,
                     receiver: &table.for_type,

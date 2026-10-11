@@ -2,33 +2,35 @@
 mod dependencies;
 pub(crate) mod import;
 mod ownership;
+mod proofs;
 use crate::error::RuntimeError;
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath,
+    DefinitionPath,
     map::{DefinitionContext, DefinitionMap},
-    reference::DefinitionReference,
     table::{DefinitionId, DefinitionTableError},
 };
-use kagari_types::declaration::{
-    NativeDeclaration, TraitDef, TypeDef,
-    module::{ImplDecl, ModuleDecl},
-};
+use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ImplDecl};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone)]
-pub struct DeclarationCatalog<I = DefinitionId> {
+pub struct DeclarationCatalog {
     /// Authoring-only Markdown; excluded from executable contract comparisons.
     pub(crate) documentation: Arc<BTreeMap<DefinitionPath, String>>,
-    pub(crate) types: Arc<DefinitionMap<TypeDef<I>>>,
-    pub(crate) traits: Arc<DefinitionMap<TraitDef<I>>>,
-    pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration<I>>>,
-    pub(crate) implementations: Arc<DefinitionMap<ImplDecl<I>>>,
+    pub(crate) types: Arc<DefinitionMap<TypeDef<DefinitionId>>>,
+    pub(crate) traits: Arc<DefinitionMap<TraitDef<DefinitionId>>>,
+    pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration<DefinitionId>>>,
+    pub(crate) implementations: Arc<DefinitionMap<ImplDecl<DefinitionId>>>,
 }
 
-impl<I> Default for DeclarationCatalog<I> {
+impl Default for DeclarationCatalog {
     fn default() -> Self {
-        let context = DefinitionContext::new().expect("definition context identity exhausted");
+        Self::in_context(DefinitionContext::new().expect("definition context identity exhausted"))
+    }
+}
+
+impl DeclarationCatalog {
+    fn in_context(context: DefinitionContext) -> Self {
         Self {
             documentation: Arc::default(),
             types: Arc::new(DefinitionMap::new(context.clone())),
@@ -39,144 +41,7 @@ impl<I> Default for DeclarationCatalog<I> {
     }
 }
 
-impl DeclarationCatalog<DefinitionPath> {
-    pub(crate) fn collect_authoring<'a>(
-        modules: impl IntoIterator<Item = &'a ModuleDecl>,
-    ) -> Result<Self, RuntimeError> {
-        let mut result = Self::default();
-        for module in modules {
-            Arc::make_mut(&mut result.documentation).extend(module.documentation.clone());
-            for ty in &module.types {
-                result.insert_type(
-                    module.definition(ty.kind.definition_kind(), &ty.name),
-                    ty.clone(),
-                )?;
-            }
-            for contract in &module.traits {
-                result.insert(
-                    module.definition(DefinitionKind::Trait, &contract.name),
-                    contract.clone(),
-                )?;
-            }
-            for declaration in module.native_declarations() {
-                result.insert_declaration(declaration)?;
-            }
-            for (index, implementation) in module.implementations.iter().enumerate() {
-                if implementation.trait_type.is_some() {
-                    result.insert_implementation(
-                        module.implementation_id(index),
-                        implementation.clone(),
-                    )?;
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    pub(crate) fn get(&self, declaration: &DefinitionPath) -> Option<&TraitDef> {
-        self.traits.get(declaration)
-    }
-
-    pub(crate) fn insert(
-        &mut self,
-        declaration: DefinitionPath,
-        contract: TraitDef,
-    ) -> Result<(), RuntimeError> {
-        if let Some(previous) = self.traits.get(&declaration) {
-            if previous != &contract {
-                return Err(RuntimeError::metadata_conflict(
-                    "conflicting native trait contracts",
-                ));
-            }
-        } else {
-            Arc::make_mut(&mut self.traits)
-                .insert(declaration, contract)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn insert_type(
-        &mut self,
-        id: DefinitionPath,
-        declaration: TypeDef,
-    ) -> Result<(), RuntimeError> {
-        if let Some(previous) = self.types.get(&id) {
-            if previous != &declaration {
-                return Err(RuntimeError::metadata_conflict(
-                    "conflicting native storage type contracts",
-                ));
-            }
-        } else {
-            Arc::make_mut(&mut self.types)
-                .insert(id, declaration)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn insert_implementation(
-        &mut self,
-        id: DefinitionPath,
-        implementation: ImplDecl,
-    ) -> Result<(), RuntimeError> {
-        if let Some(previous) = self.implementations.get(&id) {
-            if previous != &implementation {
-                return Err(RuntimeError::metadata_conflict(
-                    "conflicting native implementation contracts",
-                ));
-            }
-        } else {
-            if self.implementations.len() >= 4096 {
-                return Err(RuntimeError::metadata_conflict(
-                    "native implementation catalog exceeds proof limits",
-                ));
-            }
-            Arc::make_mut(&mut self.implementations)
-                .insert(id, implementation)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn insert_declaration(
-        &mut self,
-        declaration: NativeDeclaration,
-    ) -> Result<(), RuntimeError> {
-        let id = &declaration.declaration;
-        if let Some(previous) = self.declarations.get(id) {
-            if previous != &declaration {
-                return Err(RuntimeError::metadata_conflict(
-                    "conflicting native template declarations",
-                ));
-            }
-        } else {
-            Arc::make_mut(&mut self.declarations)
-                .insert(id.clone(), declaration)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn check_implementations<'a>(
-        &self,
-        modules: impl IntoIterator<Item = &'a ModuleDecl>,
-    ) -> Result<(), RuntimeError> {
-        let traits: BTreeMap<_, _> = self
-            .traits
-            .iter()
-            .map(|(id, contract)| (id, contract.clone()))
-            .collect();
-        for module in modules {
-            module
-                .validate_trait_implementations(&traits)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        }
-        Ok(())
-    }
-}
-
-impl<I: DefinitionReference> DeclarationCatalog<I> {
+impl DeclarationCatalog {
     pub(crate) fn foreign_to(mut self, owned: &Self) -> Result<Self, RuntimeError> {
         let remove = || -> Result<_, _> {
             Arc::make_mut(&mut self.types).remove_keys(&owned.types)?;

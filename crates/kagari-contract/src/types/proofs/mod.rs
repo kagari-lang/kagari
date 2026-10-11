@@ -17,7 +17,10 @@ mod structural;
 use crate::{layout::EnumLayout, types::proofs::implementation::Implementation};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, mapping::DefinitionMappingError,
+        metadata::scope_record,
+    },
 };
 use kagari_types::{
     declaration::{FnDecl, NativeDeclaration, TraitDef, verify::validate_native_declarations},
@@ -168,9 +171,14 @@ impl<'a> ProofCatalog<'a> {
             if templates.len() >= MAX_NATIVE_DECLARATIONS {
                 return Err(TypeTransformError::LimitExceeded);
             }
+            let scoped = scope_record(template, cancel).map_err(|error| match error {
+                DefinitionMappingError::Cancelled => TypeTransformError::Cancelled,
+                _ => TypeTransformError::InvalidContract,
+            })?;
             validate_native_declarations(
-                slice::from_ref(template),
+                slice::from_ref(scoped.records()),
                 &template.declaration.module,
+                scoped.definitions(),
                 cancel,
             )
             .map_err(|error| match error {

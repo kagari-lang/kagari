@@ -370,6 +370,10 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
             &|interface, receiver, member, arguments| {
                 projection_output(
                     ImplementationPattern {
+                        protocol: match &dependency.trait_type {
+                            Ty::Trait(interface) => Protocol::from_id(&interface.declaration),
+                            _ => None,
+                        },
                         storage_access: None,
                         parameters: &dependency.generic_params,
                         receiver: &dependency.for_type,

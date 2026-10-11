@@ -14,6 +14,7 @@ pub(super) fn validate_installed_traits(
     installed: &DeclarationCatalog,
     module: &BytecodeModule<DefinitionId>,
 ) -> Result<(), RuntimeError> {
+    let definitions = installed.definitions();
     for item in &module.public_items {
         let PublicItem::Trait(contract) = item else {
             continue;
@@ -37,12 +38,10 @@ pub(super) fn validate_installed_traits(
         }
     }
     for contract in &module.trait_contracts {
-        let path = installed
-            .definitions()
+        definitions
             .resolve(contract.declaration)
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?
-            .to_path();
-        if (Protocol::from_id(&path).is_some()
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        if (Protocol::from_reference(&contract.declaration, Some(&definitions)).is_some()
             || contract.abi.storage_access.is_some()
             || contract.abi.conversion_adapter.is_some())
             && installed.traits.get_id(contract.declaration) != Some(&contract.abi)

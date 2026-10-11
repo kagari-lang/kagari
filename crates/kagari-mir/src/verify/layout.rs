@@ -3,6 +3,7 @@ use crate::{
     instruction::{CallTarget, Instruction},
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
+use kagari_common::identity::metadata::scope_record;
 use kagari_contract::{
     host, layout,
     layout::{LayoutValidationError, validate_layouts},
@@ -62,9 +63,12 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             })
         },
     )?;
+    let native_declarations = scope_record(&module.abi.native_declarations, context.cancel)
+        .map_err(|_| context.error(Error::InvalidPublicAbi))?;
     validate_native_declarations(
-        &module.abi.native_declarations,
+        native_declarations.records(),
         &module.identity,
+        native_declarations.definitions(),
         context.cancel,
     )
     .map_err(|_| context.error(Error::InvalidPublicAbi))?;

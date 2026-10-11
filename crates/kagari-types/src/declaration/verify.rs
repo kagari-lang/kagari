@@ -12,7 +12,8 @@ use kagari_common::{
     identity,
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-        reference::DefinitionReference, table::DefinitionTable,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use std::{
@@ -62,9 +63,12 @@ pub fn concrete_type_valid(ty: &Ty, cancel: &CancellationToken) -> bool {
 
 /// Validate declaration binders before any concrete native import can use them.
 /// The import separately matches this template and the engine's storage guard.
+/// All IDs must belong to `table`; constraints use canonical definition content
+/// for ordering, so allocation order cannot change declaration validity.
 pub fn validate_native_declarations(
-    declarations: &[NativeDeclaration],
+    declarations: &[NativeDeclaration<DefinitionId>],
     module: &ModuleIdentity,
+    table: &DefinitionTable,
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationValidationError> {
     let mut identities = HashSet::new();
@@ -74,29 +78,30 @@ pub fn validate_native_declarations(
             .map_err(|_| DeclarationValidationError::Cancelled)?;
         let id = &declaration.declaration;
         let function = &declaration.function;
-        if id.module != *module
-            || !id.within_path_limit()
+        let view = table
+            .resolve(*id)
+            .map_err(|_| DeclarationValidationError::Invalid)?;
+        if view.module() != module
             || !identities.insert(id)
-            || !id.path.last().is_some_and(|part| {
+            || !view.last().is_some_and(|part| {
                 matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
                     && part.name == function.name
             })
             || !matches!(
                 &function.implementation,
                 CallableImplementation::Native(binding)
-                    if binding.within_path_limit()
-                        && (nominal_valid(binding, DefinitionKind::Function)
-                            || nominal_valid(binding, DefinitionKind::Method))
+                    if binding.describe(Some(table)).is_ok_and(|view|
+                        view.nominal(DefinitionKind::Function)
+                            || view.nominal(DefinitionKind::Method))
             )
         {
             return Err(DeclarationValidationError::Invalid);
         }
         let mut owners = BTreeMap::<_, Vec<_>>::new();
-        let mut params = Parameters::new();
+        let mut params = HashSet::new();
         for parameter in &function.generic_params {
-            if parameter.owner.module != *module
-                || !id.path.starts_with(&parameter.owner.path)
-                || !params.insert((parameter.owner.clone(), parameter.position))
+            if table.contains(parameter.owner, *id) != Ok(true)
+                || !params.insert((parameter.owner, parameter.position))
             {
                 return Err(DeclarationValidationError::Invalid);
             }
@@ -111,51 +116,95 @@ pub fn validate_native_declarations(
         {
             return Err(DeclarationValidationError::Invalid);
         }
-        let mut receiver = id.clone();
-        receiver.path.pop();
-        let self_owner = receiver
-            .path
-            .last()
-            .is_some_and(|part| part.kind == DefinitionKind::Trait)
-            .then_some(&receiver);
-        if !bounds_valid_in(&function.bounds, &params, self_owner, cancel)
-            || declaration.concrete_result.as_ref().is_some_and(|ty| {
-                !matches!(function.return_type, Ty::Trait(_))
-                    || !type_valid(ty, &params, self_owner, cancel)
-            })
-            || !signature_valid(function, &params, self_owner, cancel)
+        let receiver = table
+            .parent(*id)
+            .map_err(|_| DeclarationValidationError::Invalid)?;
+        let self_owner = receiver.as_ref().filter(|id| {
+            table
+                .resolve(**id)
+                .ok()
+                .and_then(|view| view.last())
+                .is_some_and(|part| part.kind == DefinitionKind::Trait)
+        });
+        let valid = |ty: &Ty<DefinitionId>| {
+            ty.within_wire_limits() && type_valid_in(ty, &params, self_owner, cancel, Some(table))
+        };
+        let before = |left: &Ty<DefinitionId>, right: &Ty<DefinitionId>| {
+            left.canonical_cmp(right, table, cancel)
+                .is_ok_and(|order| order.is_lt())
+        };
+        if !bounds_with(&function.bounds, &valid, &before)
+            || declaration
+                .concrete_result
+                .as_ref()
+                .is_some_and(|ty| !matches!(function.return_type, Ty::Trait(_)) || !valid(ty))
+            || !function
+                .params
+                .iter()
+                .map(|param| &param.ty)
+                .chain(iter::once(&function.return_type))
+                .all(&valid)
             || declaration.callable_requirements.len() > 4096
         {
             return Err(DeclarationValidationError::Invalid);
         }
         for required in &declaration.callable_requirements {
-            let mut owner = required.member.clone();
-            let member = owner.path.pop();
-            if owner != required.interface.declaration
-                || !member.is_some_and(|part| {
-                    part.kind == DefinitionKind::Method
-                        && part.occurrence == 0
-                        && !part.name.is_empty()
-                })
-                || !required.member.within_path_limit()
+            if table.parent(required.member) != Ok(Some(required.interface.declaration))
+                || !table
+                    .resolve(required.member)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_some_and(|part| {
+                        part.kind == DefinitionKind::Method
+                            && part.occurrence == 0
+                            && !part.name.is_empty()
+                    })
                 || required.arguments.len() > 4096
-                || !type_valid(&required.receiver, &params, self_owner, cancel)
-                || !type_valid(
-                    &Ty::Trait(required.interface.clone()),
-                    &params,
-                    self_owner,
-                    cancel,
-                )
-                || required
-                    .arguments
-                    .iter()
-                    .any(|ty| !type_valid(ty, &params, self_owner, cancel))
+                || !valid(&required.receiver)
+                || !valid(&Ty::Trait(required.interface.clone()))
+                || required.arguments.iter().any(|ty| !valid(ty))
             {
                 return Err(DeclarationValidationError::Invalid);
             }
         }
     }
     Ok(())
+}
+
+fn bounds_with<I: DefinitionReference>(
+    bounds: &[GenericBound<I>],
+    valid: &impl Fn(&Ty<I>) -> bool,
+    before: &impl Fn(&Ty<I>, &Ty<I>) -> bool,
+) -> bool {
+    bounds
+        .windows(2)
+        .all(|pair| before(&pair[0].ty, &pair[1].ty))
+        && bounds.iter().all(|bound| {
+            valid(&bound.ty)
+                && !bound.constraints.is_empty()
+                && constraints_with(&bound.constraints, valid, before)
+        })
+}
+
+fn constraints_with<I: DefinitionReference>(
+    constraints: &[Constraint<I>],
+    valid: &impl Fn(&Ty<I>) -> bool,
+    before: &impl Fn(&Ty<I>, &Ty<I>) -> bool,
+) -> bool {
+    constraints
+        .windows(2)
+        .all(|pair| match (&pair[0], &pair[1]) {
+            (Constraint::Standard(left), Constraint::Standard(right)) => left < right,
+            (Constraint::Standard(_), Constraint::Trait(_)) => true,
+            (Constraint::Trait(_), Constraint::Standard(_)) => false,
+            (Constraint::Trait(left), Constraint::Trait(right)) => {
+                before(&Ty::Trait(left.clone()), &Ty::Trait(right.clone()))
+            }
+        })
+        && constraints.iter().all(|constraint| match constraint {
+            Constraint::Standard(_) => true,
+            Constraint::Trait(ty) => valid(&Ty::Trait(ty.clone())),
+        })
 }
 
 pub fn trait_valid(ty: &TraitDef, module: &ModuleIdentity, cancel: &CancellationToken) -> bool {
@@ -305,16 +354,11 @@ fn bounds_valid_in(
     self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
-    if !bounds.windows(2).all(|pair| pair[0].ty < pair[1].ty) {
-        return false;
-    }
-    let mut seen = HashSet::new();
-    bounds.iter().all(|bound| {
-        type_valid(&bound.ty, params, self_owner, cancel)
-            && seen.insert(&bound.ty)
-            && !bound.constraints.is_empty()
-            && constraints_valid(&bound.constraints, params, self_owner, cancel)
-    })
+    bounds_with(
+        bounds,
+        &|ty| type_valid(ty, params, self_owner, cancel),
+        &|left, right| left < right,
+    )
 }
 
 pub fn native_bounds_valid(
@@ -338,11 +382,11 @@ fn constraints_valid(
     self_owner: Option<&DefinitionPath>,
     cancel: &CancellationToken,
 ) -> bool {
-    constraints.windows(2).all(|pair| pair[0] < pair[1])
-        && constraints.iter().all(|constraint| match constraint {
-            Constraint::Standard(_) => true,
-            Constraint::Trait(ty) => type_valid(&Ty::Trait(ty.clone()), params, self_owner, cancel),
-        })
+    constraints_with(
+        constraints,
+        &|ty| type_valid(ty, params, self_owner, cancel),
+        &|left, right| left < right,
+    )
 }
 
 pub fn function_valid(

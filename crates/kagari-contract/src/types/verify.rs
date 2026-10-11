@@ -15,6 +15,7 @@ use kagari_types::declaration::verify::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, TraitDef, TypeDefKind, ownership::ReceiverOwners},
+    language::Protocol,
     ty::{
         Constraint, GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
@@ -437,6 +438,7 @@ fn same_method_contract(
                 };
                 projection_output(
                     ImplementationPattern {
+                        protocol: Protocol::from_id(&implemented.declaration),
                         storage_access: None,
                         parameters: &table.generic_params,
                         receiver: &table.for_type,

@@ -1,5 +1,4 @@
 use super::*;
-use crate::identity::reference::DefinitionReference;
 use std::mem::size_of;
 
 #[test]
@@ -17,23 +16,29 @@ fn borrowed_identity_queries_require_the_explicit_scope() {
         table.lookup_child(parent, DefinitionKind::Field, "hp", 1),
         None
     );
-    assert_eq!(expected.resolve(&table).unwrap(), id);
-    let view = id.describe(Some(&table)).unwrap();
+    assert_eq!(table.lookup(&expected), Some(id));
+    let view = table.resolve(id).unwrap();
     assert_eq!(view.module(), &expected.module);
     assert_eq!(view.last().unwrap().name, "hp");
-    assert!(matches!(
-        id.describe(None),
-        Err(DefinitionTableError::ForeignTable)
-    ));
+    let root = table.parent(parent).unwrap().unwrap();
+    assert!(table.resolve(root).unwrap().last().is_none());
+    assert_eq!(table.contains(root, id), Ok(true));
+    assert_eq!(table.contains(id, id), Ok(true));
+    assert_eq!(table.contains(id, root), Ok(false));
+    assert_eq!(table.compare(root, id), Ok(Comparison::Less));
     let foreign = DefinitionTableBuilder::new().unwrap().freeze();
     assert!(matches!(
-        id.describe(Some(&foreign)),
+        foreign.resolve(id),
         Err(DefinitionTableError::ForeignTable)
     ));
-    assert!(matches!(
-        id.resolve(&foreign),
+    assert_eq!(
+        foreign.contains(id, id),
         Err(DefinitionTableError::ForeignTable)
-    ));
+    );
+    assert_eq!(
+        foreign.compare(id, id),
+        Err(DefinitionTableError::ForeignTable)
+    );
     assert!(matches!(
         table.parent(DefinitionId {
             table: table.id(),

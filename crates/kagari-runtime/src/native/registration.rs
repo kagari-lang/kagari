@@ -143,13 +143,11 @@ impl ModuleBuilder {
                 "typed function return differs from its declaration",
             ));
         }
-        binding.check(
-            &Signature {
-                params: parameters.into_iter().map(|ty| ty.0).collect(),
-                result: result.0,
-            },
-            catalog,
-        )?;
+        let signature = catalog.scope(&Signature {
+            params: parameters.into_iter().map(|ty| ty.0).collect(),
+            result: result.0,
+        })?;
+        binding.check(&signature, &catalog.definitions(), catalog)?;
         let mut candidate = self.declaration.clone();
         let id = candidate.definition(DefinitionKind::Function, &declaration.name);
         candidate.functions.push(

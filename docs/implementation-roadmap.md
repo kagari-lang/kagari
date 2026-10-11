@@ -17,9 +17,26 @@ cursor does not block source edits.
 The interpreter uses compact values and prepared execution/call/layout contracts.
 These capabilities are foundations to reuse, not migrations to replay.
 
+## Semantic definition IDs
+
+[SI01-SI06](definition-id-plan.md) implement the agreed SA19 design and are active.
+SI01 is complete; SI02 is migrating Native declaration adoption. This migration
+precedes native collections.
+Use DefinitionId throughout semantic processing; keep authoring/display paths and
+file-local references at explicit boundaries. Reuse the current definition context,
+immutable snapshots and cross-context imports while removing identity-representation
+generics and whole-record path projections. Preserve separate verification evidence,
+source revision checks and generation-pinned execution.
+
+The plan owns Native declaration adoption, HIR checking/query caches, specialization,
+executable metadata, codecs and runtime adoption. Coordinate module-root ownership
+with SA9 without activating its full module-graph migration. SA18 collection access
+and SA21 Host registration unification remain separate follow-ups.
+
 ## Library-owned native collections
 
-[NC01-NC06](native-collections-plan.md) are queued and unstarted. Baseline 9cd90557
+[NC01-NC06](native-collections-plan.md) are queued after SI01-SI06 and unstarted.
+Refresh their API/code inventory after the identity migration. Baseline 9cd90557
 includes the completed Iterable APIs, retained selected-call slots
 and Vec/HashMap/HashSet FromIterator implementations.
 
@@ -83,7 +100,8 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 [The review](review.md) owns unresolved SA findings, including inline AST reuse,
 compact module handles, HIR model cleanup, local functions, patterns, collection
-interfaces, definition identities and host-registration unification. Resolved
+interfaces and host-registration unification; SA19 execution belongs to the
+[definition-ID plan](definition-id-plan.md). Resolved
 namespace/import/default-body/Array work is described by the current specifications
 and reading guides, not retained as review tasks.
 

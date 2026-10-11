@@ -134,7 +134,14 @@ impl<'a> DefinitionDescription<'a> {
     }
 
     pub fn last(self) -> Option<DefinitionSegment<'a>> {
-        self.segments().last()
+        match self {
+            Self::Path(path) => path.path.last().map(|part| DefinitionSegment {
+                kind: part.kind,
+                name: &part.name,
+                occurrence: part.occurrence,
+            }),
+            Self::Scoped(view) => view.last(),
+        }
     }
 
     pub fn nominal(self, kind: DefinitionKind) -> bool {

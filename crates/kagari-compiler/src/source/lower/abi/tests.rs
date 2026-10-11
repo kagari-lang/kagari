@@ -1,6 +1,6 @@
 use super::{collect_module_abi, const_abi_value};
 use crate::source::lower::support::lower_scalar;
-use kagari_common::identity::associated_type_id;
+use kagari_common::identity::{associated_type_id, metadata::scope_record};
 use kagari_contract::{
     types as abi,
     types::{PublicItem, inherent::native_signatures_match, verify},
@@ -298,10 +298,12 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
         let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
         let identity = declared.source().module_identity();
         for declaration in &abi.native_declarations {
+            let scoped = scope_record(declaration, &Default::default()).unwrap();
             assert!(
                 validate_native_declarations(
-                    std::slice::from_ref(declaration),
+                    std::slice::from_ref(scoped.records()),
                     identity,
+                    scoped.definitions(),
                     &Default::default()
                 )
                 .is_ok(),

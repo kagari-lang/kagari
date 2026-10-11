@@ -13,7 +13,11 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::{DefinitionPath, table::DefinitionId};
+use kagari_common::identity::{
+    DefinitionPath,
+    mapping::{DefinitionMapper, DefinitionRecord},
+    table::{DefinitionId, DefinitionTable, DefinitionTableError},
+};
 use kagari_types::{
     callable::Signature,
     declaration::{TypeDefKind, native::NativeStorageLayout},
@@ -57,12 +61,17 @@ impl Codec {
             )
     }
 
-    pub(crate) fn accepts(&self, ty: &Ty, catalog: &DeclarationCatalog) -> bool {
+    pub(crate) fn accepts(
+        &self,
+        ty: &Ty<DefinitionId>,
+        definitions: &DefinitionTable,
+        catalog: &DeclarationCatalog,
+    ) -> bool {
         let layout = match ty {
             Ty::NativeObject(nominal) => {
                 catalog
                     .types
-                    .get(&nominal.declaration)
+                    .get_id(nominal.declaration)
                     .and_then(|ty| match ty.kind {
                         TypeDefKind::NativeStorage(layout) => Some(layout),
                         _ => None,
@@ -71,10 +80,22 @@ impl Codec {
             _ => None,
         };
         match self {
-            Self::Scalar(expected) => expected == ty,
+            // Codec inputs are authored at the Rust boundary. Resolve their
+            // exact declared identities in the consumer's scope; never export
+            // the checked signature back into authoring paths.
+            Self::Scalar(expected) => expected
+                .map_identities(&mut DefinitionMapper::new(
+                    &mut |path| {
+                        definitions
+                            .lookup(path)
+                            .ok_or_else(|| DefinitionTableError::UnmappedDefinition.into())
+                    },
+                    &Default::default(),
+                ))
+                .is_ok_and(|expected| expected == *ty),
             Self::Value => true,
             Self::Object(id) => {
-                matches!(ty, Ty::NativeObject(nominal) if nominal.declaration == *id)
+                matches!(ty, Ty::NativeObject(nominal) if Some(nominal.declaration) == definitions.lookup(id))
             }
             Self::Sequence | Self::MutableSequence => {
                 matches!(ty, Ty::NativeObject(_))
@@ -155,16 +176,23 @@ impl NativeBinding {
 
     pub(crate) fn check(
         &self,
-        signature: &Signature,
+        signature: &Signature<DefinitionId>,
+        definitions: &DefinitionTable,
         catalog: &DeclarationCatalog,
     ) -> NativeResult<()> {
+        signature
+            .visit_definitions(
+                &mut |id| Ok(definitions.resolve(*id).map(|_| ())?),
+                &Default::default(),
+            )
+            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
         if self.arguments.len() != signature.params.len()
             || self
                 .arguments
                 .iter()
                 .zip(&signature.params)
-                .any(|(codec, ty)| !codec.accepts(ty, catalog))
-            || !self.result.accepts(&signature.result, catalog)
+                .any(|(codec, ty)| !codec.accepts(ty, definitions, catalog))
+            || !self.result.accepts(&signature.result, definitions, catalog)
         {
             return Err(RuntimeError::metadata_conflict(
                 "native codec does not match the Kagari declaration",

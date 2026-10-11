@@ -150,17 +150,19 @@ impl TraitBuilder<'_> {
                 .map(|ty| substitution.apply(ty, &cancel))
                 .transpose()
                 .map_err(invalid)?;
+            let signature = self.module.providers.scope(&Signature {
+                params: template
+                    .params
+                    .iter()
+                    .map(|parameter| parameter.ty.clone())
+                    .collect(),
+                result: concrete_result
+                    .clone()
+                    .unwrap_or_else(|| template.return_type.clone()),
+            })?;
             binding.check(
-                &Signature {
-                    params: template
-                        .params
-                        .iter()
-                        .map(|parameter| parameter.ty.clone())
-                        .collect(),
-                    result: concrete_result
-                        .clone()
-                        .unwrap_or_else(|| template.return_type.clone()),
-                },
+                &signature,
+                &self.module.providers.definitions(),
                 &self.module.providers,
             )?;
             lowered.push((

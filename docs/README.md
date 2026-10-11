@@ -35,6 +35,8 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Semantic definition IDs](definition-id-plan.md): active, with SI01 complete
+  and SI02 in progress before the native collection migration.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Rust value/opaque interoperability](rust-interop-design.md).

@@ -14,7 +14,7 @@ use crate::{
     verifier::operation::verify_instruction,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionKind, metadata::scope_record};
 use kagari_contract::{
     contracts,
     contracts::ContractError,
@@ -225,9 +225,12 @@ pub(super) fn verify_module_with_program(
     }
     verify::validate(&module.public_items, &module.identity, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    let native_declarations = scope_record(&module.native_declarations, &Default::default())
+        .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     validate_native_declarations(
-        &module.native_declarations,
+        native_declarations.records(),
         &module.identity,
+        native_declarations.definitions(),
         &Default::default(),
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;

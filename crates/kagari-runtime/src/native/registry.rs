@@ -53,14 +53,13 @@ pub(crate) struct BindingRegistration {
 
 impl BindingRegistration {
     pub(crate) fn checked(
-        declarations: Vec<NativeDeclaration>,
+        declarations: Vec<NativeDeclaration<DefinitionId>>,
         binding: NativeBinding,
         required_catalog: DeclarationCatalog,
     ) -> NativeResult<Self> {
-        let records = required_catalog.scope(&declarations)?;
         let declarations = DefinitionMetadata::checked(
             required_catalog.definitions(),
-            records,
+            declarations,
             &CancellationToken::default(),
         )
         .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?
@@ -131,26 +130,50 @@ impl NativeRegistry {
         imports: &mut CatalogImports,
     ) -> NativeResult<()> {
         let invalid = || RuntimeError::metadata_conflict("invalid or duplicate native binding");
-        let declarations = registration
-            .required_catalog
-            .paths(&registration.declarations)?;
+        if registration.declarations.is_empty() || registration.declarations.len() > 4096 {
+            return Err(invalid());
+        }
+        // Import once into the registry's shared context before comparing IDs.
+        // Identity allocation is not publication; failed validation leaves the
+        // catalog and entry maps unchanged.
+        let context = self.entries.context();
+        let registration = Arc::new(BindingRegistration {
+            declarations: DefinitionMetadata::checked(
+                registration.required_catalog.definitions(),
+                registration.declarations.clone(),
+                &CancellationToken::default(),
+            )
+            .and_then(|metadata| metadata.import_into(context, &CancellationToken::default()))
+            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?
+            .into_records(),
+            binding: registration.binding.clone(),
+            required_catalog: imports.import(&registration.required_catalog)?,
+        });
+        let definitions = registration.required_catalog.definitions();
+        let declarations = &registration.declarations;
+        for declaration in declarations {
+            let identity = definitions
+                .resolve(declaration.declaration)
+                .map_err(|_| invalid())?;
+            validate_native_declarations(
+                slice::from_ref(declaration),
+                identity.module(),
+                &definitions,
+                &CancellationToken::default(),
+            )
+            .map_err(|_| invalid())?;
+        }
         let declaration = declarations.first().ok_or_else(invalid)?;
         let CallableImplementation::Native(binding) = &declaration.function.implementation else {
             return Err(invalid());
         };
-        let id = binding.clone();
-        if self.entries.contains_key(&id) || declarations.len() > 4096 {
+        let id = *binding;
+        if self.entries.get_id(id).is_some() {
             return Err(invalid());
         }
         let mut seen = HashSet::new();
-        for declaration in &declarations {
-            validate_native_declarations(
-                slice::from_ref(declaration),
-                &declaration.declaration.module,
-                &CancellationToken::default(),
-            )
-            .map_err(|_| invalid())?;
-            if declaration.function.implementation != CallableImplementation::Native(id.clone())
+        for declaration in declarations {
+            if declaration.function.implementation != CallableImplementation::Native(id)
                 || !seen.insert(&declaration.declaration)
             {
                 return Err(invalid());
@@ -168,30 +191,18 @@ impl NativeRegistry {
                         .clone()
                         .unwrap_or_else(|| declaration.function.return_type.clone()),
                 },
+                &definitions,
                 &registration.required_catalog,
             )?;
         }
         let mut catalog = self.catalog.clone();
-        for declaration in &declarations {
+        for declaration in declarations {
             catalog.insert_declaration(declaration.clone())?;
         }
-        let context = self.entries.context();
-        let registration = Arc::new(BindingRegistration {
-            declarations: DefinitionMetadata::checked(
-                registration.required_catalog.definitions(),
-                registration.declarations.clone(),
-                &CancellationToken::default(),
-            )
-            .and_then(|metadata| metadata.import_into(context, &CancellationToken::default()))
-            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?
-            .into_records(),
-            binding: registration.binding.clone(),
-            required_catalog: imports.import(&registration.required_catalog)?,
-        });
-        self.catalog = catalog;
         self.entries
-            .insert(id, registration)
+            .insert_id(id, registration)
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        self.catalog = catalog;
         Ok(())
     }
 
@@ -238,7 +249,7 @@ impl NativeRegistry {
         }
         entry
             .binding
-            .check(&program.paths(&signature)?, &entry.required_catalog)?;
+            .check(&signature, program.definitions(), &entry.required_catalog)?;
         let selected = import
             .callables
             .iter()

@@ -4,6 +4,7 @@ pub mod identity;
 pub mod inheritance;
 mod mapping;
 pub mod matching;
+mod order;
 pub mod substitution;
 mod wire;
 use crate::{

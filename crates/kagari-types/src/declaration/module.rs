@@ -18,7 +18,10 @@ use crate::{
 
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
+    identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        metadata::scope_record,
+    },
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -599,8 +602,15 @@ impl ModuleDecl {
             return Err(fail());
         }
         let cancel = CancellationToken::default();
-        validate_native_declarations(&declarations, &self.identity, &cancel)
-            .map_err(|error| DeclarationError(format!("invalid native declarations: {error:?}")))?;
+        let scoped = scope_record(&declarations, &cancel)
+            .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
+        validate_native_declarations(
+            scoped.records(),
+            &self.identity,
+            scoped.definitions(),
+            &cancel,
+        )
+        .map_err(|error| DeclarationError(format!("invalid native declarations: {error:?}")))?;
         self.validate_implementations()?;
         self.validate_supported_types()?;
         Ok(())

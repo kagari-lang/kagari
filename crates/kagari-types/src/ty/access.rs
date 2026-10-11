@@ -5,10 +5,10 @@ use crate::ty::{
 };
 
 use crate::collection::CollectionAccess;
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::reference::DefinitionReference};
 use std::collections::HashSet;
 
-impl Ty {
+impl<I: DefinitionReference> Ty<I> {
     pub fn collection_access(&self) -> Option<CollectionAccess> {
         match self {
             Self::Set(_, access) | Self::Map { access, .. } => Some(*access),
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn weakening_is_outer_only_and_does_not_change_storage_families() {
-        let item = Ty::Builtin(BuiltinType::I32);
+        let item: Ty = Ty::Builtin(BuiltinType::I32);
         let mutable = Ty::Set(Box::new(item.clone()), CollectionAccess::Mutable);
         let readonly = mutable.read_only_view().unwrap();
         assert!(mutable.can_weaken_to(&readonly));

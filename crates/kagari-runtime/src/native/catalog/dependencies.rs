@@ -1,10 +1,16 @@
 //! Retain referenced contracts, not arbitrary authority from an authoring view.
-use crate::{error::RuntimeError, native::catalog::DeclarationCatalog};
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
-use kagari_contract::types::proofs::{ProofCatalog, implementation::Implementation};
+use crate::{
+    error::RuntimeError,
+    native::catalog::{DeclarationCatalog, ownership::insert_contract},
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionId},
+};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
+    language::Protocol,
     ty::{
         Constraint, GenericBound, NominalTy, Ty,
         matching::{ImplementationPattern, match_pattern},
@@ -14,12 +20,12 @@ use std::{collections::BTreeSet, iter};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Reference {
-    Type(DefinitionPath),
-    Enum(NominalTy),
-    Trait(DefinitionPath),
-    Template(DefinitionPath),
-    Obligation(Ty, NominalTy),
-    Implementation(DefinitionPath),
+    Type(DefinitionId),
+    Enum(NominalTy<DefinitionId>),
+    Trait(DefinitionId),
+    Template(DefinitionId),
+    Obligation(Ty<DefinitionId>, NominalTy<DefinitionId>),
+    Implementation(DefinitionId),
 }
 
 #[derive(Default)]
@@ -27,18 +33,17 @@ struct References {
     pending: Vec<Reference>,
 }
 
-/// A transitive closure over one immutable authoring catalog. Extending it keeps
+/// A transitive closure over one explicitly scoped catalog. Extending it keeps
 /// exact binding requirements while reusing already visited module references.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct DependencyClosure {
-    pub(crate) catalog: DeclarationCatalog<DefinitionPath>,
+    pub(crate) catalog: DeclarationCatalog,
     seen: BTreeSet<Reference>,
 }
 
 impl References {
-    fn nominal(&mut self, nominal: &NominalTy) -> Result<(), RuntimeError> {
-        self.pending
-            .push(Reference::Trait(nominal.declaration.clone()));
+    fn nominal(&mut self, nominal: &NominalTy<DefinitionId>) -> Result<(), RuntimeError> {
+        self.pending.push(Reference::Trait(nominal.declaration));
         for ty in nominal
             .arguments
             .iter()
@@ -49,7 +54,7 @@ impl References {
         Ok(())
     }
 
-    fn ty(&mut self, ty: &Ty) -> Result<(), RuntimeError> {
+    fn ty(&mut self, ty: &Ty<DefinitionId>) -> Result<(), RuntimeError> {
         if !ty.within_wire_limits() {
             return Err(RuntimeError::metadata_conflict(
                 "oversized native dependency type",
@@ -63,15 +68,13 @@ impl References {
                 | Ty::Struct(nominal)
                 | Ty::Enum(nominal) => {
                     if matches!(ty, Ty::NativeObject(_)) {
-                        self.pending
-                            .push(Reference::Type(nominal.declaration.clone()));
+                        self.pending.push(Reference::Type(nominal.declaration));
                     }
                     if matches!(ty, Ty::Enum(_)) {
                         self.pending.push(Reference::Enum(nominal.clone()));
                     }
                     if matches!(ty, Ty::Trait(_)) {
-                        self.pending
-                            .push(Reference::Trait(nominal.declaration.clone()));
+                        self.pending.push(Reference::Trait(nominal.declaration));
                     }
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
@@ -82,8 +85,7 @@ impl References {
                     arguments,
                     ..
                 } => {
-                    self.pending
-                        .push(Reference::Trait(interface.declaration.clone()));
+                    self.pending.push(Reference::Trait(interface.declaration));
                     pending.push(receiver);
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());
@@ -107,7 +109,10 @@ impl References {
         Ok(())
     }
 
-    fn constraints(&mut self, constraints: &[Constraint]) -> Result<(), RuntimeError> {
+    fn constraints(
+        &mut self,
+        constraints: &[Constraint<DefinitionId>],
+    ) -> Result<(), RuntimeError> {
         for constraint in constraints {
             if let Constraint::Trait(nominal) = constraint {
                 self.nominal(nominal)?;
@@ -116,7 +121,7 @@ impl References {
         Ok(())
     }
 
-    fn bounds(&mut self, bounds: &[GenericBound]) -> Result<(), RuntimeError> {
+    fn bounds(&mut self, bounds: &[GenericBound<DefinitionId>]) -> Result<(), RuntimeError> {
         for bound in bounds {
             self.ty(&bound.ty)?;
             self.constraints(&bound.constraints)?;
@@ -130,7 +135,7 @@ impl References {
         Ok(())
     }
 
-    fn function(&mut self, function: &FnDecl) -> Result<(), RuntimeError> {
+    fn function(&mut self, function: &FnDecl<DefinitionId>) -> Result<(), RuntimeError> {
         self.bounds(&function.bounds)?;
         for ty in function
             .params
@@ -142,7 +147,7 @@ impl References {
         }
         if let CallableImplementation::NativeDefault(application) = &function.implementation {
             self.pending
-                .push(Reference::Template(application.declaration.clone()));
+                .push(Reference::Template(application.declaration));
             for argument in &application.arguments {
                 self.ty(argument)?;
             }
@@ -150,7 +155,10 @@ impl References {
         Ok(())
     }
 
-    fn declaration(&mut self, declaration: &NativeDeclaration) -> Result<(), RuntimeError> {
+    fn declaration(
+        &mut self,
+        declaration: &NativeDeclaration<DefinitionId>,
+    ) -> Result<(), RuntimeError> {
         self.function(&declaration.function)?;
         if let Some(receiver) = &declaration.concrete_result {
             self.ty(receiver)?;
@@ -169,7 +177,7 @@ impl References {
         Ok(())
     }
 
-    fn type_definition(&mut self, declaration: &TypeDef) -> Result<(), RuntimeError> {
+    fn type_definition(&mut self, declaration: &TypeDef<DefinitionId>) -> Result<(), RuntimeError> {
         self.bounds(&declaration.bounds)?;
         for ty in declaration.fields.iter().map(|field| &field.ty).chain(
             declaration
@@ -183,12 +191,12 @@ impl References {
     }
 }
 
-impl DeclarationCatalog<DefinitionPath> {
+impl DeclarationCatalog {
     pub(crate) fn dependency_closure<'a>(
         &self,
-        traits: impl IntoIterator<Item = DefinitionPath>,
-        declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
-        modules: impl IntoIterator<Item = &'a ModuleDecl>,
+        traits: impl IntoIterator<Item = DefinitionId>,
+        declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
+        modules: impl IntoIterator<Item = &'a ModuleDecl<DefinitionId>>,
     ) -> Result<DependencyClosure, RuntimeError> {
         let mut references = References::default();
         references
@@ -209,14 +217,25 @@ impl DeclarationCatalog<DefinitionPath> {
                 references.bounds(&implementation.bounds)?;
             }
         }
-        self.resolve_dependencies(references, DependencyClosure::default())
+        self.resolve_dependencies(
+            references,
+            DependencyClosure {
+                catalog: Self::in_context(self.types.context().clone()),
+                seen: BTreeSet::new(),
+            },
+        )
     }
 
     pub(crate) fn binding_dependencies<'a>(
         &self,
         base: &DependencyClosure,
-        declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
+        declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
     ) -> Result<Self, RuntimeError> {
+        if base.catalog.definitions().id() != self.definitions().id() {
+            return Err(RuntimeError::metadata_conflict(
+                "foreign native dependency seed",
+            ));
+        }
         let mut references = References::default();
         for declaration in declarations {
             references.declaration(declaration)?;
@@ -229,13 +248,14 @@ impl DeclarationCatalog<DefinitionPath> {
         mut references: References,
         mut closure: DependencyClosure,
     ) -> Result<DependencyClosure, RuntimeError> {
+        let definitions = self.definitions();
         while let Some(reference) = references.pending.pop() {
             if !closure.seen.insert(reference.clone()) {
                 continue;
             }
             match reference {
                 Reference::Enum(applied) => {
-                    let declaration = self.types.get(&applied.declaration).ok_or_else(|| {
+                    let declaration = self.types.get_id(applied.declaration).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
                             "enum is absent from the declaration catalog",
                         )
@@ -253,15 +273,19 @@ impl DeclarationCatalog<DefinitionPath> {
                         .push(Reference::Type(applied.declaration));
                 }
                 Reference::Obligation(receiver, interface) => {
-                    for (id, implementation) in self.implementations.iter() {
+                    for (id, implementation) in self.implementations.entries() {
                         let Some(implemented) = &implementation.trait_type else {
                             continue;
                         };
                         if match_pattern(
                             ImplementationPattern {
+                                protocol: Protocol::from_reference(
+                                    &implemented.declaration,
+                                    Some(&definitions),
+                                ),
                                 storage_access: self
                                     .traits
-                                    .get(&implemented.declaration)
+                                    .get_id(implemented.declaration)
                                     .and_then(|contract| contract.storage_access),
                                 parameters: &implementation.generic_params,
                                 receiver: &implementation.for_type,
@@ -278,14 +302,12 @@ impl DeclarationCatalog<DefinitionPath> {
                         })?
                         .is_some()
                         {
-                            references
-                                .pending
-                                .push(Reference::Implementation(id.clone()));
+                            references.pending.push(Reference::Implementation(id));
                         }
                     }
                 }
                 Reference::Implementation(id) => {
-                    let implementation = self.implementations.get(&id).ok_or_else(|| {
+                    let implementation = self.implementations.get_id(id).ok_or_else(|| {
                         RuntimeError::metadata_conflict("missing native implementation dependency")
                     })?;
                     references.bounds(&implementation.bounds)?;
@@ -294,28 +316,34 @@ impl DeclarationCatalog<DefinitionPath> {
                         references.nominal(interface)?;
                     }
                     for method in &implementation.methods {
-                        references
-                            .pending
-                            .push(Reference::Template(ModuleDecl::method_id(
-                                &id,
-                                &method.name,
-                            )));
+                        references.pending.push(Reference::Template(
+                            definitions
+                                .lookup_child(id, DefinitionKind::Method, &method.name, 0)
+                                .ok_or_else(|| {
+                                    RuntimeError::metadata_conflict(
+                                        "missing native method identity",
+                                    )
+                                })?,
+                        ));
                     }
-                    closure
-                        .catalog
-                        .insert_implementation(id, implementation.clone())?;
+                    closure.catalog.insert_implementation(id, implementation)?;
                 }
                 Reference::Type(id) => {
-                    let declaration = self.types.get(&id).ok_or_else(|| {
+                    let declaration = self.types.get_id(id).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
                             "native storage type is absent from the declaration catalog",
                         )
                     })?;
                     references.type_definition(declaration)?;
-                    closure.catalog.insert_type(id, declaration.clone())?;
+                    insert_contract(
+                        &mut closure.catalog.types,
+                        id,
+                        declaration.clone(),
+                        "conflicting native storage type contracts",
+                    )?;
                 }
                 Reference::Trait(id) => {
-                    let contract = self.get(&id).ok_or_else(|| {
+                    let contract = self.traits.get_id(id).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
                             "native trait dependency is absent from the catalog",
                         )
@@ -334,10 +362,15 @@ impl DeclarationCatalog<DefinitionPath> {
                     for method in &contract.methods {
                         references.function(method)?;
                     }
-                    closure.catalog.insert(id, contract.clone())?;
+                    insert_contract(
+                        &mut closure.catalog.traits,
+                        id,
+                        contract.clone(),
+                        "conflicting native trait contracts",
+                    )?;
                 }
                 Reference::Template(id) => {
-                    let declaration = self.declarations.get(&id).ok_or_else(|| {
+                    let declaration = self.declarations.get_id(id).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
                             "native default template dependency is absent from the catalog",
                         )
@@ -348,53 +381,5 @@ impl DeclarationCatalog<DefinitionPath> {
             }
         }
         Ok(closure)
-    }
-
-    pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {
-        let implementations: Vec<_> = self.implementations.iter().collect();
-        let catalog = ProofCatalog::new(
-            implementations
-                .iter()
-                .map(|(declaration, implementation)| Implementation::Native {
-                    declaration,
-                    implementation,
-                })
-                .collect(),
-            vec![],
-            [],
-            self.traits
-                .iter()
-                .map(|(id, contract)| (id.clone(), contract)),
-            self.declarations.values(),
-            &CancellationToken::default(),
-        )
-        .map_err(|_| {
-            RuntimeError::metadata_conflict(
-                "native template defaults or selected calls differ from their declared contracts",
-            )
-        })?;
-        for declaration in self.declarations.values() {
-            if let Some(receiver) = &declaration.concrete_result {
-                let Ty::Trait(interface) = &declaration.function.return_type else {
-                    return Err(RuntimeError::metadata_conflict(
-                        "native concrete result requires an interface return",
-                    ));
-                };
-                if !catalog
-                    .constraints_hold(
-                        receiver,
-                        &[Constraint::Trait(interface.clone())],
-                        &declaration.function.bounds,
-                        &CancellationToken::default(),
-                    )
-                    .map_err(|_| RuntimeError::metadata_conflict("invalid native result proof"))?
-                {
-                    return Err(RuntimeError::metadata_conflict(
-                        "native concrete result does not implement its return interface",
-                    ));
-                }
-            }
-        }
-        Ok(())
     }
 }

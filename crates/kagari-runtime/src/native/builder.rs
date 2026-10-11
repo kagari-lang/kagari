@@ -167,7 +167,8 @@ impl ModuleBuilder {
                 .clone()
                 .unwrap_or_else(|| declaration.function.return_type.clone()),
         };
-        binding.check(&signature, &self.providers)?;
+        let signature = self.providers.scope(&signature)?;
+        binding.check(&signature, &self.providers.definitions(), &self.providers)?;
         if self.bindings.contains_key(&function.id) {
             return Err(RuntimeError::metadata_conflict(
                 "duplicate native function binding",

@@ -3,7 +3,7 @@ use crate::{
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
-        catalog::DeclarationCatalog,
+        catalog::{DeclarationCatalog, import::CatalogImports},
         declarations::{FunctionDecl, MethodDecl},
         installation::NativeInstallation,
         module::NativeModule,
@@ -12,7 +12,7 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_stdlib::catalog as standard_catalog;
 use kagari_types::{
     callable::CallableImplementation,
@@ -36,13 +36,8 @@ impl NativePayload for CatalogOnlyPayload {
 }
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
-    assert_path_catalog_eq(&left.to_paths().unwrap(), &right.to_paths().unwrap());
-}
-
-fn assert_path_catalog_eq(
-    left: &DeclarationCatalog<DefinitionPath>,
-    right: &DeclarationCatalog<DefinitionPath>,
-) {
+    let mut imports = CatalogImports::new(left.types.context().clone());
+    let right = imports.import(right).unwrap();
     assert_eq!(left.types, right.types);
     assert_eq!(left.traits, right.traits);
     assert_eq!(left.declarations, right.declarations);
@@ -103,23 +98,17 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
         .collect::<Vec<_>>();
     for module in &modules {
         for registration in module.bindings.iter() {
-            let declarations = registration
-                .required_catalog
-                .paths(&registration.declarations)
-                .unwrap();
-            let module_declaration = module.to_declaration().unwrap();
+            let declarations = &registration.declarations;
+            let module_declaration = module.declaration();
             let fresh = module
                 .catalog
                 .dependency_closure(
-                    module.owned.traits.keys(),
-                    &declarations,
-                    [&module_declaration],
+                    module.owned.traits.ids(),
+                    declarations,
+                    [module_declaration],
                 )
                 .unwrap();
-            assert_path_catalog_eq(
-                &registration.required_catalog.to_paths().unwrap(),
-                &fresh.catalog,
-            );
+            assert_catalog_eq(&registration.required_catalog, &fresh.catalog);
         }
     }
 }
@@ -160,13 +149,16 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
         .unwrap();
     let module = consumer.finish().unwrap();
     for registration in module.bindings.iter() {
-        let declarations = registration
-            .required_catalog
-            .paths(&registration.declarations)
-            .unwrap();
-        let module_declaration = module.to_declaration().unwrap();
+        let declarations = &registration.declarations;
+        let module_declaration = module.declaration();
         let declaration = &declarations[0];
-        let name = declaration.declaration.path.last().unwrap().name.as_str();
+        let definitions = registration.required_catalog.definitions();
+        let name = definitions
+            .resolve(declaration.declaration)
+            .unwrap()
+            .last()
+            .unwrap()
+            .name;
         assert_eq!(
             registration.required_catalog.traits.len(),
             usize::from(name == "inspect")
@@ -174,15 +166,12 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
         let fresh = module
             .catalog
             .dependency_closure(
-                module.owned.traits.keys(),
-                &declarations,
-                [&module_declaration],
+                module.owned.traits.ids(),
+                declarations,
+                [module_declaration],
             )
             .unwrap();
-        assert_path_catalog_eq(
-            &registration.required_catalog.to_paths().unwrap(),
-            &fresh.catalog,
-        );
+        assert_catalog_eq(&registration.required_catalog, &fresh.catalog);
     }
     let mut runtime = Runtime::default();
     let before = runtime.native_entries.catalog.clone();
@@ -250,22 +239,14 @@ fn independently_scoped_catalogs_match_complete_contracts_after_import() {
     assert_eq!(merged.declarations.len(), 1);
     assert!(first.catalog().satisfied_by(&merged).unwrap());
     assert!(second.catalog().satisfied_by(&merged).unwrap());
-    let retained = merged.to_paths().unwrap();
-    assert_eq!(
-        retained.declarations.values().next().unwrap(),
-        &expected.native_declarations()[0]
-    );
+    let retained = merged.declarations.values().next().unwrap().clone();
+    let expected_scoped = merged.scope(&expected.native_declarations()[0]).unwrap();
+    assert_eq!(retained, expected_scoped);
     drop(first);
     drop(second);
     assert_eq!(
-        merged
-            .to_paths()
-            .unwrap()
-            .declarations
-            .values()
-            .next()
-            .unwrap(),
-        &expected.native_declarations()[0]
+        merged.declarations.values().next().unwrap(),
+        &expected_scoped
     );
     let mut incompatible = expected;
     incompatible.functions[0].return_type = Type::bool().abi().clone();
@@ -280,29 +261,28 @@ fn independently_scoped_catalogs_match_complete_contracts_after_import() {
 fn registration_scope_survives_catalog_growth_and_module_drop() {
     let module = application(&["value"]);
     let registration = module.bindings[0].clone();
-    let expected = registration
-        .required_catalog
-        .paths(&registration.declarations)
-        .unwrap();
+    let expected = registration.declarations.clone();
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     drop(module);
     application(&["added", "later"])
         .install(&mut runtime)
         .unwrap();
-    assert_eq!(
-        registration
-            .required_catalog
-            .paths(&registration.declarations)
-            .unwrap(),
-        expected
-    );
-    let installed = runtime.native_entries.catalog.to_paths().unwrap();
+    assert_eq!(registration.declarations, expected);
+    let installed = &runtime.native_entries.catalog;
+    let expected = DefinitionMetadata::checked(
+        registration.required_catalog.definitions(),
+        expected,
+        &Default::default(),
+    )
+    .unwrap()
+    .import_into(installed.types.context(), &Default::default())
+    .unwrap();
     assert!(
         installed
             .declarations
             .values()
-            .any(|record| record == &expected[0])
+            .any(|record| record == &expected.records()[0])
     );
     let declarations = registration.required_catalog.definitions();
     assert!(

@@ -6,10 +6,7 @@ use crate::{
     error::RuntimeError,
     native::{
         binding::{NativeBinding, NativeResult},
-        catalog::{
-            DeclarationCatalog,
-            import::{CatalogImports, CatalogScopes},
-        },
+        catalog::{DeclarationCatalog, import::CatalogImports},
         registry::{BindingRegistration, NativeRegistry},
         storage::NativeStorage,
     },
@@ -50,20 +47,20 @@ impl NativeModule {
         declaration
             .validate(&|receiver| owners.owner(receiver))
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let owned = DeclarationCatalog::declared([&declaration])?;
         let mut entries = BTreeMap::new();
-        for declaration in declaration.native_declarations() {
-            let CallableImplementation::Native(binding) = &declaration.function.implementation
+        for declaration in owned.declarations.values() {
+            let CallableImplementation::Native(binding) = declaration.function.implementation
             else {
                 return Err(RuntimeError::metadata_conflict(
                     "native method has no Rust binding",
                 ));
             };
             entries
-                .entry(binding.clone())
+                .entry(binding)
                 .or_insert_with(Vec::new)
-                .push(declaration);
+                .push(declaration.clone());
         }
-        let owned = DeclarationCatalog::declared([&declaration])?;
         let storage_types: Vec<_> = owned
             .types
             .iter()
@@ -106,11 +103,13 @@ impl NativeModule {
         }
         // Owned traits and implementation bounds are common to every binding.
         // A binding extends this closed seed only with its own signature/proofs.
-        let base =
-            available.dependency_closure(owned.traits.keys(), iter::empty(), [&declaration])?;
-        let mut scopes = CatalogScopes::new(base.catalog.types.context().clone());
-        let dependencies =
-            available.binding_dependencies(&base, &mut scopes, entries.values().flatten())?;
+        let scoped_declaration = available.scope(&declaration)?;
+        let base = available.dependency_closure(
+            owned.traits.ids(),
+            iter::empty(),
+            [&scoped_declaration],
+        )?;
+        let dependencies = available.binding_dependencies(&base, entries.values().flatten())?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
         checked.check_implementations([&declaration])?;
@@ -119,11 +118,13 @@ impl NativeModule {
         let mut registry = NativeRegistry::default();
         let mut imports = CatalogImports::new(registry.catalog.types.context().clone());
         for (id, binding) in bindings {
+            let id = available.definitions().lookup(&id).ok_or_else(|| {
+                RuntimeError::metadata_conflict("unknown native binding identity")
+            })?;
             let declarations = entries.remove(&id).ok_or_else(|| {
                 RuntimeError::metadata_conflict("unknown or duplicate native binding")
             })?;
-            let required_catalog =
-                checked.binding_dependencies(&base, &mut scopes, &declarations)?;
+            let required_catalog = checked.binding_dependencies(&base, &declarations)?;
             let registration = Arc::new(BindingRegistration::checked(
                 declarations,
                 binding,
@@ -228,11 +229,12 @@ impl NativeModule {
         registry: &mut NativeRegistry,
     ) -> NativeResult<()> {
         let mut staged = registry.clone();
+        let mut imports = CatalogImports::new(staged.catalog.types.context().clone());
         for module in modules {
-            module.publish_owners(&mut staged)?;
+            module.publish_owners(&mut staged, &mut imports)?;
         }
         for module in modules {
-            module.publish_bindings(&mut staged)?;
+            module.publish_bindings(&mut staged, &mut imports)?;
         }
         staged.catalog.validate_callable_contracts()?;
         *registry = staged;
@@ -243,25 +245,40 @@ impl NativeModule {
         Self::install_batch(slice::from_ref(self), registry)
     }
 
-    fn publish_owners(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
-        for id in self.owned.traits.keys() {
-            if registry.catalog.get(&id).is_some() {
+    fn publish_owners(
+        &self,
+        registry: &mut NativeRegistry,
+        imports: &mut CatalogImports,
+    ) -> NativeResult<()> {
+        let owned = imports.import(&self.owned)?;
+        for id in owned.traits.ids() {
+            if registry.catalog.traits.get_id(id).is_some() {
                 return Err(RuntimeError::metadata_conflict(
                     "duplicate native trait owner",
                 ));
             }
         }
-        for id in self.owned.types.keys() {
-            if registry.catalog.types.get(&id).is_some() {
+        for id in owned.types.ids() {
+            if registry.catalog.types.get_id(id).is_some() {
                 return Err(RuntimeError::metadata_conflict(
                     "duplicate native type owner",
                 ));
             }
         }
-        for (id, storage) in self.storage.iter() {
+        let storage_ids = registry
+            .storage
+            .context()
+            .import(&self.storage.context().snapshot(), self.storage.ids())
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        for (id, storage) in self.storage.entries() {
             if registry
                 .storage
-                .insert(id, storage.clone())
+                .insert_id(
+                    storage_ids
+                        .map(id)
+                        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?,
+                    storage.clone(),
+                )
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
                 .is_some()
             {
@@ -270,11 +287,15 @@ impl NativeModule {
                 ));
             }
         }
-        registry.catalog.merge(&self.owned)?;
+        registry.catalog.merge(&owned)?;
         Ok(())
     }
 
-    fn publish_bindings(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
+    fn publish_bindings(
+        &self,
+        registry: &mut NativeRegistry,
+        imports: &mut CatalogImports,
+    ) -> NativeResult<()> {
         if !self.required.satisfied_by(&registry.catalog)? {
             return Err(RuntimeError::metadata_conflict(
                 "native module dependency is not installed",
@@ -283,9 +304,8 @@ impl NativeModule {
         registry
             .catalog
             .check_implementations([&self.to_declaration()?])?;
-        let mut imports = CatalogImports::new(registry.catalog.types.context().clone());
         for registration in self.bindings.iter() {
-            registry.install(registration.clone(), &mut imports)?;
+            registry.install(registration.clone(), imports)?;
         }
         Ok(())
     }

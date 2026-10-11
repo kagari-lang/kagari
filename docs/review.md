@@ -479,67 +479,19 @@ witnesses and host borrow/GC cleanup coverage. Measure any claimed memory or spe
 benefit. This entry records the future architectural direction only; code migration
 and specification changes remain deferred.
 
-## SA19 Consider one definition-ID representation inside semantic models
+## SA19 Use DefinitionId throughout semantic models
 
-The proposed follow-up is to simplify definition references by using
-`DefinitionId` consistently inside semantic models and keeping path/wire
-conversion at explicit boundaries. This is an evaluation direction, not a final
-representation decision or an activated migration.
+The agreed design now has an [execution plan](definition-id-plan.md), SI01-SI06.
+Implementation is active (SI01 complete, SI02 in progress). The plan owns scope,
+validation and the progress ledger; the [roadmap](implementation-roadmap.md#semantic-definition-ids)
+places it before native collections.
 
-Currently, [DefinitionReference](../crates/kagari-common/src/identity/reference.rs)
-is a sealed trait implemented by `DefinitionPath`, `DefinitionId` and
-`PortableDefinitionRef`. Identity-bearing records such as
-[TypeId and NominalType](../crates/kagari-hir/src/types.rs) are generic over that
-representation. [CheckedAnalysis](../crates/kagari-hir/src/lib.rs) maps authoring
-paths into scoped IDs; record mapping and portable encoding reuse the same shape.
-This avoids duplicate record definitions, but propagates identity-representation
-parameters through semantic APIs. The portable implementation cannot directly
-describe or resolve itself through `DefinitionTable`; those operations return
-errors until the dedicated decoder maps its references.
-
-For a type application such as `Box<i32>`, the candidate model is:
-
-```text
-Authoring path for Box -> definition context -> DefinitionId for Box
-Semantic type         -> declaration: DefinitionId, arguments: [Builtin(I32)]
-Diagnostics/display   -> look up the definition's path through its owning table
-Artifact boundary     -> encode/decode through a validated portable definition table
-```
-
-References to the same canonical declaration share its ID in one context. The
-path remains useful for registration, debugging and exact cross-context import;
-the proposal does not remove it. Source aliases must still resolve to canonical
-definitions. Distinct contexts may assign different IDs to an equal path and
-require explicit remapping. These IDs are not runtime generation/version IDs.
-
-Rust provides a useful reference: [DefId](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_span/def_id/struct.DefId.html)
-combines a crate number and definition index;
-[DefKey](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir_id/definitions/struct.DefKey.html)
-stores a parent and disambiguated path segment. Semantic
-[ADT definitions](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/struct.AdtDefData.html)
-retain a DefId, while [incremental compilation](https://rustc-dev-guide.rust-lang.org/queries/incremental-compilation-in-detail.html)
-maps stable path hashes to current-session IDs. This separation is the reference,
-not a requirement to copy rustc's interner generics, hash identities or metadata
-codec. Kagari's exact portable identities and pinned reload ownership remain
-separate contracts.
-
-Follow-up owner: common identity tables/mapping, semantic types/declarations,
-analysis publication and checked artifact boundaries. Evaluate whether authoring
-inputs can be adopted before semantic analysis so internal records no longer
-need path/ID variants. Remove obsolete semantic representation parameters and
-their mapping/projection machinery where this is viable; decide separately
-whether boundary records still benefit from generic mapping. Language generic
-parameters, type arguments and associated-type semantics are unaffected. Reuse
-the existing definition context; do not create a parallel registry or merge HIR
-arena IDs with semantic definition IDs. Coordinate module-handle changes with
-SA9 rather than extending this review into that migration.
-
-When activated, preserve owning-table and index validation, immutable snapshots,
-append-only identity stability, canonical bounded artifact decoding, cancellation,
-cross-context import and generation-pinned dependencies. Reuse identity,
-alias/navigation, generic/associated-type and source-free artifact rejection
-coverage. Assess adoption/projection consumers before deciding scope and measure
-any claimed memory or speed improvement. Implementation remains deferred.
+Semantic records and algorithms will use DefinitionId without identity-representation
+generics. DefinitionPath remains at authoring/display boundaries; portable local
+references remain inside codecs. Reuse existing contexts, snapshots and explicit
+imports, preserving verification, source revisions and pinned runtime generations.
+SA9's full module-graph handle migration and SA21 registration unification remain
+separate. This finding closes only when the implementation is complete.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 

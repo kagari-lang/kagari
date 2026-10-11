@@ -11,6 +11,7 @@ use crate::identity::{
     ModuleIdentity,
 };
 use std::{
+    cmp::Ordering as Comparison,
     collections::HashMap,
     num::NonZeroU32,
     sync::{
@@ -106,6 +107,40 @@ pub struct DefinitionTable {
 }
 
 impl DefinitionTable {
+    /// Compare exact portable identities, independently of allocation order.
+    /// Both IDs must belong to this retained table prefix.
+    pub fn compare(
+        &self,
+        left: DefinitionId,
+        right: DefinitionId,
+    ) -> Result<Comparison, DefinitionTableError> {
+        let left = self.resolve(left)?;
+        let right = self.resolve(right)?;
+        Ok(left
+            .module()
+            .cmp(right.module())
+            .then_with(|| left.segments().cmp(right.segments())))
+    }
+
+    /// Whether `owner` is `member` or one of its definition ancestors.
+    /// Rejects foreign/absent IDs before inspecting the parent chain.
+    pub fn contains(
+        &self,
+        owner: DefinitionId,
+        member: DefinitionId,
+    ) -> Result<bool, DefinitionTableError> {
+        self.resolve(owner)?;
+        self.resolve(member)?;
+        let mut current = Some(member);
+        while let Some(id) = current {
+            if id == owner {
+                return Ok(true);
+            }
+            current = self.parent(id)?;
+        }
+        Ok(false)
+    }
+
     pub fn parent(&self, id: DefinitionId) -> Result<Option<DefinitionId>, DefinitionTableError> {
         validate_id(self.id, &self.data, id)?;
         Ok(match self.data.nodes[id.index()] {
@@ -385,7 +420,7 @@ impl DefinitionRemap {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DefinitionSegment<'a> {
     pub kind: DefinitionKind,
     pub name: &'a str,
@@ -399,6 +434,23 @@ pub struct DefinitionView<'a> {
 }
 
 impl<'a> DefinitionView<'a> {
+    /// Borrow the final definition segment; a module root has no segment.
+    pub fn last(self) -> Option<DefinitionSegment<'a>> {
+        match self.data.nodes[self.index.0 as usize] {
+            Node::Root(_) => None,
+            Node::Child {
+                kind,
+                name,
+                occurrence,
+                ..
+            } => Some(DefinitionSegment {
+                kind,
+                name: &self.data.symbols[name.0 as usize],
+                occurrence,
+            }),
+        }
+    }
+
     pub fn module(self) -> &'a ModuleIdentity {
         let mut index = self.index;
         loop {

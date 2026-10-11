@@ -1,6 +1,6 @@
 //! Contextual indexes retain short keys and materialize paths only at boundaries.
 use crate::identity::{
-    DefinitionPath,
+    DefinitionKind, DefinitionPath, ModuleIdentity,
     table::{
         DefinitionId, DefinitionRemap, DefinitionTable, DefinitionTableBuilder,
         DefinitionTableError,
@@ -34,6 +34,36 @@ impl DefinitionContext {
             .lock()
             .expect("definition context poisoned")
             .intern_path(path)
+    }
+
+    /// Register a module root in this shared writer without constructing a path.
+    /// This assigns identity only; it does not publish a module declaration.
+    pub fn intern_root(
+        &self,
+        module: &ModuleIdentity,
+    ) -> Result<DefinitionId, DefinitionTableError> {
+        self.0
+            .lock()
+            .expect("definition context poisoned")
+            .intern_root(module)
+    }
+
+    /// Register a definition under a parent owned by this context.
+    ///
+    /// Foreign or absent parents and paths beyond the depth limit are rejected.
+    /// Cloned contexts share allocation, so branches cannot assign the same ID
+    /// to different definitions. Existing table snapshots retain their prefix.
+    pub fn intern_child(
+        &self,
+        parent: DefinitionId,
+        kind: DefinitionKind,
+        name: &str,
+        occurrence: u32,
+    ) -> Result<DefinitionId, DefinitionTableError> {
+        self.0
+            .lock()
+            .expect("definition context poisoned")
+            .intern_child(parent, kind, name, occurrence)
     }
 
     pub fn lookup(&self, path: &DefinitionPath) -> Option<DefinitionId> {
@@ -147,6 +177,19 @@ impl<T> DefinitionMap<T> {
         value: T,
     ) -> Result<Option<T>, DefinitionTableError> {
         let id = self.context.intern(&path)?;
+        self.insert_id(id, value)
+    }
+
+    /// Insert under an existing identity from this map's context.
+    ///
+    /// Checks the key before changing the map. This does not validate references
+    /// inside `value`; semantic owners must validate or import the complete record.
+    pub fn insert_id(
+        &mut self,
+        id: DefinitionId,
+        value: T,
+    ) -> Result<Option<T>, DefinitionTableError> {
+        self.context.snapshot().resolve(id)?;
         Ok(self.entries.insert(id, value))
     }
 
@@ -315,6 +358,12 @@ mod tests {
         let mut second = DefinitionMap::default();
         second.insert(path("other"), 20).unwrap();
         assert!(second.get_id(first_id).is_none());
+        assert_eq!(
+            second.insert_id(first_id, 99),
+            Err(DefinitionTableError::ForeignTable)
+        );
+        assert_eq!(second.len(), 1);
+        assert_eq!(second.get(&path("other")), Some(&20));
         assert!(second.merge(&first).unwrap());
         assert_eq!(second.get(&path("run")), Some(&10));
         assert!(second.get_id(first_id).is_none());
@@ -332,12 +381,34 @@ mod tests {
     #[test]
     fn branches_share_one_writer_and_retained_snapshots_keep_a_checked_prefix() {
         let mut first = DefinitionMap::default();
-        first.insert(path("run"), 10).unwrap();
+        let root = first
+            .context()
+            .intern_root(&ModuleIdentity::single_file("index.kgr"))
+            .unwrap();
+        let run = first
+            .context()
+            .intern_child(root, DefinitionKind::Function, "run", 0)
+            .unwrap();
+        first.insert_id(run, 10).unwrap();
         let snapshot = first.context().snapshot();
         let mut branch = first.clone();
-        branch.insert(path("next"), 20).unwrap();
+        let next = branch
+            .context()
+            .intern_child(root, DefinitionKind::Function, "next", 0)
+            .unwrap();
+        branch.insert_id(next, 20).unwrap();
         first.insert(path("different"), 30).unwrap();
-        let next = branch.context.lookup(&path("next")).unwrap();
+        assert_eq!(first.context.lookup(&path("run")), Some(run));
+        assert_eq!(branch.context.lookup(&path("next")), Some(next));
+        assert_eq!(
+            DefinitionContext::new().unwrap().intern_child(
+                root,
+                DefinitionKind::Function,
+                "foreign",
+                0
+            ),
+            Err(DefinitionTableError::ForeignTable)
+        );
         let different = first.context.lookup(&path("different")).unwrap();
         assert_ne!(next, different);
         assert!(snapshot.resolve(next).is_err());

@@ -17,20 +17,29 @@ use {
 };
 
 /// The actual checked header, independently of its declaration/executable source.
-#[derive(Clone, Copy)]
-pub struct ImplementationPattern<'a> {
-    pub parameters: &'a [GenericParam],
-    pub receiver: &'a Ty,
-    pub interface: &'a NominalTy,
+pub struct ImplementationPattern<'a, I = DefinitionPath> {
+    pub parameters: &'a [GenericParam<I>],
+    pub receiver: &'a Ty<I>,
+    pub interface: &'a NominalTy<I>,
+    /// Language role resolved by the owner of the interface identity.
+    pub protocol: Option<Protocol>,
     pub storage_access: Option<CollectionAccess>,
 }
 
-pub fn match_pattern<'a>(
-    pattern: ImplementationPattern<'a>,
-    interface: &'a NominalTy,
-    receiver: &'a Ty,
+impl<I> Copy for ImplementationPattern<'_, I> {}
+
+impl<I> Clone for ImplementationPattern<'_, I> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+pub fn match_pattern<'a, I: DefinitionReference>(
+    pattern: ImplementationPattern<'a, I>,
+    interface: &'a NominalTy<I>,
+    receiver: &'a Ty<I>,
     cancel: &CancellationToken,
-) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
+) -> Result<Option<TypeSubstitution<'a, I>>, TypeTransformError> {
     let implemented = pattern.interface;
     if pattern.parameters.len() > MAX_TYPE_NODES
         || !pattern.receiver.within_wire_limits()
@@ -50,10 +59,7 @@ pub fn match_pattern<'a>(
     // Readonly native capabilities admit either storage view. Other impls must
     // match access exactly; storage arguments remain invariant in either case.
     let readonly = pattern.storage_access == Some(CollectionAccess::ReadOnly)
-        || matches!(
-            Protocol::from_id(&implemented.declaration),
-            Some(Protocol::Iterable | Protocol::Index)
-        );
+        || matches!(pattern.protocol, Some(Protocol::Iterable | Protocol::Index));
     let mut pending = vec![(pattern.receiver, receiver)];
     pending.extend(implemented.arguments.iter().zip(&interface.arguments));
     let Some(bindings) = match_pairs(pattern.parameters, pending, cancel)? else {
