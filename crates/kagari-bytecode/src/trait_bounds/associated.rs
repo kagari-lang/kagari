@@ -1,5 +1,6 @@
 use crate::{module::BytecodeModule, trait_bounds::contract};
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::types::{
     InterfaceTable,
     proofs::{ProofCatalog, host_application},
@@ -16,33 +17,38 @@ use kagari_types::{
 
 /// Discharge family parameter bounds after validating the carried applications.
 fn projection_bounds_valid(
-    ty: &Ty,
-    assumptions: &[GenericBound],
+    ty: &Ty<DefinitionId>,
+    assumptions: &[GenericBound<DefinitionId>],
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
     ApplicationValidator::new(
         cancel,
-        |id| contract(id, closure),
+        |id| contract(id, closure, catalog.definitions()),
         |id| {
             closure.iter().find_map(|owner| {
-                type_contract(&owner.identity, &owner.public_items, id)
-                    .map(|record| (record.kind, record.generic_params.len()))
-                    .or_else(|| {
-                        owner
-                            .enumerations
-                            .iter()
-                            .find(|layout| &layout.declaration == id)
-                            .map(|layout| (TypeDefKind::Enum, layout.arguments.len()))
-                    })
-                    .or_else(|| {
-                        owner
-                            .structures
-                            .iter()
-                            .find(|layout| &layout.declaration == id)
-                            .map(|layout| (TypeDefKind::Struct, layout.arguments.len()))
-                    })
+                type_contract(
+                    &owner.identity,
+                    &owner.public_items,
+                    id,
+                    catalog.definitions(),
+                )
+                .map(|record| (record.kind, record.generic_params.len()))
+                .or_else(|| {
+                    owner
+                        .enumerations
+                        .iter()
+                        .find(|layout| &layout.declaration == id)
+                        .map(|layout| (TypeDefKind::Enum, layout.arguments.len()))
+                })
+                .or_else(|| {
+                    owner
+                        .structures
+                        .iter()
+                        .find(|layout| &layout.declaration == id)
+                        .map(|layout| (TypeDefKind::Struct, layout.arguments.len()))
+                })
             })
         },
     )
@@ -62,7 +68,8 @@ fn projection_bounds_valid(
                 member,
                 arguments,
             } => {
-                let Some(record) = contract(&interface.declaration, closure) else {
+                let Some(record) = contract(&interface.declaration, closure, catalog.definitions())
+                else {
                     return Ok(false);
                 };
                 let Some(definition) = record
@@ -118,9 +125,9 @@ fn projection_bounds_valid(
 }
 
 pub(super) fn associated_bounds_match(
-    table: &InterfaceTable,
-    interface: &NominalTy,
-    record: &TraitDef,
+    table: &InterfaceTable<DefinitionId>,
+    interface: &NominalTy<DefinitionId>,
+    record: &TraitDef<DefinitionId>,
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
@@ -195,17 +202,20 @@ pub(super) fn host_bounds_match(
 ) -> Result<bool, TypeTransformError> {
     for host in &module.host_interface.types {
         for implementation in &host.trait_implementations {
-            if !closure
-                .iter()
-                .any(|member| member.identity == implementation.trait_id.module)
-            {
+            if !closure.iter().any(|member| {
+                catalog
+                    .definitions()
+                    .resolve(implementation.trait_id)
+                    .is_ok_and(|view| view.module() == &member.identity)
+            }) {
                 continue;
             }
-            let Some(record) = contract(&implementation.trait_id, closure) else {
+            let Some(record) = contract(&implementation.trait_id, closure, catalog.definitions())
+            else {
                 return Ok(false);
             };
             let applied = host_application(implementation);
-            let receiver = Ty::Host(host.id.clone());
+            let receiver = Ty::Host(host.id);
             let mut substitution = TypeSubstitution::default();
             substitution.bind_receiver(&applied.declaration, &receiver);
             for (parameter, actual) in record.generic_params.iter().zip(&applied.arguments) {
@@ -221,11 +231,11 @@ pub(super) fn host_bounds_match(
                     constraints: member.bounds.clone(),
                 });
             }
-            let normalize = |ty: &Ty| {
+            let normalize = |ty: &Ty<DefinitionId>| {
                 let ty = resolve_associated_outputs(
                     ty,
                     &applied,
-                    &Ty::SelfType(applied.declaration.clone()),
+                    &Ty::SelfType(applied.declaration),
                     cancel,
                 )?;
                 catalog.normalize(&substitution.apply(&ty, cancel)?, cancel)

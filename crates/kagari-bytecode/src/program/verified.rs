@@ -7,7 +7,8 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        metadata::{DefinitionMetadata, PortableMetadata, scope_record},
+        map::DefinitionContext,
+        metadata::{DefinitionMetadata, PortableMetadata},
         table::wire::PortableDefinitionRef,
         table::{DefinitionId, DefinitionTable},
     },
@@ -36,20 +37,25 @@ pub struct VerifiedBytecodeProgram {
 }
 
 impl VerifiedBytecodeProgram {
-    pub fn new(program: BytecodeProgram) -> Result<Self, ArtifactValidationError> {
-        validate_program_resource_limits(&program)?;
-        let suspensions =
-            verify_with_suspensions(&program).map_err(ArtifactValidationError::Bytecode)?;
-        Self::from_verified(program, suspensions)
+    pub fn new(
+        program: BytecodeProgram,
+        context: &DefinitionContext,
+    ) -> Result<Self, ArtifactValidationError> {
+        validate_program_resource_limits(&program, &context.snapshot())?;
+        let suspensions = verify_with_suspensions(&program, context)
+            .map_err(ArtifactValidationError::Bytecode)?;
+        Self::from_verified(program, suspensions, context.snapshot())
     }
 
     // Only bytecode-owned validation may retain evidence without repeating it.
     pub(crate) fn from_verified(
         program: BytecodeProgram,
         suspensions: ProgramSuspensions,
+        definitions: DefinitionTable,
     ) -> Result<Self, ArtifactValidationError> {
-        let metadata = scope_record(&program, &CancellationToken::default())
-            .map_err(ArtifactValidationError::Identity)?;
+        let metadata =
+            DefinitionMetadata::checked(definitions, program, &CancellationToken::default())
+                .map_err(ArtifactValidationError::Identity)?;
         Ok(Self {
             metadata,
             suspensions,
@@ -78,17 +84,13 @@ impl VerifiedBytecodeProgram {
             .map_err(ArtifactValidationError::Identity)
     }
 
-    pub fn to_unverified(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<BytecodeProgram, ArtifactValidationError> {
-        self.metadata
-            .to_paths(cancel)
-            .map_err(ArtifactValidationError::Identity)
+    /// Copy editable records with their retained identity scope, without the seal.
+    pub fn to_unverified(&self) -> DefinitionMetadata<BytecodeProgram> {
+        self.metadata.clone()
     }
 
-    pub fn into_unverified(self) -> BytecodeProgram {
-        self.to_unverified(&CancellationToken::default())
-            .expect("verified bytecode retains its bounded identity scope")
+    /// Extract editable records with their retained identity scope, without the seal.
+    pub fn into_unverified(self) -> DefinitionMetadata<BytecodeProgram> {
+        self.metadata
     }
 }

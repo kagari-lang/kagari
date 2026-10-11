@@ -9,7 +9,7 @@ use kagari_common::{
     identity::{
         DefinitionKind, DefinitionPath, ModuleIdentity,
         reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
+        table::{DefinitionId, DefinitionTable, DefinitionTableError},
     },
 };
 use kagari_types::{
@@ -56,7 +56,7 @@ pub enum PublicItem<I = DefinitionPath> {
     InherentTable(Box<InherentTable<I>>),
 }
 
-impl PublicItem {
+impl<I> PublicItem<I> {
     pub fn name(&self) -> &str {
         match self {
             Self::Function(item) => &item.name,
@@ -78,26 +78,32 @@ impl PublicItem {
             Self::InherentTable(_) => "inherent_table",
         }
     }
+}
 
-    pub fn fingerprint_name(&self) -> String {
+impl PublicItem<DefinitionId> {
+    pub fn fingerprint_name(
+        &self,
+        definitions: &DefinitionTable,
+    ) -> Result<String, DefinitionTableError> {
         let declaration = match self {
             Self::InterfaceTable(table) => Some(&table.declaration),
             Self::InherentTable(table) => Some(&table.declaration),
             _ => None,
         };
         if let Some(declaration) = declaration {
+            let encoding = definitions.encode([*declaration])?;
             let encoded = DefaultOptions::new()
                 .with_fixint_encoding()
                 .with_little_endian()
-                .serialize(declaration)
+                .serialize(&(encoding.reference(*declaration)?, encoding.table))
                 .expect("validated interface declaration identity");
             let mut name = format!("{}:", self.category());
             for byte in encoded {
                 write!(name, "{byte:02x}").expect("writing to a String cannot fail");
             }
-            name
+            Ok(name)
         } else {
-            format!("{}:{}", self.category(), self.name())
+            Ok(format!("{}:{}", self.category(), self.name()))
         }
     }
 }
@@ -260,12 +266,12 @@ pub fn interface_method_semantics(
     {
         return None;
     }
-    let contract = trait_contract_in(
-        Some(definitions),
+    let contract = trait_contract(
         owner,
         public_items,
         trait_contracts,
         &interface.declaration,
+        definitions,
     )?;
     let call = InterfaceCallContract {
         normalizations: vec![],
@@ -316,29 +322,12 @@ pub struct ConcreteFunctionIdentity<I = DefinitionPath> {
 /// follow the same carried-contract path; a well-known ID is not a declaration.
 pub fn trait_contract<'a>(
     owner: &ModuleIdentity,
-    items: &'a [PublicItem],
-    private: &'a [TraitContract],
-    id: &DefinitionPath,
-) -> Option<&'a TraitDef> {
-    trait_contract_in(None, owner, items, private, id)
-}
-
-pub fn type_contract<'a>(
-    owner: &ModuleIdentity,
-    items: &'a [PublicItem],
-    id: &DefinitionPath,
-) -> Option<&'a TypeDef> {
-    type_contract_in(None, owner, items, id)
-}
-
-pub fn trait_contract_in<'a, I: DefinitionReference>(
-    table: Option<&DefinitionTable>,
-    owner: &ModuleIdentity,
-    public_items: &'a [PublicItem<I>],
-    private: &'a [TraitContract<I>],
-    id: &I,
-) -> Option<&'a TraitDef<I>> {
-    let view = id.describe(table).ok()?;
+    public_items: &'a [PublicItem<DefinitionId>],
+    private: &'a [TraitContract<DefinitionId>],
+    id: &DefinitionId,
+    definitions: &DefinitionTable,
+) -> Option<&'a TraitDef<DefinitionId>> {
+    let view = definitions.resolve(*id).ok()?;
     let part = view.last()?;
     if view.module() != owner
         || view.segments().count() != 1
@@ -360,13 +349,13 @@ pub fn trait_contract_in<'a, I: DefinitionReference>(
 }
 
 /// Find a declared nominal type by its exact owning identity.
-pub fn type_contract_in<'a, I: DefinitionReference>(
-    table: Option<&DefinitionTable>,
+pub fn type_contract<'a>(
     owner: &ModuleIdentity,
-    items: &'a [PublicItem<I>],
-    id: &I,
-) -> Option<&'a TypeDef<I>> {
-    let view = id.describe(table).ok()?;
+    items: &'a [PublicItem<DefinitionId>],
+    id: &DefinitionId,
+    definitions: &DefinitionTable,
+) -> Option<&'a TypeDef<DefinitionId>> {
+    let view = definitions.resolve(*id).ok()?;
     let part = view.last()?;
     if view.module() != owner || view.segments().count() != 1 || part.occurrence != 0 {
         return None;

@@ -53,8 +53,7 @@ pub fn trait_bindings_match(
             if owner.module() != module {
                 continue;
             }
-            let Some(trait_abi) =
-                abi::trait_contract_in(Some(definitions), module, items, contracts, id)
+            let Some(trait_abi) = abi::trait_contract(module, items, contracts, id, definitions)
             else {
                 return Ok(false);
             };

@@ -1,10 +1,11 @@
 //! Validate entry argument mappings and signatures in each interface slot.
 use crate::module::{BytecodeModule, CallableTarget};
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::verify::types_in_scope,
+    declaration::verify::types_in_scope_in,
     ty::{
         Ty,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -59,10 +60,16 @@ pub(super) fn valid(
                     )
                 }
             };
-            let Some(name) = slot.method.path.last().map(|part| &part.name) else {
+            let Some(name) = catalog
+                .definitions()
+                .resolve(slot.method)
+                .ok()
+                .and_then(|view| view.last())
+                .map(|part| part.name)
+            else {
                 return Ok(false);
             };
-            let Some(method) = abi.methods.iter().find(|method| &method.name == name) else {
+            let Some(method) = abi.methods.iter().find(|method| method.name == name) else {
                 return Ok(false);
             };
             let scope: Vec<_> = abi
@@ -73,7 +80,7 @@ pub(super) fn valid(
                 .collect();
             let parameters = body.map_or(&[][..], |body| body.parameters.as_slice());
             if slot.arguments.len() != parameters.len()
-                || !types_in_scope(&slot.arguments, &scope, cancel)
+                || !types_in_scope_in(&slot.arguments, &scope, cancel, Some(catalog.definitions()))
             {
                 return Ok(false);
             }
@@ -88,9 +95,10 @@ pub(super) fn valid(
             for (parameter, argument) in abi.generic_params.iter().zip(&table.arguments) {
                 applied.bind(&parameter.owner, parameter.position, argument);
             }
-            let normalize = |ty: &Ty, substitution: &TypeSubstitution| {
-                catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
-            };
+            let normalize =
+                |ty: &Ty<DefinitionId>, substitution: &TypeSubstitution<DefinitionId>| {
+                    catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
+                };
             let expected = Signature {
                 params: method
                     .params
@@ -125,7 +133,7 @@ pub(super) fn valid(
                 }
             }
             let target = ConcreteFunctionIdentity {
-                declaration: identity.declaration.clone(),
+                declaration: identity.declaration,
                 arguments: identity
                     .arguments
                     .iter()
@@ -149,7 +157,7 @@ pub(super) fn valid(
                 if resolved.instance != target
                     || resolved.implementation
                         != CallableImplementation::Native(
-                            module.native_imports[import.index()].binding.clone(),
+                            module.native_imports[import.index()].binding,
                         )
                     || resolved.signature != actual
                 {

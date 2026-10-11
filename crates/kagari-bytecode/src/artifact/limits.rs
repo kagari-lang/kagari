@@ -2,13 +2,16 @@ use crate::{
     artifact::{
         ArtifactSignatures, DebugMetadata, KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_FUNCTIONS,
         MAX_ARTIFACT_INSTRUCTIONS, MAX_ARTIFACT_MODULES, MAX_ARTIFACT_NESTED_RECORDS,
-        MAX_ARTIFACT_TABLE_RECORDS, exceeds_encoded_size,
+        MAX_ARTIFACT_TABLE_RECORDS,
     },
     instruction::{BytecodeInstruction, CallTarget},
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::{
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
 use kagari_types::{
     callable::CallableImplementation,
@@ -301,7 +304,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
 }
 
 fn add_callable_requirement(
-    required: &NativeCallableRequirement,
+    required: &NativeCallableRequirement<DefinitionId>,
     add: &mut impl FnMut(usize) -> bool,
 ) -> bool {
     add(required.arguments.len())
@@ -309,19 +312,20 @@ fn add_callable_requirement(
         && add(required.interface.associated_types.len())
 }
 
-fn add_function_contract(function: &FnDecl, add: &mut impl FnMut(usize) -> bool) -> bool {
+fn add_function_contract(
+    function: &FnDecl<DefinitionId>,
+    add: &mut impl FnMut(usize) -> bool,
+) -> bool {
     match &function.implementation {
-        CallableImplementation::Native(id) => add(id.module.path.len()) && add(id.path.len()),
-        CallableImplementation::NativeDefault(application) => {
-            add(application.declaration.module.path.len())
-                && add(application.declaration.path.len())
-                && add(application.arguments.len())
-        }
+        CallableImplementation::NativeDefault(application) => add(application.arguments.len()),
         _ => true,
     }
 }
 
-pub(super) fn add_abi_bounds(bounds: &[GenericBound], add: &mut impl FnMut(usize) -> bool) -> bool {
+pub(super) fn add_abi_bounds(
+    bounds: &[GenericBound<DefinitionId>],
+    add: &mut impl FnMut(usize) -> bool,
+) -> bool {
     bounds.iter().all(|bound| {
         add(bound.constraints.len())
             && bound.constraints.iter().all(|constraint| match constraint {
@@ -331,7 +335,10 @@ pub(super) fn add_abi_bounds(bounds: &[GenericBound], add: &mut impl FnMut(usize
     })
 }
 
-pub(super) fn generic_identity_limit(params: &[GenericParam], bounds: &[GenericBound]) -> bool {
+pub(super) fn generic_identity_limit(
+    params: &[GenericParam<DefinitionId>],
+    bounds: &[GenericBound<DefinitionId>],
+) -> bool {
     params.iter().all(|param| param.owner.within_path_limit())
         && bounds.iter().all(|bound| {
             bound.ty.within_wire_limits()
@@ -348,7 +355,7 @@ pub(super) fn generic_identity_limit(params: &[GenericParam], bounds: &[GenericB
         })
 }
 
-pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef]) -> bool {
+pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef<DefinitionId>]) -> bool {
     members.iter().all(|member| {
         member.declaration.within_path_limit()
             && generic_identity_limit(&member.generic_params, &member.parameter_bounds)
@@ -359,16 +366,19 @@ pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef]) -> bool {
     })
 }
 
-pub(super) fn function_abi_identity_limit(function: &FnDecl) -> bool {
+pub(super) fn function_abi_identity_limit(function: &FnDecl<DefinitionId>) -> bool {
     generic_identity_limit(&function.generic_params, &function.bounds)
 }
 
-pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
-    let valid = |ty: &Ty| ty.within_wire_limits();
+pub(super) fn module_abi_type_limit(
+    module: &BytecodeModule,
+    definitions: &DefinitionTable,
+) -> bool {
+    let valid = |ty: &Ty<DefinitionId>| ty.within_wire_limits();
     module
         .native_imports
         .iter()
-        .all(|import| import.structurally_valid())
+        .all(|import| import.structurally_valid(definitions))
         && module.native_declarations.iter().all(|declaration| {
             let function = &declaration.function;
             declaration.declaration.within_path_limit()
@@ -486,9 +496,9 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
         })
 }
 
-pub(super) fn host_identity_limit(interface: &HostInterface) -> bool {
-    let valid = |id: &DefinitionPath| id.within_path_limit();
-    let value = |ty: &HostValueType| ty.nominal_references().into_iter().all(valid);
+pub(super) fn host_identity_limit(interface: &HostInterface<DefinitionId>) -> bool {
+    let valid = |id: &DefinitionId| id.within_path_limit();
+    let value = |ty: &HostValueType<DefinitionId>| ty.nominal_references().into_iter().all(valid);
     interface.types.iter().all(|ty| {
         valid(&ty.id)
             && ty
@@ -516,7 +526,10 @@ pub(super) fn host_identity_limit(interface: &HostInterface) -> bool {
     })
 }
 
-pub(super) fn program_count_limit(program: &BytecodeProgram) -> Option<&'static str> {
+pub(super) fn program_count_limit(
+    program: &BytecodeProgram,
+    definitions: &DefinitionTable,
+) -> Option<&'static str> {
     if program.modules.len() > MAX_ARTIFACT_MODULES {
         return Some("too many modules");
     }
@@ -548,7 +561,7 @@ pub(super) fn program_count_limit(program: &BytecodeProgram) -> Option<&'static 
         if !module_nested_count_limit(module, &mut nested_records) {
             return Some("nested module record limit exceeded");
         }
-        if !module_abi_type_limit(module) {
+        if !module_abi_type_limit(module, definitions) {
             return Some("ABI type resource limit exceeded");
         }
         functions = functions.saturating_add(module.functions.len());
@@ -661,7 +674,10 @@ pub(super) fn metadata_count_limit(
     None
 }
 
-pub(super) fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static str> {
+pub(super) fn artifact_count_limit(
+    artifact: &KbcArtifact,
+    definitions: &DefinitionTable,
+) -> Option<&'static str> {
     if artifact
         .portable_mir
         .as_ref()
@@ -684,7 +700,7 @@ pub(super) fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static st
     {
         return Some("identity path segment limit exceeded");
     }
-    if let Some(reason) = program_count_limit(&artifact.program) {
+    if let Some(reason) = program_count_limit(&artifact.program, definitions) {
         return Some(reason);
     }
     if let Some(reason) =
@@ -727,13 +743,13 @@ pub(super) fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static st
     {
         return Some("artifact metadata record limit exceeded");
     }
-    if exceeds_encoded_size(artifact) {
-        return Some("artifact encoded size limit exceeded");
-    }
     None
 }
 
-fn add_operations(operations: &[OperationWitness], add: &mut impl FnMut(usize) -> bool) -> bool {
+fn add_operations(
+    operations: &[OperationWitness<DefinitionId>],
+    add: &mut impl FnMut(usize) -> bool,
+) -> bool {
     add(operations.len())
         && operations.iter().all(|operation| {
             add_callable_requirement(operation.requirement(), add)

@@ -3,7 +3,7 @@ use crate::callable::witness::{OperationWitness, required_operations};
 use crate::{
     native_import::callables::normalize_requirement,
     representation::semantic_representation,
-    types::{PublicItem, TraitContract, proofs::ProofCatalog, trait_contract_in},
+    types::{PublicItem, TraitContract, proofs::ProofCatalog, trait_contract},
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
@@ -107,12 +107,12 @@ impl InterfaceCallContract<DefinitionId> {
         {
             return Err(TypeTransformError::InvalidContract);
         }
-        let contract = trait_contract_in(
-            Some(definitions),
+        let contract = trait_contract(
             owner,
             items,
             contracts,
             &self.interface.declaration,
+            definitions,
         )
         .ok_or(TypeTransformError::InvalidContract)?;
         self.signature(contract, cancel, definitions)

@@ -46,6 +46,12 @@ impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
         &self.records
     }
 
+    /// Transfer records and their immutable identity scope to a new owner.
+    /// This carries no semantic verification evidence.
+    pub fn into_parts(self) -> (DefinitionTable, T) {
+        (self.definitions, self.records)
+    }
+
     pub fn into_records(self) -> T {
         self.records
     }

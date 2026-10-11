@@ -637,3 +637,81 @@ compiler and source-free/reload tests have not passed this boundary. The unchang
 HIR adapter failure remains carried. Continue with the executable program's
 identity owner and callers, then Native/Host registration and HIR; do not treat
 this standalone codec checkpoint as completed SI02 or SI05 acceptance.
+
+
+### SI04 bytecode verification and SI05 KBC boundary
+
+Migrated bytecode programs, modules, functions, instructions and envelope records
+to scoped-ID defaults. Physical instruction checks, access-flow checking, linked
+trait applications, method/parent/view selection, call witnesses, Host calls,
+layout checks and Native declaration validation now use those records and their
+explicit table. Removed bytecode's receiver/native per-record path adoption.
+Shared executable trait/type lookup and implementation matching now require IDs;
+the old path lookup wrappers are removed. Numeric signatures and array repetition
+checking likewise consume scoped semantic types. Numeric operations return one
+named operand/result contract instead of an expanding representation tuple.
+
+The verification entry checks every existing reference against the initial context
+snapshot before collecting implicit module/public/member names. The collector
+assigns identities without granting ABI validity; existing module and linked proof
+checks still establish that contract. Frozen verification evidence owns the exact
+records and a retained immutable table. `to_unverified`/`into_unverified` now return
+`DefinitionMetadata<BytecodeProgram>` directly, dropping only the seal. The metadata
+owner can transfer records and table together through `into_parts`. KBC decoding
+returns scoped metadata directly, without `to_paths`; cross-context adoption is an
+explicit complete import. Encoding, content hashes, dependency fingerprints, public
+ABI identities and required Host fingerprints use canonical referenced closures.
+The entire envelope's references and combined encoded size are checked before
+semantic verification/hash acceptance, including identity-bearing verification
+summaries outside the program. KBC version 116 and runtime ABI identifiers remain
+unchanged under the unpublished policy.
+
+The raw record types and generic wire mapping remain temporary SI06 work. Bytecode
+constructors/verification currently receive an explicit append-only context;
+decoded and extracted records retain frozen ownership and must be imported into a
+writer before verification. Callers must not discard that scope or reconstruct
+paths. SI06 removes the remaining identity representation parameters, optional-table
+shared helpers and structural no-op ID path predicates once their other users
+migrate. The current encoder still maps owned wire records and can copy strings
+before serialized-size checks; bounded borrowing wire conversion remains part of
+the planned codec-private model, not a claimed memory/performance improvement.
+
+Validation: `cargo check -p kagari-bytecode --lib`,
+`cargo build -p kagari-bytecode --lib` and library Clippy with `-D warnings` passed.
+The previous 159 bytecode errors are resolved. Moved six existing artifact scope,
+seal, size, malformed-envelope, Host path and Host fingerprint tests into
+`crates/kagari-bytecode/tests/identity.rs`; no original test is duplicated. Their
+assertions now cover retained snapshot prefixes, decoding/re-encoding, full path
+record equality after explicit import, stable bytes/fingerprints after a foreign
+context import and reversed Host insertion order, rejection against a foreign
+scope, and a forged current-format file-local reference. All six passed using a
+direct test harness linked to the workspace's freshly built default-dev libraries.
+Reproduction: build the bytecode library with `--message-format=json`, take the
+`.rlib` filenames for `bincode`, `kagari_bytecode`, `kagari_common` and `kagari_types`
+from its `compiler-artifact` records, compile the tracked integration source with
+`rustc --edition=2024 --test crates/kagari-bytecode/tests/identity.rs -L dependency=target/debug/deps`
+and the corresponding four `--extern name=filename` arguments, and run the produced
+binary under `target/`. This checks the real integration source with no disabled
+assertions or alternate production implementation; it does not establish Cargo
+integration acceptance.
+
+`cargo test -p kagari-bytecode --test identity --no-run` is blocked by 59 runtime
+library errors through the existing `kagari-stdlib` dev dependency. Representative
+sites: `objects/calls.rs:222` still calls the removed `trait_contract_in`;
+`cache.rs:41` attempts to serialize process IDs directly;
+`host/registry.rs:57` validates a path Host record;
+`module.rs:153` expects the old path-returning editable extraction;
+`native/interfaces/binding.rs:139` still supplies path call contracts;
+`reload.rs:108` combines path and ID module records. These are SI02 registration
+and SI05 runtime adoption work, and own the next repairs. Other bytecode unit
+fixtures, MIR/compiler/backend consumers and source-free/pinned reload tests remain
+unmigrated/unrun; the previously carried HIR adapter failure is not cleared. Do not
+restore path semantic entrypoints or claim full SI04/SI05 acceptance from the library
+and direct harness results. The exhaustive feature/backend matrix remains CI-only.
+
+The directly affected array repetition/cancellation case also passed with
+`cargo test -p kagari-types --lib repetition_rejects_shared_payloads_and_checks_cancellation`.
+Structural review checked changed production imports, table ownership, visibility,
+path uses, representation parameters and effective LOC. Removed copied-handle
+clones and an unnecessary collector visibility. The structure checker passes 1043
+Rust files with no violations or exceptions; formatting and diff checks pass.

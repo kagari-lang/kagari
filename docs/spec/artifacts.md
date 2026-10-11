@@ -314,7 +314,15 @@ order and unrelated interned nodes do not affect fingerprints. Reject duplicate
 identities, out-of-range references, invalid parents and cycles before adopting
 scoped metadata. Table counts preflight at 1,000,000 records. Semantic verification,
 module generations, runtime ABI and format identifiers remain independent checks.
-Unpublished development fixtures use this layout directly without old-layout readers.
+KBC decoding retains scoped unverified records and their immutable table; it does
+not expand them back into authoring paths. The loader checks all envelope references
+against the supplied input scope before collecting any implicit declaration names.
+The program verifier then checks the complete dependency graph and reconstructs
+its non-serializable evidence. Editable extraction preserves the scope and drops
+that evidence. Content, dependency, public ABI and required Host fingerprints
+encode their referenced identity closures canonically rather than serializing
+process-local IDs. Unpublished development fixtures use this layout directly
+without old-layout readers.
 
 Every serialized module and declaration identity checks its path length before
 reading segments, with a limit of 64. This applies to artifact headers and

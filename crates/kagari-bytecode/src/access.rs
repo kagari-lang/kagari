@@ -1,4 +1,6 @@
 //! Access-flow validation runs after physical operand and layout validation.
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_contract::numeric::NumericSignature;
 use kagari_contract::representation::builtin_representation;
 
 use crate::{
@@ -24,12 +26,12 @@ use kagari_types::{
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {
-    ty: Option<Ty>,
+    ty: Option<Ty<DefinitionId>>,
     access: Option<Access>,
 }
 
 impl Fact {
-    fn typed(ty: Ty) -> Self {
+    fn typed(ty: Ty<DefinitionId>) -> Self {
         let access = ty.collection_access();
         Self {
             ty: Some(ty),
@@ -38,7 +40,7 @@ impl Fact {
     }
 }
 
-fn flows(source: &Fact, target: &Ty) -> bool {
+fn flows(source: &Fact, target: &Ty<DefinitionId>) -> bool {
     if source.access == Some(Access::ReadOnly)
         && target.collection_access() == Some(Access::Mutable)
     {
@@ -68,16 +70,17 @@ pub(super) fn verify(
     module: &BytecodeModule,
     function: &BytecodeFunction,
     program: Option<&BytecodeProgram>,
+    definitions: &DefinitionTable,
 ) -> Result<(), Error> {
     let invalid = || Error::InvalidOperation {
         function: function.id,
         reason: "invalid collection access flow",
     };
     let semantic = &function.metadata.semantic;
-    if !semantic.protocol_adapter_valid(function.identity.as_ref()) {
+    if !semantic.protocol_adapter_valid(function.identity.as_ref(), definitions) {
         return Err(invalid());
     }
-    if !semantic.types_valid(function.identity.as_ref(), &Default::default())
+    if !semantic.types_valid(function.identity.as_ref(), &Default::default(), definitions)
         || !semantic.generic_layout_valid(
             function.metadata.params.iter().copied(),
             function.metadata.locals.iter().copied(),
@@ -113,21 +116,22 @@ pub(super) fn verify(
         }
     }
     if let Some(identity) = &function.identity {
-        if !executable_signature_matches(&module.public_items, identity, semantic) {
+        if !executable_signature_matches(&module.public_items, identity, semantic, definitions) {
             return Err(invalid());
         }
-        let name = identity
-            .declaration
-            .path
-            .iter()
-            .map(|p| p.name.as_str())
+        let name = definitions
+            .resolve(identity.declaration)
+            .map_err(|_| invalid())?
+            .segments()
+            .map(|p| p.name)
             .collect::<Vec<_>>()
             .join("::");
         if let Some(abi) = module.public_items.iter().find_map(|item| match item {
             PublicItem::Function(abi) if abi.name == name => Some(abi),
             _ => None,
         }) {
-            let apply = |ty: &Ty| ty.instantiate(&identity.declaration, &identity.arguments);
+            let apply =
+                |ty: &Ty<DefinitionId>| ty.instantiate(&identity.declaration, &identity.arguments);
             if abi.params.len() != semantic.params.len()
                 || abi
                     .params
@@ -307,10 +311,9 @@ pub(super) fn verify(
                     elements,
                 } => {
                     if !element.is_concrete()
-                        && semantic
-                            .generic
-                            .as_ref()
-                            .is_none_or(|body| !body.types_valid([element], &Default::default()))
+                        && semantic.generic.as_ref().is_none_or(|body| {
+                            !body.types_valid([element], &Default::default(), definitions)
+                        })
                     {
                         return Err(invalid());
                     }
@@ -466,15 +469,23 @@ pub(super) fn verify(
                         }
                         _ => None,
                     };
-                    produced = item.map(|item| {
-                        (
-                            *dst,
-                            Fact::typed(match op {
-                                IterOp::New | IterOp::String(_) => Ty::Iter(Box::new(item)),
-                                IterOp::Next => binding::option(item),
-                            }),
-                        )
-                    });
+                    produced = item
+                        .map(|item| {
+                            Ok((
+                                *dst,
+                                Fact::typed(match op {
+                                    IterOp::New | IterOp::String(_) => Ty::Iter(Box::new(item)),
+                                    IterOp::Next => Ty::Enum(NominalTy {
+                                        declaration: definitions
+                                            .lookup(&binding::option_declaration())
+                                            .ok_or_else(invalid)?,
+                                        arguments: vec![item],
+                                        associated_types: Default::default(),
+                                    }),
+                                }),
+                            ))
+                        })
+                        .transpose()?;
                 }
                 I::MakeStruct {
                     dst,
@@ -495,7 +506,7 @@ pub(super) fn verify(
                     produced = Some((
                         *dst,
                         Fact::typed(Ty::Struct(NominalTy {
-                            declaration: layout.declaration.clone(),
+                            declaration: layout.declaration,
                             arguments: layout.arguments.clone(),
                             associated_types: Default::default(),
                         })),
@@ -524,7 +535,7 @@ pub(super) fn verify(
                     produced = Some((
                         *dst,
                         Fact::typed(Ty::Enum(NominalTy {
-                            declaration: layout.declaration.clone(),
+                            declaration: layout.declaration,
                             arguments: layout.arguments.clone(),
                             associated_types: Default::default(),
                         })),
@@ -646,7 +657,11 @@ pub(super) fn verify(
                     lhs,
                     rhs,
                 } => {
-                    let (left, right, output) = operation.contract().ok_or_else(invalid)?;
+                    let NumericSignature {
+                        left,
+                        right,
+                        output,
+                    } = operation.contract().ok_or_else(invalid)?;
                     if let Some(value) = get(*lhs)
                         && !flows(&value, &left)
                     {
@@ -665,8 +680,10 @@ pub(super) fn verify(
                         .host_interface
                         .paths
                         .iter()
-                        .filter_map(|p| p.contract(&module.host_interface).ok())
-                        .find(|p| p.fingerprint().ok() == Some(record.contract_fingerprint))
+                        .filter_map(|p| p.contract(&module.host_interface, definitions).ok())
+                        .find(|p| {
+                            p.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
+                        })
                         .map(|p| Ty::from_host_type(&p.result));
                     if let (Some(value), Some(expected)) = (get(*value), ty)
                         && !flows(&value, &expected)
@@ -680,8 +697,10 @@ pub(super) fn verify(
                         .host_interface
                         .paths
                         .iter()
-                        .filter_map(|p| p.contract(&module.host_interface).ok())
-                        .find(|p| p.fingerprint().ok() == Some(record.contract_fingerprint))
+                        .filter_map(|p| p.contract(&module.host_interface, definitions).ok())
+                        .find(|p| {
+                            p.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
+                        })
                         .map(|p| Ty::from_host_type(&p.result));
                     produced = Some((*dst, ty.map(Fact::typed).unwrap_or_default()));
                 }
@@ -765,6 +784,7 @@ pub(super) fn verify(
                                     &owner.public_items,
                                     &owner.trait_contracts,
                                     &Default::default(),
+                                    definitions,
                                 )
                                 .map_err(|_| invalid())?;
                             let params = signature.params;
@@ -779,6 +799,7 @@ pub(super) fn verify(
                                         actual,
                                         &Ty::Trait(actual.clone()),
                                         &modules,
+                                        definitions,
                                     )
                                     .is_some_and(|parents| parents.contains(interface))
                                     {
@@ -789,6 +810,7 @@ pub(super) fn verify(
                                     &owner.public_items,
                                     &owner.trait_contracts,
                                     &interface.declaration,
+                                    definitions,
                                 )
                                 .is_some_and(|declaration| declaration.storage_access.is_some())
                                 {

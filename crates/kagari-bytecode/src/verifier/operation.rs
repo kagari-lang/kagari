@@ -11,6 +11,8 @@ use crate::{
     },
 };
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::DefinitionTable;
+use kagari_contract::numeric::NumericSignature;
 use kagari_contract::{
     contracts,
     contracts::RuntimeHelperKind,
@@ -20,7 +22,7 @@ use kagari_contract::{
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
+    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope_in},
     ty::Ty,
 };
 
@@ -29,9 +31,10 @@ pub(super) fn verify_instruction(
     function: &BytecodeFunction,
     instruction: &BytecodeInstruction,
     program: Option<&BytecodeProgram>,
+    definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
     if let Some(arguments) = instruction.layout_arguments()
-        && !types_in_scope(
+        && !types_in_scope_in(
             arguments,
             function
                 .metadata
@@ -40,6 +43,7 @@ pub(super) fn verify_instruction(
                 .as_ref()
                 .map_or(&[], |body| body.parameters.as_slice()),
             &Default::default(),
+            Some(definitions),
         )
     {
         return Err(BytecodeVerificationError::InvalidOperation {
@@ -62,18 +66,27 @@ pub(super) fn verify_instruction(
             let Ty::NativeObject(nominal) = future else {
                 return Err(invalid());
             };
-            let owner = if nominal.declaration.module == module.identity {
+            let owner = if definitions
+                .resolve(nominal.declaration)
+                .is_ok_and(|view| view.module() == &module.identity)
+            {
                 Some(module)
             } else {
                 program.and_then(|program| {
-                    program
-                        .modules
-                        .iter()
-                        .find(|owner| owner.identity == nominal.declaration.module)
+                    program.modules.iter().find(|owner| {
+                        definitions
+                            .resolve(nominal.declaration)
+                            .is_ok_and(|view| view.module() == &owner.identity)
+                    })
                 })
             };
             let declaration = owner.and_then(|owner| {
-                type_contract(&owner.identity, &owner.public_items, &nominal.declaration)
+                type_contract(
+                    &owner.identity,
+                    &owner.public_items,
+                    &nominal.declaration,
+                    definitions,
+                )
             });
             if declaration
                 .is_none_or(|ty| ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future))
@@ -116,18 +129,27 @@ pub(super) fn verify_instruction(
             let Ty::NativeObject(nominal) = future else {
                 return Err(invalid());
             };
-            let owner = if nominal.declaration.module == module.identity {
+            let owner = if definitions
+                .resolve(nominal.declaration)
+                .is_ok_and(|view| view.module() == &module.identity)
+            {
                 Some(module)
             } else {
                 program.and_then(|program| {
-                    program
-                        .modules
-                        .iter()
-                        .find(|owner| owner.identity == nominal.declaration.module)
+                    program.modules.iter().find(|owner| {
+                        definitions
+                            .resolve(nominal.declaration)
+                            .is_ok_and(|view| view.module() == &owner.identity)
+                    })
                 })
             };
             let declaration = owner.and_then(|owner| {
-                type_contract(&owner.identity, &owner.public_items, &nominal.declaration)
+                type_contract(
+                    &owner.identity,
+                    &owner.public_items,
+                    &nominal.declaration,
+                    definitions,
+                )
             });
             if declaration.is_none_or(|ty| {
                 !matches!(
@@ -206,7 +228,7 @@ pub(super) fn verify_instruction(
             expect_register_ty(function, *dst, ty, "binary dst")?;
         }
         BytecodeInstruction::Call { dst, callee, args } => {
-            verify_call(module, function, *dst, callee, args, program)?;
+            verify_call(module, function, *dst, callee, args, program, definitions)?;
         }
         BytecodeInstruction::RangeBound {
             dst,
@@ -217,7 +239,7 @@ pub(super) fn verify_instruction(
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "bound destination")?;
             expect_register_ty(function, *value, ValueType::HeapObject, "bound range")?;
-            if !operations::range_bound_valid(range, bound) {
+            if !operations::range_bound_valid_in(range, bound, Some(definitions)) {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "invalid range bound contract",
@@ -235,6 +257,7 @@ pub(super) fn verify_instruction(
                 ty,
                 start.map(|r| register_ty(function, r)).transpose()?,
                 end.map(|r| register_ty(function, r)).transpose()?,
+                definitions,
             ) {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -263,7 +286,9 @@ pub(super) fn verify_instruction(
                         .semantic
                         .generic
                         .as_ref()
-                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+                        .is_some_and(|body| {
+                            body.types_valid([element], &Default::default(), definitions)
+                        }))
             {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -284,7 +309,9 @@ pub(super) fn verify_instruction(
                         .semantic
                         .generic
                         .as_ref()
-                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+                        .is_some_and(|body| {
+                            body.types_valid([element], &Default::default(), definitions)
+                        }))
             {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -372,7 +399,7 @@ pub(super) fn verify_instruction(
                 ValueType::HeapObject,
                 "interface receiver",
             )?;
-            if !types_in_scope(
+            if !types_in_scope_in(
                 [&Ty::Trait(source.clone()), &Ty::Trait(target.clone())],
                 function
                     .metadata
@@ -381,6 +408,7 @@ pub(super) fn verify_instruction(
                     .as_ref()
                     .map_or(&[], |body| body.parameters.as_slice()),
                 &Default::default(),
+                Some(definitions),
             ) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -472,7 +500,11 @@ pub(super) fn verify_instruction(
                 function: function.id,
                 reason: "invalid numeric contract",
             };
-            let (left, right, output) = operation.contract().ok_or_else(invalid)?;
+            let NumericSignature {
+                left,
+                right,
+                output,
+            } = operation.contract().ok_or_else(invalid)?;
             expect_register_ty(
                 function,
                 *lhs,
@@ -501,7 +533,7 @@ pub(super) fn verify_instruction(
                 function: function.id,
                 reason: "invalid iterator contract",
             };
-            let (input, output) = op.contract(ty).ok_or_else(invalid)?;
+            let (input, output) = op.contract(ty, definitions).ok_or_else(invalid)?;
             match (input, value) {
                 (Some(ty), Some(value)) => {
                     expect_register_ty(function, *value, ty, "iterator input")?
@@ -777,6 +809,7 @@ pub(super) fn verify_call(
     callee: &CallTarget,
     args: &[Register],
     program: Option<&BytecodeProgram>,
+    definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
     match callee {
         CallTarget::Shared {
@@ -803,6 +836,7 @@ pub(super) fn verify_call(
                         .as_ref()
                         .map_or(&[], |body| body.parameters.as_slice()),
                     &Default::default(),
+                    definitions,
                 )
                 || contract.arguments.len() != entry.body.parameters.len()
                 || contract.signature.params.len() != args.len()
@@ -837,6 +871,7 @@ pub(super) fn verify_call(
                 &CallTarget::Function(*target),
                 args,
                 None,
+                definitions,
             )?;
         }
         CallTarget::Function(target) => {
@@ -895,6 +930,7 @@ pub(super) fn verify_call(
                     &owner.public_items,
                     &owner.trait_contracts,
                     &Default::default(),
+                    definitions,
                 )
                 .map_err(|_| BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -908,6 +944,7 @@ pub(super) fn verify_call(
                     .as_ref()
                     .map_or(&[], |body| body.parameters.as_slice()),
                 &Default::default(),
+                definitions,
             ) {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
@@ -949,7 +986,7 @@ pub(super) fn verify_call(
                 .map(|arg| register_ty(function, *arg))
                 .collect::<Result<Vec<_>, _>>()?;
             let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
-            contracts::verify_native_call(dst, contract, &args)
+            contracts::verify_native_call(dst, contract, &args, definitions)
                 .map_err(|error| contract_error(function, error))?;
         }
 

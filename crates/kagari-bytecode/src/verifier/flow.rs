@@ -6,6 +6,7 @@ use crate::{
     verifier::BytecodeVerificationError as Error,
 };
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 use std::{collections::BTreeSet, mem};
 
@@ -344,7 +345,7 @@ impl Flow<'_> {
     }
 }
 
-pub(super) fn inline_host(ty: &Ty) -> bool {
+pub(super) fn inline_host(ty: &Ty<DefinitionId>) -> bool {
     match ty {
         Ty::Host(_) => true,
         Ty::Tuple(items) => items.iter().any(inline_host),

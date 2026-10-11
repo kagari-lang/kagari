@@ -2,6 +2,7 @@
 
 pub mod method;
 
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +13,15 @@ pub struct NumericOperation {
     pub rhs: Option<BuiltinType>,
 }
 
+/// Checked operand and result types of an integer operation.
+pub struct NumericSignature {
+    pub left: Ty<DefinitionId>,
+    pub right: Option<Ty<DefinitionId>>,
+    pub output: Ty<DefinitionId>,
+}
+
 impl NumericOperation {
-    pub fn contract(self) -> Option<(Ty, Option<Ty>, Ty)> {
+    pub fn contract(self) -> Option<NumericSignature> {
         self.input.integer_layout()?;
         if self.op == IntegerOp::BitNot {
             if self.rhs.is_some() {
@@ -26,11 +34,11 @@ impl NumericOperation {
                 return None;
             }
         }
-        Some((
-            Ty::Builtin(self.input),
-            self.rhs.map(Ty::Builtin),
-            Ty::Builtin(self.input),
-        ))
+        Some(NumericSignature {
+            left: Ty::Builtin(self.input),
+            right: self.rhs.map(Ty::Builtin),
+            output: Ty::Builtin(self.input),
+        })
     }
 }
 
@@ -41,7 +49,7 @@ pub struct NumericConversion {
 }
 
 impl NumericConversion {
-    pub fn contract(self) -> Option<(Ty, Ty)> {
+    pub fn contract(self) -> Option<(Ty<DefinitionId>, Ty<DefinitionId>)> {
         self.source
             .can_cast_to(self.target)
             .then_some((Ty::Builtin(self.source), Ty::Builtin(self.target)))

@@ -1,6 +1,9 @@
 //! Match a checked executable interface table through shared semantic rules.
 use crate::types::InterfaceTable;
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::{
     declaration::TraitDef,
     language::Protocol,
@@ -12,18 +15,19 @@ use kagari_types::{
 };
 
 pub fn match_implementation<'a>(
-    table: &'a InterfaceTable,
-    contract: Option<&TraitDef>,
-    interface: &'a NominalTy,
-    receiver: &'a Ty,
+    table: &'a InterfaceTable<DefinitionId>,
+    contract: Option<&TraitDef<DefinitionId>>,
+    interface: &'a NominalTy<DefinitionId>,
+    receiver: &'a Ty<DefinitionId>,
     cancel: &CancellationToken,
-) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
+    definitions: &DefinitionTable,
+) -> Result<Option<TypeSubstitution<'a, DefinitionId>>, TypeTransformError> {
     let Ty::Trait(implemented) = &table.trait_type else {
         return Err(TypeTransformError::InvalidContract);
     };
     match_pattern(
         ImplementationPattern {
-            protocol: Protocol::from_id(&implemented.declaration),
+            protocol: Protocol::from_reference(&implemented.declaration, Some(definitions)),
             storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: &table.generic_params,
             receiver: &table.for_type,

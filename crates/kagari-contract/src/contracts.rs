@@ -1,3 +1,4 @@
+use crate::numeric::NumericSignature;
 use crate::{
     native_import::NativeImport,
     operations::{BinaryOp, UnaryOp},
@@ -165,12 +166,15 @@ pub fn binary_result(
     rhs: ValueType,
 ) -> Result<ValueType, ContractError> {
     if let BinaryOp::Numeric(operation) = op {
-        let (left, right, output) =
-            operation
-                .contract()
-                .ok_or(ContractError::InvalidOperation {
-                    reason: "invalid numeric contract",
-                })?;
+        let NumericSignature {
+            left,
+            right,
+            output,
+        } = operation
+            .contract()
+            .ok_or(ContractError::InvalidOperation {
+                reason: "invalid numeric contract",
+            })?;
         let right = right.ok_or(ContractError::InvalidOperation {
             reason: "numeric binary requires rhs",
         })?;

@@ -1,6 +1,6 @@
 use crate::{module::CallableTarget, program::ModuleRef};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 use kagari_contract::{
     callable::{interface::InterfaceCallContract, shared::SharedCall},
     ids::FunctionRef,
@@ -111,7 +111,7 @@ impl StructId {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct FieldRef<I = DefinitionPath> {
+pub struct FieldRef<I = DefinitionId> {
     pub structure: StructId,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub arguments: Vec<Ty<I>>,
@@ -212,7 +212,7 @@ impl Hash for ConstantOperand {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub enum CallTarget<I = DefinitionPath> {
+pub enum CallTarget<I = DefinitionId> {
     Shared {
         module: ModuleRef,
         target: CallableTarget,
@@ -277,7 +277,7 @@ pub enum BinaryOp {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub enum BytecodeInstruction<I = DefinitionPath> {
+pub enum BytecodeInstruction<I = DefinitionId> {
     Await {
         dst: Register,
         value: Register,
@@ -508,7 +508,7 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
 }
 
 impl BytecodeInstruction {
-    pub(crate) fn layout_arguments(&self) -> Option<&[Ty]> {
+    pub(crate) fn layout_arguments(&self) -> Option<&[Ty<DefinitionId>]> {
         match self {
             Self::MakeStruct { arguments, .. }
             | Self::MakeEnum { arguments, .. }

@@ -5,7 +5,10 @@ use crate::ty::{
 };
 
 use crate::collection::CollectionAccess;
-use kagari_common::{cancellation::CancellationToken, identity::reference::DefinitionReference};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{reference::DefinitionReference, table::DefinitionId},
+};
 use std::collections::HashSet;
 
 impl<I: DefinitionReference> Ty<I> {
@@ -53,8 +56,8 @@ impl<I: DefinitionReference> Ty<I> {
 /// Repetition copies value-like elements but never duplicates a shared object.
 /// The caller supplies the checked payloads of each applied enum.
 pub fn supports_array_repetition(
-    ty: &Ty,
-    mut enum_payload: impl FnMut(&NominalTy) -> Option<Vec<Ty>>,
+    ty: &Ty<DefinitionId>,
+    mut enum_payload: impl FnMut(&NominalTy<DefinitionId>) -> Option<Vec<Ty<DefinitionId>>>,
     cancel: &CancellationToken,
 ) -> bool {
     let copier = TypeSubstitution::default();

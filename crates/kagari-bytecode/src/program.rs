@@ -7,7 +7,11 @@ use crate::{
     verifier::BytecodeVerificationError,
 };
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, metadata::scope_record, reference::DefinitionReference,
+    DefinitionKind,
+    map::DefinitionContext,
+    mapping::DefinitionMappingError,
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
 };
 use kagari_contract::{
     host, layout,
@@ -24,6 +28,7 @@ use std::{
     slice,
 };
 
+pub(crate) mod identity;
 pub mod verified;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -39,26 +44,32 @@ impl ModuleRef {
     }
 }
 
-/// One immutable executable dependency closure. Module and function slots are
-/// scoped to this program; module references may form cycles.
+/// Editable executable dependency records in the caller's definition context.
+/// Module and function slots are program-local; module references may form cycles.
+/// Verification produces separately owned immutable evidence and a retained table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct BytecodeProgram<I = DefinitionPath> {
+pub struct BytecodeProgram<I = DefinitionId> {
     pub root: ModuleRef,
     #[serde(deserialize_with = "kagari_contract::decode_limits::modules")]
     pub modules: Vec<BytecodeModule<I>>,
 }
 
-pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificationError> {
-    verify_with_suspensions(program).map(|_| ())
+pub fn verify_program(
+    program: &BytecodeProgram,
+    context: &DefinitionContext,
+) -> Result<(), BytecodeVerificationError> {
+    verify_with_suspensions(program, context).map(|_| ())
 }
 
 pub(crate) fn verify_with_suspensions(
     program: &BytecodeProgram,
+    context: &DefinitionContext,
 ) -> Result<ProgramSuspensions, BytecodeVerificationError> {
+    let definitions = &identity::prepare(&program.modules, context)?;
     let mut flow_budget = FlowBudget::default();
     let mut suspensions = Vec::with_capacity(program.modules.len());
     let invalid = || BytecodeVerificationError::InvalidProgramGraph;
@@ -92,21 +103,22 @@ pub(crate) fn verify_with_suspensions(
             }
         }
         for layout in &module.structures {
-            let Some(owner) = program
-                .modules
-                .iter()
-                .find(|owner| owner.identity == layout.declaration.module)
-            else {
+            let Some(owner) = program.modules.iter().find(|owner| {
+                definitions
+                    .resolve(layout.declaration)
+                    .is_ok_and(|view| view.module() == &owner.identity)
+            }) else {
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
-                matches!(item, PublicItem::Type(ty) if ty.kind == TypeDefKind::Struct && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+                matches!(item, PublicItem::Type(ty) if ty.kind == TypeDefKind::Struct && definitions.resolve(layout.declaration).ok().and_then(|view| view.last()).is_some_and(|part| part.name == ty.name))
             }) else { continue; };
             if !layout::struct_abi_matches(
                 slice::from_ref(layout),
                 &owner.identity,
                 slice::from_ref(template),
                 &Default::default(),
+                definitions,
             )
             .expect("bytecode verification uses an uncancelled token")
             {
@@ -151,6 +163,7 @@ pub(crate) fn verify_with_suspensions(
             module,
             Some(program),
             &mut flow_budget,
+            definitions,
         )?);
         for owner in &program.modules {
             if owner.identity != module.identity
@@ -160,6 +173,7 @@ pub(crate) fn verify_with_suspensions(
                     &owner.public_items,
                     &owner.trait_contracts,
                     &Default::default(),
+                    definitions,
                 )
                 .expect("bytecode verification uses an uncancelled token")
             {
@@ -169,21 +183,22 @@ pub(crate) fn verify_with_suspensions(
             }
         }
         for layout in &module.enumerations {
-            let Some(owner) = program
-                .modules
-                .iter()
-                .find(|owner| owner.identity == layout.declaration.module)
-            else {
+            let Some(owner) = program.modules.iter().find(|owner| {
+                definitions
+                    .resolve(layout.declaration)
+                    .is_ok_and(|view| view.module() == &owner.identity)
+            }) else {
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
-                matches!(item, PublicItem::Type(ty) if ty.kind == TypeDefKind::Enum && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+                matches!(item, PublicItem::Type(ty) if ty.kind == TypeDefKind::Enum && definitions.resolve(layout.declaration).ok().and_then(|view| view.last()).is_some_and(|part| part.name == ty.name))
             }) else { continue; };
             if !layout::enum_abi_matches(
                 slice::from_ref(layout),
                 &owner.identity,
                 slice::from_ref(template),
                 &Default::default(),
+                definitions,
             )
             .expect("bytecode verification uses an uncancelled token")
             {
@@ -221,16 +236,17 @@ pub(crate) fn verify_with_suspensions(
             let Ty::Trait(instance) = &table.trait_type else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if let Some(kind) = Protocol::from_id(&instance.declaration)
+            let trait_id = definitions
+                .resolve(instance.declaration)
+                .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
+            let implementation = definitions
+                .resolve(table.declaration)
+                .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
+            if let Some(kind) = Protocol::from_reference(&instance.declaration, Some(definitions))
                 && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
-                    || instance.declaration.module != table.declaration.module
-                        && scope_record(&table.for_type, &Default::default())
-                            .ok()
-                            .and_then(|receiver| {
-                                owners.owner(receiver.records(), receiver.definitions())
-                            })
-                            .as_ref()
-                            != Some(&table.declaration.module)
+                    || trait_id.module() != implementation.module()
+                        && owners.owner(&table.for_type, definitions).as_ref()
+                            != Some(implementation.module())
                         && kind != Protocol::From
                         && !matches!(
                             table.for_type,
@@ -239,12 +255,13 @@ pub(crate) fn verify_with_suspensions(
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
-            if instance.declaration.module == module.identity {
+            if trait_id.module() == &module.identity {
                 continue;
             }
-            if instance.declaration.path.len() != 1
-                || instance.declaration.path[0].kind != DefinitionKind::Trait
-                || instance.declaration.path[0].occurrence != 0
+            if trait_id.segments().count() != 1
+                || !trait_id
+                    .last()
+                    .is_some_and(|part| part.kind == DefinitionKind::Trait && part.occurrence == 0)
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -252,28 +269,31 @@ pub(crate) fn verify_with_suspensions(
                 .modules
                 .iter()
                 .enumerate()
-                .find(|(_, owner)| owner.identity == instance.declaration.module)
+                .find(|(_, owner)| &owner.identity == trait_id.module())
             else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
             if !reachable.contains(&ModuleRef::new(owner_index)) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
-            let Some(trait_name) = instance.declaration.path.last().map(|part| &part.name) else {
+            let Some(trait_name) = trait_id.last().map(|part| part.name) else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            let Some(PublicItem::Trait(interface)) = owner
-                .public_items
-                .iter()
-                .find(|item| matches!(item, PublicItem::Trait(interface) if &interface.name == trait_name))
-            else {
+            let Some(PublicItem::Trait(interface)) = owner.public_items.iter().find(
+                |item| matches!(item, PublicItem::Trait(interface) if interface.name == trait_name),
+            ) else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if !verify::interface_contract_matches(table, interface, &Default::default()) {
+            if !verify::interface_contract_matches(
+                table,
+                interface,
+                &Default::default(),
+                definitions,
+            ) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
-        trait_bounds::verify_trait_bounds(module, &closure, Some(program))?;
+        trait_bounds::verify_trait_bounds(module, &closure, Some(program), context)?;
         for instruction in module
             .functions
             .iter()
@@ -324,14 +344,19 @@ pub(crate) fn verify_with_suspensions(
 }
 
 impl BytecodeProgram {
-    pub fn dependency_fingerprints(&self) -> Vec<DependencyFingerprint> {
+    pub fn dependency_fingerprints(
+        &self,
+        definitions: &DefinitionTable,
+    ) -> Result<Vec<DependencyFingerprint>, DefinitionMappingError> {
         self.modules
             .iter()
             .enumerate()
             .filter(|(index, _)| *index != self.root.index())
-            .map(|(_, module)| DependencyFingerprint {
-                module_id: module.identity.clone(),
-                fingerprint: ArtifactFingerprint::of_serialized(module),
+            .map(|(_, module)| {
+                Ok(DependencyFingerprint {
+                    module_id: module.identity.clone(),
+                    fingerprint: ArtifactFingerprint::of_record(module, definitions)?,
+                })
             })
             .collect()
     }

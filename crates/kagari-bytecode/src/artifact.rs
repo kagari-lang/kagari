@@ -17,11 +17,12 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath, ModuleIdentity,
-        mapping::DefinitionMappingError,
-        metadata::{PortableMetadata, scope_record},
+        ModuleIdentity,
+        map::DefinitionContext,
+        mapping::{DefinitionMappingError, DefinitionRecord},
+        metadata::{DefinitionMetadata, PortableMetadata},
         reference::DefinitionReference,
-        table::wire::PortableDefinitionRef,
+        table::{DefinitionId, DefinitionTable, wire::PortableDefinitionRef},
     },
 };
 use kagari_contract::{
@@ -65,11 +66,18 @@ fn exceeds_encoded_size(value: &impl Serialize) -> bool {
 /// Apply the artifact's in-memory resource budget before hashing or linking code.
 pub fn validate_program_resource_limits(
     program: &BytecodeProgram,
+    definitions: &DefinitionTable,
 ) -> Result<(), ArtifactValidationError> {
-    if let Some(reason) = program_count_limit(program) {
+    if let Some(reason) = program_count_limit(program, definitions) {
         return Err(ArtifactValidationError::ResourceLimit(reason));
     }
-    if exceeds_encoded_size(program) {
+    let portable = DefinitionMetadata::checked(
+        definitions.clone(),
+        program.clone(),
+        &CancellationToken::default(),
+    )?
+    .to_portable(&CancellationToken::default())?;
+    if exceeds_encoded_size(&portable) {
         return Err(ArtifactValidationError::ResourceLimit(
             "artifact encoded size limit exceeded",
         ));
@@ -86,7 +94,7 @@ pub const KAGARI_COMPILER_FINGERPRINT: &str =
     serialize = "I: DefinitionReference + Serialize",
     deserialize = "I: DefinitionReference + Deserialize<'de>"
 ))]
-pub struct KbcArtifact<I = DefinitionPath> {
+pub struct KbcArtifact<I = DefinitionId> {
     pub header: ArtifactHeader,
     pub program: BytecodeProgram<I>,
     pub tables: ArtifactTables,
@@ -124,10 +132,15 @@ impl KbcArtifact {
     pub fn into_verified(
         self,
         requirements: &ArtifactCompatibility,
+        context: &DefinitionContext,
     ) -> Result<VerifiedArtifact, ArtifactValidationError> {
-        let suspensions = self.validate_with_suspensions(requirements)?;
+        let suspensions = self.validate_with_suspensions(requirements, context)?;
         Ok(VerifiedArtifact {
-            bytecode: VerifiedBytecodeProgram::from_verified(self.program, suspensions)?,
+            bytecode: VerifiedBytecodeProgram::from_verified(
+                self.program,
+                suspensions,
+                context.snapshot(),
+            )?,
             portable_mir: self.portable_mir,
         })
     }
@@ -135,6 +148,7 @@ impl KbcArtifact {
     pub fn from_program(
         program: BytecodeProgram,
         options: ArtifactBuildOptions,
+        context: &DefinitionContext,
     ) -> Result<Self, ArtifactValidationError> {
         if options
             .portable_mir
@@ -145,7 +159,7 @@ impl KbcArtifact {
                 "portable MIR byte limit exceeded",
             ));
         }
-        if let Some(reason) = program_count_limit(&program) {
+        if let Some(reason) = program_count_limit(&program, &context.snapshot()) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
         if let Some(reason) =
@@ -153,12 +167,13 @@ impl KbcArtifact {
         {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
-        if exceeds_encoded_size(&(&program, &options)) {
+        validate_program_resource_limits(&program, &context.snapshot())?;
+        if exceeds_encoded_size(&options) {
             return Err(ArtifactValidationError::ResourceLimit(
                 "artifact encoded size limit exceeded",
             ));
         }
-        let verification = VerificationMetadata::from_program(&program, &options)?;
+        let verification = VerificationMetadata::from_program(&program, &options, context)?;
         let module = &program.modules[program.root.index()];
         let debug = options.debug;
         let signatures = options.signatures;
@@ -189,31 +204,51 @@ impl KbcArtifact {
             signatures,
             portable_mir,
         };
-        if let Some(reason) = artifact_count_limit(&artifact) {
+        artifact.validate_resource_limits(&context.snapshot())?;
+        artifact.header.content_hash = artifact.compute_content_hash(&context.snapshot())?;
+        Ok(artifact)
+    }
+
+    fn validate_resource_limits(
+        &self,
+        definitions: &DefinitionTable,
+    ) -> Result<(), ArtifactValidationError> {
+        if let Some(reason) = artifact_count_limit(self, definitions) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
-        artifact.header.content_hash = artifact.compute_content_hash();
-        Ok(artifact)
+        // Check every envelope reference against the input prefix before verification
+        // collects implicit declaration names in the append-only context.
+        let cancel = CancellationToken::default();
+        let portable = DefinitionMetadata::checked(definitions.clone(), self.clone(), &cancel)?
+            .to_portable(&cancel)?;
+        if exceeds_encoded_size(&portable) {
+            return Err(ArtifactValidationError::ResourceLimit(
+                "artifact encoded size limit exceeded",
+            ));
+        }
+        Ok(())
     }
 
     pub fn validate_for_loader(
         &self,
         requirements: &ArtifactCompatibility,
+        context: &DefinitionContext,
     ) -> Result<(), ArtifactValidationError> {
-        self.validate_with_suspensions(requirements).map(|_| ())
+        self.validate_with_suspensions(requirements, context)
+            .map(|_| ())
     }
 
     fn validate_with_suspensions(
         &self,
         requirements: &ArtifactCompatibility,
+        context: &DefinitionContext,
     ) -> Result<ProgramSuspensions, ArtifactValidationError> {
-        if let Some(reason) = artifact_count_limit(self) {
-            return Err(ArtifactValidationError::ResourceLimit(reason));
-        }
+        self.validate_resource_limits(&context.snapshot())?;
         self.validate_header(requirements)?;
-        let suspensions =
-            verify_with_suspensions(&self.program).map_err(ArtifactValidationError::Bytecode)?;
-        if self.header.content_hash != self.compute_content_hash() {
+        let suspensions = verify_with_suspensions(&self.program, context)
+            .map_err(ArtifactValidationError::Bytecode)?;
+        let definitions = context.snapshot();
+        if self.header.content_hash != self.compute_content_hash(&definitions)? {
             return Err(ArtifactValidationError::ContentHashMismatch);
         }
         let module = &self.program.modules[self.program.root.index()];
@@ -255,7 +290,8 @@ impl KbcArtifact {
         if !self.verification.bytecode_verified {
             return Err(ArtifactValidationError::UnverifiedBytecode);
         }
-        if self.verification.dependency_fingerprints != self.program.dependency_fingerprints()
+        if self.verification.dependency_fingerprints
+            != self.program.dependency_fingerprints(&definitions)?
             || self.verification.loader.dependency_fingerprints
                 != self.verification.dependency_fingerprints
             || requirements
@@ -266,10 +302,10 @@ impl KbcArtifact {
             return Err(ArtifactValidationError::DependencyFingerprintMismatch);
         }
         if self.verification.host_interface_fingerprint
-            != ArtifactFingerprint::of_program_hosts(&self.program)
+            != ArtifactFingerprint::of_program_hosts(&self.program, &definitions)?
         {
             return Err(ArtifactValidationError::HostInterfaceFingerprintMismatch {
-                expected: ArtifactFingerprint::of_program_hosts(&self.program),
+                expected: ArtifactFingerprint::of_program_hosts(&self.program, &definitions)?,
                 found: self.verification.host_interface_fingerprint,
             });
         }
@@ -292,7 +328,8 @@ impl KbcArtifact {
 
                 ..Default::default()
             },
-        );
+            &definitions,
+        )?;
         if self.verification != derived {
             return Err(ArtifactValidationError::VerificationMetadataMismatch);
         }
@@ -309,18 +346,24 @@ impl KbcArtifact {
         Ok(suspensions)
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>, ArtifactCodecError> {
-        if let Some(reason) = artifact_count_limit(self) {
+    pub fn to_bytes(&self, definitions: &DefinitionTable) -> Result<Vec<u8>, ArtifactCodecError> {
+        if let Some(reason) = artifact_count_limit(self, definitions) {
             return Err(ArtifactCodecError {
                 message: reason.into(),
             });
         }
+        let portable = self.portable_projection(definitions)?;
+        if exceeds_encoded_size(&portable) {
+            return Err(ArtifactCodecError {
+                message: "artifact encoded size limit exceeded".into(),
+            });
+        }
         codec()
-            .serialize(&self.portable_projection()?)
+            .serialize(&portable)
             .map_err(ArtifactCodecError::from)
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ArtifactCodecError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<DefinitionMetadata<Self>, ArtifactCodecError> {
         if bytes.len() as u64 > MAX_ARTIFACT_BYTES {
             return Err(ArtifactCodecError {
                 message: "artifact exceeds size limit".into(),
@@ -339,11 +382,10 @@ impl KbcArtifact {
         let cancel = CancellationToken::default();
         let artifact = portable
             .decode(&cancel)
-            .and_then(|metadata| metadata.to_paths(&cancel))
             .map_err(|error| ArtifactCodecError {
                 message: error.to_string(),
             })?;
-        if let Some(reason) = artifact_count_limit(&artifact) {
+        if let Some(reason) = artifact_count_limit(artifact.records(), artifact.definitions()) {
             return Err(ArtifactCodecError {
                 message: reason.into(),
             });
@@ -353,9 +395,10 @@ impl KbcArtifact {
 
     fn portable_projection(
         &self,
+        definitions: &DefinitionTable,
     ) -> Result<PortableMetadata<KbcArtifact<PortableDefinitionRef>>, ArtifactCodecError> {
         let cancel = CancellationToken::default();
-        scope_record(self, &cancel)
+        DefinitionMetadata::checked(definitions.clone(), self.clone(), &cancel)
             .and_then(|metadata| metadata.to_portable(&cancel))
             .map_err(|error| ArtifactCodecError {
                 message: error.to_string(),
@@ -404,18 +447,13 @@ impl KbcArtifact {
         Ok(())
     }
 
-    fn compute_content_hash(&self) -> ArtifactFingerprint {
-        let mut header = self.header.clone();
-        header.content_hash = ArtifactFingerprint::empty();
-        ArtifactFingerprint::of_serialized(&(
-            &header,
-            &self.program,
-            &self.tables,
-            &self.verification,
-            &self.debug,
-            &self.signatures,
-            &self.portable_mir,
-        ))
+    fn compute_content_hash(
+        &self,
+        definitions: &DefinitionTable,
+    ) -> Result<ArtifactFingerprint, DefinitionMappingError> {
+        let mut content = self.clone();
+        content.header.content_hash = ArtifactFingerprint::empty();
+        ArtifactFingerprint::of_record(&content, definitions)
     }
 }
 
@@ -446,34 +484,69 @@ pub struct ArtifactFingerprint(pub u64);
 
 impl ArtifactFingerprint {
     /// Canonical required ABI set; documentation and import slot order do not affect it.
-    pub fn of_host_interface(interface: &HostInterface) -> Self {
-        let mut functions = interface.functions.clone();
-        for function in &mut functions {
+    pub fn of_host_interface(
+        interface: &HostInterface<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        let cancel = CancellationToken::default();
+        let mut interface =
+            DefinitionMetadata::checked(definitions.clone(), interface.clone(), &cancel)?
+                .into_records();
+        interface.paths.clear();
+        for function in &mut interface.functions {
             function.documentation.clear();
         }
-        functions.sort_by(|a, b| a.id.cmp(&b.id));
-        let mut types = interface.types.clone();
-        for ty in &mut types {
+        for ty in &mut interface.types {
             ty.clear_documentation();
         }
-        types.sort_by(|a, b| a.id.cmp(&b.id));
-        Self::of_serialized(&("kagari-required-host-interface-v3", types, functions))
+        interface.functions.sort_by(|a, b| {
+            definitions
+                .compare(a.id, b.id)
+                .expect("checked host identities")
+        });
+        interface.types.sort_by(|a, b| {
+            definitions
+                .compare(a.id, b.id)
+                .expect("checked host identities")
+        });
+        let portable = DefinitionMetadata::checked(definitions.clone(), interface, &cancel)?
+            .to_portable(&cancel)?;
+        Ok(Self::of_serialized(&(
+            "kagari-required-host-interface-v3",
+            portable,
+        )))
     }
 
-    pub fn of_program_hosts(program: &BytecodeProgram) -> Self {
-        Self::of_serialized(&(
-            "kagari-program-hosts-v1",
-            program
-                .modules
-                .iter()
-                .map(|module| {
-                    (
-                        &module.identity,
-                        Self::of_host_interface(&module.host_interface),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        ))
+    pub fn of_program_hosts(
+        program: &BytecodeProgram,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        let hosts = program
+            .modules
+            .iter()
+            .map(|module| {
+                Ok((
+                    &module.identity,
+                    Self::of_host_interface(&module.host_interface, definitions)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, DefinitionMappingError>>()?;
+        Ok(Self::of_serialized(&("kagari-program-hosts-v1", hosts)))
+    }
+
+    /// Hash a canonical referenced closure; process scope/index values are never encoded.
+    pub fn of_record<T>(
+        record: &T,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError>
+    where
+        T: DefinitionRecord<DefinitionId> + Clone,
+        T::Rebind<PortableDefinitionRef>: Serialize,
+    {
+        let cancel = CancellationToken::default();
+        let portable = DefinitionMetadata::checked(definitions.clone(), record.clone(), &cancel)?
+            .to_portable(&cancel)?;
+        Ok(Self::of_serialized(&portable))
     }
 
     pub fn empty() -> Self {
@@ -664,7 +737,7 @@ pub struct ArtifactSection {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct VerificationMetadata<I = DefinitionPath> {
+pub struct VerificationMetadata<I = DefinitionId> {
     pub bytecode_verified: bool,
     /// Root-member summaries. Dependency metadata remains in its BytecodeModule;
     /// all members are verified before these derived summaries are accepted.
@@ -688,12 +761,17 @@ impl VerificationMetadata {
     pub fn from_program(
         program: &BytecodeProgram,
         options: &ArtifactBuildOptions,
+        context: &DefinitionContext,
     ) -> Result<Self, ArtifactValidationError> {
-        verify_program(program).map_err(ArtifactValidationError::Bytecode)?;
-        Ok(Self::build(program, options))
+        verify_program(program, context).map_err(ArtifactValidationError::Bytecode)?;
+        Ok(Self::build(program, options, &context.snapshot())?)
     }
 
-    fn build(program: &BytecodeProgram, options: &ArtifactBuildOptions) -> Self {
+    fn build(
+        program: &BytecodeProgram,
+        options: &ArtifactBuildOptions,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
         let module = &program.modules[program.root.index()];
         let typed_path_fingerprints = module
             .paths
@@ -711,13 +789,15 @@ impl VerificationMetadata {
         let public_abi_fingerprints = module
             .public_items
             .iter()
-            .map(|item| PublicAbiFingerprint {
-                name: item.fingerprint_name(),
-                fingerprint: ArtifactFingerprint::of_serialized(item),
+            .map(|item| {
+                Ok(PublicAbiFingerprint {
+                    name: item.fingerprint_name(definitions)?,
+                    fingerprint: ArtifactFingerprint::of_record(item, definitions)?,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, DefinitionMappingError>>()?;
 
-        Self {
+        Ok(Self {
             bytecode_verified: true,
             function_layouts: module
                 .functions
@@ -750,18 +830,21 @@ impl VerificationMetadata {
                 .collect(),
             typed_path_fingerprints: typed_path_fingerprints.clone(),
             public_abi_fingerprints: public_abi_fingerprints.clone(),
-            dependency_fingerprints: program.dependency_fingerprints(),
-            host_interface_fingerprint: ArtifactFingerprint::of_program_hosts(program),
+            dependency_fingerprints: program.dependency_fingerprints(definitions)?,
+            host_interface_fingerprint: ArtifactFingerprint::of_program_hosts(
+                program,
+                definitions,
+            )?,
 
             loader: LoaderValidationMetadata {
                 module_identity: module.identity.clone(),
                 runtime_abi_version: options.runtime_abi_version.clone(),
                 runtime_helper_abi_version: options.runtime_helper_abi_version.clone(),
-                dependency_fingerprints: program.dependency_fingerprints(),
+                dependency_fingerprints: program.dependency_fingerprints(definitions)?,
                 typed_path_fingerprints,
                 public_abi_fingerprints,
             },
-        }
+        })
     }
 }
 
@@ -770,7 +853,7 @@ impl VerificationMetadata {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct FunctionLayoutMetadata<I = DefinitionPath> {
+pub struct FunctionLayoutMetadata<I = DefinitionId> {
     pub semantic: SemanticSlots<I>,
     pub function: FunctionRef,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
@@ -920,7 +1003,7 @@ pub struct ArtifactSignature {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ArtifactValidationError {
     #[error("artifact identity conversion failed: {0}")]
-    Identity(DefinitionMappingError),
+    Identity(#[from] DefinitionMappingError),
     #[error("invalid KBC magic bytes {0:?}")]
     InvalidMagic([u8; 4]),
     #[error("artifact format version mismatch: expected {expected}, found {found}")]
@@ -1015,7 +1098,7 @@ pub type SourceFileTable = Vec<String>;
 
 pub type DebugNameTable = Vec<String>;
 
-pub type FunctionLayoutBuffer<I = DefinitionPath> = Vec<FunctionLayoutMetadata<I>>;
+pub type FunctionLayoutBuffer<I = DefinitionId> = Vec<FunctionLayoutMetadata<I>>;
 
 pub type FunctionEffectBuffer = Vec<FunctionEffectMetadata>;
 

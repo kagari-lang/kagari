@@ -3,7 +3,7 @@ use crate::{
     module::BytecodeModule,
     trait_bounds::contract,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_contract::{
     callable::witness::OperationWitness,
     types::{
@@ -20,13 +20,14 @@ pub(super) fn validate(
     module: &BytecodeModule,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(
         cancel,
-        |id| contract(id, closure),
+        |id| contract(id, closure, definitions),
         |id| {
             closure.iter().find_map(|owner| {
-                type_contract(&owner.identity, &owner.public_items, id)
+                type_contract(&owner.identity, &owner.public_items, id, definitions)
                     .map(|record| (record.kind, record.generic_params.len()))
                     .or_else(|| {
                         owner

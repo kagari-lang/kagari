@@ -7,7 +7,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
-    identity::{DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+    identity::{ModuleIdentity, reference::DefinitionReference, table::DefinitionId},
     span::Span,
 };
 use kagari_contract::{
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct BytecodeModule<I = DefinitionPath> {
+pub struct BytecodeModule<I = DefinitionId> {
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub dependencies: Vec<ModuleRef>,
     pub host_interface: HostInterface<I>,
@@ -86,7 +86,7 @@ pub struct PathRecord {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct BytecodeFunction<I = DefinitionPath> {
+pub struct BytecodeFunction<I = DefinitionId> {
     pub id: FunctionRef,
     pub identity: Option<ConcreteFunctionIdentity<I>>,
     pub name: String,
@@ -103,7 +103,7 @@ pub struct BytecodeFunction<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct FunctionMetadata<I = DefinitionPath> {
+pub struct FunctionMetadata<I = DefinitionId> {
     /// Explicit logical charges in emission order; one entry per executable point.
     pub semantic: SemanticSlots<I>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
@@ -125,7 +125,7 @@ pub struct FunctionMetadata<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct FunctionRecord<I = DefinitionPath> {
+pub struct FunctionRecord<I = DefinitionId> {
     pub id: FunctionRef,
     pub identity: Option<ConcreteFunctionIdentity<I>>,
     pub name: String,
@@ -168,7 +168,7 @@ impl RootSlotLayout {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct InterfaceTableRecord<I = DefinitionPath> {
+pub struct InterfaceTableRecord<I = DefinitionId> {
     /// Optional dynamic surface that hides a concrete associated iterator.
     pub view: Option<InterfaceViewRecord<I>>,
     /// Ordered impl arguments. An empty record for a generic template retains
@@ -188,7 +188,7 @@ pub struct InterfaceTableRecord<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct InterfaceParentRecord<I = DefinitionPath> {
+pub struct InterfaceParentRecord<I = DefinitionId> {
     pub interface: NominalTy<I>,
     pub implementation: ConcreteFunctionIdentity<I>,
     pub view: bool,
@@ -199,7 +199,7 @@ pub struct InterfaceParentRecord<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct InterfaceViewRecord<I = DefinitionPath> {
+pub struct InterfaceViewRecord<I = DefinitionId> {
     pub interface: NominalTy<I>,
     /// Only changed return representations have an adapter; raw slots remain exact.
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
@@ -211,7 +211,7 @@ pub struct InterfaceViewRecord<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct InterfaceResultAdapter<I = DefinitionPath> {
+pub struct InterfaceResultAdapter<I = DefinitionId> {
     pub method: I,
     pub implementation: ConcreteFunctionIdentity<I>,
 }
@@ -221,7 +221,7 @@ pub struct InterfaceResultAdapter<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct InterfaceMethodSlot<I = DefinitionPath> {
+pub struct InterfaceMethodSlot<I = DefinitionId> {
     pub method: I,
     pub target: CallableTarget,
     /// Arguments for the target's shared entry, expressed in the table and
@@ -318,9 +318,9 @@ pub struct FrameLayout {
     pub registers: TypeLayoutBuffer,
 }
 
-pub type BytecodeFunctionBuffer<I = DefinitionPath> = Vec<BytecodeFunction<I>>;
+pub type BytecodeFunctionBuffer<I = DefinitionId> = Vec<BytecodeFunction<I>>;
 
-pub type BytecodeInstructionBuffer<I = DefinitionPath> = Vec<BytecodeInstruction<I>>;
+pub type BytecodeInstructionBuffer<I = DefinitionId> = Vec<BytecodeInstruction<I>>;
 
 pub type BytecodeModuleSlotBuffer = Vec<BytecodeModuleSlot>;
 
@@ -330,11 +330,11 @@ pub type BytecodeTypeTable = Vec<ValueType>;
 
 pub type PathTable = Vec<PathRecord>;
 
-pub type FunctionTable<I = DefinitionPath> = Vec<FunctionRecord<I>>;
+pub type FunctionTable<I = DefinitionId> = Vec<FunctionRecord<I>>;
 
-pub type PublicItemRecord<I = DefinitionPath> = PublicItem<I>;
+pub type PublicItemRecord<I = DefinitionId> = PublicItem<I>;
 
-pub type PublicItemTable<I = DefinitionPath> = Vec<PublicItem<I>>;
+pub type PublicItemTable<I = DefinitionId> = Vec<PublicItem<I>>;
 
 pub type TypeLayoutBuffer = Vec<ValueType>;
 

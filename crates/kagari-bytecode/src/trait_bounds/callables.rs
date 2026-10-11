@@ -1,5 +1,6 @@
 //! Selected native callbacks must have a matching concrete executable target.
 use crate::module::BytecodeModule;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::{
     callable::witness::OperationWitness,
     native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
@@ -7,13 +8,21 @@ use kagari_contract::{
 };
 use kagari_types::callable::CallableImplementation;
 
-pub(super) fn witness_valid(operation: &OperationWitness, closure: &[&BytecodeModule]) -> bool {
+pub(super) fn witness_valid(
+    operation: &OperationWitness<DefinitionId>,
+    closure: &[&BytecodeModule],
+    definitions: &DefinitionTable,
+) -> bool {
     match operation {
         OperationWitness::Forward(_) => true,
-        OperationWitness::Selected(call) => target_valid(call, closure),
+        OperationWitness::Selected(call) => target_valid(call, closure, definitions),
         OperationWitness::SharedMethod(selected) => closure
             .iter()
-            .find(|owner| owner.identity == selected.implementation.declaration.module)
+            .find(|owner| {
+                definitions
+                    .resolve(selected.implementation.declaration)
+                    .is_ok_and(|view| view.module() == &owner.identity)
+            })
             .is_some_and(|owner| {
                 owner.interface_tables.iter().any(|table| {
                     table.declaration == selected.implementation.declaration
@@ -36,11 +45,16 @@ pub(super) fn witness_valid(operation: &OperationWitness, closure: &[&BytecodeMo
     }
 }
 
-pub(super) fn target_valid(call: &NativeCallableApplication, closure: &[&BytecodeModule]) -> bool {
-    let Some(owner) = closure
-        .iter()
-        .find(|owner| owner.identity == call.instance.declaration.module)
-    else {
+pub(super) fn target_valid(
+    call: &NativeCallableApplication<DefinitionId>,
+    closure: &[&BytecodeModule],
+    definitions: &DefinitionTable,
+) -> bool {
+    let Some(owner) = closure.iter().find(|owner| {
+        definitions
+            .resolve(call.instance.declaration)
+            .is_ok_and(|view| view.module() == &owner.identity)
+    }) else {
         return false;
     };
     match &call.implementation {

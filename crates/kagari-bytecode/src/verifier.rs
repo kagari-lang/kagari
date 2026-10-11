@@ -8,13 +8,17 @@ use crate::{
         BytecodeFunction, BytecodeModule, CallableTarget, InterfaceMethodSlot, PathRecord,
         RootSlotLayout,
     },
-    program::BytecodeProgram,
+    program::{BytecodeProgram, identity},
     suspension::{AwaitLiveness, FlowBudget},
     trait_bounds,
     verifier::operation::verify_instruction,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionKind, metadata::scope_record};
+use kagari_common::identity::{
+    DefinitionKind,
+    map::DefinitionContext,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_contract::{
     contracts,
     contracts::ContractError,
@@ -31,7 +35,7 @@ use kagari_types::{
     declaration::verify::{concrete_type_valid, validate_native_declarations},
     ty::Ty,
 };
-use std::{collections::HashSet, iter};
+use std::{collections::HashSet, iter, slice};
 
 #[cfg(test)]
 mod async_tests;
@@ -193,12 +197,16 @@ impl BytecodeVerificationError {
     }
 }
 
-pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
+pub fn verify_module(
+    module: &BytecodeModule,
+    context: &DefinitionContext,
+) -> Result<(), BytecodeVerificationError> {
     if !module.dependencies.is_empty() {
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
-    verify_module_with_program(module, None, &mut FlowBudget::default())?;
-    trait_bounds::verify_trait_bounds(module, &[module], None)?;
+    let definitions = identity::prepare(slice::from_ref(module), context)?;
+    verify_module_with_program(module, None, &mut FlowBudget::default(), &definitions)?;
+    trait_bounds::verify_trait_bounds(module, &[module], None, context)?;
     Ok(())
 }
 
@@ -206,6 +214,7 @@ pub(super) fn verify_module_with_program(
     module: &BytecodeModule,
     program: Option<&BytecodeProgram>,
     flow_budget: &mut FlowBudget,
+    definitions: &DefinitionTable,
 ) -> Result<Vec<Vec<AwaitLiveness>>, BytecodeVerificationError> {
     let mut constants = HashSet::with_capacity(module.constants.len());
     if !module
@@ -223,18 +232,25 @@ pub(super) fn verify_module_with_program(
     {
         return Err(BytecodeVerificationError::InvalidPathLayout);
     }
-    verify::validate(&module.public_items, &module.identity, &Default::default())
-        .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    let native_declarations = scope_record(&module.native_declarations, &Default::default())
-        .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    validate_native_declarations(
-        native_declarations.records(),
+    verify::validate(
+        &module.public_items,
         &module.identity,
-        native_declarations.definitions(),
+        &Default::default(),
+        definitions,
+    )
+    .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    validate_native_declarations(
+        &module.native_declarations,
+        &module.identity,
+        definitions,
         &Default::default(),
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    if !native_signatures_match(&module.public_items, &module.native_declarations) {
+    if !native_signatures_match(
+        &module.public_items,
+        &module.native_declarations,
+        definitions,
+    ) {
         return Err(BytecodeVerificationError::InvalidPublicAbi);
     }
     verify::validate_trait_contracts(
@@ -242,15 +258,17 @@ pub(super) fn verify_module_with_program(
         &module.public_items,
         &module.identity,
         &Default::default(),
+        definitions,
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    layout::validate_layouts(&module.structures, &Default::default())
+    layout::validate_layouts(&module.structures, &Default::default(), definitions)
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
     if !layout::struct_abi_matches(
         &module.structures,
         &module.identity,
         &module.public_items,
         &Default::default(),
+        definitions,
     )
     .expect("bytecode verification uses an uncancelled token")
     {
@@ -261,6 +279,7 @@ pub(super) fn verify_module_with_program(
         &module.identity,
         &module.public_items,
         &Default::default(),
+        definitions,
     )
     .expect("bytecode verification uses an uncancelled token")
     {
@@ -270,6 +289,7 @@ pub(super) fn verify_module_with_program(
         &module.enumerations,
         &module.structures,
         &Default::default(),
+        definitions,
     )
     .map_err(|_| BytecodeVerificationError::InvalidEnumLayout)?;
     host::validate(
@@ -278,6 +298,7 @@ pub(super) fn verify_module_with_program(
         &module.structures,
         &module.enumerations,
         &Default::default(),
+        definitions,
     )
     .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
     if !host::trait_bindings_match(
@@ -286,6 +307,7 @@ pub(super) fn verify_module_with_program(
         &module.public_items,
         &module.trait_contracts,
         &Default::default(),
+        definitions,
     )
     .expect("bytecode verification uses an uncancelled token")
     {
@@ -323,27 +345,36 @@ pub(super) fn verify_module_with_program(
             });
         }
         if let Some(identity) = &function.identity
-            && (identity.declaration.module != module.identity
-                || !identity.declaration.within_path_limit()
-                || !identity.declaration.path.last().is_some_and(|part| {
-                    matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
-                })
-                || identity.arguments.iter().any(|ty| {
-                    !ty.within_wire_limits() || !concrete_type_valid(ty, &Default::default())
-                })
-                || !identities.insert(identity))
+            && (!definitions.resolve(identity.declaration).is_ok_and(|view| {
+                view.module() == &module.identity
+                    && view.last().is_some_and(|part| {
+                        matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
+                    })
+            }) || identity.arguments.iter().any(|ty| {
+                !ty.within_wire_limits()
+                    || !concrete_type_valid(ty, &Default::default(), definitions)
+            }) || !identities.insert(identity))
         {
             return Err(BytecodeVerificationError::InvalidFunctionIdentity {
                 function: function.id,
             });
         }
-        suspensions.push(verify_function(module, function, program, flow_budget)?);
+        suspensions.push(verify_function(
+            module,
+            function,
+            program,
+            flow_budget,
+            definitions,
+        )?);
     }
-    verify_interface_tables(module)?;
+    verify_interface_tables(module, definitions)?;
     Ok(suspensions)
 }
 
-fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
+fn verify_interface_tables(
+    module: &BytecodeModule,
+    definitions: &DefinitionTable,
+) -> Result<(), BytecodeVerificationError> {
     let declared = module
         .public_items
         .iter()
@@ -399,14 +430,16 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
         }
         let mut used = HashSet::new();
         for slot in &table.methods {
-            let Some(segment) = slot.method.path.last() else {
+            let Some(segment) = definitions
+                .resolve(slot.method)
+                .ok()
+                .and_then(|view| view.last())
+            else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
             if segment.kind != DefinitionKind::Method
                 || segment.occurrence != 0
-                || slot.method.module != trait_type.declaration.module
-                || slot.method.path.len() != trait_type.declaration.path.len() + 1
-                || slot.method.path[..slot.method.path.len() - 1] != trait_type.declaration.path
+                || definitions.parent(slot.method).ok().flatten() != Some(trait_type.declaration)
                 || !used.insert(&slot.method)
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
@@ -469,11 +502,12 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 // binding and signature against the complete dependency closure.
                 continue;
             }
-            if identity.declaration.module != abi.declaration.module
-                || identity.declaration.path.len() != abi.declaration.path.len() + 1
-                || identity.declaration.path[..identity.declaration.path.len() - 1]
-                    != abi.declaration.path
-                || identity.declaration.path.last() != Some(segment)
+            if definitions.parent(identity.declaration).ok().flatten() != Some(abi.declaration)
+                || definitions
+                    .resolve(identity.declaration)
+                    .ok()
+                    .and_then(|view| view.last())
+                    != Some(segment)
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -515,9 +549,10 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                         .methods
                         .iter()
                         .filter(|slot| {
-                            slot.method
-                                .path
-                                .last()
+                            definitions
+                                .resolve(slot.method)
+                                .ok()
+                                .and_then(|view| view.last())
                                 .is_some_and(|part| part.name == method.name)
                         })
                         .count()
@@ -531,7 +566,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
 }
 
 fn host_bridge_method_matches(
-    table: &InterfaceTable,
+    table: &InterfaceTable<DefinitionId>,
     slot: &InterfaceMethodSlot,
     function: &BytecodeFunction,
     module: &BytecodeModule,
@@ -584,6 +619,7 @@ fn verify_function(
     function: &BytecodeFunction,
     program: Option<&BytecodeProgram>,
     flow_budget: &mut FlowBudget,
+    definitions: &DefinitionTable,
 ) -> Result<Vec<AwaitLiveness>, BytecodeVerificationError> {
     if !matches!(
         function.instructions.last(),
@@ -607,9 +643,9 @@ fn verify_function(
         verify_jump(function, *target)?;
     }
     for instruction in &function.instructions {
-        verify_instruction(module, function, instruction, program)?;
+        verify_instruction(module, function, instruction, program, definitions)?;
     }
-    access::verify(module, function, program)?;
+    access::verify(module, function, program, definitions)?;
     flow::verify(function, flow_budget)
 }
 
@@ -787,7 +823,7 @@ fn field_layout(
     module: &BytecodeModule,
     function: &BytecodeFunction,
     field: &FieldRef,
-) -> Result<StructFieldLayout, BytecodeVerificationError> {
+) -> Result<StructFieldLayout<DefinitionId>, BytecodeVerificationError> {
     module
         .structures
         .get(field.structure.index())
