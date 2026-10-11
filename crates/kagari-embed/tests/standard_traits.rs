@@ -4,7 +4,11 @@ mod execution;
 use execution::Route;
 
 mod support;
-use kagari_bytecode::program::verify_program;
+use kagari_bytecode::program::{identity, verify_program};
+use kagari_common::identity::{
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -12,9 +16,9 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
-use kagari_runtime::value::Value;
-use kagari_source::source::SourceFile;
-use kagari_types::{language as standard_traits, language::Protocol};
+use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::Vm;
 
 fn execute(source: &str) {
@@ -172,14 +176,23 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
-    use {
-        kagari_contract::types::PublicItem,
-        kagari_types::{scalar::BuiltinType, ty::Ty},
-    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "use std::fmt::{Debug};\nstruct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact.import_into(&context, &Default::default()).unwrap();
+    let table = identity::collect(
+        &artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.records().program, &table).unwrap();
     for mutation in 0..5 {
-        let mut program = artifact.program.clone();
+        let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];
         if mutation == 0 {
             module.identity.package.0 = "kagari-core".into();
@@ -201,7 +214,9 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                     let Ty::Trait(trait_type) = &mut table.trait_type else {
                         panic!("trait");
                     };
-                    trait_type.declaration = standard_traits::identity(Protocol::Hash);
+                    trait_type.declaration = context
+                        .intern(&standard_traits::identity(Protocol::Hash))
+                        .unwrap();
                 }
                 3 => table.methods.clear(),
                 _ => {
@@ -212,8 +227,11 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                 }
             }
         }
-        assert!(verify_program(&program).is_err(), "mutation {mutation}");
-        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+        assert!(
+            verify_program(&program, &context.snapshot()).is_err(),
+            "mutation {mutation}"
+        );
+        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
     }
 }
 
@@ -476,39 +494,39 @@ fn make()->(Test,HashSet<Key>) {
             Default::default(),
         )
         .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    let root_module = &artifact.program.modules[artifact.program.root.index()];
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
+    let root_module = &artifact.records().program.modules[artifact.records().program.root.index()];
     let declaration = root_module
         .trait_contracts
         .iter()
         .find(|c| c.abi.name == "Test")
         .unwrap()
-        .declaration
-        .clone();
-    let method = |name: &str| {
-        let mut id = declaration.clone();
-        id.path
-            .push(kagari_common::identity::DefinitionPathSegment {
-                kind: kagari_common::identity::DefinitionKind::Method,
-                name: name.into(),
-                occurrence: 0,
-            });
-        id
-    };
-    let mut config = kagari_runtime::RuntimeConfig::default();
+        .declaration;
+    let query = artifact
+        .definitions()
+        .resolve(declaration)
+        .unwrap()
+        .to_path();
+    let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = {
-        let mut registered = kagari_runtime::Runtime::new(config);
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut registered,
-        )
-        .unwrap();
+        let mut registered = Runtime::new(config);
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut registered).unwrap();
         registered
     };
-    let loaded = runtime
-        .load_program("callback-cleanup", artifact.program)
-        .unwrap();
+    let (definitions, artifact) = artifact.into_parts();
+    let program =
+        DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap();
+    let loaded = runtime.load_program("callback-cleanup", program).unwrap();
+    let declaration = loaded.definitions().lookup(&query).unwrap();
+    let method = |name: &str| {
+        loaded
+            .definitions()
+            .lookup_child(declaration, DefinitionKind::Method, name, 0)
+            .unwrap()
+    };
     let vm = Vm::new(runtime);
     for mode in 1..=4 {
         let value = vm
@@ -614,10 +632,6 @@ fn make()->(Test,HashSet<Key>) {
 
 #[test]
 fn imported_equality_and_hash_use_the_defining_modules_implementations() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     for downstream_override in [false, true] {
         let engine = KagariEngine::default();
         let model = r#"use std::collections::{HashMap};
@@ -663,7 +677,10 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
         let artifact = engine
             .emit_bytecode(&checked.unwrap(), Default::default())
             .unwrap();
-        let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let artifact = BytecodeArtifact::from_bytes(
+            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
+        .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -686,10 +703,6 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
 
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
-    use {
-        kagari_contract::types::PublicItem,
-        kagari_types::{language::Protocol, ty::Ty},
-    };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -707,10 +720,13 @@ fn main()->i64 {Key{id:1}.hash()}
         )
         .unwrap();
     for missing in [Protocol::Eq, Protocol::PartialEq] {
-        let mut program = artifact.program.clone();
+        let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];
-        module.public_items.retain(|item| !matches!(item,PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(t) if t.declaration==standard_traits::identity(missing))));
-        assert!(verify_program(&program).is_err(), "missing {missing:?}");
+        module.public_items.retain(|item| !matches!(item,PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(t) if Some(t.declaration)==missing.definition(artifact.definitions()))));
+        assert!(
+            verify_program(&program, artifact.definitions()).is_err(),
+            "missing {missing:?}"
+        );
     }
 }
 

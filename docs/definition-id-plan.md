@@ -3786,3 +3786,43 @@ embedding_api, other shared-runner consumers, artifact_features/standalone fixtu
 adoption, examples and final documentation cleanup. The negative-fixture audit must
 check scope preparation where direct verification follows metadata import, preserving
 positive controls and the intended rejection boundary. CI retains exhaustive scope.
+
+### SI06 default-method, standard-protocol and shared-runner consumers
+
+Default-method forgeries now import their artifact into one context, collect implicit
+public names and verify the positive baseline before mutation. Missing method names,
+wrong kinds and changed occurrences are registered explicitly. Shared calls, operation
+witnesses, layouts and supplying module checks retain their existing assertions.
+Standard-protocol fixtures use scoped protocol recognition and resolve callback
+method IDs in the loaded table. Syntax/conversion wire consumers and instantiation
+inspection retain metadata instead of extracting unscoped artifacts.
+
+Focused local evidence:
+
+- Six default_methods cases pass: generic_implementations_and_default_local_binders,
+  malformed_default_contracts, shared_function_call_arguments,
+  forged_shared_constraint_method_selections, generic_interface_upcasts_reject and
+  shared_nominal_layout_applications. The other 27 cases remain CI scope.
+- Four standard_traits cases pass: malformed_standard_implementations,
+  key_callback_traps, imported_equality_and_hash and portable_hash_implementations.
+  They preserve Hash/Eq contract checks, defining-module ownership and trap/reentry
+  cleanup without partial insertion. The other 16 cases remain CI scope.
+- Three direct dependent cases pass: syntax_examples::nested_inline_modules_resolve,
+  conversion_traits::imported_generic_conversions_and_iterators and
+  instantiation::instance_limits_report. Total: 13 selected cases in this batch.
+- Clippy passes for default_methods and standard_traits individually, and for
+  syntax_examples, conversion_traits, instantiation and collection_interfaces
+  together. No collection_interfaces execution was added. Structure checks 1087
+  Rust files with zero violations/exceptions; formatting and diff checks pass.
+  Manual review covers scopes, explicit queries, negative positive-controls,
+  imports, unchanged assertions and no new exports/exceptions.
+
+The shared provider dependent check
+`cargo clippy -p kagari-embed --test artifact_features --message-format=short --
+-D warnings` reports 29 old-API diagnostics: the artifact_features body (21), its
+async task fixture (2), shared try_carrier provider (3), and reused async example
+Host/provider modules (3). Representative failures are raw artifact returns,
+path-field mutation and fallible ModuleBuilder use. SI06 owns these consumers and
+fixture regeneration/source-free execution. Offline Host and embedding API consumers,
+remaining examples, the focused negative-fixture audit and lasting documentation
+cleanup remain open. Exhaustive validation remains CI scope.

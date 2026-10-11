@@ -3,6 +3,7 @@
 mod execution;
 use execution::Route;
 
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -10,7 +11,7 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
-use kagari_source::source::SourceFile;
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -113,10 +114,6 @@ fn main()->i32{X{}.into()}
 
 #[test]
 fn imported_generic_conversions_and_iterators_link_to_their_defining_module() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = KagariEngine::default();
     let mut root = None;
     for (name, source) in [
@@ -159,7 +156,9 @@ fn main()->i32 {match propagate(){Err(w)=>total(w),Ok(x)=>x}}
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =

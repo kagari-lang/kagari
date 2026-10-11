@@ -1,11 +1,19 @@
-use kagari_bytecode::program::ModuleRef;
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, CallTarget},
+    program::{ModuleRef, identity, verify_program},
+};
+use kagari_common::identity::{
+    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+    table::DefinitionId,
+};
+use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
-use kagari_source::source::SourceFile;
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::identity as library;
-use kagari_types::callable::CallableImplementation;
+use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
 
 // Share the SDK runner across integration binaries without a production dependency.
 #[path = "support/execution.rs"]
@@ -220,10 +228,6 @@ fn main() -> i32 {
 
 #[test]
 fn imported_defaults_preserve_private_helpers_and_definition_context() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = execution::engine(Default::default());
     let mut root = None;
     for (name, source) in [
@@ -257,20 +261,28 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    let module = &artifact.program.modules[artifact.program.root.index()];
+    let module = &artifact.records().program.modules[artifact.records().program.root.index()];
     let default = module
         .functions
         .iter()
         .find(|function| {
-            function
-                .identity
-                .as_ref()
-                .is_some_and(|identity| identity.declaration.path.last().unwrap().name == "again")
+            function.identity.as_ref().is_some_and(|identity| {
+                artifact
+                    .definitions()
+                    .resolve(identity.declaration)
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .name
+                    == "again"
+            })
         })
         .unwrap();
     let origin = default.metadata.debug.source_module.unwrap();
     assert_eq!(
-        artifact.program.modules[origin.index()].identity.path,
+        artifact.records().program.modules[origin.index()]
+            .identity
+            .path,
         ["model"]
     );
     let context = ExecutionContext::default();
@@ -278,7 +290,10 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
     let loaded = runtime
         .load_program(
             &PreparedProgram::from_artifact(
-                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
+                BytecodeArtifact::from_bytes(
+                    &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+                )
+                .unwrap(),
                 &Default::default(),
                 &Default::default(),
             )
@@ -337,6 +352,7 @@ fn main() -> i32 { Number {}.again() }
 #[test]
 fn malformed_default_contracts_and_source_origins_are_rejected() {
     let artifact = execution::engine(Default::default()).compile_to_artifact(SourceFile::new("defaults.kgr", "pub trait Read { fn read(self) -> i32 { 42 } } struct Number {} impl Read for Number {} fn main() -> i32 { Number {}.read() }"),  Default::default()).unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -345,7 +361,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    let kagari_contract::types::PublicItem::Trait(contract) = item else {
+                    let PublicItem::Trait(contract) = item else {
                         return None;
                     };
                     Some(contract)
@@ -356,15 +372,16 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
             } else if mutation == 1 {
                 contract.methods[0].name = "missing_implementation".into();
             } else {
-                contract.methods[0].implementation =
-                    CallableImplementation::Native(library::trait_id("List"));
+                contract.methods[0].implementation = CallableImplementation::Native(
+                    context.intern(&library::trait_id("List")).unwrap(),
+                );
             }
         } else if mutation == 3 {
             let implementation = module
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    if let kagari_contract::types::PublicItem::InterfaceTable(table) = item {
+                    if let PublicItem::InterfaceTable(table) = item {
                         Some(table)
                     } else {
                         None
@@ -375,14 +392,12 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
         } else {
             module.functions[0].metadata.debug.source_module = Some(ModuleRef::new(999));
         }
-        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
     }
 }
 
 #[test]
 fn forged_shared_generic_environments_and_applications_are_rejected_without_source() {
-    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -397,6 +412,7 @@ fn main() -> i32 { val source: Capture = Number {}; val get = source.capture(42)
             Default::default(),
         )
         .unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -440,7 +456,7 @@ fn main() -> i32 { val source: Capture = Number {}; val get = source.capture(42)
             }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "mutation {mutation}"
         );
     }
@@ -472,8 +488,6 @@ fn main() -> i32 {
 
 #[test]
 fn shared_list_table_mappings_are_checked_without_source() {
-    use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -489,6 +503,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
             Default::default(),
         )
         .unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
         if mutation == 0 {
@@ -541,7 +556,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
             }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "mutation {mutation}"
         );
     }
@@ -592,8 +607,6 @@ fn main() -> i32 {
 
 #[test]
 fn shared_function_call_arguments_and_operations_are_verified_without_source() {
-    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -609,6 +622,7 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
             Default::default(),
         )
         .unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
         let call = program
@@ -629,7 +643,7 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
             1 => call.signature.params[0] = Ty::Builtin(BuiltinType::I32),
             2 => call.operations.clear(),
             3 => call.operations.push(call.operations[0].clone()),
-            4 => call.instance.declaration.path.last_mut().unwrap().name = "forged".into(),
+            4 => call.instance.declaration = renamed(&context, call.instance.declaration, "forged"),
             5 => {
                 let Ty::Parameter { position, .. } = &mut call.arguments[0] else {
                     panic!("caller binder")
@@ -639,7 +653,7 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
             _ => unreachable!(),
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "mutation {mutation}"
         );
     }
@@ -647,10 +661,6 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
 
 #[test]
 fn shared_helpers_are_materialized_in_their_declaring_module() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = execution::engine(Default::default());
     let mut root = None;
     for (name, source) in [
@@ -684,7 +694,9 @@ fn shared_helpers_are_materialized_in_their_declaring_module() {
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let program =
         PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
@@ -755,8 +767,6 @@ fn main() -> i32 {
 
 #[test]
 fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
-    use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -777,6 +787,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
             Default::default(),
         )
         .unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     for mutation in 0..4 {
         let mut program = artifact.program.clone();
         let (source, target) = program
@@ -804,7 +815,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
             _ => unreachable!(),
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "mutation {mutation}"
         );
     }
@@ -847,7 +858,6 @@ fn main() -> i32 {
 
 #[test]
 fn ordinary_interface_methods_require_receiver_bound_witnesses() {
-    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -871,6 +881,7 @@ fn main() -> i32 { val chooser: Choose = Source {}; chooser.choose(42, 43) }
             Default::default(),
         )
         .unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     let mut program = artifact.program;
     let call = program
         .modules
@@ -886,7 +897,7 @@ fn main() -> i32 { val chooser: Choose = Source {}; chooser.choose(42, 43) }
         })
         .unwrap();
     call.operations.clear();
-    assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+    assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
 }
 
 #[test]
@@ -919,8 +930,6 @@ fn main() -> i32 {
 
 #[test]
 fn shared_nominal_layout_applications_are_verified_without_source() {
-    use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -939,6 +948,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.read(source.wrap(42)) }
             Default::default(),
         )
         .unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
         if mutation < 2 {
@@ -999,7 +1009,7 @@ fn main() -> i32 { val source: Wrap = Source {}; source.read(source.wrap(42)) }
             }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "mutation {mutation}"
         );
     }
@@ -1035,8 +1045,6 @@ fn main() -> i32 {
 
 #[test]
 fn forged_shared_constraint_method_selections_are_rejected_without_source() {
-    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_contract::callable::witness::OperationWitness;
     let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -1052,6 +1060,7 @@ fn main() -> i32 { val relay: Relay = 0; relay.relay(0) }
             Default::default(),
         )
         .unwrap();
+    let (context, artifact) = editable_artifact(artifact);
     for mutation in 0..4 {
         let mut program = artifact.program.clone();
         let selected = program
@@ -1078,15 +1087,18 @@ fn main() -> i32 { val relay: Relay = 0; relay.relay(0) }
             .unwrap();
         let identity = selected.implementation.clone();
         match mutation {
-            0 => selected.requirement.member.path.last_mut().unwrap().name = "missing".into(),
+            0 => {
+                selected.requirement.member =
+                    renamed(&context, selected.requirement.member, "missing")
+            }
             1 => {
-                selected
-                    .implementation
-                    .declaration
-                    .path
-                    .last_mut()
-                    .unwrap()
-                    .occurrence += 1
+                let id = selected.implementation.declaration;
+                let table = context.snapshot();
+                let parent = table.parent(id).unwrap().unwrap();
+                let segment = table.resolve(id).unwrap().last().unwrap();
+                selected.implementation.declaration = context
+                    .intern_child(parent, segment.kind, segment.name, segment.occurrence + 1)
+                    .unwrap();
             }
             2 => selected
                 .implementation
@@ -1102,7 +1114,7 @@ fn main() -> i32 { val relay: Relay = 0; relay.relay(0) }
             }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "forged shared method {mutation}"
         );
     }
@@ -1139,4 +1151,31 @@ fn main() -> i32 {
 #[test]
 fn generic_interface_default_retains_cursor_with_nested_function_result() {
     execute(include_str!("fixtures/iterable-default-cursor.kgr"));
+}
+
+/// Retain one scope and prove the unmodified input before testing each forgery.
+fn editable_artifact(
+    artifact: DefinitionMetadata<BytecodeArtifact>,
+) -> (DefinitionContext, BytecodeArtifact) {
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let table = identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &table).unwrap();
+    (context, artifact)
+}
+
+fn renamed(context: &DefinitionContext, id: DefinitionId, name: &str) -> DefinitionId {
+    let table = context.snapshot();
+    let parent = table.parent(id).unwrap().unwrap();
+    let segment = table.resolve(id).unwrap().last().unwrap();
+    context
+        .intern_child(parent, segment.kind, name, segment.occurrence)
+        .unwrap()
 }

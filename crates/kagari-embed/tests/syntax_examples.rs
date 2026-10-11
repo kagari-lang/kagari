@@ -152,7 +152,9 @@ fn nested_inline_modules_resolve_qualified_members() {
             Default::default(),
         )
         .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     drop(engine);

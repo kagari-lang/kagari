@@ -277,7 +277,7 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
     );
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     assert_eq!(
-        artifact.program.modules[artifact.program.root.index()]
+        artifact.records().program.modules[artifact.records().program.root.index()]
             .functions
             .len(),
         2
