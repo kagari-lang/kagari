@@ -1,9 +1,11 @@
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath,
-        mapping::DefinitionRecord,
-        metadata::{DefinitionMetadata, scope_record},
+        map::DefinitionContext, metadata::DefinitionMetadata, scoped::DefinitionReferences,
         table::DefinitionId,
     },
 };
@@ -11,40 +13,50 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     host::{
-        HostFunction, HostObjectId, HostPathDescriptorRegistration, HostSchemaEpoch,
-        HostTypeRegistration,
+        DynamicPathArguments, HostFunction, HostObjectId, HostPathDescriptorRegistration,
+        HostPathSegment, HostSchemaEpoch, HostTypeRegistration,
     },
-    metadata::TypeId,
+    metadata::{TypeId, TypeKind, TypeRegistration},
     value::Value,
 };
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, host_type_identity,
-    path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-    type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
-    value_type::HostValueType,
+use kagari_types::{
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        host_type_identity,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+        type_declaration::{
+            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess, Visibility,
+        },
+        value_type::HostValueType,
+    },
+    language::binding,
 };
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
-fn scoped<T: DefinitionRecord<DefinitionPath>>(
+fn scoped<T: DefinitionReferences + Clone>(
+    context: &DefinitionContext,
     value: &T,
-) -> DefinitionMetadata<T::Rebind<DefinitionId>>
-where
-    T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
-{
-    scope_record(value, &CancellationToken::default()).unwrap()
+) -> DefinitionMetadata<T> {
+    DefinitionMetadata::checked(
+        context.snapshot(),
+        value.clone(),
+        &CancellationToken::default(),
+    )
+    .unwrap()
 }
 
 fn path_registration(
+    context: &DefinitionContext,
     root_type: TypeId,
     result_type: TypeId,
     segments: Vec<HostPathSegmentDeclaration>,
     access: PathAccess,
     schema_epoch: HostSchemaEpoch,
 ) -> HostPathDescriptorRegistration {
-    let (definitions, segments) = scoped(&segments).into_parts();
+    let (definitions, segments) = scoped(context, &segments).into_parts();
     HostPathDescriptorRegistration {
         definitions,
         root_type,
@@ -61,13 +73,18 @@ fn runtime() -> Runtime {
     })
 }
 
-fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionPath) -> (TypeId, Value) {
-    let mut input = HostTypeDeclaration::new(symbol);
+fn register(
+    context: &DefinitionContext,
+    runtime: &mut Runtime,
+    symbol: &str,
+    declaration: DefinitionId,
+) -> (TypeId, Value) {
+    let mut input = HostTypeDeclaration::new(context, symbol).unwrap();
     input.id = declaration;
     input.ownership = HostTypeOwnership::HostRoot;
     input.path_access = PathAccess::ReadWrite;
     let ty = runtime
-        .register_host_type(HostTypeRegistration::new(scoped(&input), "Object"))
+        .register_host_type(HostTypeRegistration::new(scoped(context, &input), "Object"))
         .unwrap();
     let root = runtime
         .register_host_root(HostObjectId(ty.index() as u64), ty, HostSchemaEpoch::new(0))
@@ -76,8 +93,13 @@ fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionPath) ->
     (ty, value)
 }
 
-fn function(ty: HostValueType, passing: HostPassingStyle) -> HostFunctionDeclaration {
+fn function(
+    context: &DefinitionContext,
+    ty: HostValueType,
+    passing: HostPassingStyle,
+) -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
+        context,
         "host.take",
         vec![HostParameter {
             name: "value".into(),
@@ -86,104 +108,132 @@ fn function(ty: HostValueType, passing: HostPassingStyle) -> HostFunctionDeclara
         }],
         HostValueType::Unit,
     )
+    .unwrap()
 }
 
 #[test]
 fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metadata() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let declaration = host_type_identity("game.Player");
-    let (ty, _) = register(&mut runtime, "renamed.Export", declaration.clone());
+    let declaration = context.intern(&host_type_identity("game.Player")).unwrap();
+    let (ty, _) = register(&context, &mut runtime, "renamed.Export", declaration);
     assert_eq!(
         runtime
             .host()
-            .host_type_by_declaration(&runtime.host().definitions().lookup(&declaration).unwrap())
+            .host_type_by_declaration(
+                &runtime
+                    .host()
+                    .definitions()
+                    .lookup(&host_type_identity("game.Player"))
+                    .unwrap()
+            )
             .unwrap()
             .type_id,
         ty
     );
     let before = runtime.types().len();
-    let mut duplicate = HostTypeDeclaration::new("other.Export");
+    let mut duplicate = HostTypeDeclaration::new(&context, "other.Export").unwrap();
     duplicate.id = declaration;
-    let duplicate = HostTypeRegistration::new(scoped(&duplicate), "Other");
+    let duplicate = HostTypeRegistration::new(scoped(&context, &duplicate), "Other");
     assert_eq!(
         runtime.register_host_type(duplicate).unwrap_err().kind(),
         RuntimeErrorKind::MetadataConflict
     );
     assert_eq!(runtime.types().len(), before);
     assert!(runtime.types().get_by_name("other.Export").is_none());
-    let mut invalid = HostTypeDeclaration::new("bad.Export");
-    invalid.id.path.clear();
-    let invalid = HostTypeRegistration::new(scoped(&invalid), "Other");
+    let mut invalid = HostTypeDeclaration::new(&context, "bad.Export").unwrap();
+    invalid.id = context
+        .intern_root(context.snapshot().resolve(invalid.id).unwrap().module())
+        .unwrap();
+    let invalid = HostTypeRegistration::new(scoped(&context, &invalid), "Other");
     assert!(runtime.register_host_type(invalid).is_err());
     assert_eq!(runtime.types().len(), before);
     let (next, _) = register(
+        &context,
         &mut runtime,
         "other.Export",
-        host_type_identity("other.Player"),
+        context.intern(&host_type_identity("other.Player")).unwrap(),
     );
     assert_eq!(next.index(), before);
 }
 
 #[test]
 fn nested_signature_types_must_be_bound_before_program_publication() {
-    use kagari_bytecode::{
-        module::BytecodeModule,
-        program::{BytecodeProgram, ModuleRef},
-    };
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
     let declaration = function(
+        &context,
         HostValueType::Tuple(vec![HostValueType::Option(
-            kagari_types::language::binding::option_declaration(),
-            Box::new(HostValueType::opaque("game.Player")),
+            context.intern(&binding::option_declaration()).unwrap(),
+            Box::new(HostValueType::Opaque(
+                context.intern(&host_type_identity("game.Player")).unwrap(),
+            )),
         )]),
         HostPassingStyle::Owned,
     );
     runtime
-        .register_host_function(HostFunction::new(scoped(&declaration), |_, _| {
+        .register_host_function(HostFunction::new(scoped(&context, &declaration), |_, _| {
             panic!("linking cannot invoke callbacks")
         }))
         .unwrap();
-    let mut expected_type = HostTypeDeclaration::new("export.Alias");
-    expected_type.id = host_type_identity("game.Player");
+    let mut expected_type = HostTypeDeclaration::new(&context, "export.Alias").unwrap();
+    expected_type.id = context.intern(&host_type_identity("game.Player")).unwrap();
     expected_type.ownership = HostTypeOwnership::HostRoot;
     expected_type.path_access = PathAccess::ReadWrite;
-    let program = scoped(&BytecodeProgram {
-        root: ModuleRef::new(0),
-        modules: vec![BytecodeModule {
-            host_interface: HostInterface {
-                paths: vec![],
-                types: vec![expected_type],
-                functions: vec![declaration],
-            },
-            ..Default::default()
-        }],
-    });
+    let program = scoped(
+        &context,
+        &BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                host_interface: HostInterface {
+                    paths: vec![],
+                    types: vec![expected_type],
+                    functions: vec![declaration],
+                },
+                ..Default::default()
+            }],
+        },
+    );
     assert!(runtime.load_program("nominal", program.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     register(
+        &context,
         &mut runtime,
         "export.Alias",
-        host_type_identity("game.Player"),
+        context.intern(&host_type_identity("game.Player")).unwrap(),
     );
     runtime.load_program("nominal", program).unwrap();
 }
 
 #[test]
 fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let a = host_type_identity("first.Player");
-    let b = host_type_identity("second.Player");
-    assert_eq!(a.path, b.path);
-    let (a_ty, a_value) = register(&mut runtime, "export.First", a.clone());
-    let (b_ty, b_value) = register(&mut runtime, "export.Second", b);
+    let a = context.intern(&host_type_identity("first.Player")).unwrap();
+    let b = context
+        .intern(&host_type_identity("second.Player"))
+        .unwrap();
+    assert!(
+        context.snapshot().resolve(a).unwrap().segments().eq(context
+            .snapshot()
+            .resolve(b)
+            .unwrap()
+            .segments())
+    );
+    let (a_ty, a_value) = register(&context, &mut runtime, "export.First", a);
+    let (b_ty, b_value) = register(&context, &mut runtime, "export.Second", b);
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let id = runtime
         .register_host_function(HostFunction::new(
-            scoped(&function(
-                HostValueType::Opaque(a.clone()),
-                HostPassingStyle::SharedBorrow,
-            )),
+            scoped(
+                &context,
+                &function(
+                    &context,
+                    HostValueType::Opaque(a),
+                    HostPassingStyle::SharedBorrow,
+                ),
+            ),
             move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
@@ -219,11 +269,16 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let observed = calls.clone();
     let result = runtime
         .register_host_function(HostFunction::new(
-            scoped(&HostFunctionDeclaration::new(
-                "host.wrong",
-                vec![],
-                HostValueType::Tuple(vec![HostValueType::Opaque(a)]),
-            )),
+            scoped(
+                &context,
+                &HostFunctionDeclaration::new(
+                    &context,
+                    "host.wrong",
+                    vec![],
+                    HostValueType::Tuple(vec![HostValueType::Opaque(a)]),
+                )
+                .unwrap(),
+            ),
             move |cx, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(cx.runtime().gc().alloc_tuple(vec![b_value]).unwrap())
@@ -238,13 +293,20 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
 
 #[test]
 fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
+    let context = DefinitionContext::new().unwrap();
     let mut local = runtime();
     let mut foreign = runtime();
-    let (_, local_value) = register(&mut local, "game.Player", host_type_identity("game.Player"));
+    let (_, local_value) = register(
+        &context,
+        &mut local,
+        "game.Player",
+        context.intern(&host_type_identity("game.Player")).unwrap(),
+    );
     let (_, foreign_value) = register(
+        &context,
         &mut foreign,
         "game.Player",
-        host_type_identity("game.Player"),
+        context.intern(&host_type_identity("game.Player")).unwrap(),
     );
     let (Value::HostRoot(a), Value::HostRoot(b)) = (&local_value, &foreign_value) else {
         unreachable!()
@@ -260,10 +322,16 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let observed = calls.clone();
     let id = local
         .register_host_function(HostFunction::new(
-            scoped(&function(
-                HostValueType::Tuple(vec![HostValueType::opaque("game.Player")]),
-                HostPassingStyle::Owned,
-            )),
+            scoped(
+                &context,
+                &function(
+                    &context,
+                    HostValueType::Tuple(vec![HostValueType::Opaque(
+                        context.intern(&host_type_identity("game.Player")).unwrap(),
+                    )]),
+                    HostPassingStyle::Owned,
+                ),
+            ),
             move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
@@ -290,11 +358,18 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let observed = calls.clone();
     let result = local
         .register_host_function(HostFunction::new(
-            scoped(&HostFunctionDeclaration::new(
-                "host.foreign",
-                vec![],
-                HostValueType::opaque("game.Player"),
-            )),
+            scoped(
+                &context,
+                &HostFunctionDeclaration::new(
+                    &context,
+                    "host.foreign",
+                    vec![],
+                    HostValueType::Opaque(
+                        context.intern(&host_type_identity("game.Player")).unwrap(),
+                    ),
+                )
+                .unwrap(),
+            ),
             move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(foreign_value)
@@ -309,24 +384,30 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
 
 #[test]
 fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
-    use kagari_runtime::host::DynamicPathArguments;
+    let context = DefinitionContext::new().unwrap();
     let mut local = runtime();
     let mut foreign = runtime();
     let mut views = Vec::new();
     for runtime in [&mut local, &mut foreign] {
-        let (ty, Value::HostRoot(root)) =
-            register(runtime, "game.Player", host_type_identity("game.Player"))
-        else {
+        let (ty, Value::HostRoot(root)) = register(
+            &context,
+            runtime,
+            "game.Player",
+            context.intern(&host_type_identity("game.Player")).unwrap(),
+        ) else {
             unreachable!()
         };
         let descriptor = runtime
             .register_host_path_descriptor(path_registration(
+                &context,
                 ty,
                 ty,
                 vec![HostPathSegmentDeclaration::Virtual(
                     HostVirtualSegmentDeclaration {
                         name: "self".into(),
-                        result: HostValueType::opaque("game.Player"),
+                        result: HostValueType::Opaque(
+                            context.intern(&host_type_identity("game.Player")).unwrap(),
+                        ),
                         access: PathAccess::ReadOnly,
                     },
                 )],
@@ -368,37 +449,35 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
 
 #[test]
 fn path_fields_are_derived_from_nominal_declarations() {
-    use kagari_types::host_interface::type_declaration::{
-        HostFieldDeclaration, HostTypeDeclaration,
-    };
-    use {
-        kagari_runtime::host::HostPathSegment,
-        kagari_types::host_interface::type_declaration::Visibility,
-    };
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let mut owner = HostTypeDeclaration::new("game.Player");
+    let mut owner = HostTypeDeclaration::new(&context, "game.Player").unwrap();
     owner.ownership = HostTypeOwnership::HostRoot;
     owner.path_access = PathAccess::ReadWrite;
-    let mut hp = HostFieldDeclaration::new(&owner.id, "hp", HostValueType::I32);
+    let mut hp = HostFieldDeclaration::new(&context, owner.id, "hp", HostValueType::I32).unwrap();
     hp.path_access = PathAccess::ReadOnly;
-    let mut hidden = HostFieldDeclaration::new(&owner.id, "hidden", HostValueType::I32);
+    let mut hidden =
+        HostFieldDeclaration::new(&context, owner.id, "hidden", HostValueType::I32).unwrap();
     hidden.path_access = PathAccess::ReadOnly;
     hidden.visibility = Visibility::Private;
-    let disabled = HostFieldDeclaration::new(&owner.id, "disabled", HostValueType::I32);
+    let disabled =
+        HostFieldDeclaration::new(&context, owner.id, "disabled", HostValueType::I32).unwrap();
     owner.fields = vec![hp.clone(), hidden.clone(), disabled.clone()];
     let catalog = HostInterface {
         paths: vec![HostPathDeclaration {
-            root: owner.id.clone(),
-            segments: vec![HostPathSegmentDeclaration::Field(hp.id.clone())],
+            root: owner.id,
+            segments: vec![HostPathSegmentDeclaration::Field(hp.id)],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
         }],
         types: vec![owner.clone()],
         functions: vec![],
     };
-    let catalog = scoped(&catalog);
+    let catalog = scoped(&context, &catalog);
     let offline =
         HostInterface::from_bytes(&catalog.records().to_bytes(catalog.definitions()).unwrap())
+            .unwrap()
+            .import_into(&context, &CancellationToken::default())
             .unwrap();
     let contract = offline.records().paths[0]
         .contract(offline.records(), offline.definitions())
@@ -413,9 +492,7 @@ fn path_fields_are_derived_from_nominal_declarations() {
                 .records()
                 .path_contract(
                     &HostPathDeclaration {
-                        segments: vec![HostPathSegmentDeclaration::Field(
-                            offline.definitions().lookup(field).unwrap()
-                        )],
+                        segments: vec![HostPathSegmentDeclaration::Field(*field)],
                         access,
                         ..offline.records().paths[0].clone()
                     },
@@ -425,11 +502,15 @@ fn path_fields_are_derived_from_nominal_declarations() {
         );
     }
     let owner_type = runtime
-        .register_host_type(HostTypeRegistration::new(scoped(&owner), "Player"))
+        .register_host_type(HostTypeRegistration::new(
+            scoped(&context, &owner),
+            "Player",
+        ))
         .unwrap();
     let scalar = runtime.types().get(owner_type).unwrap().fields[0].ty;
     let registration = |declaration, access, result_type| {
         path_registration(
+            &context,
             owner_type,
             result_type,
             vec![HostPathSegmentDeclaration::Field(declaration)],
@@ -437,14 +518,15 @@ fn path_fields_are_derived_from_nominal_declarations() {
             HostSchemaEpoch::new(0),
         )
     };
-    let other = HostTypeDeclaration::new("other.Player");
-    let foreign_hp = HostFieldDeclaration::new(&other.id, "hp", HostValueType::I32);
+    let other = HostTypeDeclaration::new(&context, "other.Player").unwrap();
+    let foreign_hp =
+        HostFieldDeclaration::new(&context, other.id, "hp", HostValueType::I32).unwrap();
     for bad in [
         registration(foreign_hp.id, PathAccess::ReadOnly, scalar),
         registration(hidden.id, PathAccess::ReadOnly, scalar),
         registration(disabled.id, PathAccess::ReadOnly, scalar),
-        registration(hp.id.clone(), PathAccess::ReadWrite, scalar),
-        registration(hp.id.clone(), PathAccess::ReadOnly, owner_type),
+        registration(hp.id, PathAccess::ReadWrite, scalar),
+        registration(hp.id, PathAccess::ReadOnly, owner_type),
     ] {
         assert_eq!(
             runtime
@@ -506,10 +588,7 @@ fn path_fields_are_derived_from_nominal_declarations() {
 
 #[test]
 fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
-    use kagari_runtime::metadata::{TypeKind, TypeRegistration};
-    use kagari_types::host_interface::type_declaration::{
-        HostFieldDeclaration, HostTypeDeclaration,
-    };
+    let context = DefinitionContext::new().unwrap();
     let fingerprint =
         |padding: usize, docs: &str, writable: bool, epoch: usize, ty: HostValueType| {
             let mut runtime = runtime();
@@ -522,11 +601,11 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
                     ))
                     .unwrap();
             }
-            let mut owner = HostTypeDeclaration::new("game.Player");
+            let mut owner = HostTypeDeclaration::new(&context, "game.Player").unwrap();
             owner.ownership = HostTypeOwnership::HostRoot;
             owner.path_access = PathAccess::ReadWrite;
             owner.documentation = docs.into();
-            let mut field = HostFieldDeclaration::new(&owner.id, "生命", ty);
+            let mut field = HostFieldDeclaration::new(&context, owner.id, "生命", ty).unwrap();
             field.writable = writable;
             field.path_access = if writable {
                 PathAccess::ReadWrite
@@ -534,14 +613,18 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
                 PathAccess::ReadOnly
             };
             field.documentation = docs.into();
-            let declaration = field.id.clone();
+            let declaration = field.id;
             owner.fields.push(field);
             let root_type = runtime
-                .register_host_type(HostTypeRegistration::new(scoped(&owner), "Player"))
+                .register_host_type(HostTypeRegistration::new(
+                    scoped(&context, &owner),
+                    "Player",
+                ))
                 .unwrap();
             let result_type = runtime.types().get(root_type).unwrap().fields[0].ty;
             let id = runtime
                 .register_host_path_descriptor(path_registration(
+                    &context,
                     root_type,
                     result_type,
                     vec![HostPathSegmentDeclaration::Field(declaration)],
@@ -563,25 +646,33 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
 
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {
-    use kagari_runtime::metadata::{TypeKind, TypeRegistration};
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let mut owner = HostTypeDeclaration::new("game.Player");
+    let mut owner = HostTypeDeclaration::new(&context, "game.Player").unwrap();
     owner.ownership = HostTypeOwnership::HostRoot;
     owner.path_access = PathAccess::ReadOnly;
     let root_type = runtime
-        .register_host_type(HostTypeRegistration::new(scoped(&owner), "Player"))
+        .register_host_type(HostTypeRegistration::new(
+            scoped(&context, &owner),
+            "Player",
+        ))
         .unwrap();
     let result_type = runtime
         .types()
         .register(TypeRegistration::new("Unspecified", TypeKind::Primitive))
         .unwrap();
     let result = runtime.register_host_path_descriptor(path_registration(
+        &context,
         root_type,
         result_type,
         vec![HostPathSegmentDeclaration::Virtual(
             HostVirtualSegmentDeclaration {
                 name: "value".into(),
-                result: HostValueType::opaque("game.Unregistered"),
+                result: HostValueType::Opaque(
+                    context
+                        .intern(&host_type_identity("game.Unregistered"))
+                        .unwrap(),
+                ),
                 access: PathAccess::ReadOnly,
             },
         )],

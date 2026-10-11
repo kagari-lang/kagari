@@ -1,6 +1,7 @@
 use kagari_bytecode::artifact::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -241,7 +242,8 @@ fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
         .compile_to_artifact(source, ArtifactOptions::default())
         .map_err(print_embedding_error)?;
     let bytes = artifact
-        .to_bytes()
+        .records()
+        .to_bytes(artifact.definitions())
         .map_err(|error| CliError::message(1, error.to_string()))?;
     fs::write(output, bytes).map_err(|error| {
         CliError::message(
@@ -288,7 +290,7 @@ fn run_artifact(path: &Path, jit: bool) -> Result<(), CliError> {
 
 fn run_loaded_artifact(
     engine: &KagariEngine,
-    artifact: BytecodeArtifact,
+    artifact: DefinitionMetadata<BytecodeArtifact>,
     load_options: LoadOptions,
 
     jit: bool,

@@ -2979,3 +2979,48 @@ final plan retirement remain outstanding; the goal is not complete.
 Final checkpoint checks: `uv run --locked scripts/check_structure.py` checks 1085
 Rust files with zero violations/exceptions; `cargo fmt --all -- --check` and
 `git diff --check` pass.
+
+
+### SI06 CLI and retained Host fixture scopes
+
+CLI emission encodes the artifact records with their retained definition table;
+its execution helper takes scoped artifact metadata through preparation. The
+existing emit/decode/run pipeline test passes. No CLI command or execution policy
+changes.
+
+Migrated runtime host_nominal and offline_types fixtures to explicit registration
+contexts and fixed-ID semantic records, removing their obsolete scope_record and
+DefinitionRecord/Rebind helpers. Offline decoding retains its independent scope;
+comparisons import into a common scope, while runtime publication still performs
+its own adoption. Wrong-kind identity tests use a registered module root rather
+than mutating a path stored in a semantic field. Name-equivalent definitions in
+different modules, cross-runtime root/path rejection, failed batch publication,
+mutual references, required method callbacks, portable Host ABI fingerprints and
+contract-change rejection keep their original assertions. No production semantic
+checks or tests were removed.
+
+Focused local validation:
+
+- `cargo test -p kagari-cli --bin kagari-cli
+  emits_and_runs_kbc_artifacts_through_cli_pipeline --no-fail-fast
+  --message-format=short`: one existing pipeline case passes.
+- `cargo test -p kagari-runtime --test offline_types --no-fail-fast
+  --message-format=short`: all four selected offline type cases pass.
+- `cargo test -p kagari-runtime --test host_nominal --no-fail-fast
+  --message-format=short`: all eight selected nominal/path boundary cases pass.
+- Host fixture Clippy passes with warnings denied. Initial host_nominal build
+  found five view API/borrow mismatches during migration; those are repaired and
+  its selected scope subsequently passes. Previously recorded unrelated library
+  fixture failures were not rerun.
+
+The remaining references to removed common representation APIs are in compiler
+codec/ABI tests. Broader old constructor, verifier and artifact consumers in
+compiler/runtime/contract library tests and SDK examples still require migration.
+This checkpoint closes the two carried runtime integration fixture targets only;
+exhaustive feature/backend validation remains CI scope, and SI06 is not complete.
+
+CLI binary Clippy also passes with warnings denied. Manual review confirms retained
+source/decoded/runtime scope separation and equivalent malformed identity cases.
+Structure checks 1085 Rust files with zero violations/exceptions; formatting and
+diff checks pass. No new production exports, generic identity models or semantic
+path projections were introduced.
