@@ -137,7 +137,7 @@ pub(super) fn decode(
     {
         return Err(HostInterfaceError::Version);
     }
-    let portable: Envelope<WireHostInterface> = codec()
+    let portable: Envelope<HostInterfaceRecord> = codec()
         .deserialize(&bytes[6..])
         .map_err(|_| HostInterfaceError::Encoding)?;
     let decoding = portable.definitions.decode().map_err(identity_error)?;
@@ -147,8 +147,15 @@ pub(super) fn decode(
         .map_err(adoption_error)
 }
 
+/// Serialized Host declarations whose references belong to an enclosing file table.
+///
+/// Fields are private: codec owners construct records using an explicit encoding.
+/// The Host decoder resolves them into unverified semantic declarations using the
+/// matching file table.
+/// Serde bounds declaration/member/value counts; it grants no identity scope or
+/// Host validation evidence by itself.
 #[derive(Serialize, Deserialize)]
-pub(super) struct WireHostInterface {
+pub struct HostInterfaceRecord {
     #[serde(deserialize_with = "decode_limits::declarations")]
     paths: Vec<WireHostPathDeclaration>,
     #[serde(deserialize_with = "decode_limits::declarations")]
@@ -158,10 +165,10 @@ pub(super) struct WireHostInterface {
 }
 
 impl Encode for HostInterface<DefinitionId> {
-    type Wire = WireHostInterface;
+    type Wire = HostInterfaceRecord;
 
     fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError> {
-        Ok(WireHostInterface {
+        Ok(HostInterfaceRecord {
             paths: self
                 .paths
                 .iter()
@@ -181,7 +188,32 @@ impl Encode for HostInterface<DefinitionId> {
     }
 }
 
-impl WireHostInterface {
+impl HostInterfaceRecord {
+    /// Encode IDs through a canonical file table prepared by the artifact owner.
+    ///
+    /// Every reference must be included in `encoding` and belong to its source
+    /// scope. This checks reference conversion and value shape, not Host contract
+    /// validity; publication and loading keep their existing validation boundary.
+    ///
+    /// # Errors
+    /// Returns invalid-reference or bounded value-shape errors.
+    pub fn encode(
+        interface: &HostInterface<DefinitionId>,
+        encoding: &DefinitionEncoding,
+    ) -> Result<Self, HostInterfaceError> {
+        interface.encode(encoding)
+    }
+
+    /// Resolve file references directly into the supplied decoded identity scope.
+    ///
+    /// The caller retains `decoding.table` with the returned declarations and must
+    /// validate their Host contracts before publication. No executable evidence is
+    /// reconstructed. For example, nested Opaque value nodes become IDs owned by
+    /// that table, never IDs from the runtime receiving the artifact.
+    ///
+    /// # Errors
+    /// Rejects unresolved references and malformed, over-deep or trailing value
+    /// nodes. Serde has already bounded the vectors before this conversion.
     pub(super) fn decode(
         self,
         decoding: &DefinitionDecoding,

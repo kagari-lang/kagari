@@ -23,6 +23,7 @@ use kagari_common::{
         mapping::{DefinitionMappingError, DefinitionRecord},
         metadata::{DefinitionMetadata, PortableMetadata},
         reference::DefinitionReference,
+        scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable, wire::PortableDefinitionRef},
     },
 };
@@ -34,9 +35,9 @@ use kagari_contract::{
     ids::FunctionRef,
     slots::SemanticSlots,
 };
-use kagari_types::host_interface::HostInterface;
+use kagari_types::host_interface::{HostInterface, HostInterfaceError, wire::HostInterfaceRecord};
 use serde::{Deserialize, Serialize};
-use std::{io, io::Write};
+use std::{collections::HashSet, io, io::Write};
 
 mod limits;
 
@@ -514,11 +515,23 @@ impl ArtifactFingerprint {
                 .compare(a.id, b.id)
                 .expect("checked host identities")
         });
-        let portable = DefinitionMetadata::checked(definitions.clone(), interface, &cancel)?
-            .to_portable(&cancel)?;
+        let mut references = HashSet::new();
+        interface.visit_definition_ids(
+            &mut |id| {
+                references.insert(*id);
+                Ok(())
+            },
+            &cancel,
+        )?;
+        let encoding = definitions.encode(references)?;
+        let records =
+            HostInterfaceRecord::encode(&interface, &encoding).map_err(|error| match error {
+                HostInterfaceError::TooLarge => DefinitionMappingError::LimitExceeded,
+                _ => DefinitionMappingError::InvalidContract,
+            })?;
         Ok(Self::of_serialized(&(
             "kagari-required-host-interface-v3",
-            portable,
+            (records, encoding.table),
         )))
     }
 

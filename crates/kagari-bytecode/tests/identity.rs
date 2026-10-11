@@ -13,7 +13,7 @@ use kagari_common::{
     identity::{
         DefinitionKind, ModuleIdentity, PackageId,
         map::DefinitionContext,
-        metadata::{DefinitionMetadata, scope_record},
+        metadata::DefinitionMetadata,
         table::wire::{PortableDefinitionRef, PortableDefinitionTable},
     },
 };
@@ -160,11 +160,11 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
         value_type::HostValueType,
     };
-    let mut root = HostTypeDeclaration::new("game.Player");
+    let mut root = HostTypeDeclaration::new(&context, "game.Player").unwrap();
     root.ownership = HostTypeOwnership::HostRoot;
     root.path_access = PathAccess::ReadOnly;
     let path = HostPathDeclaration {
-        root: root.id.clone(),
+        root: root.id,
         segments: vec![HostPathSegmentDeclaration::Virtual(
             HostVirtualSegmentDeclaration {
                 name: "preview".into(),
@@ -178,14 +178,10 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     let mut module = BytecodeModule::default();
     module.host_interface.types.push(root);
     module.host_interface.paths.push(path.clone());
-    let adopted = scope_record(&module, &CancellationToken::default())
-        .unwrap()
-        .import_into(&context, &CancellationToken::default())
-        .unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
             root: ModuleRef::new(0),
-            modules: vec![adopted.into_records()],
+            modules: vec![module],
         },
         ArtifactBuildOptions::default(),
         &context,
@@ -207,7 +203,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
             .resolve(decoded_path.root)
             .unwrap()
             .to_path(),
-        path.root
+        context.snapshot().resolve(path.root).unwrap().to_path()
     );
     assert_eq!(decoded_path.schema_epoch, path.schema_epoch);
     assert_eq!(
@@ -267,7 +263,9 @@ fn artifact_preserves_portable_virtual_path_declarations() {
 #[test]
 fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
     use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, standard_log, value_type::HostValueType,
+        HostFunctionDeclaration, HostInterface, standard_log,
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
     };
     let context = DefinitionContext::new().unwrap();
     let cancel = CancellationToken::default();
@@ -291,9 +289,13 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
         effects: Default::default(),
         documentation: String::new(),
     };
+    let mut object = HostTypeDeclaration::new(&context, "host.Object").unwrap();
+    object
+        .fields
+        .push(HostFieldDeclaration::new(&context, object.id, "count", HostValueType::I32).unwrap());
     let interface = HostInterface {
         paths: vec![],
-        types: vec![],
+        types: vec![object],
         functions: vec![log.into_records(), other],
     };
     let definitions = context.snapshot();
@@ -301,6 +303,8 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
     let mut reordered = interface.clone();
     reordered.functions.reverse();
     reordered.functions[0].documentation = "different docs".into();
+    reordered.types[0].documentation = "different type docs".into();
+    reordered.types[0].fields[0].documentation = "different member docs".into();
     assert_eq!(
         fingerprint,
         ArtifactFingerprint::of_host_interface(&reordered, &definitions).unwrap()
@@ -323,6 +327,13 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
         fingerprint,
         ArtifactFingerprint::of_host_interface(independent.records(), independent.definitions())
             .unwrap()
+    );
+    assert!(ArtifactFingerprint::of_host_interface(&interface, independent.definitions()).is_err());
+    let mut changed_member = reordered.clone();
+    changed_member.types[0].fields[0].ty = HostValueType::I64;
+    assert_ne!(
+        fingerprint,
+        ArtifactFingerprint::of_host_interface(&changed_member, &definitions).unwrap()
     );
     reordered.functions[0].effects.may_trap = true;
     assert_ne!(

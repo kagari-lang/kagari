@@ -2445,3 +2445,53 @@ files with zero violations/exceptions; formatting and diff checks pass. No full
 workspace/backend matrix, artifact regeneration or performance measurement ran.
 The prior compiler lib-test fixture failure remains open, along with aggregate wire
 migration, shared model parameter removal and final integration/document cleanup.
+
+### SI05 shared Host wire owner for required ABI fingerprints
+
+KBC's required-Host-ABI fingerprint was still independently rebinding HostInterface
+to file-reference semantic records. It now collects the scoped reference closure
+and uses HostInterfaceRecord from the existing Host wire owner. That opaque record
+has private fields and a fixed-ID encode API taking an explicit DefinitionEncoding;
+its nested records and decoding remain internal to the Host owner. This is an actual
+cross-crate codec consumer, not an unused forwarding layer or a second semantic
+implementation. The module is documented as codec-only. No new re-export is added.
+
+KBC retains its existing policy: validate the complete supplying scope, omit paths,
+clear declaration/member documentation, sort the declaration set by exact identity,
+and hash the same domain plus ordered record/table fields. The codec owns only
+bounded value shape and reference conversion; it does not grant Host validity or
+execution evidence. KBC/MIR aggregate envelope conversion and shared semantic model
+generics remain outstanding. The broader of_record rebinding API still serves those
+unmigrated executable/public-item records and remains an SI05/SI06 removal target.
+
+The existing required-ABI test also checks type/member documentation exclusion,
+member type sensitivity and foreign snapshot rejection. Its independent context
+already preallocates references in a different order. A stale constructor in the
+same identity target caused five compile errors before test execution; the virtual
+path fixture now creates its Host root in the explicit context and no longer uses
+scope_record. Its canonical bytes, scope retention, cross-context import, verification
+and forged-reference assertions are preserved.
+
+Focused local validation:
+
+- `cargo test -p kagari-bytecode --test identity --message-format=short
+  --no-fail-fast`: six cases pass after that fixture repair, covering canonical ABI
+  hashing, artifact verification, resource limits, malformed envelopes and retained
+  path identity. The initially filtered fingerprint command did not execute tests
+  until the target's constructor error was repaired.
+- `cargo test -p kagari-types --lib host_interface::wire:: --message-format=short
+  --no-fail-fast`: the existing forged KHI reference case passes after the record
+  rename.
+- `cargo test -p kagari-runtime --test offline_host
+  module_load_and_reload_require_matching_bindings_before_publication
+  --message-format=short --no-fail-fast`: one directly affected publication/reload
+  case passes; unrelated cases are filtered.
+- `cargo clippy -p kagari-bytecode --lib --message-format=short -- -D warnings`
+  passes, including the final restriction of the unneeded cross-crate decode API.
+
+Manual review verifies private field ownership, explicit imports, the retained
+source-scope check before fingerprint exclusions, scalar/field serialization order,
+error propagation and the unchanged hash domain. Structure checks 1063 Rust files
+with no violations/exceptions; formatting and diff checks pass. No workspace/backend
+matrix or performance measurement ran. The previously recorded compiler lib-test
+fixture failure and the remaining coupled aggregate/model migration remain open.

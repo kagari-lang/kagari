@@ -459,7 +459,11 @@ impl<I> Default for HostInterface<I> {
 }
 
 mod mapping;
-mod wire;
+
+/// Bounded Host wire records shared by artifact codec owners.
+/// Semantic callers use the scoped declarations and publication APIs.
+#[doc(hidden)]
+pub mod wire;
 
 #[cfg(test)]
 mod scoped_tests;

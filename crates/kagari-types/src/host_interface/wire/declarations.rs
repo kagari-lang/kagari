@@ -411,7 +411,7 @@ mod tests {
     use super::*;
     use crate::host_interface::{
         HostInterface, MAGIC, VERSION, codec,
-        wire::{Envelope, WireHostInterface},
+        wire::{Envelope, HostInterfaceRecord},
     };
     use bincode::Options;
     use kagari_common::identity::map::DefinitionContext;
@@ -424,7 +424,7 @@ mod tests {
             ..Default::default()
         };
         let bytes = interface.to_bytes(&context.snapshot()).unwrap();
-        let mut envelope: Envelope<WireHostInterface> = codec().deserialize(&bytes[6..]).unwrap();
+        let mut envelope: Envelope<HostInterfaceRecord> = codec().deserialize(&bytes[6..]).unwrap();
         envelope.records.types[0].id = codec().deserialize(&u32::MAX.to_le_bytes()).unwrap();
         let mut invalid = MAGIC.to_vec();
         invalid.extend(VERSION.to_le_bytes());
