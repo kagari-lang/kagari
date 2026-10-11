@@ -4,11 +4,13 @@ use crate::{
     surface::StandardTypeConstraint,
     ty::substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES},
 };
+use kagari_common::identity::table::DefinitionId;
+
 /// Intrinsic standard constraints of portable host values. Collections use shared
 /// identity; tuple/Option/Result equality and hashing recurse into their payloads.
 /// Nominal host objects need declared trait implementations, not this fallback.
-pub fn satisfies_standard_constraint<I>(
-    ty: &HostValueType<I>,
+pub fn satisfies_standard_constraint(
+    ty: &HostValueType<DefinitionId>,
     constraint: StandardTypeConstraint,
 ) -> bool {
     if matches!(
@@ -64,11 +66,13 @@ pub fn satisfies_standard_constraint<I>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_common::identity::DefinitionPath;
+    use crate::language::binding;
+    use kagari_common::identity::map::DefinitionContext;
 
     #[test]
     fn host_standard_constraints_distinguish_payload_and_collection_identity() {
-        let float: HostValueType = HostValueType::F64;
+        let context = DefinitionContext::new().unwrap();
+        let float: HostValueType<DefinitionId> = HostValueType::F64;
         assert!(satisfies_standard_constraint(
             &float,
             StandardTypeConstraint::Comparable
@@ -78,7 +82,10 @@ mod tests {
             StandardTypeConstraint::HashKey
         ));
         assert!(!satisfies_standard_constraint(
-            &HostValueType::option(float.clone()),
+            &HostValueType::Option(
+                context.intern(&binding::option_declaration()).unwrap(),
+                Box::new(float.clone())
+            ),
             StandardTypeConstraint::HashKey
         ));
         let array = HostValueType::Array(Box::new(float));
@@ -91,11 +98,11 @@ mod tests {
             StandardTypeConstraint::Comparable
         ));
         assert!(!satisfies_standard_constraint(
-            &HostValueType::<DefinitionPath>::Bool,
+            &HostValueType::<DefinitionId>::Bool,
             StandardTypeConstraint::SignedNumber
         ));
         assert!(satisfies_standard_constraint(
-            &HostValueType::<DefinitionPath>::F32,
+            &HostValueType::<DefinitionId>::F32,
             StandardTypeConstraint::SignedNumber
         ));
     }

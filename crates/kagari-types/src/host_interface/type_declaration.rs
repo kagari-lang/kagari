@@ -483,74 +483,88 @@ fn validate_member(
 
 #[cfg(test)]
 mod tests {
-    use crate::host_interface::test_support::{
-        FingerprintFixture, InterfaceFixture, TypeFixture, ValidateFixture, decode_fixture,
-        encode_unchecked_fixture,
-    };
+    use crate::host_interface::test_support::{decode_fixture, encode_unchecked_fixture};
 
     use super::*;
-    use crate::host_interface::{HostInterface, host_type_identity};
-    use kagari_common::identity::{
-        DefinitionPathSegment, ModuleIdentity, PackageId, map::DefinitionContext,
-        metadata::scope_record,
-    };
+    use crate::host_interface::HostInterface;
+    use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
 
-    fn script_trait(name: &str) -> DefinitionPath {
-        DefinitionPath {
-            module: ModuleIdentity {
+    fn script_trait(context: &DefinitionContext, name: &str) -> DefinitionId {
+        let module = context
+            .intern_root(&ModuleIdentity {
                 package: PackageId("pkg".into()),
                 path: vec!["api".into()],
-            },
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Trait,
-                name: name.into(),
-                occurrence: 0,
-            }],
-        }
+            })
+            .unwrap();
+        context
+            .intern_child(module, DefinitionKind::Trait, name, 0)
+            .unwrap()
     }
 
     #[test]
     fn host_trait_bindings_round_trip_and_validate_method_ownership() {
-        let mut owner = HostTypeDeclaration::new("demo.Counter");
-        let method = HostMethodDeclaration::new(&owner.id, "read", vec![], HostValueType::I32);
+        let context = DefinitionContext::new().unwrap();
+        let mut owner = HostTypeDeclaration::new(&context, "demo.Counter").unwrap();
+        let method =
+            HostMethodDeclaration::new(&context, owner.id, "read", vec![], HostValueType::I32)
+                .unwrap();
         owner.methods.push(method.clone());
-        let trait_id = script_trait("Readable");
-        let mut trait_method = trait_id.clone();
-        trait_method.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Method,
-            name: "get".into(),
-            occurrence: 0,
-        });
+        let trait_id = script_trait(&context, "Readable");
+        let trait_method = context
+            .intern_child(trait_id, DefinitionKind::Method, "get", 0)
+            .unwrap();
         owner
             .trait_implementations
             .push(HostTraitImplementationDeclaration::new(
-                trait_id.clone(),
+                trait_id,
                 vec![],
                 vec![HostTraitMethodBinding {
-                    trait_method: trait_method.clone(),
-                    host_method: method.id.clone(),
+                    trait_method: trait_method,
+                    host_method: method.id,
                 }],
             ));
-        owner.validate_fixture().unwrap();
+        owner.validate(&context.snapshot()).unwrap();
         let interface = HostInterface {
             paths: vec![],
             types: vec![owner.clone()],
             functions: vec![],
         };
         assert_eq!(
-            decode_fixture(&interface.encode_fixture().unwrap()).unwrap(),
+            decode_fixture(&interface.to_bytes(&context.snapshot()).unwrap(), &context).unwrap(),
             interface
         );
-        let fingerprint = owner.fingerprint_fixture().unwrap();
+        let fingerprint = owner.fingerprint(&context.snapshot()).unwrap();
         owner.trait_implementations[0].documentation = "For the editor".into();
-        assert_eq!(owner.fingerprint_fixture().unwrap(), fingerprint);
+        assert_eq!(owner.fingerprint(&context.snapshot()).unwrap(), fingerprint);
         for corruption in 0..5 {
             let mut invalid = owner.clone();
             let implementation = &mut invalid.trait_implementations[0];
             match corruption {
-                0 => implementation.trait_id.path[0].kind = DefinitionKind::Struct,
-                1 => implementation.methods[0].trait_method.path[0].name = "Other".into(),
-                2 => implementation.methods[0].host_method.path[1].name = "missing".into(),
+                0 => {
+                    implementation.trait_id = context
+                        .intern_child(
+                            context.snapshot().parent(trait_id).unwrap().unwrap(),
+                            DefinitionKind::Struct,
+                            "Readable",
+                            0,
+                        )
+                        .unwrap()
+                }
+                1 => {
+                    implementation.methods[0].trait_method = context
+                        .intern_child(
+                            script_trait(&context, "Other"),
+                            DefinitionKind::Method,
+                            "get",
+                            0,
+                        )
+                        .unwrap()
+                }
+                2 => {
+                    implementation.methods[0].host_method = context
+                        .intern_child(owner.id, DefinitionKind::Method, "missing", 0)
+                        .unwrap()
+                }
                 3 => implementation
                     .methods
                     .push(implementation.methods[0].clone()),
@@ -559,21 +573,27 @@ mod tests {
                     .push(invalid.trait_implementations[0].clone()),
             }
             assert!(
-                invalid.validate_fixture().is_err(),
+                invalid.validate(&context.snapshot()).is_err(),
                 "corruption {corruption}"
             );
         }
         let mut changed = owner.clone();
         changed.trait_implementations.clear();
-        assert_ne!(changed.fingerprint_fixture().unwrap(), fingerprint);
+        assert_ne!(
+            changed.fingerprint(&context.snapshot()).unwrap(),
+            fingerprint
+        );
 
         let mut applied = owner.clone();
         applied.trait_implementations[0].trait_arguments = vec![HostValueType::I32];
-        assert_ne!(applied.fingerprint_fixture().unwrap(), fingerprint);
+        assert_ne!(
+            applied.fingerprint(&context.snapshot()).unwrap(),
+            fingerprint
+        );
         let mut disjoint = applied.trait_implementations[0].clone();
         disjoint.trait_arguments = vec![HostValueType::Bool];
         applied.trait_implementations.push(disjoint);
-        applied.validate_fixture().unwrap();
+        applied.validate(&context.snapshot()).unwrap();
         assert_eq!(
             decode_fixture(
                 &HostInterface {
@@ -581,8 +601,9 @@ mod tests {
                     types: vec![applied.clone()],
                     functions: vec![],
                 }
-                .encode_fixture()
-                .unwrap()
+                .to_bytes(&context.snapshot())
+                .unwrap(),
+                &context
             )
             .unwrap()
             .types,
@@ -590,32 +611,33 @@ mod tests {
         );
         applied.trait_implementations[1].trait_arguments = vec![HostValueType::I32];
         assert_eq!(
-            applied.validate_fixture(),
+            applied.validate(&context.snapshot()),
             Err(HostInterfaceError::DuplicateDeclaration)
         );
-        applied.trait_implementations[1].trait_arguments =
-            vec![HostValueType::Opaque(host_type_identity("demo.Missing"))];
+        applied.trait_implementations[1].trait_arguments = vec![HostValueType::Opaque(
+            HostTypeDeclaration::new(&context, "demo.Missing")
+                .unwrap()
+                .id,
+        )];
         assert_eq!(
             HostInterface {
                 paths: vec![],
                 types: vec![applied],
                 functions: vec![],
             }
-            .validate_fixture(),
+            .validate(&context.snapshot()),
             Err(HostInterfaceError::InvalidDeclaration)
         );
     }
 
     #[test]
     fn associated_outputs_are_bounded_owned_and_fingerprinted() {
-        let mut owner = HostTypeDeclaration::new("demo.Counter");
-        let trait_id = script_trait("Reader");
-        let mut output = trait_id.clone();
-        output.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::AssociatedType,
-            name: "Item".into(),
-            occurrence: 0,
-        });
+        let context = DefinitionContext::new().unwrap();
+        let mut owner = HostTypeDeclaration::new(&context, "demo.Counter").unwrap();
+        let trait_id = script_trait(&context, "Reader");
+        let output = context
+            .intern_child(trait_id, DefinitionKind::AssociatedType, "Item", 0)
+            .unwrap();
         let mut implementation = HostTraitImplementationDeclaration::new(trait_id, vec![], vec![]);
         implementation
             .associated_types
@@ -628,14 +650,17 @@ mod tests {
             types: vec![owner.clone()],
             ..Default::default()
         };
-        let mut bytes = interface.encode_fixture().unwrap();
-        assert_eq!(decode_fixture(&bytes).unwrap(), interface);
+        let mut bytes = interface.to_bytes(&context.snapshot()).unwrap();
+        assert_eq!(decode_fixture(&bytes, &context).unwrap(), interface);
         bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
-        assert!(decode_fixture(&bytes).is_err());
-        let fingerprint = owner.fingerprint_fixture().unwrap();
+        assert!(decode_fixture(&bytes, &context).is_err());
+        let fingerprint = owner.fingerprint(&context.snapshot()).unwrap();
         let mut changed = owner.clone();
         changed.trait_implementations[0].associated_types[0].ty = HostValueType::I64;
-        assert_ne!(changed.fingerprint_fixture().unwrap(), fingerprint);
+        assert_ne!(
+            changed.fingerprint(&context.snapshot()).unwrap(),
+            fingerprint
+        );
         for mutation in 0..4 {
             let mut invalid = owner.clone();
             let implementation = &mut invalid.trait_implementations[0];
@@ -643,14 +668,20 @@ mod tests {
                 0 => implementation
                     .associated_types
                     .push(implementation.associated_types[0].clone()),
-                1 => implementation.associated_types[0].declaration.path[0].name = "Other".into(),
-                2 => {
-                    implementation.associated_types[0]
-                        .declaration
-                        .path
-                        .last_mut()
+                1 => {
+                    implementation.associated_types[0].declaration = context
+                        .intern_child(
+                            script_trait(&context, "Other"),
+                            DefinitionKind::AssociatedType,
+                            "Item",
+                            0,
+                        )
                         .unwrap()
-                        .kind = DefinitionKind::Method
+                }
+                2 => {
+                    implementation.associated_types[0].declaration = context
+                        .intern_child(trait_id, DefinitionKind::Method, "Item", 0)
+                        .unwrap()
                 }
                 _ => implementation.associated_types.resize(
                     super::decode_limits::MAX_MEMBERS + 1,
@@ -658,7 +689,7 @@ mod tests {
                 ),
             }
             assert!(
-                invalid.validate_fixture().is_err(),
+                invalid.validate(&context.snapshot()).is_err(),
                 "accepted mutation {mutation}"
             );
         }
@@ -666,23 +697,24 @@ mod tests {
 
     #[test]
     fn callable_method_contracts_cannot_override_their_declaring_member() {
-        let mut owner = HostTypeDeclaration::new("demo.Counter");
-        let mut method = HostMethodDeclaration::new(&owner.id, "add", vec![], HostValueType::I32);
+        let context = DefinitionContext::new().unwrap();
+        let mut owner = HostTypeDeclaration::new(&context, "demo.Counter").unwrap();
+        let mut method =
+            HostMethodDeclaration::new(&context, owner.id, "add", vec![], HostValueType::I32)
+                .unwrap();
         method.receiver = HostPassingStyle::UniqueBorrow;
         owner.methods.push(method);
-        let call = owner.method_fixture(&owner.methods[0].id).unwrap();
-        let scope = scope_record(&call, &Default::default()).unwrap();
-        assert_eq!(
-            scope.records().method_owner(scope.definitions()),
-            scope.definitions().lookup(&owner.id)
-        );
+        let call = owner
+            .method_contract(&owner.methods[0].id, &context.snapshot())
+            .unwrap();
+        assert_eq!(call.method_owner(&context.snapshot()), Some(owner.id));
         let valid = HostInterface {
             paths: vec![],
             types: vec![owner.clone()],
             functions: vec![call],
         };
         assert_eq!(
-            decode_fixture(&valid.encode_fixture().unwrap()).unwrap(),
+            decode_fixture(&valid.to_bytes(&context.snapshot()).unwrap(), &context).unwrap(),
             valid
         );
         for corruption in 0..5 {
@@ -694,10 +726,14 @@ mod tests {
                 3 => {
                     invalid.types.clear();
                 }
-                _ => invalid.functions[0].id.path.last_mut().unwrap().name = "missing".into(),
+                _ => {
+                    invalid.functions[0].id = context
+                        .intern_child(owner.id, DefinitionKind::Method, "missing", 0)
+                        .unwrap()
+                }
             }
             assert!(
-                invalid.validate_fixture().is_err(),
+                invalid.validate(&context.snapshot()).is_err(),
                 "corruption {corruption}"
             );
         }
@@ -706,18 +742,17 @@ mod tests {
             ty: HostValueType::I32,
             passing: HostPassingStyle::Owned,
         });
-        assert!(owner.validate_fixture().is_err());
+        assert!(owner.validate(&context.snapshot()).is_err());
     }
 
     #[test]
     fn interface_encoding_is_canonical_and_rejects_old_memberless_formats() {
-        let mut a = HostTypeDeclaration::new("pkg.A");
-        let b = HostTypeDeclaration::new("pkg.B");
-        a.fields.push(HostFieldDeclaration::new(
-            &a.id,
-            "b",
-            HostValueType::Opaque(b.id.clone()),
-        ));
+        let context = DefinitionContext::new().unwrap();
+        let mut a = HostTypeDeclaration::new(&context, "pkg.A").unwrap();
+        let b = HostTypeDeclaration::new(&context, "pkg.B").unwrap();
+        a.fields.push(
+            HostFieldDeclaration::new(&context, a.id, "b", HostValueType::Opaque(b.id)).unwrap(),
+        );
         let first = HostInterface {
             paths: vec![],
             types: vec![a.clone(), b.clone()],
@@ -728,9 +763,9 @@ mod tests {
             types: vec![b, a],
             functions: vec![],
         };
-        let bytes = first.encode_fixture().unwrap();
-        assert_eq!(bytes, second.encode_fixture().unwrap());
-        assert_eq!(decode_fixture(&bytes).unwrap(), first);
+        let bytes = first.to_bytes(&context.snapshot()).unwrap();
+        assert_eq!(bytes, second.to_bytes(&context.snapshot()).unwrap());
+        assert_eq!(decode_fixture(&bytes, &context).unwrap(), first);
         let decoded = HostInterface::<DefinitionId>::from_bytes(&bytes).unwrap();
         assert_eq!(
             decoded.records().to_bytes(decoded.definitions()).unwrap(),
@@ -761,56 +796,75 @@ mod tests {
         for version in 1_u16..crate::host_interface::VERSION {
             let mut old = bytes.clone();
             old[4..6].copy_from_slice(&version.to_le_bytes());
-            assert_eq!(decode_fixture(&old), Err(HostInterfaceError::Version));
+            assert_eq!(
+                decode_fixture(&old, &context),
+                Err(HostInterfaceError::Version)
+            );
         }
     }
 
     #[test]
     fn invalid_member_owners_access_signatures_and_reference_closure_are_rejected() {
-        let mut a = HostTypeDeclaration::new("pkg.A");
-        let b = HostTypeDeclaration::new("pkg.B");
-        a.fields.push(HostFieldDeclaration::new(
-            &b.id,
-            "value",
-            HostValueType::I32,
-        ));
-        assert!(a.validate_fixture().is_err());
-        a.fields[0] = HostFieldDeclaration::new(&a.id, "value", HostValueType::I32);
+        let context = DefinitionContext::new().unwrap();
+        let mut a = HostTypeDeclaration::new(&context, "pkg.A").unwrap();
+        let b = HostTypeDeclaration::new(&context, "pkg.B").unwrap();
+        a.fields
+            .push(HostFieldDeclaration::new(&context, b.id, "value", HostValueType::I32).unwrap());
+        assert!(a.validate(&context.snapshot()).is_err());
+        a.fields[0] =
+            HostFieldDeclaration::new(&context, a.id, "value", HostValueType::I32).unwrap();
         a.fields[0].path_access = PathAccess::ReadWrite;
-        assert!(a.validate_fixture().is_err());
+        assert!(a.validate(&context.snapshot()).is_err());
         a.fields[0].writable = true;
-        a.validate_fixture().unwrap();
+        a.validate(&context.snapshot()).unwrap();
         a.fields.push(a.fields[0].clone());
         assert_eq!(
-            a.validate_fixture(),
+            a.validate(&context.snapshot()),
             Err(HostInterfaceError::DuplicateDeclaration)
         );
         a.fields.pop();
-        a.methods.push(HostMethodDeclaration::new(
-            &a.id,
-            "borrow",
-            vec![HostParameter {
-                name: "x".into(),
-                ty: HostValueType::I32,
-                passing: HostPassingStyle::SharedBorrow,
-            }],
-            HostValueType::Unit,
-        ));
-        assert!(a.validate_fixture().is_err());
+        a.methods.push(
+            HostMethodDeclaration::new(
+                &context,
+                a.id,
+                "borrow",
+                vec![HostParameter {
+                    name: "x".into(),
+                    ty: HostValueType::I32,
+                    passing: HostPassingStyle::SharedBorrow,
+                }],
+                HostValueType::Unit,
+            )
+            .unwrap(),
+        );
+        assert!(a.validate(&context.snapshot()).is_err());
         a.methods.clear();
-        a.fields[0].ty = HostValueType::Opaque(b.id.clone());
+        a.fields[0].ty = HostValueType::Opaque(b.id);
         let mut interface = HostInterface {
             paths: vec![],
             types: vec![a],
             functions: vec![],
         };
-        assert!(interface.validate_fixture().is_err());
+        assert!(interface.validate(&context.snapshot()).is_err());
         interface.types.push(b);
-        interface.validate_fixture().unwrap();
-        interface.types[0].fields[0].id.module.package.0 = "foreign".into();
+        interface.validate(&context.snapshot()).unwrap();
+        let mut foreign_module = context
+            .snapshot()
+            .resolve(interface.types[0].id)
+            .unwrap()
+            .module()
+            .clone();
+        foreign_module.package = PackageId("foreign".into());
+        let foreign_root = context.intern_root(&foreign_module).unwrap();
+        let foreign_owner = context
+            .intern_child(foreign_root, DefinitionKind::Struct, "A", 0)
+            .unwrap();
+        interface.types[0].fields[0].id = context
+            .intern_child(foreign_owner, DefinitionKind::Field, "value", 0)
+            .unwrap();
         // Bypass to_bytes validation to model malformed untrusted wire input.
-        let bytes = encode_unchecked_fixture(&interface).unwrap();
-        assert!(decode_fixture(&bytes).is_err());
+        let bytes = encode_unchecked_fixture(&interface, &context.snapshot()).unwrap();
+        assert!(decode_fixture(&bytes, &context).is_err());
     }
 }
 

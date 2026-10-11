@@ -373,39 +373,38 @@ fn read_only_collection(ty: &HostValueType<DefinitionId>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::host_interface::test_support::{
-        FingerprintFixture, InterfaceFixture, PathFixture, ValidateFixture, decode_fixture,
-    };
+    use crate::host_interface::test_support::decode_fixture;
 
-    use kagari_common::identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-    };
+    use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 
     #[test]
     fn index_contract_cannot_upgrade_readonly_collection_access() {
-        let mut index = super::HostIndexSegmentDeclaration {
+        let context = DefinitionContext::new().unwrap();
+        let mut index = HostIndexSegmentDeclaration {
             slot: 0,
-            collection: super::HostValueType::List(
-                DefinitionPath {
-                    module: ModuleIdentity::single_file("collections.kgr"),
-                    path: vec![DefinitionPathSegment {
-                        kind: DefinitionKind::Trait,
-                        name: "List".into(),
-                        occurrence: 0,
-                    }],
-                },
-                Box::new(super::HostValueType::I32),
+            collection: HostValueType::List(
+                context
+                    .intern_child(
+                        context
+                            .intern_root(&ModuleIdentity::single_file("collections.kgr"))
+                            .unwrap(),
+                        DefinitionKind::Trait,
+                        "List",
+                        0,
+                    )
+                    .unwrap(),
+                Box::new(HostValueType::I32),
             ),
-            index: super::HostValueType::I32,
-            result: super::HostValueType::I32,
-            access: super::PathAccess::ReadWrite,
+            index: HostValueType::I32,
+            result: HostValueType::I32,
+            access: PathAccess::ReadWrite,
         };
-        assert!(index.validate_fixture().is_err());
-        index.access = super::PathAccess::ReadOnly;
-        index.validate_fixture().unwrap();
-        index.collection = super::HostValueType::Array(Box::new(super::HostValueType::I32));
-        index.access = super::PathAccess::ReadWrite;
-        index.validate_fixture().unwrap();
+        assert!(index.validate(&context.snapshot()).is_err());
+        index.access = PathAccess::ReadOnly;
+        index.validate(&context.snapshot()).unwrap();
+        index.collection = HostValueType::Array(Box::new(HostValueType::I32));
+        index.access = PathAccess::ReadWrite;
+        index.validate(&context.snapshot()).unwrap();
     }
 
     use super::*;
@@ -413,16 +412,18 @@ mod tests {
 
     #[test]
     fn mixed_path_roundtrips_offline_and_rejects_broken_segment_contracts() {
-        let mut root = HostTypeDeclaration::new("game.Inventory");
+        let context = DefinitionContext::new().unwrap();
+        let mut root = HostTypeDeclaration::new(&context, "game.Inventory").unwrap();
         root.ownership = HostTypeOwnership::HostRoot;
         root.path_access = PathAccess::ReadWrite;
         let items_type = HostValueType::Array(Box::new(HostValueType::I32));
-        let mut items = HostFieldDeclaration::new(&root.id, "items", items_type.clone());
+        let mut items =
+            HostFieldDeclaration::new(&context, root.id, "items", items_type.clone()).unwrap();
         items.path_access = PathAccess::ReadWrite;
         items.writable = true;
         root.fields.push(items.clone());
         let declaration = HostPathDeclaration {
-            root: root.id.clone(),
+            root: root.id,
             segments: vec![
                 HostPathSegmentDeclaration::Field(items.id),
                 HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
@@ -446,25 +447,25 @@ mod tests {
             functions: vec![],
             paths: vec![declaration.clone()],
         };
-        let bytes = interface.encode_fixture().unwrap();
-        let decoded = decode_fixture(&bytes).unwrap();
+        let bytes = interface.to_bytes(&context.snapshot()).unwrap();
+        let decoded = decode_fixture(&bytes, &context).unwrap();
         assert_eq!(decoded, interface);
         assert_eq!(
             declaration
-                .contract_fixture(&interface)
+                .contract(&interface, &context.snapshot())
                 .unwrap()
-                .fingerprint_fixture()
+                .fingerprint(&context.snapshot())
                 .unwrap(),
             decoded.paths[0]
-                .contract_fixture(&decoded)
+                .contract(&decoded, &context.snapshot())
                 .unwrap()
-                .fingerprint_fixture()
+                .fingerprint(&context.snapshot())
                 .unwrap()
         );
         let mut old = bytes.clone();
         old[4..6].copy_from_slice(&6u16.to_le_bytes());
         assert!(matches!(
-            decode_fixture(&old),
+            decode_fixture(&old, &context),
             Err(HostInterfaceError::Version)
         ));
 
@@ -475,15 +476,19 @@ mod tests {
             panic!("expected index segment");
         }
         assert_eq!(
-            broken.validate_fixture(),
+            broken.validate(&context.snapshot()),
             Err(HostInterfaceError::InvalidDeclaration)
         );
         if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
             index.collection = HostValueType::Array(Box::new(HostValueType::I32));
-            index.index = HostValueType::opaque("game.Missing");
+            index.index = HostValueType::Opaque(
+                HostTypeDeclaration::new(&context, "game.Missing")
+                    .unwrap()
+                    .id,
+            );
         }
         assert_eq!(
-            broken.validate_fixture(),
+            broken.validate(&context.snapshot()),
             Err(HostInterfaceError::InvalidDeclaration)
         );
         if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
@@ -491,22 +496,25 @@ mod tests {
             index.slot = 1;
         }
         assert_eq!(
-            broken.validate_fixture(),
+            broken.validate(&context.snapshot()),
             Err(HostInterfaceError::InvalidDeclaration)
         );
     }
 
     #[test]
     fn nested_field_contracts_resolve_nominal_owners_without_runtime_registration() {
-        let mut child = HostTypeDeclaration::new("game.Child");
-        let mut count = HostFieldDeclaration::new(&child.id, "count", HostValueType::I32);
+        let context = DefinitionContext::new().unwrap();
+        let mut child = HostTypeDeclaration::new(&context, "game.Child").unwrap();
+        let mut count =
+            HostFieldDeclaration::new(&context, child.id, "count", HostValueType::I32).unwrap();
         count.path_access = PathAccess::ReadOnly;
         child.fields.push(count.clone());
-        let mut root = HostTypeDeclaration::new("game.Root");
+        let mut root = HostTypeDeclaration::new(&context, "game.Root").unwrap();
         root.ownership = HostTypeOwnership::HostRoot;
         root.path_access = PathAccess::ReadOnly;
         let mut nested =
-            HostFieldDeclaration::new(&root.id, "child", HostValueType::Opaque(child.id.clone()));
+            HostFieldDeclaration::new(&context, root.id, "child", HostValueType::Opaque(child.id))
+                .unwrap();
         nested.path_access = PathAccess::ReadOnly;
         root.fields.push(nested.clone());
         let catalog = HostInterface {
@@ -514,71 +522,74 @@ mod tests {
             types: vec![root.clone(), child],
             functions: vec![],
         };
-        let fields = [nested.id.clone(), count.id.clone()];
+        let fields = [nested.id, count.id];
         let declaration = HostPathDeclaration {
-            root: root.id.clone(),
+            root: root.id,
             segments: fields
                 .iter()
-                .cloned()
+                .copied()
                 .map(HostPathSegmentDeclaration::Field)
                 .collect(),
             access: PathAccess::ReadOnly,
             schema_epoch: 7,
         };
-        let contract = declaration.contract_fixture(&catalog).unwrap();
+        let contract = declaration.contract(&catalog, &context.snapshot()).unwrap();
         let mut published = catalog.clone();
         let mut next_schema = declaration.clone();
         next_schema.schema_epoch = 8;
         published.paths = vec![declaration.clone(), next_schema];
-        let encoded = published.encode_fixture().unwrap();
+        let encoded = published.to_bytes(&context.snapshot()).unwrap();
         published.paths.reverse();
-        assert_eq!(encoded, published.encode_fixture().unwrap());
-        let decoded_paths = decode_fixture(&encoded).unwrap();
+        assert_eq!(encoded, published.to_bytes(&context.snapshot()).unwrap());
+        let decoded_paths = decode_fixture(&encoded, &context).unwrap();
         assert_eq!(decoded_paths.paths.len(), 2);
         assert!(
             decoded_paths
                 .paths
                 .iter()
-                .all(|path| path.contract_fixture(&decoded_paths).is_ok())
+                .all(|path| path.contract(&decoded_paths, &context.snapshot()).is_ok())
         );
         published.paths.push(declaration.clone());
         assert_eq!(
-            published.validate_fixture(),
+            published.validate(&context.snapshot()),
             Err(HostInterfaceError::DuplicateDeclaration)
         );
         published.paths = vec![declaration.clone()];
-        published.paths[0].segments =
-            vec![HostPathSegmentDeclaration::Field(count.id.clone()); 257];
+        published.paths[0].segments = vec![HostPathSegmentDeclaration::Field(count.id); 257];
         assert_eq!(
-            published.validate_fixture(),
+            published.validate(&context.snapshot()),
             Err(HostInterfaceError::TooLarge)
         );
         assert_eq!(contract.result, HostValueType::I32);
         assert_eq!(contract.segments.len(), 2);
-        let decoded = decode_fixture(&catalog.encode_fixture().unwrap()).unwrap();
+        let decoded =
+            decode_fixture(&catalog.to_bytes(&context.snapshot()).unwrap(), &context).unwrap();
         assert_eq!(
-            contract.fingerprint_fixture().unwrap(),
+            contract.fingerprint(&context.snapshot()).unwrap(),
             declaration
-                .contract_fixture(&decoded)
+                .contract(&decoded, &context.snapshot())
                 .unwrap()
-                .fingerprint_fixture()
+                .fingerprint(&context.snapshot())
                 .unwrap()
         );
         for invalid in [
             vec![],
-            vec![count.id.clone()],
-            vec![nested.id.clone(), nested.id],
-            vec![fields[0].clone(), count.id.clone(), count.id],
+            vec![count.id],
+            vec![nested.id, nested.id],
+            vec![fields[0], count.id, count.id],
         ] {
             assert!(
                 catalog
-                    .path_fixture(&HostPathDeclaration {
-                        segments: invalid
-                            .into_iter()
-                            .map(HostPathSegmentDeclaration::Field)
-                            .collect(),
-                        ..declaration.clone()
-                    })
+                    .path_contract(
+                        &HostPathDeclaration {
+                            segments: invalid
+                                .into_iter()
+                                .map(HostPathSegmentDeclaration::Field)
+                                .collect(),
+                            ..declaration.clone()
+                        },
+                        &context.snapshot()
+                    )
                     .is_err()
             );
         }

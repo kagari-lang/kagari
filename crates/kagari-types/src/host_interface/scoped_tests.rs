@@ -1,27 +1,33 @@
-use crate::host_interface::test_support::FingerprintFixture;
 use crate::{
     host_interface::{
-        HostFunctionDeclaration, HostInterfaceError, host_type_identity, value_type::HostValueType,
+        HostFunctionDeclaration, HostInterface, HostInterfaceError,
+        type_declaration::HostTypeDeclaration, value_type::HostValueType,
     },
     language::binding,
 };
-use kagari_common::identity::{
-    DefinitionKind, mapping::DefinitionMappingError, metadata::scope_record,
-};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 
 #[test]
 fn scoped_host_signatures_reject_foreign_and_wrong_constructor_identities() {
+    let context = DefinitionContext::new().unwrap();
+    let owner = HostTypeDeclaration::new(&context, "demo.Value").unwrap();
     let source = HostFunctionDeclaration::new(
+        &context,
         "demo.read",
         vec![],
         HostValueType::Option(
-            binding::option_declaration(),
-            Box::new(HostValueType::Opaque(host_type_identity("demo.Value"))),
+            context.intern(&binding::option_declaration()).unwrap(),
+            Box::new(HostValueType::Opaque(owner.id)),
         ),
-    );
-    let scoped = scope_record(&source, &Default::default()).unwrap();
+    )
+    .unwrap();
+    let scoped =
+        DefinitionMetadata::checked(context.snapshot(), source.clone(), &Default::default())
+            .unwrap();
     assert_eq!(scoped.records().validate(scoped.definitions()), Ok(()));
-    let foreign = scope_record(&source, &Default::default()).unwrap();
+    let foreign = scoped
+        .import_into(&DefinitionContext::new().unwrap(), &Default::default())
+        .unwrap();
     assert_eq!(
         foreign.records().validate(scoped.definitions()),
         Err(HostInterfaceError::InvalidDeclaration)
@@ -53,13 +59,18 @@ fn scoped_host_signatures_reject_foreign_and_wrong_constructor_identities() {
     let HostValueType::Opaque(id) = value.as_mut() else {
         unreachable!();
     };
-    id.path.last_mut().unwrap().kind = DefinitionKind::Function;
+    *id = wrong_source.id;
     assert_eq!(
-        wrong_source.fingerprint_fixture(),
+        wrong_source.fingerprint(&context.snapshot()),
         Err(HostInterfaceError::InvalidDeclaration)
     );
-    assert!(matches!(
-        scope_record(&wrong_source, &Default::default()),
-        Err(DefinitionMappingError::InvalidContract)
-    ));
+    let interface = HostInterface {
+        types: vec![owner],
+        functions: vec![wrong_source],
+        ..Default::default()
+    };
+    assert_eq!(
+        interface.to_bytes(&context.snapshot()),
+        Err(HostInterfaceError::InvalidDeclaration)
+    );
 }

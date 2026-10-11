@@ -385,42 +385,59 @@ impl HostValueType<DefinitionId> {
 
 #[cfg(test)]
 mod tests {
-    use crate::host_interface::test_support::{
-        FingerprintFixture, InterfaceFixture, ValidateFixture, decode_fixture,
-    };
+    use crate::host_interface::test_support::decode_fixture;
 
     use super::*;
-    use crate::host_interface::{HostFunctionDeclaration, HostInterface};
+    use crate::{
+        collection::CollectionAccess::{Mutable, ReadOnly},
+        host_interface::{HostFunctionDeclaration, HostInterface},
+    };
 
-    fn collection_identity(list: bool) -> kagari_common::identity::DefinitionPath {
-        use kagari_common::identity::{
-            DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-        };
-        DefinitionPath {
-            module: ModuleIdentity::single_file("collections.kgr"),
-            path: vec![DefinitionPathSegment {
-                kind: if list {
+    use kagari_common::identity::{
+        DefinitionKind, ModuleIdentity,
+        map::DefinitionContext,
+        metadata::{DefinitionMetadata, PortableMetadata},
+        table::wire::PortableDefinitionRef,
+    };
+
+    fn collection_identity(context: &DefinitionContext, list: bool) -> DefinitionId {
+        let root = context
+            .intern_root(&ModuleIdentity::single_file("collections.kgr"))
+            .unwrap();
+        context
+            .intern_child(
+                root,
+                if list {
                     DefinitionKind::Trait
                 } else {
                     DefinitionKind::AssociatedType
                 },
-                name: if list { "List" } else { "Vec" }.into(),
-                occurrence: 0,
-            }],
-        }
+                if list { "List" } else { "Vec" },
+                0,
+            )
+            .unwrap()
     }
 
     #[test]
     fn collection_access_round_trips_and_changes_host_binding_fingerprints() {
-        use CollectionAccess::{Mutable, ReadOnly};
+        let context = DefinitionContext::new().unwrap();
         for (writable, readable) in [
             (
                 HostValueType::Array(Box::new(HostValueType::I32)),
-                HostValueType::Vec(collection_identity(false), Box::new(HostValueType::I32)),
+                HostValueType::Vec(
+                    collection_identity(&context, false),
+                    Box::new(HostValueType::I32),
+                ),
             ),
             (
-                HostValueType::Vec(collection_identity(false), Box::new(HostValueType::I32)),
-                HostValueType::List(collection_identity(true), Box::new(HostValueType::I32)),
+                HostValueType::Vec(
+                    collection_identity(&context, false),
+                    Box::new(HostValueType::I32),
+                ),
+                HostValueType::List(
+                    collection_identity(&context, true),
+                    Box::new(HostValueType::I32),
+                ),
             ),
             (
                 HostValueType::Set(Box::new(HostValueType::String), Mutable),
@@ -439,34 +456,61 @@ mod tests {
                 },
             ),
         ] {
-            let before = HostFunctionDeclaration::new("host.read", vec![], writable.clone());
-            let after = HostFunctionDeclaration::new("host.read", vec![], readable.clone());
+            let before =
+                HostFunctionDeclaration::new(&context, "host.read", vec![], writable.clone())
+                    .unwrap();
+            let after =
+                HostFunctionDeclaration::new(&context, "host.read", vec![], readable.clone())
+                    .unwrap();
             assert_ne!(
-                before.fingerprint_fixture().unwrap(),
-                after.fingerprint_fixture().unwrap()
+                before.fingerprint(&context.snapshot()).unwrap(),
+                after.fingerprint(&context.snapshot()).unwrap()
             );
             assert!(!before.matches_binding(&after));
             assert_ne!(
-                writable.fingerprint_fixture().unwrap(),
-                readable.fingerprint_fixture().unwrap()
+                writable.fingerprint(&context.snapshot()).unwrap(),
+                readable.fingerprint(&context.snapshot()).unwrap()
             );
             for ty in [writable, readable] {
-                let bytes = bincode::serialize(&ty).unwrap();
-                assert_eq!(bincode::deserialize::<HostValueType>(&bytes).unwrap(), ty);
+                let metadata = DefinitionMetadata::checked(
+                    context.snapshot(),
+                    ty.clone(),
+                    &Default::default(),
+                )
+                .unwrap();
+                let bytes = bincode::serialize(&metadata.to_portable(&Default::default()).unwrap())
+                    .unwrap();
+                let portable: PortableMetadata<HostValueType<PortableDefinitionRef>> =
+                    bincode::deserialize(&bytes).unwrap();
+                let decoded = portable
+                    .decode(&Default::default())
+                    .unwrap()
+                    .import_into(&context, &Default::default())
+                    .unwrap();
+                assert_eq!(decoded.records(), &ty);
             }
         }
-        let mut legacy = HostInterface::default().encode_fixture().unwrap();
+        let mut legacy = HostInterface::default()
+            .to_bytes(&context.snapshot())
+            .unwrap();
         legacy[4..6].copy_from_slice(&11u16.to_le_bytes());
-        assert_eq!(decode_fixture(&legacy), Err(HostInterfaceError::Version));
+        assert_eq!(
+            decode_fixture(&legacy, &context),
+            Err(HostInterfaceError::Version)
+        );
     }
 
     #[test]
     fn composite_types_round_trip_and_change_binding_fingerprints() {
+        let context = DefinitionContext::new().unwrap();
         let ty = HostValueType::Result {
-            declaration: binding::result_declaration(),
+            declaration: context.intern(&binding::result_declaration()).unwrap(),
             ok: Box::new(HostValueType::Tuple(vec![
                 HostValueType::Array(Box::new(HostValueType::I32)),
-                HostValueType::option(HostValueType::String),
+                HostValueType::Option(
+                    context.intern(&binding::option_declaration()).unwrap(),
+                    Box::new(HostValueType::String),
+                ),
             ])),
             error: Box::new(HostValueType::Map {
                 key: Box::new(HostValueType::String),
@@ -477,28 +521,32 @@ mod tests {
                 access: CollectionAccess::Mutable,
             }),
         };
-        let a = HostFunctionDeclaration::new("host.make", vec![], ty);
+        let a = HostFunctionDeclaration::new(&context, "host.make", vec![], ty).unwrap();
         let interface = HostInterface {
             paths: vec![],
             types: Vec::new(),
             functions: vec![a.clone()],
         };
-        let mut bytes = interface.encode_fixture().unwrap();
-        assert_eq!(decode_fixture(&bytes).unwrap(), interface);
-        let b = HostFunctionDeclaration::new("host.make", vec![], HostValueType::I32);
+        let mut bytes = interface.to_bytes(&context.snapshot()).unwrap();
+        assert_eq!(decode_fixture(&bytes, &context).unwrap(), interface);
+        let b = HostFunctionDeclaration::new(&context, "host.make", vec![], HostValueType::I32)
+            .unwrap();
         assert_ne!(
-            a.fingerprint_fixture().unwrap(),
-            b.fingerprint_fixture().unwrap()
+            a.fingerprint(&context.snapshot()).unwrap(),
+            b.fingerprint(&context.snapshot()).unwrap()
         );
         bytes[4..6].copy_from_slice(&1u16.to_le_bytes());
-        assert_eq!(decode_fixture(&bytes), Err(HostInterfaceError::Version));
+        assert_eq!(
+            decode_fixture(&bytes, &context),
+            Err(HostInterfaceError::Version)
+        );
     }
 
     #[test]
     fn malformed_wire_types_reject_depth_counts_arity_and_invalid_hash_keys() {
         for nodes in [
             vec![],
-            vec![Node::<DefinitionPath>::I32, Node::Bool],
+            vec![Node::<PortableDefinitionRef>::I32, Node::Bool],
             vec![Node::Tuple(u32::MAX)],
             vec![Node::Map(CollectionAccess::Mutable), Node::F32, Node::I32],
             (0..MAX_DEPTH)
@@ -508,22 +556,21 @@ mod tests {
             (0..=MAX_NODES).map(|_| Node::I32).collect(),
         ] {
             let bytes = bincode::serialize(&nodes).unwrap();
-            assert!(bincode::deserialize::<HostValueType>(&bytes).is_err());
+            assert!(bincode::deserialize::<HostValueType<PortableDefinitionRef>>(&bytes).is_err());
         }
-        let mut ty = HostValueType::I32;
+        let mut ty = HostValueType::<PortableDefinitionRef>::I32;
         for _ in 1..MAX_DEPTH {
             ty = HostValueType::Array(Box::new(ty));
         }
         let bytes = bincode::serialize(&ty).unwrap();
-        assert_eq!(bincode::deserialize::<HostValueType>(&bytes).unwrap(), ty);
-        assert!(
-            HostValueType::Array(Box::new(ty))
-                .validate_fixture()
-                .is_err()
+        assert_eq!(
+            bincode::deserialize::<HostValueType<PortableDefinitionRef>>(&bytes).unwrap(),
+            ty
         );
+        assert!(HostValueType::Array(Box::new(ty)).validate().is_err());
         assert!(
-            HostValueType::Tuple(vec![HostValueType::<DefinitionPath>::I32; MAX_NODES])
-                .validate_fixture()
+            HostValueType::Tuple(vec![HostValueType::<PortableDefinitionRef>::I32; MAX_NODES])
+                .validate()
                 .is_err()
         );
     }

@@ -1700,3 +1700,59 @@ formatting and diff checks pass. Reviewed production imports, constructor owners
 fallible allocation, metadata/semantic validation separation and preserved contract
 checks. No ABI identifier bump, workspace test sweep or backend matrix was run.
 The remaining unit-target failures and SI04-SI06 work prevent plan acceptance.
+
+### SI03 Host contract fixtures without semantic path projections
+
+Recovered the shared Types lib-test target after scoped Host construction. Host
+member, path, value, decode-limit and wrong-constructor fixtures now register IDs
+in explicit test-owned contexts and pass retained tables to validation,
+fingerprinting, method and path-contract queries. Removed all fixture extension
+traits that converted complete Host records to/from paths. The remaining small
+codec helpers decode through ordinary Host validation and explicitly import into
+the caller's retained context, or encode malformed semantic records with real
+file references so decoder rejection can still be tested.
+
+Preserved member/trait/associated-output ownership, duplicate declarations,
+reference closure, signature/access rejection, canonical ordering, documentation
+independence, schema epochs, old-version rejection, malformed sequence limits and
+cross-table validation assertions. Negative fixtures register alternate identities
+rather than mutate private ID contents: wrong-kind cases retain their original
+module/name, and the foreign field case changes the package while retaining its
+module path/member shape. Standalone Host value roundtrips now use portable
+metadata and explicit import, while malformed flat type nodes use file references.
+No semantic DefinitionId is serialized as an ordinary value.
+
+The former in-memory overlong path mutation cannot be constructed under the scoped
+API. Its test now checks PathLimit at Host registration, before fingerprints or
+encoding can receive such a declaration. Malformed portable declaration/path lengths
+and unresolved file references remain separate decoder cases. The wrong opaque-kind
+case still rejects fingerprints and now checks the direct Host encoding boundary
+instead of the removed path-authoring mapper. Validation was not bypassed or relaxed.
+
+Removed the identity-representation generic from the Host standard-constraint
+algorithm; its callers now pass fixed-ID Host values. The traversal, payload rules,
+collection identity behavior and depth/node limits are unchanged. Its fixture uses
+a registered Option owner in the same explicit context.
+
+Validation:
+
+- `cargo test -p kagari-types --lib host_interface:: --message-format=short --
+  --nocapture`: all 17 selected Host cases pass, 27 unrelated cases filtered out.
+  The previously carried 162 Types lib-test compilation errors are resolved, and
+  the previously unrun scoped Host signature rejection case now executes and passes.
+- After tightening the wrong-kind/package fixture isolation, the five
+  `host_interface::type_declaration::tests` cases pass again. After fixing the Host
+  constraint entrypoint to IDs, its one `host_interface::constraints::tests` case
+  passes. Other unaffected cases retain the first run's evidence.
+- `cargo check -p kagari-hir --lib --message-format=short` and the corresponding
+  `kagari-contract --lib` check pass, covering the two affected semantic callers.
+  `cargo clippy -p kagari-types --lib -- -D warnings` passes.
+- Structure passes 1055 Rust files with zero violations or documented exceptions;
+  formatting and diff checks pass. Reviewed test/production import scopes, bounded
+  negative cases, table lifetimes and reference/semantic validation separation.
+
+No workspace suite or backend matrix was run. HIR lib-test's previously recorded
+141 migration errors, remaining Host consumer/example changes, common source fixture
+lifecycle, BindingId remapping, SI04 integration and SI05/SI06 representation removal
+and final documentation cleanup remain required. Types Host contract recovery is
+focused boundary evidence, not complete plan acceptance.

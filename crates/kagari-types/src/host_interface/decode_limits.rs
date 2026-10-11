@@ -23,10 +23,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::host_interface::test_support::{
-        FingerprintFixture, InterfaceFixture, ValidateFixture, decode_fixture,
-        encode_unchecked_fixture,
-    };
+    use crate::host_interface::test_support::{decode_fixture, encode_unchecked_fixture};
 
     use super::*;
     use crate::host_interface::{
@@ -36,9 +33,13 @@ mod tests {
         value_type::HostValueType,
     };
     use bincode::Options;
-    use kagari_common::identity::table::{
-        DefinitionId,
-        wire::{PortableDefinitionRef, PortableDefinitionTable},
+    use kagari_common::identity::{
+        MAX_IDENTITY_PATH_SEGMENTS,
+        map::DefinitionContext,
+        table::{
+            DefinitionId, DefinitionTableError,
+            wire::{PortableDefinitionRef, PortableDefinitionTable},
+        },
     };
 
     #[derive(Debug, Deserialize)]
@@ -63,12 +64,19 @@ mod tests {
 
     #[test]
     fn khi_rejects_forged_declaration_and_path_lengths() {
-        let mut bytes = HostInterface::default().encode_fixture().unwrap();
+        let context = DefinitionContext::new().unwrap();
+        let mut bytes = HostInterface::default()
+            .to_bytes(&context.snapshot())
+            .unwrap();
         bytes[6..14].copy_from_slice(&u64::MAX.to_le_bytes());
-        assert_eq!(decode_fixture(&bytes), Err(HostInterfaceError::Encoding));
+        assert_eq!(
+            decode_fixture(&bytes, &context),
+            Err(HostInterfaceError::Encoding)
+        );
 
-        let owner = HostTypeDeclaration::new("demo.Player");
-        let field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
+        let owner = HostTypeDeclaration::new(&context, "demo.Player").unwrap();
+        let field =
+            HostFieldDeclaration::new(&context, owner.id, "score", HostValueType::I32).unwrap();
         let path = HostPathDeclaration {
             root: owner.id,
             segments: vec![HostPathSegmentDeclaration::Field(field.id); MAX_MEMBERS + 1],
@@ -80,20 +88,24 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            interface.validate_fixture(),
+            interface.validate(&context.snapshot()),
             Err(HostInterfaceError::TooLarge)
         );
-        let bytes = encode_unchecked_fixture(&interface).unwrap();
-        assert_eq!(decode_fixture(&bytes), Err(HostInterfaceError::Encoding));
+        let bytes = encode_unchecked_fixture(&interface, &context.snapshot()).unwrap();
+        assert_eq!(
+            decode_fixture(&bytes, &context),
+            Err(HostInterfaceError::Encoding)
+        );
     }
 
     #[test]
     fn khi_file_references_must_resolve_before_host_validation() {
+        let context = DefinitionContext::new().unwrap();
         let interface = HostInterface {
-            types: vec![HostTypeDeclaration::new("demo.Player")],
+            types: vec![HostTypeDeclaration::new(&context, "demo.Player").unwrap()],
             ..Default::default()
         };
-        let bytes = interface.encode_fixture().unwrap();
+        let bytes = interface.to_bytes(&context.snapshot()).unwrap();
         let (mut records, table): (
             HostInterface<PortableDefinitionRef>,
             PortableDefinitionTable,
@@ -109,22 +121,16 @@ mod tests {
     }
 
     #[test]
-    fn in_memory_host_identity_path_is_bounded_before_encoding() {
-        let mut function =
-            HostFunctionDeclaration::new("demo.read", Vec::new(), HostValueType::I32);
-        function.id.module.path =
-            vec!["part".into(); kagari_common::identity::MAX_IDENTITY_PATH_SEGMENTS + 1];
+    fn host_identity_path_is_bounded_during_registration() {
+        let context = DefinitionContext::new().unwrap();
+        let symbol = std::iter::repeat_n("part", MAX_IDENTITY_PATH_SEGMENTS + 2)
+            .collect::<Vec<_>>()
+            .join(".");
+        // A too-deep identity cannot reach fingerprints or encoding: the shared
+        // context rejects it before a Host declaration can be constructed.
         assert_eq!(
-            function.fingerprint_fixture(),
-            Err(HostInterfaceError::TooLarge)
-        );
-        let interface = HostInterface {
-            functions: vec![function],
-            ..Default::default()
-        };
-        assert_eq!(
-            interface.encode_fixture(),
-            Err(HostInterfaceError::TooLarge)
+            HostFunctionDeclaration::new(&context, symbol, vec![], HostValueType::I32),
+            Err(DefinitionTableError::PathLimit)
         );
     }
 }
