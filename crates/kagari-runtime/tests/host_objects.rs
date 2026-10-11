@@ -1,4 +1,5 @@
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
@@ -49,9 +50,10 @@ fn layouts() {
 }
 "#;
 
-fn program(source: &str) -> BytecodeProgram {
+fn program(source: &str) -> DefinitionMetadata<BytecodeProgram> {
+    let context = DefinitionContext::new().unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(kagari_stdlib::catalog::shared());
+    analysis.set_native_modules(kagari_stdlib::catalog::shared().unwrap());
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("objects.kgr", source.into(), SourceLayer::Base)
@@ -61,13 +63,19 @@ fn program(source: &str) -> BytecodeProgram {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let artifact =
-        KbcArtifact::from_program(lower_program_to_bytecode(&mir).unwrap(), Default::default())
-            .unwrap();
-    let bytes = artifact.to_bytes().unwrap();
+    let program = lower_program_to_bytecode(&mir)
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let artifact = KbcArtifact::from_program(program, Default::default(), &context).unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     KbcArtifact::from_bytes(&bytes)
         .unwrap()
-        .into_verified(&Default::default())
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records()
+        .into_verified(&Default::default(), &context)
         .unwrap()
         .into_bytecode()
         .into_unverified()

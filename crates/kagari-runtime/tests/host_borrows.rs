@@ -2,6 +2,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -104,14 +105,20 @@ fn guard_rejects_borrow_tokens_from_another_live_frame() {
 
 #[test]
 fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let module = runtime
         .load_program(
             "borrow-storage",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let resources = runtime.host_scope(&[]).unwrap();

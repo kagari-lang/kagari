@@ -2,13 +2,21 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata},
+};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::{PublicItem, TraitContract};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
-    Runtime, error::RuntimeErrorKind, host::HostFunction, module::VerifiedProgram,
-    native::builder::ModuleBuilder, session::ExecutionOptions, value::Value,
+    Runtime,
+    error::RuntimeErrorKind,
+    host::HostFunction,
+    module::VerifiedProgram,
+    native::{builder::ModuleBuilder, module::NativeModule},
+    session::ExecutionOptions,
+    value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
@@ -21,11 +29,22 @@ use std::collections::BTreeSet;
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     assert!(runtime.invoke_host("host.answer", &[]).is_err());
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("host.answer", vec![], HostValueType::I32),
+            {
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "host.answer",
+                    vec![],
+                    HostValueType::I32,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             |_, _| Ok(Value::I32(42)),
         ))
         .unwrap();
@@ -37,12 +56,23 @@ fn installed_function_needs_no_execution_permissions() {
 
 #[test]
 fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let cancel = CancellationToken::default();
     let callback_cancel = cancel.clone();
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("host.cancel", vec![], HostValueType::I32),
+            {
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "host.cancel",
+                    vec![],
+                    HostValueType::I32,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             move |_, _| {
                 callback_cancel.cancel();
                 Ok(Value::I32(42))
@@ -52,10 +82,15 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     let module = runtime
         .load_program(
             "cancel",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let session = runtime
@@ -84,38 +119,52 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
 
 #[test]
 fn storage_capabilities_require_exact_installation_without_native_calls() {
+    let context = DefinitionContext::new().unwrap();
     let mut builder = ModuleBuilder::new(
         "example::storage",
         &StandardDeclarations::default()
             .catalog()
             .expect("explicit standard providers"),
-    );
-    let mut interface = builder.define_trait("CustomStorage");
+    )
+    .unwrap();
+    let mut interface = builder.define_trait("CustomStorage").unwrap();
     interface.storage_view(CollectionAccess::ReadOnly);
     interface.finish().unwrap();
     let installed = builder.finish().unwrap();
-    let declaration = installed.to_declaration().unwrap();
+    let declaration = installed
+        .to_declaration()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
     let contract = declaration.traits[0].clone();
     let program = |contract: TraitDef, private: bool| {
         let mut module = BytecodeModule {
             identity: declaration.identity.clone(),
             ..Default::default()
         };
+        let root = context.intern_root(&declaration.identity).unwrap();
+        context
+            .intern_child(root, DefinitionKind::Trait, &contract.name, 0)
+            .unwrap();
         if private {
             module.trait_contracts.push(TraitContract {
-                declaration: declaration.definition(
-                    kagari_common::identity::DefinitionKind::Trait,
-                    &contract.name,
-                ),
+                declaration: declaration
+                    .definition(DefinitionKind::Trait, &contract.name, &context.snapshot())
+                    .unwrap(),
                 abi: contract,
             });
         } else {
             module.public_items.push(PublicItem::Trait(contract));
         }
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![module],
-        }
+        DefinitionMetadata::checked(
+            context.snapshot(),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            },
+            &Default::default(),
+        )
+        .unwrap()
     };
     let mut runtime = Runtime::default();
     assert!(
@@ -151,10 +200,11 @@ fn storage_capabilities_require_exact_installation_without_native_calls() {
 
 #[test]
 fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
+    let context = DefinitionContext::new().unwrap();
     let foundation = StandardDeclarations::default();
     // Use the normal producer for the complete default/template proof closure;
     // runtime installation and reload consume only the resulting bytecode.
-    let declarations = foundation.declarations();
+    let declarations = foundation.declarations().unwrap();
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("installation.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -166,7 +216,12 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let modules = lower_program_to_bytecode(&mir).unwrap().modules;
+    let modules = lower_program_to_bytecode(&mir)
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records()
+        .modules;
     for (index, module) in modules
         .iter()
         .enumerate()
@@ -174,8 +229,11 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     {
         let definition = declarations
             .iter()
-            .find(|definition| definition.identity == module.identity)
-            .unwrap();
+            .find(|definition| definition.records().identity == module.identity)
+            .unwrap()
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
         let base = modules[index].clone();
         let program = |module| {
             let mut modules = modules.clone();
@@ -195,21 +253,26 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             let order = included.into_iter().collect::<Vec<_>>();
             let reference =
                 |index| ModuleRef::new(order.iter().position(|owner| *owner == index).unwrap());
-            BytecodeProgram {
-                root: reference(index),
-                modules: order
-                    .iter()
-                    .map(|index| {
-                        let mut module = modules[*index].clone();
-                        module.dependencies = module
-                            .dependencies
-                            .iter()
-                            .map(|owner| reference(owner.index()))
-                            .collect();
-                        module
-                    })
-                    .collect(),
-            }
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: reference(index),
+                    modules: order
+                        .iter()
+                        .map(|index| {
+                            let mut module = modules[*index].clone();
+                            module.dependencies = module
+                                .dependencies
+                                .iter()
+                                .map(|owner| reference(owner.index()))
+                                .collect();
+                            module
+                        })
+                        .collect(),
+                },
+                &Default::default(),
+            )
+            .unwrap()
         };
         let mut runtime = Runtime::default();
         assert!(
@@ -217,11 +280,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
                 .load_program("uninstalled_core", program(base.clone()))
                 .is_err()
         );
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut runtime,
-        )
-        .unwrap();
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         let active = runtime
             .load_program("core", program(base.clone()))
             .unwrap_or_else(|error| panic!("{:?}: {error}", definition.identity));
@@ -238,7 +297,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         changed.methods[0].params[0].name = "forged_argument".into();
         // Portable structural validation accepts the declaration; installation binds
         // reserved identities to the exact checked language registration.
-        VerifiedProgram::new(program(forged.clone())).unwrap();
+        VerifiedProgram::new(program(forged.clone()), &context).unwrap();
         assert!(
             runtime
                 .load_program("forged_core", program(forged.clone()))
@@ -277,10 +336,12 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             .clone();
         contract.methods[0].params[0].name = "forged_argument".into();
         private.trait_contracts.push(TraitContract {
-            declaration: definition.definition(DefinitionKind::Trait, &changed_name),
+            declaration: definition
+                .definition(DefinitionKind::Trait, &changed_name, &context.snapshot())
+                .unwrap(),
             abi: contract,
         });
-        VerifiedProgram::new(program(private.clone())).unwrap();
+        VerifiedProgram::new(program(private.clone()), &context).unwrap();
         assert!(
             runtime
                 .load_program("private_core", program(private))

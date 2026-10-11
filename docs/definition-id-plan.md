@@ -3339,3 +3339,58 @@ Focused local evidence and remaining errors:
 
 Runtime integration, embed/VM consumers and final contract-document transfer/plan
 retirement remain required. No full-workspace, backend matrix or CI pass is claimed.
+
+
+### SI06 runtime Native and installed-boundary integration consumers
+
+Migrated Native builder, enum declaration and recursive conversion integration
+fixtures to fallible registration/type application, Exact(Type) receiver codecs and
+retained declaration metadata. Generated documentation tests resolve the same single
+declaration in each published table before querying sites; semantic records remain
+fixed-ID. Forged enum-provider identities are authored in a retained independent
+scope, preserving the original semantic rejection checks. The raw inherent-owner
+fixture registers both the valid and forged module roots so the negative case still
+exercises receiver ownership rather than an absent identity registration.
+
+Host object fixtures retain compiler output through a real artifact encode/decode,
+explicitly adopt decoded records, then verify before runtime loading. Installation
+fixtures retain the producer table and import standard declarations before comparing
+reserved contracts. Host callback signatures are registered before taking their
+metadata snapshot. Suspended execution frame/candidate tests preserve the detached
+module's original table; Host borrow tests wrap their identity-free executable input
+without changing escape or cleanup assertions.
+
+Focused local evidence and remaining work:
+
+- Three selected integration targets compiled and nine selected cases passed:
+  native_builder's ordinary Rust signature, builtin inherent ownership and trait
+  associated outputs; enum_declarations' authoring, documented sites, changed-view
+  rejection, malformed/foreign applications and missing provider; native_conversion's
+  recursive cycle rejection/shared-child acceptance. Other cases in these targets
+  remain outside local execution scope.
+- Four further targets compiled and nine selected cases passed: installation_access's
+  installed Host function, sticky cancellation, storage capabilities and reserved-core
+  contracts; execution_frames' two suspended session/candidate isolation cases;
+  host_borrows' no-escape/storability case; host_objects' foreign/nominal rejection and
+  old-version binding retention after reload. Compilation uses the current codec and
+  shared scoped layout fixtures; no complete runtime suite was executed.
+- `cargo clippy -p kagari-runtime --test native_builder --test native_conversion
+  --test enum_declarations --test installation_access --test execution_frames
+  --test host_borrows --test host_objects --message-format=short -- -D warnings`
+  passes. This resolves the preceding checkpoint's 110 observed integration errors.
+- A subsequent `cargo clippy -p kagari-runtime --lib --tests --message-format=short
+  -- -D warnings` reaches further unmigrated targets and fails with 114 observed
+  diagnostics: typed_path_views/{main,contracts,mutation}, host_scopes,
+  execution_sessions, runtime_substrate and mutation_resources. Representative
+  remaining contracts are scoped Host type/function/path registration and scoped
+  program loading. This is a carried SI06 consumer build failure; early-exit targets
+  are not counted as linted or executed. Repair this batch before attempting the
+  same package-wide test-target lint again.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Manual review covers fixed-ID record usage, registration before
+  snapshots, independent producer/runtime scopes, negative-case causes, normal
+  imports and unchanged assertion coverage.
+
+Runtime integration consumers, embed/VM consumers, lasting contract documentation
+and plan retirement remain required. Exhaustive tests/features/backends remain CI
+scope and have not been run locally.

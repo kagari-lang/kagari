@@ -1,5 +1,6 @@
-use kagari_bytecode::program::BytecodeProgram;
-use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
@@ -23,7 +24,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{declaration::module::ModuleDecl, ty::Ty};
+use kagari_types::ty::Ty;
 use std::{
     cell::Cell,
     fmt::Debug,
@@ -45,7 +46,7 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, LoadedMo
     analysis.set_native_modules(
         modules
             .iter()
-            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
     let mut sources = SourceDatabase::default();
@@ -57,7 +58,7 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, LoadedMo
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let program: BytecodeProgram = lower_program_to_bytecode(&mir).unwrap();
+    let program = lower_program_to_bytecode(&mir).unwrap();
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
@@ -499,11 +500,17 @@ impl FromKagari for NodeView {
 }
 
 fn node_identity() -> DefinitionPath {
-    ModuleDecl::new(ModuleIdentity {
-        package: PackageId("fixture".into()),
-        path: vec!["conversion".into()],
-    })
-    .definition(DefinitionKind::Enum, "Node")
+    DefinitionPath {
+        module: ModuleIdentity {
+            package: PackageId("fixture".into()),
+            path: vec!["conversion".into()],
+        },
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Enum,
+            name: "Node".into(),
+            occurrence: 0,
+        }],
+    }
 }
 
 impl KagariType for Node {
@@ -546,10 +553,11 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
         &kagari_stdlib::modules().unwrap().iter().collect::<Vec<_>>(),
     )
     .unwrap();
-    let mut builder = ModuleBuilder::new("fixture::conversion", &catalog);
-    let mut node = builder.define_enum("Node");
-    let children =
-        kagari_stdlib::declarations::StandardDeclarations::default().vec(node.self_type());
+    let mut builder = ModuleBuilder::new("fixture::conversion", &catalog).unwrap();
+    let mut node = builder.define_enum("Node").unwrap();
+    let children = kagari_stdlib::declarations::StandardDeclarations::default()
+        .vec(node.self_type().unwrap())
+        .unwrap();
     node.variant("Children", [children]).unwrap();
     node.finish().unwrap();
     let (runtime, owner) = fixture_with(

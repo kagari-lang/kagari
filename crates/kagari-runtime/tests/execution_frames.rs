@@ -4,6 +4,7 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     Runtime,
@@ -39,6 +40,7 @@ fn loaded_with_instructions(
     runtime: &mut Runtime,
     instructions: Vec<BytecodeInstruction>,
 ) -> LoadedModule {
+    let context = DefinitionContext::new().unwrap();
     let function = BytecodeFunction {
         id: FunctionRef::new(0),
         name: "main".into(),
@@ -54,22 +56,27 @@ fn loaded_with_instructions(
     runtime
         .load_program(
             "frames",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    types: vec![ValueType::Unit, ValueType::HeapObject],
-                    function_table: vec![FunctionRecord {
-                        id: function.id,
-                        identity: function.identity.clone(),
-                        name: function.name.clone(),
-                        params: vec![],
-                        return_type: ValueType::Unit,
-                        effects: Default::default(),
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule {
+                        types: vec![ValueType::Unit, ValueType::HeapObject],
+                        function_table: vec![FunctionRecord {
+                            id: function.id,
+                            identity: function.identity.clone(),
+                            name: function.name.clone(),
+                            params: vec![],
+                            return_type: ValueType::Unit,
+                            effects: Default::default(),
+                        }],
+                        functions: vec![function],
+                        ..Default::default()
                     }],
-                    functions: vec![function],
-                    ..Default::default()
-                }],
-            },
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap()
 }
@@ -306,14 +313,20 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
     let outer = runtime
         .begin_execution(&old, runtime.execution_options())
         .unwrap();
+    let (definitions, module) = old.to_unverified(&Default::default()).unwrap().into_parts();
     let candidate = runtime
         .stage_reload_program(
             &old,
             "frames",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![old.to_unverified(&Default::default()).unwrap()],
-            },
+            DefinitionMetadata::checked(
+                definitions,
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let old_object = Value::Array(
@@ -372,14 +385,20 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
     outer
         .push(&runtime, old.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
+    let (definitions, module) = old.to_unverified(&Default::default()).unwrap().into_parts();
     let candidate = runtime
         .stage_reload_program(
             &old,
             "frames",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![old.to_unverified(&Default::default()).unwrap()],
-            },
+            DefinitionMetadata::checked(
+                definitions,
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let initialization = runtime.begin_candidate_initialization(&candidate).unwrap();

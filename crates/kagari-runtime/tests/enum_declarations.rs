@@ -1,3 +1,4 @@
+use kagari_common::identity::map::DefinitionContext;
 use kagari_hir::{
     analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
 };
@@ -23,7 +24,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 fn event(module: &mut ModuleBuilder) -> TypeRef {
     module.documentation("# Events\n\nApplication events with typed payloads.");
-    let mut event = module.define_enum("Event");
+    let mut event = module.define_enum("Event").unwrap();
     event.documentation("# Event\n\nCarries application data.\n\n```kgr\nEvent::Closed\n```");
     let item = event.type_parameter("T").unwrap();
     let data = event.variant("Data", [item.ty(), Type::i32()]).unwrap();
@@ -31,13 +32,16 @@ fn event(module: &mut ModuleBuilder) -> TypeRef {
         .variant_documentation(&data, "Contains data and an integer sequence number.")
         .unwrap();
     event.variant("Closed", []).unwrap();
-    event.variant("Nested", [event.self_type()]).unwrap();
+    event
+        .variant("Nested", [event.self_type().unwrap()])
+        .unwrap();
     event.finish().unwrap()
 }
 
 #[test]
 fn native_enum_authoring_uses_nominal_types_without_storage_or_frontend() {
-    let mut module = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
+    let mut module =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     let event = event(&mut module);
     assert!(matches!(
         event.apply([Type::i32()]).unwrap().abi(),
@@ -46,19 +50,20 @@ fn native_enum_authoring_uses_nominal_types_without_storage_or_frontend() {
     assert!(event.apply([]).is_err());
     assert!(event.apply([Type::i32(), Type::i32()]).is_err());
     assert!(event.variant("Absent").is_err());
-    let mut empty = module.define_enum("Empty");
+    let mut empty = module.define_enum("Empty").unwrap();
     empty.documentation("An uninhabited application type.");
     let empty = empty.finish().unwrap();
     assert!(empty.variant("Anything").is_err());
     let module = module.finish().unwrap();
-    let declaration = module.to_declaration().unwrap();
+    let declaration = module.to_declaration();
     assert!(
         declaration
+            .records()
             .types
             .iter()
             .all(|ty| ty.kind == TypeDefKind::Enum)
     );
-    assert_eq!(declaration.types[0].variants[0].payload.len(), 2);
+    assert_eq!(declaration.records().types[0].variants[0].payload.len(), 2);
     let text = declaration_source(&declaration, &[]).unwrap().text;
     assert!(text.contains("pub enum Event<T>"), "{text}");
     assert!(text.contains("Data(T, i32)"), "{text}");
@@ -69,11 +74,12 @@ fn native_enum_authoring_uses_nominal_types_without_storage_or_frontend() {
 
 #[test]
 fn registered_enum_views_are_parsed_with_full_documentation_and_owning_sites() {
-    let mut module = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
+    let mut module =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     let event = event(&mut module);
     let data = event.variant("Data").unwrap();
-    let module = Arc::new(module.finish().unwrap().to_declaration().unwrap());
-    let mut providers = standard_catalog::shared();
+    let module = Arc::new(module.finish().unwrap().to_declaration());
+    let mut providers = standard_catalog::shared().unwrap();
     providers.push(module.clone());
     let generated = declaration_source(&module, &providers).unwrap();
     let mut database = AnalysisDatabase::default();
@@ -88,32 +94,36 @@ fn registered_enum_views_are_parsed_with_full_documentation_and_owning_sites() {
         .unwrap();
     assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
     for id in [event.id(), data.id()] {
+        let path = module.definitions().resolve(id).unwrap().to_path();
         let declaration = snapshot
-            .declaration(&DeclarationId::Definition(id.clone()))
+            .declaration(&DeclarationId::Definition(
+                file.declarations().definitions().lookup(&path).unwrap(),
+            ))
             .unwrap();
-        let site = &generated.sites[id];
+        let site = &generated.sites[&generated.definitions.lookup(&path).unwrap()];
         assert_eq!(
             file.source().local_range(declaration.location),
             Some(site.name_span)
         );
         let doc = snapshot.documentation(&declaration.id).unwrap();
-        assert_eq!(doc.documentation, module.documentation[id]);
+        assert_eq!(doc.documentation, module.records().documentation[&id]);
     }
     assert_eq!(
         snapshot
-            .module_documentation(&module.identity)
+            .module_documentation(&module.records().identity)
             .unwrap()
             .documentation,
-        module.module_documentation
+        module.records().module_documentation
     );
 }
 
 #[test]
 fn source_analysis_uses_registered_enum_constructors_and_patterns() {
-    let mut module = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
+    let mut module =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     event(&mut module);
-    let module = Arc::new(module.finish().unwrap().to_declaration().unwrap());
-    let mut providers = standard_catalog::shared();
+    let module = Arc::new(module.finish().unwrap().to_declaration());
+    let mut providers = standard_catalog::shared().unwrap();
     providers.push(module);
     let mut sources = SourceDatabase::default();
     let file = sources.set("main.kgr", "use application::events::Event; fn main() -> i32 { val event = Event::Data(40, 2); match event { Event::Data(value, sequence) => value + sequence, Event::Closed => 0, Event::Nested(_) => 1 } }".into(), SourceLayer::Base).unwrap();
@@ -132,10 +142,11 @@ fn source_analysis_uses_registered_enum_constructors_and_patterns() {
 
 #[test]
 fn changed_enum_payload_view_cannot_attach_to_the_registered_declaration() {
-    let mut module = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
+    let mut module =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     event(&mut module);
-    let module = Arc::new(module.finish().unwrap().to_declaration().unwrap());
-    let mut providers = standard_catalog::shared();
+    let module = Arc::new(module.finish().unwrap().to_declaration());
+    let mut providers = standard_catalog::shared().unwrap();
     providers.push(module);
     let mut views = providers
         .iter()
@@ -160,17 +171,18 @@ fn changed_enum_payload_view_cannot_attach_to_the_registered_declaration() {
 
 #[test]
 fn failed_enum_completion_does_not_publish_types_or_docs() {
-    let mut module = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
-    let mut invalid = module.define_enum("Event");
+    let mut module =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
+    let mut invalid = module.define_enum("Event").unwrap();
     let parameter = invalid.type_parameter("T").unwrap();
     invalid.variant("bad::name", [parameter.ty()]).unwrap();
     invalid.documentation("Must never be published.");
     assert!(invalid.finish().is_err());
     let event = event(&mut module);
-    let mut duplicate = module.define_enum("Event");
+    let mut duplicate = module.define_enum("Event").unwrap();
     duplicate.documentation("Must not overwrite the first enum.");
     assert!(duplicate.finish().is_err());
-    let mut other = module.define_enum("Other");
+    let mut other = module.define_enum("Other").unwrap();
     assert!(
         other
             .variant_documentation(&event.variant("Data").unwrap(), "Foreign")
@@ -179,52 +191,65 @@ fn failed_enum_completion_does_not_publish_types_or_docs() {
     other.variant("Unit", []).unwrap();
     assert!(other.variant("Unit", []).is_err());
     other.finish().unwrap();
-    let declaration = module.finish().unwrap().to_declaration().unwrap();
-    assert_eq!(declaration.types.len(), 2);
-    assert!(declaration.documentation[event.id()].contains("Carries application data"));
+    let declaration = module.finish().unwrap().to_declaration();
+    assert_eq!(declaration.records().types.len(), 2);
+    assert!(declaration.records().documentation[&event.id()].contains("Carries application data"));
 }
 
 #[test]
 fn enum_payloads_reject_foreign_binders_and_undeclared_or_malformed_applications() {
-    let mut module = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
+    let mut module =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     let event = event(&mut module);
-    let foreign_parameter = Type::from_semantic(Ty::Parameter {
-        owner: event.id().clone(),
-        position: 0,
-    });
-    let mut foreign = module.define_enum("Foreign");
+    let foreign_parameter = Type::from_semantic(
+        Ty::Parameter {
+            owner: event.id(),
+            position: 0,
+        },
+        event.definitions(),
+    )
+    .unwrap();
+    let mut foreign = module.define_enum("Foreign").unwrap();
     foreign.variant("Data", [foreign_parameter]).unwrap();
     assert!(foreign.finish().is_err());
 
     for arguments in [vec![], vec![Ty::Builtin(BuiltinType::I32); 2]] {
         let mut invalid =
-            ModuleBuilder::new("application::invalid", &DeclarationCatalog::default());
-        let mut holder = invalid.define_enum("Holder");
+            ModuleBuilder::new("application::invalid", &DeclarationCatalog::default()).unwrap();
+        let mut holder = invalid.define_enum("Holder").unwrap();
         holder
             .variant(
                 "Data",
-                [Type::from_semantic(Ty::Enum(NominalTy {
-                    declaration: event.id().clone(),
-                    arguments,
-                    associated_types: BTreeMap::new(),
-                }))],
+                [Type::from_semantic(
+                    Ty::Enum(NominalTy {
+                        declaration: event.id(),
+                        arguments,
+                        associated_types: BTreeMap::new(),
+                    }),
+                    event.definitions(),
+                )
+                .unwrap()],
             )
             .unwrap();
         holder.finish().unwrap();
         assert!(invalid.finish().is_err());
     }
-    let declaration = module.finish().unwrap().to_declaration().unwrap();
+    let declaration = module.finish().unwrap().to_declaration();
     let providers = DeclarationCatalog::from_declarations([&declaration]).unwrap();
-    let mut invalid = ModuleBuilder::new("application::arity", &providers);
-    let mut holder = invalid.define_enum("Holder");
+    let mut invalid = ModuleBuilder::new("application::arity", &providers).unwrap();
+    let mut holder = invalid.define_enum("Holder").unwrap();
     holder
         .variant(
             "Data",
-            [Type::from_semantic(Ty::Enum(NominalTy {
-                declaration: event.id().clone(),
-                arguments: vec![],
-                associated_types: BTreeMap::new(),
-            }))],
+            [Type::from_semantic(
+                Ty::Enum(NominalTy {
+                    declaration: event.id(),
+                    arguments: vec![],
+                    associated_types: BTreeMap::new(),
+                }),
+                event.definitions(),
+            )
+            .unwrap()],
         )
         .unwrap();
     holder.finish().unwrap();
@@ -239,12 +264,13 @@ fn enum_payloads_reject_foreign_binders_and_undeclared_or_malformed_applications
 
 #[test]
 fn enum_payload_dependencies_are_checked_at_atomic_installation() {
-    let mut provider = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
+    let mut provider =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     let event = event(&mut provider);
     let provider = provider.finish().unwrap();
     let providers = DeclarationCatalog::from_modules(&[&provider]).unwrap();
-    let mut consumer = ModuleBuilder::new("application::consumer", &providers);
-    let mut holder = consumer.define_enum("Holder");
+    let mut consumer = ModuleBuilder::new("application::consumer", &providers).unwrap();
+    let mut holder = consumer.define_enum("Holder").unwrap();
     holder
         .variant("Data", [event.apply([Type::i32()]).unwrap()])
         .unwrap();
@@ -258,15 +284,26 @@ fn enum_payload_dependencies_are_checked_at_atomic_installation() {
 
 #[test]
 fn declared_native_enum_signatures_reject_missing_provider_contracts() {
-    let mut module = ModuleBuilder::new("application::events", &DeclarationCatalog::default());
+    let mut module =
+        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
     let event = event(&mut module);
     let mut ty = event.apply([Type::i32()]).unwrap().abi().clone();
     let Ty::Enum(nominal) = &mut ty else {
         panic!("nominal enum");
     };
-    nominal.declaration.path[0].name = "Missing".into();
+    let context = DefinitionContext::new().unwrap();
+    let mut path = event
+        .definitions()
+        .resolve(nominal.declaration)
+        .unwrap()
+        .to_path();
+    path.path[0].name = "Missing".into();
+    nominal.declaration = context.intern(&path).unwrap();
     let function = module
-        .define_function(FunctionDecl::new("missing").parameter("value", Type::from_semantic(ty)))
+        .define_function(FunctionDecl::new("missing").parameter(
+            "value",
+            Type::from_semantic(ty, &context.snapshot()).unwrap(),
+        ))
         .unwrap();
     module
         .bind_with(
