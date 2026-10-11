@@ -1,6 +1,9 @@
 use crate::{numeric::NumericOperation, representation::semantic_representation};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
+use kagari_common::identity::{
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::{
     declaration::verify::{concrete_type_valid, types_in_scope_in},
     language::binding,
@@ -44,8 +47,12 @@ pub enum IterOp {
 }
 
 impl IterOp {
-    pub fn contract(self, ty: &Ty) -> Option<(Option<ValueType>, ValueType)> {
-        if !ty.within_wire_limits() || !concrete_type_valid(ty, &Default::default()) {
+    pub fn contract(
+        self,
+        ty: &Ty<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> Option<(Option<ValueType>, ValueType)> {
+        if !ty.within_wire_limits() || !concrete_type_valid(ty, &Default::default(), definitions) {
             return None;
         }
         let input = match self {
@@ -73,12 +80,17 @@ impl IterOp {
 }
 
 /// Validate endpoint presence and physical types using the range's semantic type.
-pub fn range_operands_valid(ty: &Ty, start: Option<ValueType>, end: Option<ValueType>) -> bool {
+pub fn range_operands_valid(
+    ty: &Ty<DefinitionId>,
+    start: Option<ValueType>,
+    end: Option<ValueType>,
+    definitions: &DefinitionTable,
+) -> bool {
     let Ty::Range(item, kind) = ty else {
         return false;
     };
     ty.within_wire_limits()
-        && concrete_type_valid(ty, &Default::default())
+        && concrete_type_valid(ty, &Default::default(), definitions)
         && start == kind.has_start().then(|| semantic_representation(item))
         && end == kind.has_end().then(|| semantic_representation(item))
 }

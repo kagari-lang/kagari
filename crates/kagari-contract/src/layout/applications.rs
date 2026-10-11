@@ -1,9 +1,15 @@
 //! Aggregate templates bind only their declaration's own type parameters.
-use kagari_common::{cancellation::CancellationToken, identity::reference::DefinitionReference};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 
 use crate::layout::{EnumLayout, StructLayout};
 use kagari_types::{
-    declaration::verify::types_in_scope,
+    declaration::verify::types_in_scope_in,
     ty::{GenericParam, Ty, substitution::TypeSubstitution},
 };
 use std::borrow::Cow;
@@ -88,29 +94,31 @@ impl<I: DefinitionReference> EnumLayout<I> {
     }
 }
 
-impl StructLayout {
-    pub fn types_valid(&self, cancel: &CancellationToken) -> bool {
+impl StructLayout<DefinitionId> {
+    pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
         parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope(
+            types_in_scope_in(
                 self.arguments
                     .iter()
                     .chain(self.fields.iter().map(|field| &field.ty)),
                 &parameters,
                 cancel,
+                Some(definitions),
             )
         })
     }
 }
 
-impl EnumLayout {
-    pub fn types_valid(&self, cancel: &CancellationToken) -> bool {
+impl EnumLayout<DefinitionId> {
+    pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
         parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope(
+            types_in_scope_in(
                 self.arguments
                     .iter()
                     .chain(self.variants.iter().flat_map(|variant| &variant.payload)),
                 &parameters,
                 cancel,
+                Some(definitions),
             )
         })
     }

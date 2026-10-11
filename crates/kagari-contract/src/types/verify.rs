@@ -5,11 +5,13 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity,
-    identity::{DefinitionKind, ModuleIdentity, metadata::scope_record},
+    identity::{
+        DefinitionKind, ModuleIdentity,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::declaration::verify::{
-    Parameters, aggregate_shape_valid, bounds_valid, function_valid, owner, parameters,
+    Parameters, aggregate_shape_valid, bounds_valid, function_valid, parameters,
     scalar_const_valid, trait_valid, type_valid,
 };
 use kagari_types::{
@@ -28,11 +30,13 @@ use std::{
 };
 
 pub fn validate(
-    items: &[PublicItem],
+    items: &[PublicItem<DefinitionId>],
     module: &ModuleIdentity,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {
     let invalid = || LayoutValidationError::Invalid;
+    let root = definitions.lookup_root(module).ok_or_else(invalid)?;
     let mut aggregate_names = HashSet::new();
     let mut trait_names = HashSet::new();
     let mut interface_identities = HashSet::new();
@@ -49,9 +53,22 @@ pub fn validate(
             PublicItem::Function(function) => {
                 (matches!(function.implementation, CallableImplementation::Native(_))
                     || (function.generic_params.is_empty() && function.bounds.is_empty()))
-                    && function_valid(function, module, &[], &Parameters::new(), None, cancel)
+                    && definitions
+                        .lookup_child(root, DefinitionKind::Function, &function.name, 0)
+                        .is_some_and(|id| {
+                            function_valid(
+                                function,
+                                id,
+                                &Parameters::new(),
+                                None,
+                                cancel,
+                                definitions,
+                            )
+                        })
             }
-            PublicItem::Const(value) => type_valid(&value.ty, &Parameters::new(), None, cancel),
+            PublicItem::Const(value) => {
+                type_valid(&value.ty, &Parameters::new(), None, cancel, definitions)
+            }
             PublicItem::Type(ty) => {
                 let kind = match ty.kind {
                     TypeDefKind::Struct => DefinitionKind::Struct,
@@ -59,73 +76,79 @@ pub fn validate(
                     TypeDefKind::Native(kind) => kind.declaration_kind(),
                     TypeDefKind::NativeStorage(_) => DefinitionKind::AssociatedType,
                 };
-                let owner = owner(module, &[], kind, &ty.name);
+                let Some(owner) = definitions.lookup_child(root, kind, &ty.name, 0) else {
+                    return Err(invalid());
+                };
                 aggregate_names.insert(&ty.name)
                     && aggregate_shape_valid(ty, cancel)
                     && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
                         |params| {
-                            bounds_valid(&ty.bounds, &params, cancel)
-                                && ty
-                                    .fields
-                                    .iter()
-                                    .all(|field| type_valid(&field.ty, &params, None, cancel))
+                            bounds_valid(&ty.bounds, &params, cancel, definitions)
+                                && ty.fields.iter().all(|field| {
+                                    type_valid(&field.ty, &params, None, cancel, definitions)
+                                })
                                 && ty
                                     .variants
                                     .iter()
                                     .flat_map(|variant| &variant.payload)
-                                    .all(|ty| type_valid(ty, &params, None, cancel))
+                                    .all(|ty| type_valid(ty, &params, None, cancel, definitions))
                         },
                     )
             }
             PublicItem::Trait(ty) => {
-                trait_names.insert(&ty.name) && trait_valid(ty, module, cancel)
+                trait_names.insert(&ty.name)
+                    && definitions
+                        .lookup_child(root, DefinitionKind::Trait, &ty.name, 0)
+                        .is_some_and(|id| trait_valid(ty, id, cancel, definitions))
             }
             PublicItem::InherentTable(table) => {
                 let owner = &table.declaration;
                 let params = (interface_identities.insert(owner)
-                    && owner.module == *module
-                    && owner.path.len() == 1
-                    && owner.path[0].kind == DefinitionKind::Impl
-                    && owner.path[0].name.is_empty()
-                    && owner.within_path_limit())
+                    && definitions.resolve(*owner).is_ok_and(|view| {
+                        view.module() == module
+                            && view.segments().count() == 1
+                            && view.last().is_some_and(|part| {
+                                part.kind == DefinitionKind::Impl && part.name.is_empty()
+                            })
+                    }))
                 .then(|| parameters(&table.generic_params, owner, &Parameters::new()))
                 .flatten();
                 params.is_some_and(|params| {
                     let mut names = HashSet::new();
                     !table.methods.is_empty()
-                        && scope_record(&table.for_type, cancel)
-                            .ok()
-                            .and_then(|receiver| {
-                                receivers.owner(receiver.records(), receiver.definitions())
-                            })
-                            .as_ref()
-                            == Some(module)
-                        && bounds_valid(&table.bounds, &params, cancel)
-                        && type_valid(&table.for_type, &params, None, cancel)
+                        && receivers.owner(&table.for_type, definitions).as_ref() == Some(module)
+                        && bounds_valid(&table.bounds, &params, cancel, definitions)
+                        && type_valid(&table.for_type, &params, None, cancel, definitions)
                         && table.methods.iter().all(|method| {
                             names.insert(&method.name)
                                 && method.params.first().is_none_or(|receiver| {
                                     receiver.name != "self" || receiver.ty == table.for_type
                                 })
-                                && function_valid(
-                                    method,
-                                    module,
-                                    &owner.path,
-                                    &params,
-                                    None,
-                                    cancel,
-                                )
+                                && definitions
+                                    .lookup_child(*owner, DefinitionKind::Method, &method.name, 0)
+                                    .is_some_and(|id| {
+                                        function_valid(
+                                            method,
+                                            id,
+                                            &params,
+                                            None,
+                                            cancel,
+                                            definitions,
+                                        )
+                                    })
                         })
                 })
             }
             PublicItem::InterfaceTable(table) => {
                 let owner = &table.declaration;
                 let params = (interface_identities.insert(owner)
-                    && owner.module == *module
-                    && owner.path.len() == 1
-                    && owner.path[0].kind == DefinitionKind::Impl
-                    && owner.path[0].name.is_empty()
-                    && owner.within_path_limit())
+                    && definitions.resolve(*owner).is_ok_and(|view| {
+                        view.module() == module
+                            && view.segments().count() == 1
+                            && view.last().is_some_and(|part| {
+                                part.kind == DefinitionKind::Impl && part.name.is_empty()
+                            })
+                    }))
                 .then(|| parameters(&table.generic_params, owner, &Parameters::new()))
                 .flatten();
                 params.is_some_and(|params| {
@@ -137,26 +160,30 @@ pub fn validate(
                                 && names.insert(&member.name)
                                 && scalar_const_valid(&member.ty, &member.value)
                         })
-                    }) && bounds_valid(&table.bounds, &params, cancel)
-                        && families_valid(table, &params, cancel)
+                    }) && bounds_valid(&table.bounds, &params, cancel, definitions)
+                        && families_valid(table, &params, cancel, definitions)
                         && (!table.host_bridge
                             || (table.generic_params.is_empty()
                                 && table.bounds.is_empty()
                                 && matches!(table.for_type, Ty::Host(_))
                                 && table.trait_type.is_concrete()))
                         && matches!(table.trait_type, Ty::Trait(_))
-                        && type_valid(&table.trait_type, &params, None, cancel)
-                        && type_valid(&table.for_type, &params, None, cancel)
+                        && type_valid(&table.trait_type, &params, None, cancel, definitions)
+                        && type_valid(&table.for_type, &params, None, cancel, definitions)
                         && table.methods.iter().all(|method| {
                             methods.insert(&method.name)
-                                && function_valid(
-                                    method,
-                                    module,
-                                    &owner.path,
-                                    &params,
-                                    None,
-                                    cancel,
-                                )
+                                && definitions
+                                    .lookup_child(*owner, DefinitionKind::Method, &method.name, 0)
+                                    .is_some_and(|id| {
+                                        function_valid(
+                                            method,
+                                            id,
+                                            &params,
+                                            None,
+                                            cancel,
+                                            definitions,
+                                        )
+                                    })
                         })
                 })
             }
@@ -178,26 +205,30 @@ pub fn validate(
         let Ty::Trait(instance) = &table.trait_type else {
             return Err(invalid());
         };
-        if instance.declaration.module != *module {
+        let declaration = definitions
+            .resolve(instance.declaration)
+            .map_err(|_| invalid())?;
+        if declaration.module() != module {
             continue;
         }
-        if instance.declaration.path.len() != 1
-            || instance.declaration.path[0].kind != DefinitionKind::Trait
-            || instance.declaration.path[0].occurrence != 0
+        if declaration.segments().count() != 1
+            || !declaration
+                .last()
+                .is_some_and(|part| part.kind == DefinitionKind::Trait && part.occurrence == 0)
         {
             return Err(invalid());
         }
-        let Some(trait_name) = instance.declaration.path.last().map(|part| &part.name) else {
+        let Some(trait_name) = declaration.last().map(|part| part.name) else {
             return Err(invalid());
         };
         let Some(PublicItem::Trait(interface)) = items
             .iter()
-            .find(|item| matches!(item, PublicItem::Trait(ty) if &ty.name == trait_name))
+            .find(|item| matches!(item, PublicItem::Trait(ty) if ty.name == trait_name))
         else {
             // Private traits are absent from the public ABI table.
             continue;
         };
-        if !interface_contract_matches(table, interface, cancel) {
+        if !interface_contract_matches(table, interface, cancel, definitions) {
             cancel
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
@@ -208,10 +239,11 @@ pub fn validate(
 }
 
 pub fn validate_trait_contracts(
-    contracts: &[TraitContract],
-    items: &[PublicItem],
+    contracts: &[TraitContract<DefinitionId>],
+    items: &[PublicItem<DefinitionId>],
     module: &ModuleIdentity,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {
     let mut names = HashSet::new();
     for contract in contracts {
@@ -219,14 +251,9 @@ pub fn validate_trait_contracts(
             .check()
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let id = &contract.declaration;
-        if id.module != *module
-            || id.path.len() != 1
-            || id.path[0].kind != DefinitionKind::Trait
-            || id.path[0].occurrence != 0
-            || id.path[0].name != contract.abi.name
-            || !id.within_path_limit()
+        if definitions.resolve(*id).map(|view| view.module()) != Ok(module)
             || !names.insert(&contract.abi.name)
-            || !trait_valid(&contract.abi, module, cancel)
+            || !trait_valid(&contract.abi, *id, cancel, definitions)
         {
             return Err(LayoutValidationError::Invalid);
         }
@@ -247,9 +274,12 @@ pub fn validate_trait_contracts(
         let Ty::Trait(instance) = &table.trait_type else {
             return Err(LayoutValidationError::Invalid);
         };
-        if instance.declaration.module != *module
+        let declaration = definitions
+            .resolve(instance.declaration)
+            .map_err(|_| LayoutValidationError::Invalid)?;
+        if declaration.module() != module
             || items.iter().any(|item| {
-                matches!(item, PublicItem::Trait(public) if instance.declaration.path.last().is_some_and(|part| part.name == public.name))
+                matches!(item, PublicItem::Trait(public) if declaration.last().is_some_and(|part| part.name == public.name))
             })
         {
             continue;
@@ -260,7 +290,7 @@ pub fn validate_trait_contracts(
         else {
             return Err(LayoutValidationError::Invalid);
         };
-        if !interface_contract_matches(table, &contract.abi, cancel) {
+        if !interface_contract_matches(table, &contract.abi, cancel, definitions) {
             cancel
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
@@ -272,7 +302,10 @@ pub fn validate_trait_contracts(
 
 /// Engine defaults are declared once on their canonical protocol. They need no
 /// per-implementation ABI entry, especially when their bounds do not hold here.
-fn required_methods_present(table: &InterfaceTable, interface: &TraitDef) -> bool {
+fn required_methods_present(
+    table: &InterfaceTable<DefinitionId>,
+    interface: &TraitDef<DefinitionId>,
+) -> bool {
     interface.methods.iter().all(|method| {
         table
             .methods
@@ -282,15 +315,16 @@ fn required_methods_present(table: &InterfaceTable, interface: &TraitDef) -> boo
 }
 
 pub fn interface_contract_matches(
-    table: &InterfaceTable,
-    interface: &TraitDef,
+    table: &InterfaceTable<DefinitionId>,
+    interface: &TraitDef<DefinitionId>,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> bool {
     let Ty::Trait(instance) = &table.trait_type else {
         return false;
     };
     let mut matched = HashSet::new();
-    interface_constants_match(table, interface)
+    interface_constants_match(table, interface, definitions)
         && instance.arguments.len() == interface.generic_params.len()
         && interface_families_match(table, interface, cancel)
         && instance.associated_types.len()
@@ -309,22 +343,33 @@ pub fn interface_contract_matches(
             cancel.check().is_ok()
                 && interface.methods.iter().any(|declared| {
                     declared.name == method.name
-                        && same_method_contract(declared, method, instance, table, cancel)
+                        && same_method_contract(
+                            declared,
+                            method,
+                            instance,
+                            table,
+                            cancel,
+                            definitions,
+                        )
                         && matched.insert(&declared.name)
                 })
         })
 }
 
-pub fn interface_constants_match(table: &InterfaceTable, interface: &TraitDef) -> bool {
+pub fn interface_constants_match(
+    table: &InterfaceTable<DefinitionId>,
+    interface: &TraitDef<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> bool {
     {
         let mut names = HashSet::new();
         table.associated_consts.iter().all(|member| {
             names.insert(&member.name)
                 && interface.associated_consts.iter().any(|declared| {
-                    declared
-                        .declaration
-                        .path
-                        .last()
+                    definitions
+                        .resolve(declared.declaration)
+                        .ok()
+                        .and_then(|view| view.last())
                         .is_some_and(|part| part.name == member.name)
                         && declared.ty == member.ty
                         && scalar_const_valid(&member.ty, &member.value)
@@ -332,46 +377,57 @@ pub fn interface_constants_match(table: &InterfaceTable, interface: &TraitDef) -
         }) && interface.associated_consts.iter().all(|member| {
             member.default_value.is_some()
                 || table.associated_consts.iter().any(|actual| {
-                    member
-                        .declaration
-                        .path
-                        .last()
+                    definitions
+                        .resolve(member.declaration)
+                        .ok()
+                        .and_then(|view| view.last())
                         .is_some_and(|part| part.name == actual.name)
                 })
         })
     }
 }
 
-fn families_valid(table: &InterfaceTable, outer: &Parameters, cancel: &CancellationToken) -> bool {
+fn families_valid(
+    table: &InterfaceTable<DefinitionId>,
+    outer: &Parameters,
+    cancel: &CancellationToken,
+    definitions: &DefinitionTable,
+) -> bool {
     let Ty::Trait(interface) = &table.trait_type else {
         return false;
     };
     let mut seen = HashSet::new();
     table.associated_type_families.iter().all(|family| {
-        let name = family
-            .declaration
-            .path
-            .last()
-            .map_or("", |part| part.name.as_str());
+        let name = definitions
+            .resolve(family.declaration)
+            .ok()
+            .and_then(|view| view.last())
+            .map_or("", |part| part.name);
+        let Some(owner) =
+            definitions.lookup_child(table.declaration, DefinitionKind::AssociatedType, name, 0)
+        else {
+            return false;
+        };
         !name.is_empty()
             && seen.insert(&family.declaration)
-            && family.declaration == identity::associated_type_id(&interface.declaration, name)
+            && Some(family.declaration)
+                == definitions.lookup_child(
+                    interface.declaration,
+                    DefinitionKind::AssociatedType,
+                    name,
+                    0,
+                )
             && !family.generic_params.is_empty()
-            && parameters(
-                &family.generic_params,
-                &identity::associated_type_id(&table.declaration, name),
-                outer,
-            )
-            .is_some_and(|params| {
-                bounds_valid(&family.bounds, &params, cancel)
-                    && type_valid(&family.value, &params, None, cancel)
+            && parameters(&family.generic_params, &owner, outer).is_some_and(|params| {
+                bounds_valid(&family.bounds, &params, cancel, definitions)
+                    && type_valid(&family.value, &params, None, cancel, definitions)
             })
     })
 }
 
 pub fn interface_families_match(
-    table: &InterfaceTable,
-    interface: &TraitDef,
+    table: &InterfaceTable<DefinitionId>,
+    interface: &TraitDef<DefinitionId>,
     cancel: &CancellationToken,
 ) -> bool {
     let Ty::Trait(instance) = &table.trait_type else {
@@ -424,18 +480,19 @@ pub fn interface_families_match(
 }
 
 fn same_method_contract(
-    declared: &FnDecl,
-    implemented: &FnDecl,
-    instance: &NominalTy,
-    table: &InterfaceTable,
+    declared: &FnDecl<DefinitionId>,
+    implemented: &FnDecl<DefinitionId>,
+    instance: &NominalTy<DefinitionId>,
+    table: &InterfaceTable<DefinitionId>,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> bool {
     if declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
     {
         return false;
     }
-    let normalize = |ty: &Ty| {
+    let normalize = |ty: &Ty<DefinitionId>| {
         normalize_projections(
             ty,
             &|interface, receiver, member, arguments| {
@@ -444,7 +501,10 @@ fn same_method_contract(
                 };
                 projection_output(
                     ImplementationPattern {
-                        protocol: Protocol::from_id(&implemented.declaration),
+                        protocol: Protocol::from_reference(
+                            &implemented.declaration,
+                            Some(definitions),
+                        ),
                         storage_access: None,
                         parameters: &table.generic_params,
                         receiver: &table.for_type,
@@ -473,9 +533,9 @@ fn same_method_contract(
 }
 
 pub fn interface_methods_match(
-    table: &InterfaceTable,
-    interface: &TraitDef,
-    normalize: &dyn Fn(&Ty) -> Result<Ty, TypeTransformError>,
+    table: &InterfaceTable<DefinitionId>,
+    interface: &TraitDef<DefinitionId>,
+    normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
     cancel: &CancellationToken,
 ) -> bool {
     let Ty::Trait(instance) = &table.trait_type else {
@@ -502,11 +562,11 @@ pub fn interface_methods_match(
 }
 
 fn method_contract_matches(
-    declared: &FnDecl,
-    implemented: &FnDecl,
-    instance: &NominalTy,
-    table: &InterfaceTable,
-    normalize: &dyn Fn(&Ty) -> Result<Ty, TypeTransformError>,
+    declared: &FnDecl<DefinitionId>,
+    implemented: &FnDecl<DefinitionId>,
+    instance: &NominalTy<DefinitionId>,
+    table: &InterfaceTable<DefinitionId>,
+    normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
     defer_projection: bool,
     cancel: &CancellationToken,
 ) -> bool {
@@ -527,12 +587,12 @@ fn method_contract_matches(
     }
     let mut receiver = TypeSubstitution::default();
     receiver.bind_receiver(&instance.declaration, &table.for_type);
-    let expected = |ty: &Ty| {
+    let expected = |ty: &Ty<DefinitionId>| {
         let ty = receiver.apply(ty, cancel)?;
         let ty = parameters.apply(&ty, cancel)?;
         normalize(&ty)
     };
-    let actual = |ty: &Ty| normalize(ty);
+    let actual = |ty: &Ty<DefinitionId>| normalize(ty);
     let inherited_default = match (&declared.implementation, &implemented.implementation) {
         (
             CallableImplementation::NativeDefault(declared),
@@ -571,35 +631,9 @@ fn method_contract_matches(
     if defer_projection && signatures.iter().any(Ty::contains_projection) {
         return true;
     }
-    let bounds = |function: &FnDecl, normalize: &dyn Fn(&Ty) -> Result<Ty, TypeTransformError>| {
-        function
-            .bounds
-            .iter()
-            .map(|bound| {
-                let mut constraints = bound
-                    .constraints
-                    .iter()
-                    .map(|constraint| {
-                        Some(match constraint {
-                            Constraint::Standard(value) => Constraint::Standard(*value),
-                            Constraint::Trait(value) => {
-                                let Ty::Trait(value) = normalize(&Ty::Trait(value.clone())).ok()?
-                                else {
-                                    return None;
-                                };
-                                Constraint::Trait(value)
-                            }
-                        })
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                constraints.sort();
-                Some((normalize(&bound.ty).ok()?, constraints))
-            })
-            .collect::<Option<BTreeMap<_, _>>>()
-    };
     cancel.check().is_ok()
-        && bounds(declared, &expected)
-            .is_some_and(|declared| Some(declared) == bounds(implemented, &actual))
+        && normalized_bounds(declared, &expected)
+            .is_some_and(|declared| Some(declared) == normalized_bounds(implemented, &actual))
         && signatures[0] == signatures[1]
         && declared
             .params
@@ -611,6 +645,38 @@ fn method_contract_matches(
                     && left.mutable == right.mutable
                     && signatures[2 + index] == signatures[2 + declared.params.len() + index]
             })
+}
+
+type NormalizedBounds = BTreeMap<Ty<DefinitionId>, Vec<Constraint<DefinitionId>>>;
+
+fn normalized_bounds(
+    function: &FnDecl<DefinitionId>,
+    normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
+) -> Option<NormalizedBounds> {
+    function
+        .bounds
+        .iter()
+        .map(|bound| {
+            let mut constraints = bound
+                .constraints
+                .iter()
+                .map(|constraint| {
+                    Some(match constraint {
+                        Constraint::Standard(value) => Constraint::Standard(*value),
+                        Constraint::Trait(value) => {
+                            let Ty::Trait(value) = normalize(&Ty::Trait(value.clone())).ok()?
+                            else {
+                                return None;
+                            };
+                            Constraint::Trait(value)
+                        }
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?;
+            constraints.sort();
+            Some((normalize(&bound.ty).ok()?, constraints))
+        })
+        .collect::<Option<BTreeMap<_, _>>>()
 }
 
 #[cfg(test)]

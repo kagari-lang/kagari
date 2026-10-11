@@ -22,6 +22,11 @@ fn borrowed_identity_queries_require_the_explicit_scope() {
     assert_eq!(view.last().unwrap().name, "hp");
     let root = table.parent(parent).unwrap().unwrap();
     assert!(table.resolve(root).unwrap().last().is_none());
+    assert_eq!(table.lookup_root(&expected.module), Some(root));
+    assert_eq!(
+        table.lookup_root(&ModuleIdentity::single_file("absent")),
+        None
+    );
     assert_eq!(table.contains(root, id), Ok(true));
     assert_eq!(table.contains(id, id), Ok(true));
     assert_eq!(table.contains(id, root), Ok(false));

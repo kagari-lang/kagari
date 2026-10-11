@@ -1,10 +1,11 @@
 use crate::{
     callable::CallableImplementation,
     declaration::{
-        FnDecl, NativeDeclaration,
+        AssociatedTypeDef, FnDecl, NativeDeclaration, TraitDef,
+        module::ModuleDecl,
         verify::{
-            DeclarationValidationError, types_in_scope, types_in_scope_in,
-            validate_native_declarations,
+            DeclarationValidationError, Parameters, function_valid, trait_valid, types_in_scope,
+            types_in_scope_in, validate_native_declarations,
         },
     },
     host_interface::host_type_identity,
@@ -13,6 +14,7 @@ use crate::{
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, associated_type_id,
+    map::DefinitionContext,
     mapping::{DefinitionMapper, DefinitionRecord},
     metadata::scope_record,
     table::{DefinitionId, DefinitionTableBuilder},
@@ -161,7 +163,7 @@ fn canonical_type_order_ignores_interning_and_associated_member_order() {
 #[test]
 fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
     let cancel = Default::default();
-    let context = kagari_common::identity::map::DefinitionContext::new().unwrap();
+    let context = DefinitionContext::new().unwrap();
     let module = ModuleIdentity::single_file("scope");
     let root = context.intern_root(&module).unwrap();
     // Allocate in reverse spelling order; numeric sorting would reject [A, Z].
@@ -209,7 +211,20 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
     };
     let table = context.snapshot();
     let validate = |declaration: &NativeDeclaration<DefinitionId>| {
-        validate_native_declarations(slice::from_ref(declaration), &module, &table, &cancel)
+        let result =
+            validate_native_declarations(slice::from_ref(declaration), &module, &table, &cancel);
+        assert_eq!(
+            function_valid(
+                &declaration.function,
+                declaration.declaration,
+                &Parameters::new(),
+                None,
+                &cancel,
+                &table
+            ),
+            result.is_ok()
+        );
+        result
     };
     assert_eq!(validate(&declaration), Ok(()));
     declaration.function.bounds[0].constraints.reverse();
@@ -240,4 +255,81 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
         validate(&declaration),
         Err(DeclarationValidationError::Cancelled)
     );
+}
+
+#[test]
+fn trait_members_require_the_retained_scope_and_exact_parent() {
+    let cancel = Default::default();
+    let context = DefinitionContext::new().unwrap();
+    let root = context
+        .intern_root(&ModuleIdentity::single_file("traits"))
+        .unwrap();
+    let owner = context
+        .intern_child(root, DefinitionKind::Trait, "Source", 0)
+        .unwrap();
+    let before = context.snapshot();
+    let output = context
+        .intern_child(owner, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
+    context
+        .intern_child(owner, DefinitionKind::Method, "read", 0)
+        .unwrap();
+    let contract = TraitDef {
+        name: "Source".into(),
+        associated_consts: vec![],
+        associated_types: vec![AssociatedTypeDef {
+            declaration: output,
+            generic_params: vec![],
+            parameter_bounds: vec![],
+            bounds: vec![],
+        }],
+        supertraits: vec![],
+        generic_params: vec![],
+        bounds: vec![],
+        methods: vec![FnDecl {
+            name: "read".into(),
+            implementation: CallableImplementation::Required,
+            generic_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: Ty::Projection {
+                receiver: Box::new(Ty::SelfType(owner)),
+                interface: Box::new(NominalTy {
+                    declaration: owner,
+                    arguments: vec![],
+                    associated_types: Default::default(),
+                }),
+                member: output,
+                arguments: vec![],
+            },
+            method_policy: Default::default(),
+        }],
+        storage_access: None,
+        conversion_adapter: None,
+    };
+    let retained = context.snapshot();
+    assert!(trait_valid(&contract, owner, &cancel, &retained));
+    let mut authored = ModuleDecl::new(retained.resolve(owner).unwrap().module().clone());
+    authored.traits.push(
+        contract
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |id| Ok(retained.resolve(*id)?.to_path()),
+                &cancel,
+            ))
+            .unwrap(),
+    );
+    assert!(authored.validate(&|_| None).is_ok());
+    assert!(!trait_valid(&contract, owner, &cancel, &before));
+    let foreign = DefinitionContext::new().unwrap();
+    assert!(!trait_valid(&contract, owner, &cancel, &foreign.snapshot()));
+    let other = context
+        .intern_child(root, DefinitionKind::Trait, "Other", 0)
+        .unwrap();
+    let other_output = context
+        .intern_child(other, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
+    let mut invalid = contract.clone();
+    invalid.associated_types[0].declaration = other_output;
+    assert!(!trait_valid(&invalid, owner, &cancel, &context.snapshot()));
+    assert!(trait_valid(&contract, owner, &cancel, &retained));
 }

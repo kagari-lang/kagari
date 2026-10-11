@@ -9,6 +9,7 @@ use kagari_common::{
         DefinitionKind, DefinitionPath,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel},
         reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -108,9 +109,14 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
     }
 }
 
-impl ConversionAdapter {
+impl ConversionAdapter<DefinitionId> {
     /// Validate the adapter's local declaration shape before linked proofs use it.
-    pub fn valid_in(&self, owner: &DefinitionPath, contract: &TraitDef) -> bool {
+    pub fn valid_in(
+        &self,
+        owner: &DefinitionId,
+        contract: &TraitDef<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> bool {
         if contract.storage_access.is_some()
             || contract.generic_params.len() != 1
             || contract.methods.len() != 1
@@ -118,15 +124,18 @@ impl ConversionAdapter {
         {
             return false;
         }
-        let member_of = |id: &DefinitionPath, parent: &DefinitionPath, kind| {
-            let mut actual = id.clone();
-            actual.path.pop().is_some_and(|member| {
-                member.kind == kind && member.occurrence == 0 && !member.name.is_empty()
-            }) && actual == *parent
-                && id.within_path_limit()
+        let member_of = |id: &DefinitionId, parent: &DefinitionId, kind| {
+            definitions.parent(*id) == Ok(Some(*parent))
+                && definitions
+                    .resolve(*id)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_some_and(|member| {
+                        member.kind == kind && member.occurrence == 0 && !member.name.is_empty()
+                    })
         };
         let parameter = contract.generic_params[0].as_type();
-        let this = Ty::SelfType(owner.clone());
+        let this = Ty::SelfType(*owner);
         let (input, output, error) = match self {
             Self::Reverse {
                 origin,
@@ -136,10 +145,14 @@ impl ConversionAdapter {
             } => {
                 if result.is_some() != error.is_some()
                     || origin == owner
-                    || origin.path.len() != 1
-                    || origin.path[0].kind != DefinitionKind::Trait
-                    || origin.path[0].occurrence != 0
-                    || origin.path[0].name.is_empty()
+                    || !definitions.resolve(*origin).is_ok_and(|view| {
+                        view.segments().count() == 1
+                            && view.last().is_some_and(|part| {
+                                part.kind == DefinitionKind::Trait
+                                    && part.occurrence == 0
+                                    && !part.name.is_empty()
+                            })
+                    })
                     || !member_of(method, origin, DefinitionKind::Method)
                     || error.as_ref().is_some_and(|(_, target)| {
                         !member_of(target, origin, DefinitionKind::AssociatedType)
@@ -155,7 +168,12 @@ impl ConversionAdapter {
             }
             Self::Forward { method, error, .. } => {
                 if !member_of(method, owner, DefinitionKind::Method)
-                    || method.path.last().map(|part| &part.name) != Some(&contract.methods[0].name)
+                    || definitions
+                        .resolve(*method)
+                        .ok()
+                        .and_then(|view| view.last())
+                        .map(|part| part.name)
+                        != Some(contract.methods[0].name.as_str())
                 {
                     return false;
                 }
@@ -174,7 +192,7 @@ impl ConversionAdapter {
                     result: Some(result),
                     ..
                 }
-                | Self::Forward { result, .. } => result.clone(),
+                | Self::Forward { result, .. } => *result,
                 _ => return false,
             };
             Ty::Enum(NominalTy {
@@ -185,11 +203,11 @@ impl ConversionAdapter {
                     Ty::Projection {
                         receiver: Box::new(this),
                         interface: Box::new(NominalTy {
-                            declaration: owner.clone(),
+                            declaration: *owner,
                             arguments: vec![parameter],
                             associated_types: Default::default(),
                         }),
-                        member: error.clone(),
+                        member: *error,
                         arguments: vec![],
                     },
                 ],

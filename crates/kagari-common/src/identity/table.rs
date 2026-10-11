@@ -197,9 +197,18 @@ impl DefinitionTable {
         })
     }
 
+    /// Find the interned root for an exact module identity without building a path.
+    pub fn lookup_root(&self, module: &ModuleIdentity) -> Option<DefinitionId> {
+        let module = *self.data.module_indices.get(module)?;
+        let index = *self.data.node_indices.get(&Node::Root(module))?;
+        Some(DefinitionId {
+            table: self.id,
+            index,
+        })
+    }
+
     pub fn lookup(&self, path: &DefinitionPath) -> Option<DefinitionId> {
-        let module = *self.data.module_indices.get(&path.module)?;
-        let mut index = *self.data.node_indices.get(&Node::Root(module))?;
+        let mut index = self.lookup_root(&path.module)?.index;
         for segment in &path.path {
             let name = *self.data.symbol_indices.get(segment.name.as_str())?;
             index = *self.data.node_indices.get(&Node::Child {

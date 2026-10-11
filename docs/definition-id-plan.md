@@ -512,3 +512,69 @@ scoped declaration validation preserves canonical path order through the table.
 Canonical wire output must not depend on allocation order; retain the existing
 reordered-allocation coverage and fix the owning ordering operation rather than
 weakening validation. No structural exceptions or new progress queues were added.
+
+### SI02 declaration and SI04 executable-validator prerequisites
+
+Inspection of the bytecode caller failures exposed the remaining shared path
+validators underneath that owner. Migrated their existing algorithms before
+adapting bytecode: declaration binders/functions/traits/aggregates, conversion
+adapter shape, public ABI and carried trait contracts, linked type applications,
+aggregate layouts, inherent method signatures, and range/iterator operands now
+check fixed-ID inputs. Identity-sensitive operations require an explicit retained
+table. Removed the path-building declaration `owner` helper. Scalar constant and
+aggregate-shape helpers still share their identity-independent algorithms with
+remaining authoring callers; their temporary representation parameters remain an
+SI06 removal obligation.
+
+Declaration and public-ABI owners now look up already collected identities rather
+than manufacturing paths while checking. `DefinitionTable::lookup_root` reads the
+existing module index; it creates no second module registry. Callers must register
+the module root and all declared names, including methods whose signatures contain
+no nominal references, before retaining the validation snapshot. SI04/SI05 must
+preserve that collection step for editable programs and decoded records, including
+modules with no public items. Registering these names does not establish valid
+declarations or executable evidence.
+
+Native authoring `ModuleDecl::validate` now adopts its declaration batch once and
+uses that snapshot for function/trait/type and bounds validation. Removed its
+per-implementation, per-method and final native-template `scope_record` calls.
+The final derived native template records resolve in the same scope. A temporary
+private `module/adoption.rs` collects authoring identities, and `implement_trait`
+uses that boundary for its incoming contract. The remaining ModuleDecl construction
+and implementation algorithms still carry paths. Replace this temporary boundary
+when SI02 moves Native builders and ModuleDecl itself into their retained context;
+do not retain an authoring-semantic shadow model in SI06.
+
+Bounds validation continues to compare canonical identity content, including
+associated members, rather than numeric ID order. Inherent export matching merges
+bounds in the shared scope and explicitly restores canonical ordering before exact
+template comparison. Layout validation retains exact child parent/kind/name and
+occurrence checks, generic substitution, finite slot limits and cancellation.
+Parameter/Self references now also require resolution in the supplied scope;
+merely listing a foreign ID as a binder does not authorize it. ABI versions and
+wire formats are unchanged.
+
+Focused local validation passed the common borrowed-identity query case and four
+types scoped-validation cases. Extended the existing native declaration case to
+exercise the fixed function/bounds validator against the same canonical-order and
+ownership mutations. The added trait case covers retained-prefix rejection,
+foreign tables, wrong associated-member parents, and Native authoring adoption of
+implicit method identities. Its test-only missing import during review was fixed
+and the affected case reran successfully. Types/contract library checking and
+Clippy passed; structure checking reports 1039 Rust files and zero violations or
+exceptions. Formatting and diff checks passed. These are core-validator checks,
+not executable integration acceptance.
+
+`cargo check -p kagari-bytecode --lib` now reports 151 errors at the unmigrated
+path-record callers (superseding the preceding 77-error diagnostic). Besides the
+existing scoped-proof/call failures, representative new sites are
+`access.rs:116` (`executable_signature_matches` requires ID records and a table),
+`program.rs:106` (layout ABI checks), and `trait_bounds/applications.rs` (fixed-ID
+application lookup callbacks). SI04 owns these caller/record changes and SI05 the
+decode/adoption context. Runtime, contract tests with the stdlib dev-dependency,
+MIR/compiler and source-free/reload validation remain blocked behind that boundary;
+their existing fixtures also need to supply the retained scope, not restored path
+semantic APIs. The previously recorded two HIR adapter errors remain carried;
+that unchanged check was not repeated. Complete Host interface contract migration
+and executable ownership/adoption next, alongside the remaining SI02 builder
+work. No phase is newly marked complete, and the exhaustive matrix stays in CI.

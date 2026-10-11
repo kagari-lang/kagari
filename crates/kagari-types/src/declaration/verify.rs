@@ -9,9 +9,8 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity,
     identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        DefinitionKind, ModuleIdentity,
         reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
@@ -26,16 +25,16 @@ pub enum DeclarationValidationError {
     Invalid,
     Cancelled,
 }
-pub type Parameters = HashSet<(DefinitionPath, usize)>;
+pub type Parameters = HashSet<(DefinitionId, usize)>;
 
-fn scalar_const_type(ty: &Ty) -> bool {
+fn scalar_const_type<I>(ty: &Ty<I>) -> bool {
     matches!(
         ty,
         Ty::Builtin(BuiltinType::Unit | BuiltinType::Bool | BuiltinType::I32 | BuiltinType::F32)
     )
 }
 
-pub fn scalar_const_valid(ty: &Ty, value: &str) -> bool {
+pub fn scalar_const_valid<I>(ty: &Ty<I>, value: &str) -> bool {
     match ty {
         Ty::Builtin(BuiltinType::Unit) => value == "const-v1:unit",
         Ty::Builtin(BuiltinType::Bool) => {
@@ -57,8 +56,12 @@ pub fn scalar_const_valid(ty: &Ty, value: &str) -> bool {
     }
 }
 
-pub fn concrete_type_valid(ty: &Ty, cancel: &CancellationToken) -> bool {
-    type_valid(ty, &Parameters::new(), None, cancel)
+pub fn concrete_type_valid(
+    ty: &Ty<DefinitionId>,
+    cancel: &CancellationToken,
+    table: &DefinitionTable,
+) -> bool {
+    type_valid(ty, &Parameters::new(), None, cancel, table)
 }
 
 /// Validate declaration binders before any concrete native import can use them.
@@ -207,25 +210,41 @@ fn constraints_with<I: DefinitionReference>(
         })
 }
 
-pub fn trait_valid(ty: &TraitDef, module: &ModuleIdentity, cancel: &CancellationToken) -> bool {
-    let owner = owner(module, &[], DefinitionKind::Trait, &ty.name);
+pub fn trait_valid(
+    ty: &TraitDef<DefinitionId>,
+    owner: DefinitionId,
+    cancel: &CancellationToken,
+    table: &DefinitionTable,
+) -> bool {
+    if !table.resolve(owner).is_ok_and(|view| {
+        view.segments().count() == 1
+            && view.last().is_some_and(|part| {
+                part.kind == DefinitionKind::Trait && part.name == ty.name && part.occurrence == 0
+            })
+    }) {
+        return false;
+    }
+    let member_of = |id, kind| {
+        table.parent(id) == Ok(Some(owner))
+            && table
+                .resolve(id)
+                .ok()
+                .and_then(|view| view.last())
+                .is_some_and(|part| {
+                    part.kind == kind && part.occurrence == 0 && !part.name.is_empty()
+                })
+    };
     let mut methods = HashSet::new();
     !ty.name.is_empty()
         && ty
             .conversion_adapter
             .as_ref()
-            .is_none_or(|adapter| adapter.valid_in(&owner, ty))
+            .is_none_or(|adapter| adapter.valid_in(&owner, ty, table))
         && {
             let mut members = HashSet::new();
             ty.associated_consts.iter().all(|member| {
-                let name = member
-                    .declaration
-                    .path
-                    .last()
-                    .map_or("", |part| part.name.as_str());
-                !name.is_empty()
-                    && members.insert(&member.declaration)
-                    && member.declaration == identity::associated_const_id(&owner, name)
+                members.insert(member.declaration)
+                    && member_of(member.declaration, DefinitionKind::Const)
                     && scalar_const_type(&member.ty)
                     && member
                         .default_value
@@ -236,33 +255,37 @@ pub fn trait_valid(ty: &TraitDef, module: &ModuleIdentity, cancel: &Cancellation
         && {
             let mut members = HashSet::new();
             ty.associated_types.iter().all(|member| {
-                members.insert(&member.declaration)
-                    && member.declaration
-                        == identity::associated_type_id(
-                            &owner,
-                            member
-                                .declaration
-                                .path
-                                .last()
-                                .map_or("", |part| part.name.as_str()),
-                        )
-                    && member
-                        .declaration
-                        .path
-                        .last()
-                        .is_some_and(|part| !part.name.is_empty())
+                members.insert(member.declaration)
+                    && member_of(member.declaration, DefinitionKind::AssociatedType)
             })
         }
         && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
-            bounds_valid(&ty.bounds, &params, cancel)
+            bounds_valid(&ty.bounds, &params, cancel, table)
                 && ty.supertraits.iter().all(|parent| {
-                    type_valid(&Ty::Trait(parent.clone()), &params, Some(&owner), cancel)
+                    type_valid(
+                        &Ty::Trait(parent.clone()),
+                        &params,
+                        Some(&owner),
+                        cancel,
+                        table,
+                    )
                 })
                 && ty.associated_types.iter().all(|member| {
                     parameters(&member.generic_params, &member.declaration, &params).is_some_and(
                         |params| {
-                            bounds_valid_in(&member.parameter_bounds, &params, Some(&owner), cancel)
-                                && constraints_valid(&member.bounds, &params, Some(&owner), cancel)
+                            bounds_valid_in(
+                                &member.parameter_bounds,
+                                &params,
+                                Some(&owner),
+                                cancel,
+                                table,
+                            ) && constraints_valid(
+                                &member.bounds,
+                                &params,
+                                Some(&owner),
+                                cancel,
+                                table,
+                            )
                         },
                     )
                 })
@@ -270,19 +293,19 @@ pub fn trait_valid(ty: &TraitDef, module: &ModuleIdentity, cancel: &Cancellation
                     methods.insert(&method.name)
                         && (method.method_policy.override_allowed
                             || !matches!(method.implementation, CallableImplementation::Required))
-                        && function_valid(
-                            method,
-                            module,
-                            &owner.path,
-                            &params,
-                            Some(&owner),
-                            cancel,
-                        )
+                        && table
+                            .lookup_child(owner, DefinitionKind::Method, &method.name, 0)
+                            .is_some_and(|id| {
+                                function_valid(method, id, &params, Some(&owner), cancel, table)
+                            })
                 })
         })
 }
 
-pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
+pub fn aggregate_shape_valid<I: DefinitionReference>(
+    ty: &TypeDef<I>,
+    cancel: &CancellationToken,
+) -> bool {
     if ty.name.is_empty()
         || match ty.kind {
             TypeDefKind::Struct => !ty.variants.is_empty(),
@@ -305,34 +328,14 @@ pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
         .all(|name| cancel.check().is_ok() && !name.is_empty() && names.insert(name))
 }
 
-pub fn owner(
-    module: &ModuleIdentity,
-    parent: &[DefinitionPathSegment],
-    kind: DefinitionKind,
-    name: &str,
-) -> DefinitionPath {
-    let mut path = parent.to_vec();
-    path.push(DefinitionPathSegment {
-        kind,
-        name: name.into(),
-        occurrence: 0,
-    });
-    DefinitionPath {
-        module: module.clone(),
-        path,
-    }
-}
-
 pub fn parameters(
-    declared: &[GenericParam],
-    owner: &DefinitionPath,
+    declared: &[GenericParam<DefinitionId>],
+    owner: &DefinitionId,
     outer: &Parameters,
 ) -> Option<Parameters> {
     let mut params = outer.clone();
     for (position, param) in declared.iter().enumerate() {
-        if &param.owner != owner
-            || param.position != position
-            || !params.insert((owner.clone(), position))
+        if &param.owner != owner || param.position != position || !params.insert((*owner, position))
         {
             return None;
         }
@@ -341,23 +344,28 @@ pub fn parameters(
 }
 
 pub fn bounds_valid(
-    bounds: &[GenericBound],
+    bounds: &[GenericBound<DefinitionId>],
     params: &Parameters,
     cancel: &CancellationToken,
+    table: &DefinitionTable,
 ) -> bool {
-    bounds_valid_in(bounds, params, None, cancel)
+    bounds_valid_in(bounds, params, None, cancel, table)
 }
 
 fn bounds_valid_in(
-    bounds: &[GenericBound],
+    bounds: &[GenericBound<DefinitionId>],
     params: &Parameters,
-    self_owner: Option<&DefinitionPath>,
+    self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
+    table: &DefinitionTable,
 ) -> bool {
     bounds_with(
         bounds,
-        &|ty| type_valid(ty, params, self_owner, cancel),
-        &|left, right| left < right,
+        &|ty| type_valid(ty, params, self_owner, cancel, table),
+        &|left, right| {
+            left.canonical_cmp(right, table, cancel)
+                .is_ok_and(|order| order.is_lt())
+        },
     )
 }
 
@@ -385,43 +393,63 @@ pub fn native_bounds_valid(
 }
 
 fn constraints_valid(
-    constraints: &[Constraint],
+    constraints: &[Constraint<DefinitionId>],
     params: &Parameters,
-    self_owner: Option<&DefinitionPath>,
+    self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
+    table: &DefinitionTable,
 ) -> bool {
     constraints_with(
         constraints,
-        &|ty| type_valid(ty, params, self_owner, cancel),
-        &|left, right| left < right,
+        &|ty| type_valid(ty, params, self_owner, cancel, table),
+        &|left, right| {
+            left.canonical_cmp(right, table, cancel)
+                .is_ok_and(|order| order.is_lt())
+        },
     )
 }
 
 pub fn function_valid(
-    function: &FnDecl,
-    module: &ModuleIdentity,
-    parent: &[DefinitionPathSegment],
+    function: &FnDecl<DefinitionId>,
+    owner: DefinitionId,
     outer: &Parameters,
-    self_owner: Option<&DefinitionPath>,
+    self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
+    table: &DefinitionTable,
 ) -> bool {
+    let Ok(view) = table.resolve(owner) else {
+        return false;
+    };
+    let Ok(parent) = table.parent(owner) else {
+        return false;
+    };
+    let parent_kind =
+        parent.and_then(|parent| table.resolve(parent).ok()?.last().map(|part| part.kind));
+    let kind = if parent_kind.is_none() {
+        DefinitionKind::Function
+    } else {
+        DefinitionKind::Method
+    };
+    if !view
+        .last()
+        .is_some_and(|part| part.kind == kind && part.name == function.name && part.occurrence == 0)
+    {
+        return false;
+    }
+    let callable = |id: &DefinitionId| {
+        id.describe(Some(table)).is_ok_and(|view| {
+            view.nominal(DefinitionKind::Function) || view.nominal(DefinitionKind::Method)
+        })
+    };
     let implementation_valid = match &function.implementation {
-        CallableImplementation::Required => parent
-            .last()
-            .is_some_and(|owner| owner.kind == DefinitionKind::Trait),
+        CallableImplementation::Required => parent_kind == Some(DefinitionKind::Trait),
         CallableImplementation::Script => true,
-        // Provider authentication and signature matching are linked-program checks.
-        CallableImplementation::Native(id) => {
-            (nominal_valid(id, DefinitionKind::Function)
-                || nominal_valid(id, DefinitionKind::Method))
-                && id.within_path_limit()
-        }
+        CallableImplementation::Native(id) => callable(id),
         CallableImplementation::NativeDefault(application) => {
-            parent.last().is_some_and(|owner| {
-                matches!(owner.kind, DefinitionKind::Trait | DefinitionKind::Impl)
-            }) && application.declaration.within_path_limit()
-                && (nominal_valid(&application.declaration, DefinitionKind::Function)
-                    || nominal_valid(&application.declaration, DefinitionKind::Method))
+            matches!(
+                parent_kind,
+                Some(DefinitionKind::Trait | DefinitionKind::Impl)
+            ) && callable(&application.declaration)
                 && application.arguments.len() <= 4096
         }
     };
@@ -432,53 +460,26 @@ pub fn function_valid(
                 function.implementation,
                 CallableImplementation::NativeDefault(_)
             )
-            && !parent
-                .last()
-                .is_some_and(|owner| owner.kind == DefinitionKind::Trait))
+            && parent_kind != Some(DefinitionKind::Trait))
     {
         return false;
     }
-    let kind = if parent.is_empty() {
-        DefinitionKind::Function
-    } else {
-        DefinitionKind::Method
-    };
-    let owner = owner(module, parent, kind, &function.name);
     parameters(&function.generic_params, &owner, outer).is_some_and(|params| {
-        bounds_valid_in(&function.bounds, &params, self_owner, cancel)
-            && signature_valid(function, &params, self_owner, cancel)
+        bounds_valid_in(&function.bounds, &params, self_owner, cancel, table)
+            && function
+                .params
+                .iter()
+                .map(|param| &param.ty)
+                .chain(iter::once(&function.return_type))
+                .all(|ty| type_valid(ty, &params, self_owner, cancel, table))
             && match &function.implementation {
                 CallableImplementation::NativeDefault(application) => application
                     .arguments
                     .iter()
-                    .all(|argument| type_valid(argument, &params, self_owner, cancel)),
+                    .all(|argument| type_valid(argument, &params, self_owner, cancel, table)),
                 _ => true,
             }
     })
-}
-
-fn signature_valid(
-    function: &FnDecl,
-    params: &Parameters,
-    self_owner: Option<&DefinitionPath>,
-    cancel: &CancellationToken,
-) -> bool {
-    function
-        .params
-        .iter()
-        .map(|param| &param.ty)
-        .chain(iter::once(&function.return_type))
-        .all(|ty| type_valid(ty, params, self_owner, cancel))
-}
-
-fn nominal_valid(id: &DefinitionPath, kind: DefinitionKind) -> bool {
-    !id.module.package.0.is_empty()
-        && !id.module.path.is_empty()
-        && !id.module.path.iter().any(String::is_empty)
-        && id
-            .path
-            .last()
-            .is_some_and(|part| part.kind == kind && !part.name.is_empty())
 }
 
 /// Check portable type expressions against an explicitly supplied binder scope.
@@ -493,16 +494,17 @@ pub fn types_in_scope<'a>(
         .collect();
     types
         .into_iter()
-        .all(|ty| ty.within_wire_limits() && type_valid(ty, &parameters, None, cancel))
+        .all(|ty| ty.within_wire_limits() && type_valid_in(ty, &parameters, None, cancel, None))
 }
 
 pub fn type_valid(
-    ty: &Ty,
+    ty: &Ty<DefinitionId>,
     params: &Parameters,
-    self_owner: Option<&DefinitionPath>,
+    self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
+    table: &DefinitionTable,
 ) -> bool {
-    type_valid_in(ty, params, self_owner, cancel, None)
+    type_valid_in(ty, params, self_owner, cancel, Some(table))
 }
 
 /// Check scoped type expressions without materializing owned paths.
@@ -571,12 +573,12 @@ fn type_valid_in<I: DefinitionReference>(
                 pending.extend(&interface.arguments);
             }
             Ty::Parameter { owner, position } => {
-                if !params.contains(&(owner.clone(), *position)) {
+                if owner.describe(table).is_err() || !params.contains(&(owner.clone(), *position)) {
                     return false;
                 }
             }
             Ty::SelfType(owner) => {
-                if Some(owner) != self_owner {
+                if owner.describe(table).is_err() || Some(owner) != self_owner {
                     return false;
                 }
             }
@@ -655,27 +657,35 @@ mod scoped_tests;
 
 /// Check fields, variants, storage parameters and binder ownership together.
 pub fn type_definition_valid(
-    ty: &TypeDef,
-    module: &ModuleIdentity,
+    ty: &TypeDef<DefinitionId>,
+    owner: DefinitionId,
     cancel: &CancellationToken,
+    table: &DefinitionTable,
 ) -> bool {
     let kind = ty.kind.definition_kind();
-    let owner = owner(module, &[], kind, &ty.name);
+    if !table.resolve(owner).is_ok_and(|view| {
+        view.segments().count() == 1
+            && view.last().is_some_and(|part| {
+                part.kind == kind && part.name == ty.name && part.occurrence == 0
+            })
+    }) {
+        return false;
+    }
     aggregate_shape_valid(ty, cancel)
         && ty
             .variants
             .iter()
             .all(|variant| !variant.reports_failure || variant.payload.len() == 1)
         && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
-            bounds_valid(&ty.bounds, &params, cancel)
+            bounds_valid(&ty.bounds, &params, cancel, table)
                 && ty
                     .fields
                     .iter()
-                    .all(|field| type_valid(&field.ty, &params, None, cancel))
+                    .all(|field| type_valid(&field.ty, &params, None, cancel, table))
                 && ty
                     .variants
                     .iter()
                     .flat_map(|variant| &variant.payload)
-                    .all(|ty| type_valid(ty, &params, None, cancel))
+                    .all(|ty| type_valid(ty, &params, None, cancel, table))
         })
 }

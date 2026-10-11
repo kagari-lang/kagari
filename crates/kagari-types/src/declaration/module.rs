@@ -20,7 +20,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-        metadata::scope_record,
+        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
     },
 };
 use std::{
@@ -170,7 +170,19 @@ impl ModuleDecl {
                 "native trait contract has a different owner".into(),
             ));
         }
-        if !trait_valid(contract, &owner.module, &CancellationToken::default()) {
+        let mut input = ModuleDecl::new(owner.module.clone());
+        input.traits.push(contract.clone());
+        let scoped = input.adopt_declarations()?;
+        let id = scoped
+            .definitions()
+            .lookup(&owner)
+            .ok_or_else(|| DeclarationError("missing trait identity".into()))?;
+        if !trait_valid(
+            &scoped.records().traits[0],
+            id,
+            &CancellationToken::default(),
+            scoped.definitions(),
+        ) {
             return Err(DeclarationError("invalid native trait contract".into()));
         }
         if trait_type.arguments.len() != contract.generic_params.len()
@@ -390,7 +402,9 @@ impl ModuleDecl {
         }
         let mut names = HashSet::new();
         let cancel = CancellationToken::default();
-        for ty in &self.types {
+        let scoped = self.adopt_declarations()?;
+        let definitions = scoped.definitions();
+        for (ty, adopted) in self.types.iter().zip(&scoped.records().types) {
             for payload in ty.variants.iter().flat_map(|variant| &variant.payload) {
                 supported_type(payload)?;
             }
@@ -404,11 +418,14 @@ impl ModuleDecl {
             {
                 return Err(fail());
             }
-            if !type_definition_valid(ty, &self.identity, &cancel) {
+            let owner = definitions
+                .lookup(&self.definition(ty.kind.definition_kind(), &ty.name))
+                .ok_or_else(fail)?;
+            if !type_definition_valid(adopted, owner, &cancel, definitions) {
                 return Err(fail());
             }
         }
-        for item in &self.traits {
+        for (item, adopted) in self.traits.iter().zip(&scoped.records().traits) {
             if !identifier(&item.name)
                 || !names.insert((NameNamespace::Type, &item.name))
                 || !item.bounds.is_empty()
@@ -433,11 +450,17 @@ impl ModuleDecl {
             {
                 return Err(fail());
             }
-            if !trait_valid(item, &self.identity, &cancel) {
+            let owner = definitions
+                .lookup(&self.definition(DefinitionKind::Trait, &item.name))
+                .ok_or_else(fail)?;
+            if !trait_valid(adopted, owner, &cancel, definitions) {
                 return Err(fail());
             }
         }
-        for function in &self.functions {
+        for (function, adopted) in self.functions.iter().zip(&scoped.records().functions) {
+            let owner = definitions
+                .lookup(&self.definition(DefinitionKind::Function, &function.name))
+                .ok_or_else(fail)?;
             if !identifier(&function.name) || !names.insert((NameNamespace::Value, &function.name))
             {
                 return Err(fail());
@@ -445,12 +468,12 @@ impl ModuleDecl {
             if !(matches!(function.implementation, CallableImplementation::Native(_))
                 || (function.generic_params.is_empty() && function.bounds.is_empty()))
                 || !function_valid(
-                    function,
-                    &self.identity,
-                    &[],
+                    adopted,
+                    owner,
                     &Parameters::new(),
                     None,
                     &cancel,
+                    definitions,
                 )
             {
                 return Err(fail());
@@ -507,7 +530,12 @@ impl ModuleDecl {
         {
             return Err(fail());
         }
-        for (index, implementation) in self.implementations.iter().enumerate() {
+        for (index, (implementation, adopted)) in self
+            .implementations
+            .iter()
+            .zip(&scoped.records().implementations)
+            .enumerate()
+        {
             if implementation.trait_type.is_none()
                 && !self.owns_inherent_receiver(&implementation.for_type, receiver_owner)
             {
@@ -527,17 +555,15 @@ impl ModuleDecl {
                 return Err(fail());
             }
             let mut method_names = HashSet::new();
-            if !scope_record(implementation, &cancel).is_ok_and(|scoped| {
-                native_bounds_valid(
-                    &scoped.records().bounds,
-                    &scoped.records().generic_params,
-                    &cancel,
-                    scoped.definitions(),
-                )
-            }) {
+            if !native_bounds_valid(
+                &adopted.bounds,
+                &adopted.generic_params,
+                &cancel,
+                definitions,
+            ) {
                 return Err(fail());
             }
-            for method in &implementation.methods {
+            for (method, adopted) in implementation.methods.iter().zip(&adopted.methods) {
                 if !identifier(&method.name)
                     || !method_names.insert(&method.name)
                     || !method
@@ -550,14 +576,12 @@ impl ModuleDecl {
                             parameter.owner != Self::method_id(&owner, &method.name)
                                 || parameter.position != position
                         })
-                    || !scope_record(method, &cancel).is_ok_and(|scoped| {
-                        native_bounds_valid(
-                            &scoped.records().bounds,
-                            &scoped.records().generic_params,
-                            &cancel,
-                            scoped.definitions(),
-                        )
-                    })
+                    || !native_bounds_valid(
+                        &adopted.bounds,
+                        &adopted.generic_params,
+                        &cancel,
+                        definitions,
+                    )
                 {
                     return Err(fail());
                 }
@@ -608,15 +632,18 @@ impl ModuleDecl {
             return Err(fail());
         }
         let cancel = CancellationToken::default();
-        let scoped = scope_record(&declarations, &cancel)
+        let declarations = declarations
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |path| {
+                    definitions
+                        .lookup(path)
+                        .ok_or(DefinitionMappingError::InvalidContract)
+                },
+                &cancel,
+            ))
             .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
-        validate_native_declarations(
-            scoped.records(),
-            &self.identity,
-            scoped.definitions(),
-            &cancel,
-        )
-        .map_err(|error| DeclarationError(format!("invalid native declarations: {error:?}")))?;
+        validate_native_declarations(&declarations, &self.identity, definitions, &cancel)
+            .map_err(|error| DeclarationError(format!("invalid native declarations: {error:?}")))?;
         self.validate_implementations()?;
         self.validate_supported_types()?;
         Ok(())
@@ -892,4 +919,5 @@ fn identifier(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+mod adoption;
 mod mapping;

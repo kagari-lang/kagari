@@ -1,10 +1,13 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
 
 use crate::types::PublicItem;
-use kagari_common::identity::reference::DefinitionReference;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
+    identity::{
+        DefinitionKind, DefinitionPath, ModuleIdentity,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind, verify::DeclarationValidationError},
@@ -41,23 +44,22 @@ pub struct EnumVariantLayout<I = DefinitionPath> {
 
 /// Compare executable instances to validated public declarations after substitution.
 pub fn struct_abi_matches(
-    layouts: &[StructLayout],
+    layouts: &[StructLayout<DefinitionId>],
     identity: &ModuleIdentity,
-    items: &[PublicItem],
+    items: &[PublicItem<DefinitionId>],
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
     let templates = public_templates(items, TypeDefKind::Struct, cancel)?;
     for layout in layouts {
         cancel.check()?;
-        if &layout.declaration.module != identity {
+        let Ok(declaration) = definitions.resolve(layout.declaration) else {
+            return Ok(false);
+        };
+        if declaration.module() != identity {
             continue;
         }
-        let Some(template) = layout
-            .declaration
-            .path
-            .last()
-            .and_then(|part| templates.get(part.name.as_str()))
-        else {
+        let Some(template) = declaration.last().and_then(|part| templates.get(part.name)) else {
             continue;
         };
         if layout.arguments.len() != template.generic_params.len()
@@ -84,24 +86,23 @@ pub fn struct_abi_matches(
 }
 
 pub fn enum_abi_matches(
-    layouts: &[EnumLayout],
+    layouts: &[EnumLayout<DefinitionId>],
     identity: &ModuleIdentity,
-    items: &[PublicItem],
+    items: &[PublicItem<DefinitionId>],
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
     let templates = public_templates(items, TypeDefKind::Enum, cancel)?;
     let mut instantiated = HashSet::new();
     for layout in layouts {
         cancel.check()?;
-        if &layout.declaration.module != identity {
+        let Ok(declaration) = definitions.resolve(layout.declaration) else {
+            return Ok(false);
+        };
+        if declaration.module() != identity {
             continue;
         }
-        let Some(template) = layout
-            .declaration
-            .path
-            .last()
-            .and_then(|part| templates.get(part.name.as_str()))
-        else {
+        let Some(template) = declaration.last().and_then(|part| templates.get(part.name)) else {
             continue;
         };
         instantiated.insert(template.name.as_str());
@@ -112,10 +113,10 @@ pub fn enum_abi_matches(
         }
         for (variant, abi) in layout.variants.iter().zip(&template.variants) {
             cancel.check()?;
-            if !variant
-                .declaration
-                .path
-                .last()
+            if !definitions
+                .resolve(variant.declaration)
+                .ok()
+                .and_then(|view| view.last())
                 .is_some_and(|part| part.name == abi.name)
                 || variant.payload.len() != abi.payload.len()
                 || variant.reports_failure != abi.reports_failure
@@ -145,10 +146,10 @@ pub fn enum_abi_matches(
 }
 
 fn public_templates<'a>(
-    items: &'a [PublicItem],
+    items: &'a [PublicItem<DefinitionId>],
     kind: TypeDefKind,
     cancel: &CancellationToken,
-) -> Result<HashMap<&'a str, &'a TypeDef>, Cancelled> {
+) -> Result<HashMap<&'a str, &'a TypeDef<DefinitionId>>, Cancelled> {
     cancel.check()?;
     let mut templates = HashMap::new();
     for item in items {
@@ -163,15 +164,20 @@ fn public_templates<'a>(
 }
 
 pub fn validate_enum_layouts(
-    layouts: &[EnumLayout],
-    structures: &[StructLayout],
+    layouts: &[EnumLayout<DefinitionId>],
+    structures: &[StructLayout<DefinitionId>],
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {
     cancel
         .check()
         .map_err(|_| LayoutValidationError::Cancelled)?;
-    if structures.iter().any(|layout| !layout.types_valid(cancel))
-        || layouts.iter().any(|layout| !layout.types_valid(cancel))
+    if structures
+        .iter()
+        .any(|layout| !layout.types_valid(cancel, definitions))
+        || layouts
+            .iter()
+            .any(|layout| !layout.types_valid(cancel, definitions))
     {
         cancel
             .check()
@@ -223,13 +229,7 @@ pub fn validate_enum_layouts(
             .check()
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let id = &layout.declaration;
-        if id.path.len() != 1
-            || id.module.package.0.is_empty()
-            || id.module.path.is_empty()
-            || id.module.path.iter().any(String::is_empty)
-            || !id.path.last().is_some_and(|p| {
-                p.kind == DefinitionKind::Enum && p.occurrence == 0 && !p.name.is_empty()
-            })
+        if !top_level(*id, DefinitionKind::Enum, Some(0), definitions)
             || !identities.insert((id, &layout.arguments))
         {
             return Err(LayoutValidationError::Invalid);
@@ -246,15 +246,17 @@ pub fn validate_enum_layouts(
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
             let child = &variant.declaration;
-            if child.module != id.module
-                || child.path.len() != id.path.len() + 1
-                || !child.path.starts_with(&id.path)
-                || !child.path.last().is_some_and(|p| {
-                    p.kind == DefinitionKind::Variant
-                        && p.occurrence == 0
-                        && !p.name.is_empty()
-                        && names.insert(&p.name)
-                })
+            if definitions.parent(*child) != Ok(Some(*id))
+                || !definitions
+                    .resolve(*child)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_some_and(|p| {
+                        p.kind == DefinitionKind::Variant
+                            && p.occurrence == 0
+                            && !p.name.is_empty()
+                            && names.insert(p.name)
+                    })
             {
                 return Err(LayoutValidationError::Invalid);
             }
@@ -295,15 +297,7 @@ pub fn validate_enum_layouts(
                     Ty::Enum(_) => DefinitionKind::Enum,
                     _ => DefinitionKind::Trait,
                 };
-                if id.path.len() != 1
-                    || id.module.package.0.is_empty()
-                    || id.module.path.is_empty()
-                    || id.module.path.iter().any(String::is_empty)
-                    || !id
-                        .path
-                        .last()
-                        .is_some_and(|p| p.kind == kind && !p.name.is_empty())
-                {
+                if !top_level(*id, kind, None, definitions) {
                     return Err(LayoutValidationError::Invalid);
                 }
                 if (kind == DefinitionKind::Struct
@@ -336,13 +330,13 @@ pub struct StructLayout<I = DefinitionPath> {
     pub fields: Vec<StructFieldLayout<I>>,
 }
 
-impl StructLayout {
-    pub fn name(&self) -> &str {
-        self.declaration
-            .path
+impl StructLayout<DefinitionId> {
+    pub fn name<'a>(&self, definitions: &'a DefinitionTable) -> Option<&'a str> {
+        definitions
+            .resolve(self.declaration)
+            .ok()?
             .last()
-            .map(|part| part.name.as_str())
-            .unwrap_or("")
+            .map(|part| part.name)
     }
 }
 
@@ -370,8 +364,9 @@ pub enum LayoutValidationError {
 }
 
 pub fn validate_layouts(
-    layouts: &[StructLayout],
+    layouts: &[StructLayout<DefinitionId>],
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {
     let limit = |count: usize, resource| {
         if count <= u32::MAX as usize {
@@ -394,13 +389,7 @@ pub fn validate_layouts(
             .check()
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let id = &structure.declaration;
-        if id.path.len() != 1
-            || id.module.package.0.is_empty()
-            || id.module.path.is_empty()
-            || id.module.path.iter().any(String::is_empty)
-            || !id.path.last().is_some_and(|part| {
-                part.kind == DefinitionKind::Struct && part.occurrence == 0 && !part.name.is_empty()
-            })
+        if !top_level(*id, DefinitionKind::Struct, Some(0), definitions)
             || !identities.insert((id, &structure.arguments))
         {
             return Err(LayoutValidationError::Invalid);
@@ -415,14 +404,16 @@ pub fn validate_layouts(
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
             let field_id = &field.declaration;
-            if field_id.module != id.module
-                || field_id.path.len() != id.path.len() + 1
-                || !field_id.path.starts_with(&id.path)
-                || !field_id.path.last().is_some_and(|part| {
-                    part.kind == DefinitionKind::Field
-                        && part.occurrence == 0
-                        && part.name == field.name
-                })
+            if definitions.parent(*field_id) != Ok(Some(*id))
+                || !definitions
+                    .resolve(*field_id)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_some_and(|part| {
+                        part.kind == DefinitionKind::Field
+                            && part.occurrence == 0
+                            && part.name == field.name
+                    })
                 || field.name.is_empty()
                 || !names.insert(&field.name)
             {
@@ -431,6 +422,25 @@ pub fn validate_layouts(
         }
     }
     Ok(())
+}
+
+fn top_level(
+    id: DefinitionId,
+    kind: DefinitionKind,
+    occurrence: Option<u32>,
+    definitions: &DefinitionTable,
+) -> bool {
+    definitions.resolve(id).is_ok_and(|view| {
+        view.segments().count() == 1
+            && !view.module().package.0.is_empty()
+            && !view.module().path.is_empty()
+            && !view.module().path.iter().any(String::is_empty)
+            && view.last().is_some_and(|part| {
+                part.kind == kind
+                    && occurrence.is_none_or(|value| part.occurrence == value)
+                    && !part.name.is_empty()
+            })
+    })
 }
 
 mod mapping;

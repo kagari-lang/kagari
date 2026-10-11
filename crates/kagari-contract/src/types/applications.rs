@@ -4,7 +4,7 @@ use crate::{
     slots::SemanticSlots,
     types::{PublicItem, TraitContract},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_types::{
     declaration::{TraitDef, TypeDefKind, applications::ApplicationValidator},
     ty::substitution::TypeTransformError,
@@ -12,13 +12,13 @@ use kagari_types::{
 
 pub fn validate_declarations<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
-    items: &[PublicItem],
-    private: &[TraitContract],
+    items: &[PublicItem<DefinitionId>],
+    private: &[TraitContract<DefinitionId>],
     cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
-    F: Fn(&DefinitionPath) -> Option<&'declaration TraitDef>,
-    G: Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef<DefinitionId>>,
+    G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
     for item in items {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -61,13 +61,13 @@ where
 
 pub fn validate_layouts<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
-    structures: &[StructLayout],
-    enumerations: &[EnumLayout],
+    structures: &[StructLayout<DefinitionId>],
+    enumerations: &[EnumLayout<DefinitionId>],
     _cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
-    F: Fn(&DefinitionPath) -> Option<&'declaration TraitDef>,
-    G: Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef<DefinitionId>>,
+    G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
     for layout in structures {
         validator.types(&layout.arguments)?;
@@ -82,12 +82,12 @@ where
 
 pub fn validate_slots<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
-    slots: &SemanticSlots,
+    slots: &SemanticSlots<DefinitionId>,
     _cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
-    F: Fn(&DefinitionPath) -> Option<&'declaration TraitDef>,
-    G: Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef<DefinitionId>>,
+    G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
     if let Some(body) = &slots.generic {
         validator.bounds(&body.bounds)?;

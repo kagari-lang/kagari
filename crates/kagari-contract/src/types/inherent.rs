@@ -11,15 +11,19 @@ use kagari_common::{
             DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
         },
         reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, NativeDeclaration, module::ModuleDecl},
+    declaration::{FnDecl, NativeDeclaration},
     ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+};
 
 /// Only publicly callable members are exported. Private and parent-visible
 /// methods remain absent, independently of their executable function records.
@@ -83,7 +87,11 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InherentTable<I> {
 
 /// Native exports share the registered template's signature and binder scopes.
 /// A public member table cannot redefine an installed callable's declaration.
-pub fn native_signatures_match(items: &[PublicItem], declarations: &[NativeDeclaration]) -> bool {
+pub fn native_signatures_match(
+    items: &[PublicItem<DefinitionId>],
+    declarations: &[NativeDeclaration<DefinitionId>],
+    definitions: &DefinitionTable,
+) -> bool {
     items.iter().all(|item| {
         let PublicItem::InherentTable(table) = item else {
             return true;
@@ -95,7 +103,14 @@ pub fn native_signatures_match(items: &[PublicItem], declarations: &[NativeDecla
             if !matches!(method.implementation, CallableImplementation::Native(_)) {
                 return false;
             }
-            let id = ModuleDecl::method_id(&table.declaration, &method.name);
+            let Some(id) = definitions.lookup_child(
+                table.declaration,
+                DefinitionKind::Method,
+                &method.name,
+                0,
+            ) else {
+                return false;
+            };
             let Some(declaration) = declarations.iter().find(|item| item.declaration == id) else {
                 return false;
             };
@@ -106,7 +121,8 @@ pub fn native_signatures_match(items: &[PublicItem], declarations: &[NativeDecla
                 .chain(&method.generic_params)
                 .cloned()
                 .collect();
-            let mut bounds = BTreeMap::<Ty, BTreeSet<Constraint>>::new();
+            let mut bounds =
+                BTreeMap::<Ty<DefinitionId>, BTreeSet<Constraint<DefinitionId>>>::new();
             for bound in table.bounds.iter().chain(&method.bounds) {
                 bounds
                     .entry(bound.ty.clone())
@@ -120,7 +136,36 @@ pub fn native_signatures_match(items: &[PublicItem], declarations: &[NativeDecla
                     constraints: constraints.into_iter().collect(),
                 })
                 .collect();
-            function == declaration.function
+            let cancel = CancellationToken::default();
+            let mut valid = true;
+            function.bounds.sort_by(|left, right| {
+                left.ty
+                    .canonical_cmp(&right.ty, definitions, &cancel)
+                    .unwrap_or_else(|_| {
+                        valid = false;
+                        Ordering::Equal
+                    })
+            });
+            for bound in &mut function.bounds {
+                bound
+                    .constraints
+                    .sort_by(|left, right| match (left, right) {
+                        (Constraint::Standard(left), Constraint::Standard(right)) => {
+                            left.cmp(right)
+                        }
+                        (Constraint::Standard(_), Constraint::Trait(_)) => Ordering::Less,
+                        (Constraint::Trait(_), Constraint::Standard(_)) => Ordering::Greater,
+                        (Constraint::Trait(left), Constraint::Trait(right)) => {
+                            Ty::Trait(left.clone())
+                                .canonical_cmp(&Ty::Trait(right.clone()), definitions, &cancel)
+                                .unwrap_or_else(|_| {
+                                    valid = false;
+                                    Ordering::Equal
+                                })
+                        }
+                    });
+            }
+            valid && function == declaration.function
         })
     })
 }
@@ -128,24 +173,24 @@ pub fn native_signatures_match(items: &[PublicItem], declarations: &[NativeDecla
 /// Compare an exported method with its executable body after applying the
 /// impl-owned and method-owned binders in their original order.
 pub fn executable_signature_matches(
-    items: &[PublicItem],
-    identity: &ConcreteFunctionIdentity,
-    semantic: &SemanticSlots,
+    items: &[PublicItem<DefinitionId>],
+    identity: &ConcreteFunctionIdentity<DefinitionId>,
+    semantic: &SemanticSlots<DefinitionId>,
+    definitions: &DefinitionTable,
 ) -> bool {
-    let Some(member) = identity.declaration.path.last() else {
-        return true;
+    let Some(member) = definitions
+        .resolve(identity.declaration)
+        .ok()
+        .and_then(|view| view.last())
+    else {
+        return false;
     };
     if member.kind != DefinitionKind::Method || member.occurrence != 0 {
         return true;
     }
     let Some(table) = items.iter().find_map(|item| match item {
         PublicItem::InherentTable(table)
-            if table.declaration.module == identity.declaration.module
-                && identity.declaration.path.len() == table.declaration.path.len() + 1
-                && identity
-                    .declaration
-                    .path
-                    .starts_with(&table.declaration.path) =>
+            if definitions.parent(identity.declaration) == Ok(Some(table.declaration)) =>
         {
             Some(table)
         }
