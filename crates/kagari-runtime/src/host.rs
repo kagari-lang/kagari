@@ -12,10 +12,17 @@ use crate::{
     value::{EnumTag, EphemeralValue, Value},
 };
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_common::identity::DefinitionPath;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        map::DefinitionContext,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 use kagari_types::host_interface::{
     HostFunctionDeclaration, HostPassingStyle,
-    path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostVirtualSegmentDeclaration},
+    path::{HostPathDeclaration, HostPathSegmentDeclaration},
     type_declaration::{HostTypeDeclaration, PathAccess},
     value_type::HostValueType,
 };
@@ -239,31 +246,21 @@ impl HostPathSegment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostPathSegmentRegistration {
-    Field {
-        declaration: DefinitionPath,
-    },
-    Index {
-        declaration: HostIndexSegmentDeclaration,
-    },
-    Virtual {
-        declaration: HostVirtualSegmentDeclaration,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Scoped path segments plus physical type slots from the receiving runtime.
+/// Registration imports identities, validates the complete contract, then publishes.
+#[derive(Debug, Clone)]
 pub struct HostPathDescriptorRegistration {
+    pub definitions: DefinitionTable,
     pub root_type: TypeId,
     pub result_type: TypeId,
-    pub segments: Vec<HostPathSegmentRegistration>,
+    pub segments: Vec<HostPathSegmentDeclaration<DefinitionId>>,
     pub access: PathAccess,
     pub schema_epoch: HostSchemaEpoch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathDescriptor {
-    pub declaration: HostPathDeclaration,
+    pub declaration: HostPathDeclaration<DefinitionId>,
     pub id: HostPathDescriptorId,
     pub root_type: TypeId,
     pub result_type: TypeId,
@@ -280,7 +277,7 @@ impl HostPathDescriptor {
         registration: HostPathDescriptorRegistration,
         segments: Vec<HostPathSegment>,
         abi_fingerprint: AbiFingerprint,
-        declaration: HostPathDeclaration,
+        declaration: HostPathDeclaration<DefinitionId>,
     ) -> Result<Self, RuntimeError> {
         validate_path_access(registration.access, "path descriptor")?;
         let dynamic_parameters = collect_dynamic_parameters(&segments)?;
@@ -885,14 +882,18 @@ impl HostFunctionId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A host type input with its checked identity scope, before semantic validation.
+#[derive(Debug, Clone)]
 pub struct HostTypeRegistration {
-    pub declaration: HostTypeDeclaration,
+    pub declaration: DefinitionMetadata<HostTypeDeclaration<DefinitionId>>,
     pub rust_type_name: String,
 }
 
 impl HostTypeRegistration {
-    pub fn new(declaration: HostTypeDeclaration, rust_type_name: impl Into<String>) -> Self {
+    pub fn new(
+        declaration: DefinitionMetadata<HostTypeDeclaration<DefinitionId>>,
+        rust_type_name: impl Into<String>,
+    ) -> Self {
         Self {
             declaration,
             rust_type_name: rust_type_name.into(),
@@ -900,10 +901,11 @@ impl HostTypeRegistration {
     }
 }
 
+/// Installed host metadata; declaration IDs resolve through the registry's table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostTypeInfo {
     pub type_id: TypeId,
-    pub declaration: HostTypeDeclaration,
+    pub declaration: HostTypeDeclaration<DefinitionId>,
     pub rust_type_name: String,
     pub abi_fingerprint: AbiFingerprint,
 }
@@ -981,7 +983,8 @@ pub type HostCallback =
 #[derive(Clone)]
 pub struct HostFunction {
     id: Option<HostFunctionId>,
-    declaration: HostFunctionDeclaration,
+    declaration: HostFunctionDeclaration<DefinitionId>,
+    definitions: DefinitionTable,
     handler: Arc<HostCallback>,
 }
 
@@ -1000,29 +1003,38 @@ impl fmt::Debug for HostFunction {
 
 impl HostFunction {
     pub fn method(
-        owner: &HostTypeDeclaration,
-        method: &DefinitionPath,
+        owner: &DefinitionMetadata<HostTypeDeclaration<DefinitionId>>,
+        method: DefinitionId,
         handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
         + Send
         + Sync
         + 'static,
     ) -> Result<Self, RuntimeError> {
         let declaration = owner
-            .method_contract(method)
+            .records()
+            .method_contract(&method, owner.definitions())
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let declaration = DefinitionMetadata::checked(
+            owner.definitions().clone(),
+            declaration,
+            &CancellationToken::default(),
+        )
+        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         Ok(Self::new(declaration, handler))
     }
 
     pub fn new(
-        declaration: HostFunctionDeclaration,
+        declaration: DefinitionMetadata<HostFunctionDeclaration<DefinitionId>>,
         handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
         + Send
         + Sync
         + 'static,
     ) -> Self {
+        let (definitions, declaration) = declaration.into_parts();
         Self {
             id: None,
             declaration,
+            definitions,
             handler: Arc::new(handler),
         }
     }
@@ -1031,8 +1043,12 @@ impl HostFunction {
         self.id
     }
 
-    pub fn declaration(&self) -> &HostFunctionDeclaration {
+    pub fn declaration(&self) -> &HostFunctionDeclaration<DefinitionId> {
         &self.declaration
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
     }
 
     pub fn symbol(&self) -> &str {
@@ -1121,7 +1137,7 @@ impl HostFunction {
 fn host_value_matches(
     runtime: &Runtime,
     value: &Value,
-    ty: &HostValueType,
+    ty: &HostValueType<DefinitionId>,
 ) -> Result<bool, RuntimeError> {
     let heap = runtime.gc();
     let mut pending = vec![(*value, ty)];
@@ -1171,8 +1187,9 @@ fn host_value_matches(
                 let Some(contract) = heap.sequence_contract(id) else {
                     return Ok(false);
                 };
-                let expected =
-                    runtime.portable_type_argument(&contract.owner, &Ty::from_host_type(ty))?;
+                let expected = runtime
+                    .resolve_type_arguments(&contract.owner, &[Ty::from_host_type(ty)])?
+                    .remove(0);
                 if !expected.matches(runtime, &Value::GcHandle(id), &contract.owner) {
                     return Ok(false);
                 }
@@ -1186,7 +1203,9 @@ fn host_value_matches(
                     return Ok(false);
                 };
                 let owner = &snapshot.receiver_table.owner;
-                let expected = runtime.portable_type_argument(owner, &Ty::from_host_type(ty))?;
+                let expected = runtime
+                    .resolve_type_arguments(owner, &[Ty::from_host_type(ty)])?
+                    .remove(0);
                 if !expected.matches(runtime, &Value::Interface(id), owner) {
                     return Ok(false);
                 }
@@ -1195,8 +1214,9 @@ fn host_value_matches(
                 let Some(contract) = heap.array_contract(id) else {
                     return Ok(false);
                 };
-                let expected =
-                    runtime.portable_type_argument(&contract.owner, &Ty::from_host_type(ty))?;
+                let expected = runtime
+                    .resolve_type_arguments(&contract.owner, &[Ty::from_host_type(ty)])?
+                    .remove(0);
                 if !expected.matches(runtime, &Value::Array(id), &contract.owner) {
                     return Ok(false);
                 }
@@ -1242,9 +1262,7 @@ fn host_value_matches(
                     | HostValueType::Result { declaration, .. } => declaration,
                     _ => unreachable!(),
                 };
-                if layout.module().definitions().lookup(declaration)
-                    != Some(layout.layout().declaration)
-                {
+                if *declaration != layout.layout().declaration {
                     return Ok(false);
                 }
                 let member = layout
@@ -1270,16 +1288,17 @@ fn host_value_matches(
     Ok(true)
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HostRegistry {
+    definitions: DefinitionContext,
     owner: HostRegistryId,
     next_path_descriptor_id: usize,
     functions: Vec<HostFunction>,
     function_names: HashMap<String, HostFunctionId>,
-    function_declarations: HashMap<DefinitionPath, HostFunctionId>,
+    function_declarations: HashMap<DefinitionId, HostFunctionId>,
     types: HashMap<TypeId, HostTypeInfo>,
     type_names: HashMap<String, TypeId>,
-    type_declarations: HashMap<DefinitionPath, TypeId>,
+    type_declarations: HashMap<DefinitionId, TypeId>,
     roots: HashMap<HostObjectId, HostRootHandle>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,

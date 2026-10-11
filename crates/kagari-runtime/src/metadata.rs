@@ -1,4 +1,5 @@
 use crate::{error::RuntimeError, reload::ModuleEpoch};
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::host_interface::{
     type_declaration::{PathAccess, Visibility},
     value_type::HostValueType,
@@ -165,7 +166,7 @@ pub struct TypeRegistry {
 
 #[derive(Debug, Clone, Default)]
 struct TypeRegistryInner {
-    host_value_types: HashMap<HostValueType, TypeId>,
+    host_value_types: HashMap<HostValueType<DefinitionId>, TypeId>,
     by_id: Vec<TypeInfo>,
     by_name: HashMap<String, TypeId>,
     public_abi_fingerprints: HashSet<AbiFingerprint>,
@@ -220,7 +221,7 @@ impl TypeRegistry {
         self.inner.borrow().by_id.get(id.index()).cloned()
     }
 
-    pub(crate) fn host_value_type(&self, id: TypeId) -> Option<HostValueType> {
+    pub(crate) fn host_value_type(&self, id: TypeId) -> Option<HostValueType<DefinitionId>> {
         self.inner
             .borrow()
             .host_value_types
@@ -228,7 +229,7 @@ impl TypeRegistry {
             .find_map(|(ty, registered)| (*registered == id).then(|| ty.clone()))
     }
 
-    pub(crate) fn host_value_type_id(&self, ty: &HostValueType) -> Option<TypeId> {
+    pub(crate) fn host_value_type_id(&self, ty: &HostValueType<DefinitionId>) -> Option<TypeId> {
         self.inner.borrow().host_value_types.get(ty).copied()
     }
 

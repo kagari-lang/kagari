@@ -20,7 +20,7 @@ These capabilities are foundations to reuse, not migrations to replay.
 ## Semantic definition IDs
 
 [SI01-SI06](definition-id-plan.md) implement the agreed SA19 design and are active.
-SI01 is complete; SI02 is migrating Native declaration adoption. This migration
+SI01 is complete; SI02 is migrating Native and Host declaration adoption. This migration
 precedes native collections.
 Use DefinitionId throughout semantic processing; keep authoring/display paths and
 file-local references at explicit boundaries. Reuse the current definition context,

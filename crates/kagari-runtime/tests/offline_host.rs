@@ -1,8 +1,24 @@
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionPath,
+        map::DefinitionContext,
+        mapping::DefinitionRecord,
+        metadata::{DefinitionMetadata, scope_record},
+        table::DefinitionId,
+    },
+};
+
 use kagari_bytecode::{
     instruction::ModuleSlot,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_runtime::{Runtime, host::HostFunction, value::Value};
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeError,
+    host::{HostFunction, HostFunctionId},
+    value::Value,
+};
 use kagari_types::{
     collection::CollectionAccess,
     host_interface::{
@@ -15,6 +31,15 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+fn scoped<T: DefinitionRecord<DefinitionPath>>(
+    value: &T,
+) -> DefinitionMetadata<T::Rebind<DefinitionId>>
+where
+    T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
+{
+    scope_record(value, &CancellationToken::default()).unwrap()
+}
+
 fn declaration() -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
         "game.echo",
@@ -25,6 +50,28 @@ fn declaration() -> HostFunctionDeclaration {
         }],
         HostValueType::I32,
     )
+}
+
+fn encode(interface: &HostInterface) -> Result<Vec<u8>, HostInterfaceError> {
+    let input = scoped(interface);
+    input.records().to_bytes(input.definitions())
+}
+
+fn fingerprint(declaration: &HostFunctionDeclaration) -> u64 {
+    let input = scoped(declaration);
+    input.records().fingerprint(input.definitions()).unwrap()
+}
+
+fn validate(declaration: &HostFunctionDeclaration) -> Result<(), HostInterfaceError> {
+    let input = scoped(declaration);
+    input.records().validate(input.definitions())
+}
+
+fn link(runtime: &Runtime, interface: &HostInterface) -> Result<Vec<HostFunctionId>, RuntimeError> {
+    let input = scoped(interface);
+    runtime
+        .host()
+        .link_interface(input.records(), input.definitions())
 }
 
 #[test]
@@ -47,26 +94,26 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
         runtime
             .load_program(
                 "host",
-                BytecodeProgram {
+                scoped(&BytecodeProgram {
                     root: ModuleRef::new(0),
                     modules: vec![bytecode.clone()]
-                }
+                })
             )
             .is_err()
     );
     assert_eq!(runtime.modules().loaded_count(), 0);
     runtime
-        .register_host_function(HostFunction::new(required, |_, _| {
+        .register_host_function(HostFunction::new(scoped(&required), |_, _| {
             panic!("linking must not invoke host")
         }))
         .unwrap();
     let loaded = runtime
         .load_program(
             "host",
-            BytecodeProgram {
+            scoped(&BytecodeProgram {
                 root: ModuleRef::new(0),
                 modules: vec![bytecode.clone()],
-            },
+            }),
         )
         .unwrap();
     let shared = runtime.modules().latest("host").unwrap();
@@ -82,21 +129,29 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
             .stage_reload_program(
                 &loaded,
                 "host",
-                BytecodeProgram {
+                scoped(&BytecodeProgram {
                     root: ModuleRef::new(0),
                     modules: vec![mismatch.clone()]
-                }
+                })
             )
             .is_err()
     );
+    let context = DefinitionContext::new().unwrap();
+    let program = scoped(&BytecodeProgram {
+        root: ModuleRef::new(0),
+        modules: vec![mismatch],
+    })
+    .import_into(&context, &CancellationToken::default())
+    .unwrap();
     let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![mismatch],
-        },
+        program.into_records(),
         ArtifactBuildOptions::default(),
+        &context,
     )
     .unwrap();
+    let artifact =
+        DefinitionMetadata::checked(context.snapshot(), artifact, &CancellationToken::default())
+            .unwrap();
     assert!(
         runtime
             .stage_reload_artifact(&loaded, "host", artifact, &ArtifactCompatibility::default())
@@ -115,10 +170,16 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let mut first = Runtime::default();
     let mut second = Runtime::default();
     let a = first
-        .register_host_function(HostFunction::new(declaration(), |_, _| unreachable!()))
+        .register_host_function(HostFunction::new(
+            scoped(&declaration()),
+            |_, _| unreachable!(),
+        ))
         .unwrap();
     let b = second
-        .register_host_function(HostFunction::new(declaration(), |_, _| unreachable!()))
+        .register_host_function(HostFunction::new(
+            scoped(&declaration()),
+            |_, _| unreachable!(),
+        ))
         .unwrap();
     assert_eq!(a.index(), b.index());
     assert_ne!(a, b);
@@ -126,19 +187,19 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let a = first
         .load_program(
             "same",
-            BytecodeProgram {
+            scoped(&BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+                modules: vec![BytecodeModule::<DefinitionPath>::default()],
+            }),
         )
         .unwrap();
     let b = second
         .load_program(
             "same",
-            BytecodeProgram {
+            scoped(&BytecodeProgram {
                 root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+                modules: vec![BytecodeModule::<DefinitionPath>::default()],
+            }),
         )
         .unwrap();
     assert_eq!(a.key(), b.key());
@@ -150,10 +211,10 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
             .stage_reload_program(
                 &a,
                 "same",
-                BytecodeProgram {
+                scoped(&BytecodeProgram {
                     root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()]
-                }
+                    modules: vec![BytecodeModule::<DefinitionPath>::default()]
+                })
             )
             .is_err()
     );
@@ -164,7 +225,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
 fn callback_arguments_and_result_obey_the_declared_representation() {
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
-    let function = HostFunction::new(declaration(), move |_, _| {
+    let function = HostFunction::new(scoped(&declaration()), move |_, _| {
         called.fetch_add(1, Ordering::SeqCst);
         Ok(Value::Bool(true))
     });
@@ -187,20 +248,57 @@ fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
         types: Vec::new(),
         functions: vec![declaration.clone()],
     };
-    let encoded = interface.to_bytes().unwrap();
+    let encoded = encode(&interface).unwrap();
     let decoded = HostInterface::from_bytes(&encoded).unwrap();
-    assert_eq!(decoded, interface);
+    let context = DefinitionContext::new().unwrap();
+    let source = scoped(&interface)
+        .import_into(&context, &CancellationToken::default())
+        .unwrap();
+    let imported = decoded
+        .import_into(&context, &CancellationToken::default())
+        .unwrap();
+    assert_eq!(imported.records(), source.records());
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut runtime = Runtime::default();
+    let prior = runtime.host().definitions();
     let id = runtime
-        .register_host_function(HostFunction::new(declaration, move |_, _| {
+        .register_host_function(HostFunction::new(scoped(&declaration), move |_, _| {
             called.fetch_add(1, Ordering::SeqCst);
             Ok(Value::I32(7))
         }))
         .unwrap();
-    assert_eq!(runtime.host().link_interface(&decoded).unwrap(), vec![id]);
-    assert_eq!(runtime.host().interface(), decoded);
+    assert_eq!(
+        runtime
+            .host()
+            .link_interface(decoded.records(), decoded.definitions())
+            .unwrap(),
+        vec![id]
+    );
+    let installed = runtime.host().interface();
+    assert_ne!(
+        decoded.records().functions[0].id,
+        installed.records().functions[0].id
+    );
+    assert!(
+        runtime
+            .host()
+            .link_interface(installed.records(), decoded.definitions())
+            .is_err()
+    );
+    assert!(
+        runtime
+            .host()
+            .link_interface(installed.records(), &prior)
+            .is_err()
+    );
+    assert_eq!(
+        installed
+            .records()
+            .to_bytes(installed.definitions())
+            .unwrap(),
+        encoded
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
@@ -209,7 +307,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
     let declaration = declaration();
     let mut runtime = Runtime::default();
     runtime
-        .register_host_function(HostFunction::new(declaration.clone(), |_, _| {
+        .register_host_function(HostFunction::new(scoped(&declaration), |_, _| {
             panic!("linking must not invoke callbacks")
         }))
         .unwrap();
@@ -226,45 +324,42 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
     for change in changes {
         let mut expected = declaration.clone();
         change(&mut expected);
-        assert_ne!(
-            expected.fingerprint().unwrap(),
-            declaration.fingerprint().unwrap()
-        );
+        assert_ne!(fingerprint(&expected), fingerprint(&declaration));
         assert!(
-            runtime
-                .host()
-                .link_interface(&HostInterface {
+            link(
+                &runtime,
+                &HostInterface {
                     paths: vec![],
                     types: Vec::new(),
                     functions: vec![expected]
-                })
-                .is_err()
+                }
+            )
+            .is_err()
         );
     }
     let mut docs = declaration.clone();
     docs.documentation = "Updated help text".into();
-    assert_eq!(
-        docs.fingerprint().unwrap(),
-        declaration.fingerprint().unwrap()
-    );
-    runtime
-        .host()
-        .link_interface(&HostInterface {
+    assert_eq!(fingerprint(&docs), fingerprint(&declaration));
+    link(
+        &runtime,
+        &HostInterface {
             paths: vec![],
             types: Vec::new(),
             functions: vec![docs],
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
     let absent = HostFunctionDeclaration::new("missing.echo", vec![], HostValueType::Unit);
     assert!(
-        runtime
-            .host()
-            .link_interface(&HostInterface {
+        link(
+            &runtime,
+            &HostInterface {
                 paths: vec![],
                 types: Vec::new(),
                 functions: vec![absent]
-            })
-            .is_err()
+            }
+        )
+        .is_err()
     );
 }
 
@@ -272,37 +367,35 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
 fn offline_encoding_is_canonical_and_rejects_invalid_input() {
     let a = declaration();
     let b = HostFunctionDeclaration::new("game.other", vec![], HostValueType::Unit);
-    let first = HostInterface {
+    let first = encode(&HostInterface {
         paths: vec![],
         types: Vec::new(),
         functions: vec![a.clone(), b.clone()],
-    }
-    .to_bytes()
+    })
     .unwrap();
-    let second = HostInterface {
+    let second = encode(&HostInterface {
         paths: vec![],
         types: Vec::new(),
         functions: vec![b, a.clone()],
-    }
-    .to_bytes()
+    })
     .unwrap();
     assert_eq!(first, second);
     let mut trailing = first.clone();
     trailing.push(0);
     assert_eq!(
-        HostInterface::from_bytes(&trailing),
-        Err(HostInterfaceError::Encoding)
+        HostInterface::from_bytes(&trailing).unwrap_err(),
+        HostInterfaceError::Encoding
     );
     let mut old = first.clone();
     old[4..6].copy_from_slice(&0_u16.to_le_bytes());
     assert_eq!(
-        HostInterface::from_bytes(&old),
-        Err(HostInterfaceError::Version)
+        HostInterface::from_bytes(&old).unwrap_err(),
+        HostInterfaceError::Version
     );
     assert!(HostInterface::from_bytes(&first[..8]).is_err());
     assert_eq!(
-        HostInterface::from_bytes(&vec![0; 4 * 1024 * 1024 + 1]),
-        Err(HostInterfaceError::TooLarge)
+        HostInterface::from_bytes(&vec![0; 4 * 1024 * 1024 + 1]).unwrap_err(),
+        HostInterfaceError::TooLarge
     );
     let duplicate = HostInterface {
         paths: vec![],
@@ -310,7 +403,7 @@ fn offline_encoding_is_canonical_and_rejects_invalid_input() {
         functions: vec![a.clone(), a],
     };
     assert_eq!(
-        duplicate.to_bytes(),
+        encode(&duplicate),
         Err(HostInterfaceError::DuplicateDeclaration)
     );
 }
@@ -322,22 +415,22 @@ fn invalid_registration_leaves_registry_unchanged() {
     bad.params[0].passing = HostPassingStyle::UniqueBorrow;
     assert!(
         runtime
-            .register_host_function(HostFunction::new(bad, |_, _| unreachable!()))
+            .register_host_function(HostFunction::new(scoped(&bad), |_, _| unreachable!()))
             .is_err()
     );
-    assert!(runtime.host().interface().functions.is_empty());
+    assert!(runtime.host().interface().records().functions.is_empty());
     let a = declaration();
     runtime
-        .register_host_function(HostFunction::new(a.clone(), |_, _| unreachable!()))
+        .register_host_function(HostFunction::new(scoped(&a), |_, _| unreachable!()))
         .unwrap();
     let mut duplicate = a;
     duplicate.symbol = "different-label".into();
     assert!(
         runtime
-            .register_host_function(HostFunction::new(duplicate, |_, _| unreachable!()))
+            .register_host_function(HostFunction::new(scoped(&duplicate), |_, _| unreachable!()))
             .is_err()
     );
-    assert_eq!(runtime.host().interface().functions.len(), 1);
+    assert_eq!(runtime.host().interface().records().functions.len(), 1);
 }
 
 #[test]
@@ -345,22 +438,27 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
     let pure = declaration();
     let mut configuration = pure.clone();
     configuration.effects.may_read_immutable_configuration = true;
-    assert_ne!(
-        pure.fingerprint().unwrap(),
-        configuration.fingerprint().unwrap()
-    );
+    assert_ne!(fingerprint(&pure), fingerprint(&configuration));
     assert!(!pure.matches_binding(&configuration));
     let interface = HostInterface {
         functions: vec![configuration.clone()],
         ..Default::default()
     };
-    let bytes = interface.to_bytes().unwrap();
-    assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), interface);
+    let bytes = encode(&interface).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let decoded = HostInterface::from_bytes(&bytes)
+        .unwrap()
+        .import_into(&context, &CancellationToken::default())
+        .unwrap();
+    let source = scoped(&interface)
+        .import_into(&context, &CancellationToken::default())
+        .unwrap();
+    assert_eq!(decoded.records(), source.records());
     let mut old = bytes.clone();
     old[4..6].copy_from_slice(&5u16.to_le_bytes());
     assert_eq!(
-        HostInterface::from_bytes(&old),
-        Err(HostInterfaceError::Version)
+        HostInterface::from_bytes(&old).unwrap_err(),
+        HostInterfaceError::Version
     );
     for result in [
         HostValueType::Array(Box::new(HostValueType::I32)),
@@ -376,14 +474,14 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
         let mut invalid = configuration.clone();
         invalid.return_type = result;
         assert_eq!(
-            invalid.validate(),
+            validate(&invalid),
             Err(HostInterfaceError::InvalidDeclaration)
         );
     }
     let mut invalid = configuration.clone();
     invalid.params[0].ty = HostValueType::Array(Box::new(HostValueType::I32));
     assert_eq!(
-        invalid.validate(),
+        validate(&invalid),
         Err(HostInterfaceError::InvalidDeclaration)
     );
     configuration.return_type = HostValueType::Option(
@@ -393,5 +491,5 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
             HostValueType::I32,
         ])),
     );
-    configuration.validate().unwrap();
+    validate(&configuration).unwrap();
 }

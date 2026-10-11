@@ -1,8 +1,19 @@
-use kagari_common::identity::DefinitionPath;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionPath,
+        mapping::DefinitionRecord,
+        metadata::{DefinitionMetadata, scope_record},
+        table::DefinitionId,
+    },
+};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    host::{
+        HostFunction, HostObjectId, HostPathDescriptorRegistration, HostSchemaEpoch,
+        HostTypeRegistration,
+    },
     metadata::TypeId,
     value::Value,
 };
@@ -17,6 +28,33 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+fn scoped<T: DefinitionRecord<DefinitionPath>>(
+    value: &T,
+) -> DefinitionMetadata<T::Rebind<DefinitionId>>
+where
+    T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
+{
+    scope_record(value, &CancellationToken::default()).unwrap()
+}
+
+fn path_registration(
+    root_type: TypeId,
+    result_type: TypeId,
+    segments: Vec<HostPathSegmentDeclaration>,
+    access: PathAccess,
+    schema_epoch: HostSchemaEpoch,
+) -> HostPathDescriptorRegistration {
+    let (definitions, segments) = scoped(&segments).into_parts();
+    HostPathDescriptorRegistration {
+        definitions,
+        root_type,
+        result_type,
+        segments,
+        access,
+        schema_epoch,
+    }
+}
+
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
         ..Default::default()
@@ -24,11 +62,13 @@ fn runtime() -> Runtime {
 }
 
 fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionPath) -> (TypeId, Value) {
-    let mut registration = HostTypeRegistration::new(HostTypeDeclaration::new(symbol), "Object");
-    registration.declaration.id = declaration;
-    registration.declaration.ownership = HostTypeOwnership::HostRoot;
-    registration.declaration.path_access = PathAccess::ReadWrite;
-    let ty = runtime.register_host_type(registration).unwrap();
+    let mut input = HostTypeDeclaration::new(symbol);
+    input.id = declaration;
+    input.ownership = HostTypeOwnership::HostRoot;
+    input.path_access = PathAccess::ReadWrite;
+    let ty = runtime
+        .register_host_type(HostTypeRegistration::new(scoped(&input), "Object"))
+        .unwrap();
     let root = runtime
         .register_host_root(HostObjectId(ty.index() as u64), ty, HostSchemaEpoch::new(0))
         .unwrap();
@@ -56,23 +96,24 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
     assert_eq!(
         runtime
             .host()
-            .host_type_by_declaration(&declaration)
+            .host_type_by_declaration(&runtime.host().definitions().lookup(&declaration).unwrap())
             .unwrap()
             .type_id,
         ty
     );
     let before = runtime.types().len();
-    let mut duplicate =
-        HostTypeRegistration::new(HostTypeDeclaration::new("other.Export"), "Other");
-    duplicate.declaration.id = declaration;
+    let mut duplicate = HostTypeDeclaration::new("other.Export");
+    duplicate.id = declaration;
+    let duplicate = HostTypeRegistration::new(scoped(&duplicate), "Other");
     assert_eq!(
         runtime.register_host_type(duplicate).unwrap_err().kind(),
         RuntimeErrorKind::MetadataConflict
     );
     assert_eq!(runtime.types().len(), before);
     assert!(runtime.types().get_by_name("other.Export").is_none());
-    let mut invalid = HostTypeRegistration::new(HostTypeDeclaration::new("bad.Export"), "Other");
-    invalid.declaration.id.path.clear();
+    let mut invalid = HostTypeDeclaration::new("bad.Export");
+    invalid.id.path.clear();
+    let invalid = HostTypeRegistration::new(scoped(&invalid), "Other");
     assert!(runtime.register_host_type(invalid).is_err());
     assert_eq!(runtime.types().len(), before);
     let (next, _) = register(
@@ -98,7 +139,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
         HostPassingStyle::Owned,
     );
     runtime
-        .register_host_function(HostFunction::new(declaration.clone(), |_, _| {
+        .register_host_function(HostFunction::new(scoped(&declaration), |_, _| {
             panic!("linking cannot invoke callbacks")
         }))
         .unwrap();
@@ -106,7 +147,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     expected_type.id = host_type_identity("game.Player");
     expected_type.ownership = HostTypeOwnership::HostRoot;
     expected_type.path_access = PathAccess::ReadWrite;
-    let program = BytecodeProgram {
+    let program = scoped(&BytecodeProgram {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             host_interface: HostInterface {
@@ -116,7 +157,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
             },
             ..Default::default()
         }],
-    };
+    });
     assert!(runtime.load_program("nominal", program.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     register(
@@ -139,10 +180,10 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let observed = calls.clone();
     let id = runtime
         .register_host_function(HostFunction::new(
-            function(
+            scoped(&function(
                 HostValueType::Opaque(a.clone()),
                 HostPassingStyle::SharedBorrow,
-            ),
+            )),
             move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
@@ -178,11 +219,11 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let observed = calls.clone();
     let result = runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new(
+            scoped(&HostFunctionDeclaration::new(
                 "host.wrong",
                 vec![],
                 HostValueType::Tuple(vec![HostValueType::Opaque(a)]),
-            ),
+            )),
             move |cx, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(cx.runtime().gc().alloc_tuple(vec![b_value]).unwrap())
@@ -219,10 +260,10 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let observed = calls.clone();
     let id = local
         .register_host_function(HostFunction::new(
-            function(
+            scoped(&function(
                 HostValueType::Tuple(vec![HostValueType::opaque("game.Player")]),
                 HostPassingStyle::Owned,
-            ),
+            )),
             move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
@@ -249,11 +290,11 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let observed = calls.clone();
     let result = local
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new(
+            scoped(&HostFunctionDeclaration::new(
                 "host.foreign",
                 vec![],
                 HostValueType::opaque("game.Player"),
-            ),
+            )),
             move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(foreign_value)
@@ -268,9 +309,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
 
 #[test]
 fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
-    use kagari_runtime::host::{
-        DynamicPathArguments, HostPathDescriptorRegistration, HostPathSegmentRegistration,
-    };
+    use kagari_runtime::host::DynamicPathArguments;
     let mut local = runtime();
     let mut foreign = runtime();
     let mut views = Vec::new();
@@ -281,19 +320,19 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
             unreachable!()
         };
         let descriptor = runtime
-            .register_host_path_descriptor(HostPathDescriptorRegistration {
-                root_type: ty,
-                result_type: ty,
-                segments: vec![HostPathSegmentRegistration::Virtual {
-                    declaration: HostVirtualSegmentDeclaration {
+            .register_host_path_descriptor(path_registration(
+                ty,
+                ty,
+                vec![HostPathSegmentDeclaration::Virtual(
+                    HostVirtualSegmentDeclaration {
                         name: "self".into(),
                         result: HostValueType::opaque("game.Player"),
                         access: PathAccess::ReadOnly,
                     },
-                }],
-                access: PathAccess::ReadOnly,
-                schema_epoch: HostSchemaEpoch::new(0),
-            })
+                )],
+                PathAccess::ReadOnly,
+                HostSchemaEpoch::new(0),
+            ))
             .unwrap();
         let view = runtime
             .host()
@@ -333,9 +372,7 @@ fn path_fields_are_derived_from_nominal_declarations() {
         HostFieldDeclaration, HostTypeDeclaration,
     };
     use {
-        kagari_runtime::host::{
-            HostPathDescriptorRegistration, HostPathSegment, HostPathSegmentRegistration,
-        },
+        kagari_runtime::host::HostPathSegment,
         kagari_types::host_interface::type_declaration::Visibility,
     };
     let mut runtime = runtime();
@@ -359,8 +396,13 @@ fn path_fields_are_derived_from_nominal_declarations() {
         types: vec![owner.clone()],
         functions: vec![],
     };
-    let offline = HostInterface::from_bytes(&catalog.to_bytes().unwrap()).unwrap();
-    let contract = offline.paths[0].contract(&offline).unwrap();
+    let catalog = scoped(&catalog);
+    let offline =
+        HostInterface::from_bytes(&catalog.records().to_bytes(catalog.definitions()).unwrap())
+            .unwrap();
+    let contract = offline.records().paths[0]
+        .contract(offline.records(), offline.definitions())
+        .unwrap();
     for (field, access) in [
         (&hidden.id, PathAccess::ReadOnly),
         (&disabled.id, PathAccess::ReadOnly),
@@ -368,24 +410,32 @@ fn path_fields_are_derived_from_nominal_declarations() {
     ] {
         assert!(
             offline
-                .path_contract(&HostPathDeclaration {
-                    segments: vec![HostPathSegmentDeclaration::Field(field.clone())],
-                    access,
-                    ..offline.paths[0].clone()
-                })
+                .records()
+                .path_contract(
+                    &HostPathDeclaration {
+                        segments: vec![HostPathSegmentDeclaration::Field(
+                            offline.definitions().lookup(field).unwrap()
+                        )],
+                        access,
+                        ..offline.records().paths[0].clone()
+                    },
+                    offline.definitions()
+                )
                 .is_err()
         );
     }
     let owner_type = runtime
-        .register_host_type(HostTypeRegistration::new(owner.clone(), "Player"))
+        .register_host_type(HostTypeRegistration::new(scoped(&owner), "Player"))
         .unwrap();
     let scalar = runtime.types().get(owner_type).unwrap().fields[0].ty;
-    let registration = |declaration, access, result_type| HostPathDescriptorRegistration {
-        root_type: owner_type,
-        result_type,
-        segments: vec![HostPathSegmentRegistration::Field { declaration }],
-        access,
-        schema_epoch: HostSchemaEpoch::new(0),
+    let registration = |declaration, access, result_type| {
+        path_registration(
+            owner_type,
+            result_type,
+            vec![HostPathSegmentDeclaration::Field(declaration)],
+            access,
+            HostSchemaEpoch::new(0),
+        )
     };
     let other = HostTypeDeclaration::new("other.Player");
     let foreign_hp = HostFieldDeclaration::new(&other.id, "hp", HostValueType::I32);
@@ -405,14 +455,40 @@ fn path_fields_are_derived_from_nominal_declarations() {
         );
         assert_eq!(runtime.host().path_descriptors().count(), 0);
     }
-    assert!(runtime.host().link_interface(&offline).is_err());
-    let id = runtime.register_host_path(&offline.paths[0]).unwrap();
-    assert!(runtime.host().link_interface(&offline).is_ok());
-    assert_eq!(runtime.host().interface().paths, offline.paths);
+    assert!(
+        runtime
+            .host()
+            .link_interface(offline.records(), offline.definitions())
+            .is_err()
+    );
+    let id = runtime
+        .register_host_path(
+            &DefinitionMetadata::checked(
+                offline.definitions().clone(),
+                offline.records().paths[0].clone(),
+                &CancellationToken::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        runtime
+            .host()
+            .link_interface(offline.records(), offline.definitions())
+            .is_ok()
+    );
+    let installed = runtime.host().interface();
+    assert_eq!(
+        installed
+            .records()
+            .to_bytes(installed.definitions())
+            .unwrap(),
+        offline.records().to_bytes(offline.definitions()).unwrap()
+    );
     let descriptor = runtime.host().path_descriptor(id).unwrap();
     assert_eq!(
         descriptor.abi_fingerprint.0,
-        contract.fingerprint().unwrap()
+        contract.fingerprint(offline.definitions()).unwrap()
     );
     let metadata = runtime.types().get(owner_type).unwrap();
     assert_eq!(
@@ -430,10 +506,7 @@ fn path_fields_are_derived_from_nominal_declarations() {
 
 #[test]
 fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
-    use kagari_runtime::{
-        host::{HostPathDescriptorRegistration, HostPathSegmentRegistration},
-        metadata::{TypeKind, TypeRegistration},
-    };
+    use kagari_runtime::metadata::{TypeKind, TypeRegistration};
     use kagari_types::host_interface::type_declaration::{
         HostFieldDeclaration, HostTypeDeclaration,
     };
@@ -464,17 +537,17 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
             let declaration = field.id.clone();
             owner.fields.push(field);
             let root_type = runtime
-                .register_host_type(HostTypeRegistration::new(owner, "Player"))
+                .register_host_type(HostTypeRegistration::new(scoped(&owner), "Player"))
                 .unwrap();
             let result_type = runtime.types().get(root_type).unwrap().fields[0].ty;
             let id = runtime
-                .register_host_path_descriptor(HostPathDescriptorRegistration {
+                .register_host_path_descriptor(path_registration(
                     root_type,
                     result_type,
-                    segments: vec![HostPathSegmentRegistration::Field { declaration }],
-                    access: PathAccess::ReadOnly,
-                    schema_epoch: HostSchemaEpoch::new(epoch),
-                })
+                    vec![HostPathSegmentDeclaration::Field(declaration)],
+                    PathAccess::ReadOnly,
+                    HostSchemaEpoch::new(epoch),
+                ))
                 .unwrap();
             runtime.host().path_descriptor(id).unwrap().abi_fingerprint
         };
@@ -490,34 +563,31 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
 
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {
-    use kagari_runtime::{
-        host::{HostPathDescriptorRegistration, HostPathSegmentRegistration},
-        metadata::{TypeKind, TypeRegistration},
-    };
+    use kagari_runtime::metadata::{TypeKind, TypeRegistration};
     let mut runtime = runtime();
     let mut owner = HostTypeDeclaration::new("game.Player");
     owner.ownership = HostTypeOwnership::HostRoot;
     owner.path_access = PathAccess::ReadOnly;
     let root_type = runtime
-        .register_host_type(HostTypeRegistration::new(owner, "Player"))
+        .register_host_type(HostTypeRegistration::new(scoped(&owner), "Player"))
         .unwrap();
     let result_type = runtime
         .types()
         .register(TypeRegistration::new("Unspecified", TypeKind::Primitive))
         .unwrap();
-    let result = runtime.register_host_path_descriptor(HostPathDescriptorRegistration {
+    let result = runtime.register_host_path_descriptor(path_registration(
         root_type,
         result_type,
-        segments: vec![HostPathSegmentRegistration::Virtual {
-            declaration: HostVirtualSegmentDeclaration {
+        vec![HostPathSegmentDeclaration::Virtual(
+            HostVirtualSegmentDeclaration {
                 name: "value".into(),
                 result: HostValueType::opaque("game.Unregistered"),
                 access: PathAccess::ReadOnly,
             },
-        }],
-        access: PathAccess::ReadOnly,
-        schema_epoch: HostSchemaEpoch::new(0),
-    });
+        )],
+        PathAccess::ReadOnly,
+        HostSchemaEpoch::new(0),
+    ));
     assert_eq!(
         result.unwrap_err().kind(),
         RuntimeErrorKind::TypedPathValidation

@@ -803,6 +803,18 @@ verification and executable adoption. Existing envelope and type limits still ap
 
 Runtime preparation normalizes independent verified inputs into its own context
 while retaining original immutable version identity and dependency versions.
+Host registration shares that context with the Native catalog. Function and type
+inputs retain their own checked table until explicit adoption; installed lookup,
+reflection, method binding and path contracts use IDs. A type batch resolves all
+members against a candidate registry and publishes only after the complete batch
+passes validation. Failed adoption may intern identities but publishes no bindings.
+Path descriptor inputs combine scoped semantic segments with runtime-local physical
+type slots; their access, member, schema and canonical fingerprint checks remain
+separate from identity import. Exported Host interfaces retain a table, and foreign
+interfaces validate against their original snapshot before binding comparison.
+Loaded-module Host linking requires the runtime context. Registry replacement is
+not exposed through a mutable runtime accessor.
+
 Metadata with identity references is copied during contextual normalization;
 reference-free module records can retain their existing Arcs. Implicit public
 names are collected in the destination context by the same bytecode-owned identity

@@ -37,7 +37,9 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_common::identity::map::DefinitionContext;
+use kagari_common::identity::{
+    map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
+};
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_types::host_interface::path::HostPathDeclaration;
 use std::{cell::RefCell, sync::OnceLock};
@@ -158,14 +160,16 @@ impl Runtime {
 
     pub fn new(config: RuntimeConfig) -> Self {
         let resources = ResourceState::new(config.limits);
+        let native_entries = NativeRegistry::default();
+        let host = HostRegistry::new(native_entries.catalog.types.context().clone());
         Self {
             tasks: RefCell::new(TaskStore::new(config.async_limits)),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
             gc: GcHeap::new(config.gc, resources),
             types: TypeRegistry::default(),
-            host: HostRegistry::default(),
-            native_entries: NativeRegistry::default(),
+            host,
+            native_entries,
             host_borrows: HostBorrowTable::default(),
 
             modules: ModuleStore::default(),
@@ -389,10 +393,6 @@ impl Runtime {
         &self.host
     }
 
-    pub fn host_mut(&mut self) -> &mut HostRegistry {
-        &mut self.host
-    }
-
     pub fn validate_host_borrow(
         &self,
         token: FrameHostBorrowToken,
@@ -449,7 +449,7 @@ impl Runtime {
 
     pub fn register_host_path(
         &mut self,
-        declaration: &HostPathDeclaration,
+        declaration: &DefinitionMetadata<HostPathDeclaration<DefinitionId>>,
     ) -> Result<host::HostPathDescriptorId, RuntimeError> {
         self.host.register_path(declaration, &self.types)
     }

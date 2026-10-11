@@ -9,13 +9,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        mapping::{DefinitionMapper, DefinitionRecord},
-        table::{DefinitionId, DefinitionTable},
-    },
-};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::host_interface::{
     path::{HostPathContract, HostPathInput, HostPathSegmentContract},
     type_declaration::PathAccess,
@@ -29,23 +23,19 @@ impl HostRegistry {
         types: &TypeRegistry,
         definitions: &DefinitionTable,
     ) -> Result<LinkedHostBindings, RuntimeError> {
-        let cancel = CancellationToken::default();
-        let interface = module
-            .host_interface
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |id| Ok(definitions.resolve(*id)?.to_path()),
-                &cancel,
-            ))
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let functions = self.link_interface(&interface)?;
+        if definitions.id() != self.definitions().id() {
+            return Err(RuntimeError::module_validation(
+                "host linking requires the runtime definition context",
+            ));
+        }
+        let functions = self.link_interface(&module.host_interface, definitions)?;
         let host_types = module
             .host_interface
             .types
             .iter()
-            .zip(&interface.types)
-            .map(|(scoped, authored)| {
-                self.host_type_by_declaration(&authored.id)
-                    .map(|host| (scoped.id, host.type_id))
+            .map(|required| {
+                self.host_type_by_declaration(&required.id)
+                    .map(|host| (required.id, host.type_id))
                     .ok_or_else(|| RuntimeError::module_validation("linked host type is absent"))
             })
             .collect::<Result<_, _>>()?;
@@ -66,7 +56,7 @@ impl HostRegistry {
                 }
                 let result = self
                     .host_type(actual.result_type)
-                    .map(|ty| HostValueType::Opaque(ty.declaration.id.clone()))
+                    .map(|ty| HostValueType::Opaque(ty.declaration.id))
                     .or_else(|| types.host_value_type(actual.result_type))
                     .ok_or_else(|| {
                         RuntimeError::typed_path_validation("missing path result contract")
@@ -113,7 +103,7 @@ impl HostRegistry {
                 for (argument, parameter) in args.iter().zip(&descriptor.dynamic_parameters) {
                     let expected = self
                         .host_type(parameter.ty)
-                        .map(|ty| HostValueType::Opaque(ty.declaration.id.clone()))
+                        .map(|ty| HostValueType::Opaque(ty.declaration.id))
                         .or_else(|| types.host_value_type(parameter.ty))
                         .ok_or_else(|| {
                             RuntimeError::typed_path_validation("missing path parameter contract")
@@ -144,7 +134,7 @@ impl HostRegistry {
     ) -> Result<AbiFingerprint, RuntimeError> {
         let portable_type = |id| {
             self.host_type(id)
-                .map(|info| HostValueType::Opaque(info.declaration.id.clone()))
+                .map(|info| HostValueType::Opaque(info.declaration.id))
                 .or_else(|| types.host_value_type(id))
                 .ok_or_else(|| {
                     RuntimeError::typed_path_validation("path type has no portable host contract")
@@ -190,7 +180,7 @@ impl HostRegistry {
 
             segments,
         }
-        .fingerprint()
+        .fingerprint(&self.definitions())
         .map(AbiFingerprint)
         .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))
     }

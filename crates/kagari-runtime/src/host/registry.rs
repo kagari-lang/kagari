@@ -6,16 +6,23 @@ use crate::{
         DynamicPathArgSlot, DynamicPathArguments, HostBorrowTable, HostCallContext, HostFunction,
         HostFunctionId, HostObjectId, HostPathAdapter, HostPathContext, HostPathDescriptor,
         HostPathDescriptorId, HostPathDescriptorRegistration, HostPathMutationRecord,
-        HostPathOperation, HostPathSegment, HostPathSegmentRegistration, HostPathViewHandle,
-        HostRegistry, HostRegistryId, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
-        apply_path_modify, dynamic_args_for_descriptor, path_access_allows, path_scope_error,
+        HostPathOperation, HostPathSegment, HostPathViewHandle, HostRegistry, HostRegistryId,
+        HostRootHandle, HostSchemaEpoch, HostTypeInfo, apply_path_modify,
+        dynamic_args_for_descriptor, path_access_allows, path_scope_error,
         validate_dynamic_arguments, validate_path_access,
     },
     metadata::{TypeId, TypeRegistry},
     value::Value,
 };
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_common::identity::DefinitionPath;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        map::DefinitionContext,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 use kagari_types::{
     host_interface,
     host_interface::{
@@ -27,7 +34,39 @@ use kagari_types::{
 };
 use std::iter;
 
+impl Default for HostRegistry {
+    fn default() -> Self {
+        Self::new(DefinitionContext::new().expect("definition context allocation"))
+    }
+}
+
 impl HostRegistry {
+    pub(crate) fn new(definitions: DefinitionContext) -> Self {
+        Self {
+            definitions,
+            owner: HostRegistryId::default(),
+            next_path_descriptor_id: 0,
+            functions: Vec::new(),
+            function_names: Default::default(),
+            function_declarations: Default::default(),
+            types: Default::default(),
+            type_names: Default::default(),
+            type_declarations: Default::default(),
+            roots: Default::default(),
+            path_descriptors: Default::default(),
+            path_adapters: Default::default(),
+            dirty_paths: Default::default(),
+        }
+    }
+
+    pub(crate) fn definition_context(&self) -> &DefinitionContext {
+        &self.definitions
+    }
+
+    pub fn definitions(&self) -> DefinitionTable {
+        self.definitions.snapshot()
+    }
+
     pub(crate) fn gc_roots(&self) -> Vec<Value> {
         let mut roots = Vec::new();
         for record in self.dirty_paths.borrow().iter() {
@@ -52,17 +91,30 @@ impl HostRegistry {
     }
 
     pub fn register(&mut self, mut function: HostFunction) -> Result<HostFunctionId, RuntimeError> {
+        let cancel = CancellationToken::default();
+        let input =
+            DefinitionMetadata::checked(function.definitions, function.declaration, &cancel)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let adopted = if input.definitions().id() == self.definitions().id() {
+            input
+        } else {
+            input
+                .import_into(&self.definitions, &cancel)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+        };
+        (function.definitions, function.declaration) = adopted.into_parts();
+        let definitions = self.definitions();
         function
             .declaration
-            .validate()
+            .validate(&definitions)
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        if let Some(owner) = function.declaration.method_owner() {
+        if let Some(owner) = function.declaration.method_owner(&definitions) {
             let ty = self.host_type_by_declaration(&owner).ok_or_else(|| {
                 RuntimeError::metadata_conflict("host method owner is not registered")
             })?;
             let required = ty
                 .declaration
-                .method_contract(&function.declaration.id)
+                .method_contract(&function.declaration.id, &definitions)
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
             if !required.matches_binding(&function.declaration) {
                 return Err(RuntimeError::metadata_conflict(
@@ -86,12 +138,13 @@ impl HostRegistry {
         function.assign_id(id);
         self.function_names.insert(symbol, id);
         self.function_declarations
-            .insert(function.declaration.id.clone(), id);
+            .insert(function.declaration.id, id);
         self.functions.push(function);
         Ok(id)
     }
 
-    pub fn interface(&self) -> HostInterface {
+    pub fn interface(&self) -> DefinitionMetadata<HostInterface<DefinitionId>> {
+        let definitions = self.definitions();
         let mut paths = Vec::new();
         for declaration in self.path_descriptors().map(|path| &path.declaration) {
             if !paths.contains(declaration) {
@@ -103,32 +156,62 @@ impl HostRegistry {
             .iter()
             .map(|f| f.declaration.clone())
             .collect::<Vec<_>>();
-        functions.sort_by(|a, b| a.id.cmp(&b.id));
+        functions.sort_by(|a, b| {
+            definitions
+                .compare(a.id, b.id)
+                .expect("registered definition")
+        });
         let mut types = self
             .types
             .values()
             .map(|info| info.declaration.clone())
             .collect::<Vec<_>>();
-        types.sort_by(|a, b| a.id.cmp(&b.id));
-        HostInterface {
-            paths,
-            types,
-            functions,
-        }
+        types.sort_by(|a, b| {
+            definitions
+                .compare(a.id, b.id)
+                .expect("registered definition")
+        });
+        DefinitionMetadata::checked(
+            definitions,
+            HostInterface {
+                paths,
+                types,
+                functions,
+            },
+            &CancellationToken::default(),
+        )
+        .expect("registered interface scope")
     }
 
-    /// Checks declarations without invoking any callback or changing registry state.
+    /// Checks scoped declarations without invoking callbacks or publishing bindings.
+    /// Foreign identities are imported into this registry before binding comparison.
     pub fn link_interface(
         &self,
-        interface: &HostInterface,
+        interface: &HostInterface<DefinitionId>,
+        source: &DefinitionTable,
     ) -> Result<Vec<HostFunctionId>, RuntimeError> {
         interface
-            .validate()
+            .validate(source)
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let adopted;
+        let definitions = self.definitions();
+        let interface = if source.id() == definitions.id() {
+            interface
+        } else {
+            adopted = DefinitionMetadata::checked(
+                source.clone(),
+                interface.clone(),
+                &CancellationToken::default(),
+            )
+            .and_then(|input| input.import_into(&self.definitions, &CancellationToken::default()))
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+            adopted.records()
+        };
+        let definitions = self.definitions();
         for required in &interface.paths {
             let fingerprint = required
-                .contract(interface)
-                .and_then(|contract| contract.fingerprint())
+                .contract(interface, &definitions)
+                .and_then(|contract| contract.fingerprint(&definitions))
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
             if self
                 .path_descriptors()
@@ -165,12 +248,16 @@ impl HostRegistry {
                         .ok_or_else(|| {
                             RuntimeError::metadata_conflict(format!(
                                 "missing host trait method binding `{}`",
-                                method.host_method.path.last().map_or("", |part| &part.name)
+                                definitions
+                                    .resolve(method.host_method)
+                                    .ok()
+                                    .and_then(|view| view.last().map(|part| part.name))
+                                    .unwrap_or("")
                             ))
                         })?;
                     let declared = actual
                         .declaration
-                        .method_contract(&method.host_method)
+                        .method_contract(&method.host_method, &definitions)
                         .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
                     if !declared.matches_binding(&bound.declaration) {
                         return Err(RuntimeError::metadata_conflict(
@@ -212,17 +299,17 @@ impl HostRegistry {
             self.type_names
                 .insert(info.declaration.symbol.clone(), info.type_id);
             self.type_declarations
-                .insert(info.declaration.id.clone(), info.type_id);
+                .insert(info.declaration.id, info.type_id);
             self.types.insert(info.type_id, info);
         }
     }
 
     pub(crate) fn validate_type_identity(
         &self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         symbol: &str,
     ) -> Result<(), RuntimeError> {
-        host_interface::validate_host_type_identity(declaration)
+        host_interface::validate_host_type_identity_in(declaration, Some(&self.definitions()))
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         if symbol.is_empty()
             || symbol.split('.').any(str::is_empty)
@@ -236,7 +323,7 @@ impl HostRegistry {
         Ok(())
     }
 
-    pub(super) fn matches_type(&self, type_id: TypeId, declaration: &DefinitionPath) -> bool {
+    pub(super) fn matches_type(&self, type_id: TypeId, declaration: &DefinitionId) -> bool {
         self.type_declarations.get(declaration) == Some(&type_id)
     }
 
@@ -288,7 +375,7 @@ impl HostRegistry {
 
     pub(super) fn portable_path_type(
         &self,
-        declaration: &HostValueType,
+        declaration: &HostValueType<DefinitionId>,
         types: &TypeRegistry,
     ) -> Result<TypeId, RuntimeError> {
         let resolved = match declaration {
@@ -305,6 +392,20 @@ impl HostRegistry {
         registration: HostPathDescriptorRegistration,
         types: &TypeRegistry,
     ) -> Result<HostPathDescriptorId, RuntimeError> {
+        let mut registration = registration;
+        let cancel = CancellationToken::default();
+        let input =
+            DefinitionMetadata::checked(registration.definitions, registration.segments, &cancel)
+                .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+        let adopted = if input.definitions().id() == self.definitions().id() {
+            input
+        } else {
+            input
+                .import_into(&self.definitions, &cancel)
+                .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?
+        };
+        (registration.definitions, registration.segments) = adopted.into_parts();
+        let definitions = self.definitions();
         let Some(root_type) = self.types.get(&registration.root_type) else {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor root type is not registered",
@@ -325,7 +426,7 @@ impl HostRegistry {
         let mut segments = Vec::with_capacity(registration.segments.len());
         for segment in &registration.segments {
             let resolved = match segment {
-                HostPathSegmentRegistration::Field { declaration } => {
+                HostPathSegmentDeclaration::Field(declaration) => {
                     let owner = self.types.get(&current).ok_or_else(|| {
                         RuntimeError::typed_path_validation(
                             "field owner is not a declared host type",
@@ -361,9 +462,9 @@ impl HostRegistry {
                         abi_fingerprint: field.abi_fingerprint,
                     }
                 }
-                HostPathSegmentRegistration::Index { declaration } => {
+                HostPathSegmentDeclaration::Index(declaration) => {
                     declaration
-                        .validate()
+                        .validate(&definitions)
                         .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
                     HostPathSegment::Index {
                         slot: DynamicPathArgSlot::new(declaration.slot as usize),
@@ -373,9 +474,9 @@ impl HostRegistry {
                         access: declaration.access,
                     }
                 }
-                HostPathSegmentRegistration::Virtual { declaration } => {
+                HostPathSegmentDeclaration::Virtual(declaration) => {
                     declaration
-                        .validate()
+                        .validate(&definitions)
                         .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
                     HostPathSegment::Virtual {
                         name: declaration.name.clone(),
@@ -389,29 +490,15 @@ impl HostRegistry {
         }
         let id = HostPathDescriptorId::new(self.next_path_descriptor_id);
         let declaration = HostPathDeclaration {
-            root: root_type.declaration.id.clone(),
-            segments: registration
-                .segments
-                .iter()
-                .map(|segment| match segment {
-                    HostPathSegmentRegistration::Field { declaration } => {
-                        HostPathSegmentDeclaration::Field(declaration.clone())
-                    }
-                    HostPathSegmentRegistration::Index { declaration } => {
-                        HostPathSegmentDeclaration::Index(declaration.clone())
-                    }
-                    HostPathSegmentRegistration::Virtual { declaration } => {
-                        HostPathSegmentDeclaration::Virtual(declaration.clone())
-                    }
-                })
-                .collect(),
+            root: root_type.declaration.id,
+            segments: registration.segments.clone(),
             access: registration.access,
             schema_epoch: registration.schema_epoch.0,
         };
         let fingerprint = self.path_fingerprint(&registration, &segments, types)?;
         let offline_fingerprint = declaration
-            .contract(&self.interface())
-            .and_then(|contract| contract.fingerprint())
+            .contract(self.interface().records(), &definitions)
+            .and_then(|contract| contract.fingerprint(&definitions))
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
         if fingerprint.0 != offline_fingerprint {
             return Err(RuntimeError::typed_path_validation(
@@ -432,11 +519,16 @@ impl HostRegistry {
 
     pub(crate) fn register_path(
         &mut self,
-        declaration: &HostPathDeclaration,
+        declaration: &DefinitionMetadata<HostPathDeclaration<DefinitionId>>,
         types: &TypeRegistry,
     ) -> Result<HostPathDescriptorId, RuntimeError> {
+        let adopted = declaration
+            .import_into(&self.definitions, &CancellationToken::default())
+            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+        let declaration = adopted.records();
+        let definitions = self.definitions();
         let contract = declaration
-            .contract(&self.interface())
+            .contract(self.interface().records(), &definitions)
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
         let root_type = self
             .host_type_by_declaration(&declaration.root)
@@ -447,27 +539,8 @@ impl HostRegistry {
             HostPathDescriptorRegistration {
                 root_type,
                 result_type,
-                segments: declaration
-                    .segments
-                    .iter()
-                    .map(|segment| match segment {
-                        HostPathSegmentDeclaration::Field(id) => {
-                            HostPathSegmentRegistration::Field {
-                                declaration: id.clone(),
-                            }
-                        }
-                        HostPathSegmentDeclaration::Index(index) => {
-                            HostPathSegmentRegistration::Index {
-                                declaration: index.clone(),
-                            }
-                        }
-                        HostPathSegmentDeclaration::Virtual(virtual_step) => {
-                            HostPathSegmentRegistration::Virtual {
-                                declaration: virtual_step.clone(),
-                            }
-                        }
-                    })
-                    .collect(),
+                definitions,
+                segments: declaration.segments.clone(),
                 access: declaration.access,
                 schema_epoch: HostSchemaEpoch(declaration.schema_epoch),
             },
@@ -918,7 +991,7 @@ impl HostRegistry {
         self.types.get(&type_id)
     }
 
-    pub fn host_type_by_declaration(&self, declaration: &DefinitionPath) -> Option<&HostTypeInfo> {
+    pub fn host_type_by_declaration(&self, declaration: &DefinitionId) -> Option<&HostTypeInfo> {
         self.types.get(self.type_declarations.get(declaration)?)
     }
 

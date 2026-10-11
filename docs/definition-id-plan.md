@@ -774,3 +774,71 @@ visibility, borrowed ownership and retained version checks were reviewed. Format
 and diff checks pass. Runtime pinned-reload/interface behavior, the normal Cargo
 integration route, remaining bytecode fixtures and downstream MIR/compiler/HIR
 migration remain required, with the exhaustive feature/backend matrix reserved for CI.
+
+### SI02 Host registry adoption and reflection
+
+Host function/type registration now accepts scoped ID declarations. Runtime creation
+shares the Native catalog's definition writer with the Host registry; inputs are
+explicitly imported before semantic validation and installation. Installed function,
+type, member, reflection and path records retain IDs, with the registry or retained
+function input owning the matching table. Host interface export returns scoped
+metadata, sorts by canonical identities and does not materialize paths. Foreign
+interface linking validates the original snapshot before import; normalized module
+linking requires the runtime context and uses declaration IDs directly.
+
+Removed the duplicate `HostPathSegmentRegistration` model. Descriptor registration
+now combines the existing scoped semantic segment records with runtime-local physical
+endpoint types. Field membership/visibility, access, dynamic parameter, result type,
+schema and canonical fingerprint checks remain. The semantic path registration route
+imports once; the descriptor route validates an already-local scope without another
+identity remap. Function registration similarly consumes local records directly.
+Host type reflection still builds and validates a candidate batch, including mutual
+references, before publishing. Identity interning on failure grants no declaration
+or runtime binding. Callback value validation consumes the shared IDs and preserves
+heap ownership, borrows and generation-pinned nominal evidence.
+
+Removed the unused `Runtime::host_mut` accessor: replacing the complete registry
+would sever its shared identity ownership. Existing Runtime registration methods
+remain the mutation boundary; no repository callers depended on the accessor.
+This is part of the ID ownership change, not SA21 registration unification.
+
+Validation for this boundary:
+
+- `cargo check -p kagari-runtime --lib` passes, resolving the previously recorded
+  20 Host registration/reflection errors. Runtime library build and scoped Clippy
+  (`cargo clippy -p kagari-runtime --lib -- -D warnings`) pass. Four needless
+  borrows reported by the first Clippy run were repaired without allowances.
+- `cargo test -p kagari-bytecode --test identity --no-fail-fast` now passes all six
+  tracked tests through Cargo, superseding the earlier dev-dependency blockage.
+- Migrated the existing `host_registration`, `offline_host`, `host_nominal` and
+  `offline_types` integration fixtures to explicit scoped authoring inputs. Their
+  26 tests pass against the Cargo-built runtime library. These cover callbacks,
+  scoped borrows, independent-table linkage, retained-prefix/foreign-ID rejection,
+  exact nominal ownership, cross-runtime roots/views, path contracts/fingerprints,
+  batch atomicity and mutual references, Host trait bindings and publication/reload
+  checks. No assertions or callbacks were disabled and no parallel semantic fixture
+  implementation was introduced. A retained-prefix case extends the existing offline
+  link test; a duplicate registration uses already-local metadata. Affected cases
+  were rerun after the local-adoption change.
+- The attempted normal command `cargo test -p kagari-runtime --test
+  host_registration --test offline_host --no-fail-fast` is blocked before running
+  tests by 10 HIR and 109 MIR errors in the existing migration. Representative HIR
+  owners are `aggregates/protocols.rs`, `host.rs` and `typeck/body/host_access.rs`;
+  MIR verification and application queries still supply path records to scoped
+  contracts. SI03/SI04 own these carried errors; do not restore path validators.
+  Runtime integration tests have not passed through Cargo yet.
+- The direct test method uses `cargo build -p kagari-runtime --lib
+  --message-format=json`, selects the exact reported `.rlib` files for
+  `kagari_runtime`, `kagari_bytecode`, `kagari_common` and `kagari_types`, then invokes
+  `rustc --edition=2024 --test` on each tracked integration source with those
+  `--extern` files and `-L dependency=target/debug/deps`. Execute the resulting test
+  binary. This uses the workspace default development profile, target and
+  parallelism; it is focused behavioral evidence, not Cargo or CI acceptance.
+
+Changed production imports, visibility, scope ownership and publication order were
+reviewed. Structure checks pass 1043 Rust files with no violations or exceptions;
+formatting and diff checks pass. Remaining Host call-site fixtures/examples and the
+source/compiler consumers must migrate with their owners. Native builder/catalog
+adoption, HIR and specialization, codec representation removal and final documentation
+cleanup remain required. No full workspace or backend matrix was run; exhaustive
+validation remains CI scope. No performance or retained-memory improvement is claimed.

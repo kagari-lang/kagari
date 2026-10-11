@@ -10,7 +10,10 @@ use crate::{
     },
 };
 
-use kagari_common::identity::DefinitionPath;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::host_interface::{
     type_declaration::{PathAccess, Visibility},
     value_type::HostValueType,
@@ -23,15 +26,25 @@ impl TypeRegistry {
         registrations: &[HostTypeRegistration],
         host: &HostRegistry,
     ) -> Result<Vec<HostTypeInfo>, RuntimeError> {
+        let declarations = registrations
+            .iter()
+            .map(|registration| {
+                registration
+                    .declaration
+                    .import_into(host.definition_context(), &CancellationToken::default())
+                    .map(|metadata| metadata.into_records())
+                    .map_err(metadata_error)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let definitions = host.definitions();
         let mut candidate = self.inner.borrow().clone();
         let mut nominal = host
             .host_types()
-            .map(|info| (info.declaration.id.clone(), info.type_id))
+            .map(|info| (info.declaration.id, info.type_id))
             .collect::<HashMap<_, _>>();
         let mut bindings = Vec::new();
-        for registration in registrations {
-            let declaration = &registration.declaration;
-            declaration.validate().map_err(metadata_error)?;
+        for (registration, declaration) in registrations.iter().zip(&declarations) {
+            declaration.validate(&definitions).map_err(metadata_error)?;
             host.validate_type_identity(&declaration.id, &declaration.symbol)?;
             if nominal.contains_key(&declaration.id)
                 || candidate.by_name.contains_key(&declaration.symbol)
@@ -39,8 +52,12 @@ impl TypeRegistry {
                 return Err(RuntimeError::metadata_conflict(&declaration.symbol));
             }
             let id = TypeId::new(candidate.by_id.len());
-            let fingerprint = AbiFingerprint(declaration.fingerprint().map_err(metadata_error)?);
-            nominal.insert(declaration.id.clone(), id);
+            let fingerprint = AbiFingerprint(
+                declaration
+                    .fingerprint(&definitions)
+                    .map_err(metadata_error)?,
+            );
+            nominal.insert(declaration.id, id);
             candidate.by_name.insert(declaration.symbol.clone(), id);
             candidate.public_abi_fingerprints.insert(fingerprint);
             candidate.by_id.push(TypeInfo {
@@ -71,13 +88,13 @@ impl TypeRegistry {
                     Ok(FieldInfo {
                         id: FieldMetadataId::new(slot),
                         name: field.name.clone(),
-                        ty: intern(&mut candidate, &nominal, &field.ty)?,
+                        ty: intern(&mut candidate, &nominal, &field.ty, &definitions)?,
                         readable: field.readable,
                         writable: field.writable,
                         visibility: field.visibility,
                         path_access: field.path_access,
                         abi_fingerprint: AbiFingerprint(
-                            field.fingerprint().map_err(metadata_error)?,
+                            field.fingerprint(&definitions).map_err(metadata_error)?,
                         ),
                     })
                 })
@@ -93,7 +110,7 @@ impl TypeRegistry {
                         .map(|param| {
                             Ok(ParameterInfo {
                                 name: param.name.clone(),
-                                ty: intern(&mut candidate, &nominal, &param.ty)?,
+                                ty: intern(&mut candidate, &nominal, &param.ty, &definitions)?,
                             })
                         })
                         .collect::<Result<_, RuntimeError>>()?;
@@ -101,11 +118,16 @@ impl TypeRegistry {
                         id: MethodMetadataId::new(slot),
                         name: method.name.clone(),
                         params,
-                        return_type: intern(&mut candidate, &nominal, &method.return_type)?,
+                        return_type: intern(
+                            &mut candidate,
+                            &nominal,
+                            &method.return_type,
+                            &definitions,
+                        )?,
                         origin: MethodOrigin::Host,
 
                         abi_fingerprint: AbiFingerprint(
-                            method.fingerprint().map_err(metadata_error)?,
+                            method.fingerprint(&definitions).map_err(metadata_error)?,
                         ),
                     })
                 })
@@ -125,8 +147,9 @@ fn metadata_error(error: impl Display) -> RuntimeError {
 
 fn intern(
     inner: &mut TypeRegistryInner,
-    nominal: &HashMap<DefinitionPath, TypeId>,
-    ty: &HostValueType,
+    nominal: &HashMap<DefinitionId, TypeId>,
+    ty: &HostValueType<DefinitionId>,
+    definitions: &DefinitionTable,
 ) -> Result<TypeId, RuntimeError> {
     if let HostValueType::Opaque(id) = ty {
         return nominal.get(id).copied().ok_or_else(|| {
@@ -165,18 +188,20 @@ fn intern(
                 fields.push(FieldInfo {
                     id: FieldMetadataId::new(slot),
                     name: slot.to_string(),
-                    ty: intern(inner, nominal, element)?,
+                    ty: intern(inner, nominal, element, definitions)?,
                     readable: true,
                     writable: false,
                     visibility: Visibility::Public,
                     path_access: PathAccess::None,
-                    abi_fingerprint: AbiFingerprint(element.fingerprint().map_err(metadata_error)?),
+                    abi_fingerprint: AbiFingerprint(
+                        element.fingerprint(definitions).map_err(metadata_error)?,
+                    ),
                 });
             }
             TypeKind::Tuple
         }
         HostValueType::Array(element) | HostValueType::Set(element, _) => {
-            intern(inner, nominal, element)?;
+            intern(inner, nominal, element, definitions)?;
             if matches!(ty, HostValueType::Array(_)) {
                 TypeKind::Array
             } else {
@@ -184,7 +209,7 @@ fn intern(
             }
         }
         HostValueType::Vec(_, element) | HostValueType::List(_, element) => {
-            intern(inner, nominal, element)?;
+            intern(inner, nominal, element, definitions)?;
             if matches!(ty, HostValueType::Vec(..)) {
                 TypeKind::Struct
             } else {
@@ -192,20 +217,26 @@ fn intern(
             }
         }
         HostValueType::Map { key, value, .. } => {
-            intern(inner, nominal, key)?;
-            intern(inner, nominal, value)?;
+            intern(inner, nominal, key, definitions)?;
+            intern(inner, nominal, value, definitions)?;
             TypeKind::Map
         }
         HostValueType::Option(_, element) => {
             for (slot, name, payload) in [
-                (0, "Some", vec![intern(inner, nominal, element)?]),
+                (
+                    0,
+                    "Some",
+                    vec![intern(inner, nominal, element, definitions)?],
+                ),
                 (1, "None", vec![]),
             ] {
                 variants.push(VariantInfo {
                     id: VariantMetadataId::new(slot),
                     name: name.into(),
                     payload,
-                    abi_fingerprint: AbiFingerprint(ty.fingerprint().map_err(metadata_error)?),
+                    abi_fingerprint: AbiFingerprint(
+                        ty.fingerprint(definitions).map_err(metadata_error)?,
+                    ),
                 });
             }
             TypeKind::Enum
@@ -215,8 +246,10 @@ fn intern(
                 variants.push(VariantInfo {
                     id: VariantMetadataId::new(slot),
                     name: name.into(),
-                    payload: vec![intern(inner, nominal, payload)?],
-                    abi_fingerprint: AbiFingerprint(ty.fingerprint().map_err(metadata_error)?),
+                    payload: vec![intern(inner, nominal, payload, definitions)?],
+                    abi_fingerprint: AbiFingerprint(
+                        ty.fingerprint(definitions).map_err(metadata_error)?,
+                    ),
                 });
             }
             TypeKind::Enum
@@ -237,7 +270,7 @@ fn intern(
         variants,
         methods: Vec::new(),
         traits: Vec::new(),
-        abi_fingerprint: AbiFingerprint(ty.fingerprint().map_err(metadata_error)?),
+        abi_fingerprint: AbiFingerprint(ty.fingerprint(definitions).map_err(metadata_error)?),
     });
     if scalar.is_some() {
         inner.by_name.insert(name, id);

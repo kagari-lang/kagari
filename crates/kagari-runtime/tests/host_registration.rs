@@ -1,3 +1,13 @@
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionPath,
+        mapping::DefinitionRecord,
+        metadata::{DefinitionMetadata, scope_record},
+        table::DefinitionId,
+    },
+};
+
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -12,11 +22,20 @@ use kagari_types::host_interface::{
 };
 use std::sync::{Arc, Mutex};
 
+fn scoped<T: DefinitionRecord<DefinitionPath>>(
+    value: &T,
+) -> DefinitionMetadata<T::Rebind<DefinitionId>>
+where
+    T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
+{
+    scope_record(value, &CancellationToken::default()).unwrap()
+}
+
 fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
-    let mut registration =
-        HostTypeRegistration::new(HostTypeDeclaration::new("game.Player"), "Player");
-    registration.declaration.ownership = HostTypeOwnership::HostRoot;
-    registration.declaration.path_access = PathAccess::ReadWrite;
+    let mut declaration = HostTypeDeclaration::new("game.Player");
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = PathAccess::ReadWrite;
+    let registration = HostTypeRegistration::new(scoped(&declaration), "Player");
     let ty = runtime.register_host_type(registration).unwrap();
     let root = runtime
         .register_host_root(HostObjectId(object_id), ty, HostSchemaEpoch::new(0))
@@ -42,7 +61,11 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
     host_root_value(&mut runtime, 1);
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("game.heal", vec![], HostValueType::opaque("game.Player")),
+            scoped(&HostFunctionDeclaration::new(
+                "game.heal",
+                vec![],
+                HostValueType::opaque("game.Player"),
+            )),
             |context, _| {
                 let token = context
                     .borrows()
@@ -95,7 +118,11 @@ fn registers_host_function_metadata_and_invokes_handler() {
         },
         ..HostFunctionDeclaration::new("game.heal", vec![], HostValueType::I32)
     };
-    let fingerprint = metadata.fingerprint().unwrap();
+    let metadata = scoped(&metadata);
+    let fingerprint = metadata
+        .records()
+        .fingerprint(metadata.definitions())
+        .unwrap();
 
     let function_id = runtime
         .register_host_function(HostFunction::new(metadata, move |_, args| match args {
@@ -114,7 +141,13 @@ fn registers_host_function_metadata_and_invokes_handler() {
     );
 
     assert!(registered.declaration().effects.may_mutate_host_state);
-    assert_eq!(registered.declaration().fingerprint().unwrap(), fingerprint);
+    assert_eq!(
+        registered
+            .declaration()
+            .fingerprint(registered.definitions())
+            .unwrap(),
+        fingerprint
+    );
     let root = host_root_value(&mut runtime, 1);
     assert_eq!(
         runtime
@@ -131,11 +164,11 @@ fn installed_host_functions_are_available() {
     let mut runtime = host_call_enabled_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::HostFunctionDeclaration::new(
+            scoped(&HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
                 HostValueType::Unit,
-            ),
+            )),
             move |_, _| {
                 *calls_for_host.lock().expect("counter should lock") += 1;
                 Ok(Value::Unit)
@@ -152,24 +185,24 @@ fn rejects_duplicate_host_function_symbols() {
     let mut runtime = Runtime::default();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::HostFunctionDeclaration::new(
+            scoped(&HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
                 HostValueType::Unit,
-            ),
+            )),
             |_, _| Ok(Value::Unit),
         ))
         .unwrap();
 
+    let installed = runtime.host().function("game.tick").unwrap();
+    let duplicate = DefinitionMetadata::checked(
+        installed.definitions().clone(),
+        installed.declaration().clone(),
+        &CancellationToken::default(),
+    )
+    .unwrap();
     let error = runtime
-        .register_host_function(HostFunction::new(
-            kagari_types::host_interface::HostFunctionDeclaration::new(
-                "game.tick",
-                vec![],
-                HostValueType::Unit,
-            ),
-            |_, _| Ok(Value::Unit),
-        ))
+        .register_host_function(HostFunction::new(duplicate, |_, _| Ok(Value::Unit)))
         .unwrap_err();
 
     assert_eq!(error.kind(), RuntimeErrorKind::MetadataConflict);
@@ -208,7 +241,13 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
         }],
         HostValueType::I32,
     ));
-    let fingerprint = AbiFingerprint(declaration.fingerprint().unwrap());
+    let declaration = scoped(&declaration);
+    let fingerprint = AbiFingerprint(
+        declaration
+            .records()
+            .fingerprint(declaration.definitions())
+            .unwrap(),
+    );
     let type_id = runtime
         .register_host_type(HostTypeRegistration::new(
             declaration,
@@ -240,14 +279,14 @@ fn rejects_duplicate_host_type_names() {
     let mut runtime = Runtime::default();
     runtime
         .register_host_type(HostTypeRegistration::new(
-            HostTypeDeclaration::new("game.Player"),
+            scoped(&HostTypeDeclaration::new("game.Player")),
             "crate::game::Player",
         ))
         .unwrap();
 
     let error = runtime
         .register_host_type(HostTypeRegistration::new(
-            HostTypeDeclaration::new("game.Player"),
+            scoped(&HostTypeDeclaration::new("game.Player")),
             "crate::game::OtherPlayer",
         ))
         .unwrap_err();
