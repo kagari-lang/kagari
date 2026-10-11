@@ -1,21 +1,14 @@
-# Async Script and Native Execution Design
+# Async Script and Native Execution
 
-Status: AX00-AX05 implemented with focused local acceptance; AX06 product and full
-GitHub CI status is recorded in the roadmap. The implementation lets scripts await host-owned RPC,
-database and timer operations without blocking the VM thread or exposing completion
-callbacks to script authors. Rust remains responsible for IO and scheduling.
+This document describes implemented async language and runtime contracts. Scripts
+await host-owned RPC, database and timer operations without blocking the VM thread;
+Rust owns IO and scheduling. [Specifications](README.md#language-and-execution-specifications)
+define observable behavior; the [roadmap](implementation-roadmap.md#verification-and-open-ci-acceptance)
+records unverified CI acceptance separately.
 
-This design builds on current [native registration](spec/standard-declarations.md)
-and [execution control](spec/execution.md). The [roadmap](implementation-roadmap.md)
-and staged [AX00-AX06 execution plan](async-execution-plan.md) own implementation
-progress. AX00 finalized the concrete contracts below. Existing specifications
-remain authoritative until implementation updates them.
-
-The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
-owns centralized stores, automatic retention and movement of an exclusively driven
-runtime between host threads. References below to the owning VM thread mean the
-current exclusive driver, not permanent OS-thread affinity. This async proposal
-still owns suspension and completion protocols; GO alone does not implement them.
+[Runtime ownership](runtime-ownership-and-host-api-design.md) supplies centralized
+stores, automatic retention and exclusive movement between host threads. The
+owning VM thread below means the current exclusive driver, not OS-thread affinity.
 
 The [host task scope design](host-task-scope-design.md) defines synchronous handlers
 spawning scope-owned work, admission and mailbox-driven resumption. Cold Futures
@@ -27,27 +20,7 @@ authorizes API use, root cancellation and a call-depth limit control execution, 
 owns deadlines/service limits. Per-task permission matrices, precise allocation
 attribution and hierarchical budget delegation are not async requirements.
 
-## Baseline before AX00 activation
-
-Before activation, the [syntax specification](spec/syntax.md) excluded async syntax.
-[Host interoperability](spec/host-interop.md#suspension-boundaries) and
-[runtime semantics](spec/runtime.md#suspension-and-ephemerality) anticipate suspension
-but only establish restrictions on borrowed and ephemeral values. A `may_suspend`
-metadata field does not define task execution, wakeup or cancellation semantics.
-
-Current [host callbacks](../crates/kagari-runtime/src/host.rs) and
-[native calls](../crates/kagari-runtime/src/native/mod.rs) run synchronously;
-callbacks reenter the same execution stack. They do not yield an owned async
-execution to the host. [Sessions](../crates/kagari-runtime/src/session.rs)
-retain root options, frames, termination and resource baselines for synchronous
-execution and reentry. These are reusable concepts, not a completed async runtime.
-Re-audit their implementation at activation before selecting concrete API changes.
-
-The product boundary follows [project goals](project_goal.md) and
-[architecture](architecture.md): one thread executes a script heap at a time;
-the host owns networking, external resources and application scheduling.
-
-## First release scope
+## Supported scope
 
 The interpreter supports named async script functions, explicitly marked
 async closures, typed awaitable native operations, nested async script calls,
@@ -57,7 +30,7 @@ may execute script at a time. This is cooperative interleaving, not parallel hea
 access. A root has one active await chain. A host-provided scope creates a separate
 managed execution through `spawn`; unrestricted global spawning is deferred.
 Task result sharing across executions follows the cancellation and result-retention
-rules below; the AX00 contracts define waiter storage and host completion boundaries.
+rules below; the executable contracts define waiter storage and host completion boundaries.
 
 Do not include script threads, a mandatory Rust async executor, implicit blocking,
 detached background jobs, async generators or general async trait methods
@@ -81,7 +54,7 @@ pub async fn load_profile(id: i64) -> Result<Profile, RpcError> {
 }
 ```
 
-### Selected direction (2026-10-08)
+### Evaluation boundaries
 
 `async` is a reserved keyword. An async declaration's written return type is its
 completed output. Calling `async fn f(...) -> T` produces a cold `Future<T>`;
@@ -94,7 +67,7 @@ allocation can fail, and argument evaluation can have effects.
 `scope.spawn(...)` creates a separate scope-owned execution and exposes a
 `Task<T>` handle after successful admission. Use this single task API rather than
 separate `launch` and `async` methods. `Task<()>` covers Unit-producing work.
-The admission result is `Result<Task<T>, SpawnError>`; the concrete variants are specified in the AX00 contract below. Spawn enqueues work without executing its body inside
+The admission result is `Result<Task<T>, SpawnError>`; the concrete variants are specified in the executable contract below. Spawn enqueues work without executing its body inside
 the caller's activation. Discarding the returned handle
 does not cancel accepted work.
 
@@ -312,7 +285,7 @@ The script execution carries the continuation after `.await`. A native algorithm
 that itself waits and then continues needs resumable state, but that is a distinct
 use case, not a requirement for every native function.
 
-Conceptual registration sketch; the AX00 contract below fixes adapter ownership and timing:
+Conceptual registration sketch; the executable contract below fixes adapter ownership and timing:
 
 ```rust
 registry.register_async(contract, move |start, owned_request| {
@@ -397,7 +370,7 @@ rejected or ignored with bounded diagnostics; neither resumes script twice.
 Readiness registration and completion publication must also avoid lost wakeups
 when integrated with a host Future. Completion queues, payloads, outstanding roots
 and operation counts are bounded; overload must have a defined terminal outcome,
-not silently drop the only completion and leave a task waiting forever. The AX00 admission/readiness contract below defines the limits and failure classes.
+not silently drop the only completion and leave a task waiting forever. The admission/readiness contract below defines the limits and failure classes.
 
 ## Failure and cancellation
 
@@ -560,7 +533,7 @@ The installed surface remains the access boundary. Completion cannot install API
 change execution ownership or reset its cancellation state. Candidate initialization
 rejects async entries and external waits in the first release; do not park a staged
 reload session or bypass its restrictions by exporting deferred external work.
-The AX00 candidate rule below rejects construction and deferred-work output graphs
+The candidate rule below rejects construction and deferred-work output graphs
 in candidate initialization, even though cold construction does not itself start IO.
 
 ## Compiler and runtime responsibilities
@@ -599,11 +572,11 @@ verification and runtime support. Callback resumption inside the current session
 and external suspension back to the host are distinct capabilities. Async is not
 a reason to reintroduce Engine-versus-Host method lists or privileged RPC paths.
 
-## Concrete implementation contracts (AX00)
+## Executable contracts
 
-These contracts are approved implementation inputs, not a claim that async is
-already executable. AX01-AX06 in the [execution plan](async-execution-plan.md)
-implement them; the roadmap owns phase evidence.
+Source compilation and source-free loading share these checked factory, resume,
+admission and lifecycle contracts. Runtime installation does not recover source
+semantics or infer missing suspension evidence.
 
 ### Semantic roles, factories and portable execution
 
@@ -650,8 +623,7 @@ Tasks retain their execution owner independently of script handles.
 VM `start` validates a pinned entry and owned arguments and returns this owner
 without executing script. `drive(runtime, owner, slice)` grants short-lived
 activation and returns `Runnable`, `Waiting` or `Complete(Result<rooted output,
-execution failure>)`. AX01 initially supports synchronous entries and Runnable /
-Complete; AX02 adds waits, AX03 script factories, AX04 Tasks. The SDK exposes these
+execution failure>)`. The SDK exposes these
 operations without a Runtime borrow surviving the call. Slice is a positive
 instruction interval, not a work quota or native preemption guarantee. Slice exits
 occur only at safe boundaries. Synchronous execute uses the same storage and runs
@@ -783,65 +755,11 @@ contexts; no general effect/capability framework is introduced. Compatible reloa
 keeps cold and parked code/type/provider generations pinned; new roots see the new
 publication. State replacement remains outside AX scope.
 
-## Acceptance evidence
+## Contract coverage
 
-Use a deterministic fake host service that can complete immediately, hold a request,
-fail it or deliver late/duplicate messages. Core tests must not depend on live RPC
-servers or timing sleeps. Required cases include:
-
-- A two-request script returns correct results and propagates the first business
-  error without issuing the second request; creation/await evaluation occurs once.
-- Explicit async closures work with zero/typed/contextual parameters, expression
-  and block bodies, generic `Fn` calls, and return/propagation boundaries. Await in
-  an ordinary nested closure is rejected; no-await async bodies remain lazy.
-- Closure construction, factory call and Future drive preserve their separate
-  effect timing. Repeated calls have separate frames with ordinary shared captures;
-  Futures survive closure drop/handler return and reject unsafe retained borrows.
-- Spawn invokes both ordinary Future factories and async-closure factories once,
-  only after admission and caller activation exit. Wrong return types are rejected;
-  nested Futures are not implicitly flattened and captured Futures are not reset.
-- Cold Futures do not run when discarded and survive creator-handler return when
-  retained. Future aliases cannot restart work or drive a bound Future from another
-  execution. Foreign-runtime access and invalid wait cycles are rejected.
-- Scope-admitted work outlives its spawning handler, resumes only through its
-  dispatcher, and executes once per admission; scope close cancels admitted tasks.
-  A captured unstarted Future can first be driven in the admitted execution.
-- Task waiters across executions observe one completion without duplicate work;
-  retained results survive GC while completed execution frames are released.
-  Re-awaiting a Future traps even in its original execution; repeated Task awaits
-  observe its retained result/terminal metadata without re-running the factory.
-- Cancelling a waiter detaches it without cancelling the target; cancelling a
-  target terminates its waiters without script continuation. Business Err stays a
-  value, while traps retain their source Task and await provenance. No-waiter tasks
-  still report terminal outcomes to the host. Scope close covers all its tasks.
-- Cancellation/completion races establish one terminal outcome; cleanup completion
-  is distinguishable from request acceptance. Task wait cycles are rejected before
-  parking. No script-level cleanup or terminal-error recovery is introduced.
-- Immediate and deferred completions agree; completion-before-wait and wakeup races
-  lose no result; duplicate/late/stale-slot events cannot resume another operation.
-- A waiting execution consumes no drive loop; another root runs with independent
-  cancellation state and pinned versions under the same installation. Host drive
-  slices preserve call-depth and lifetime checks rather than resetting them.
-- Cancellation before start, while waiting, after readiness and before conversion,
-  plus owner drop and runtime shutdown, release execution-owned frames, roots and
-  leases; only explicitly retained outputs/cold Futures keep their necessary roots.
-- GC during every wait and completion conversion preserves captures and results;
-  memory and queue limits fail without leaking or waiting indefinitely.
-- Await through host borrows, prepared writes, guarded iteration and synchronous
-  reentry is rejected; valid owned data survives and accesses are revalidated.
-- Reload while RPC is pending resumes old code/contracts; new roots use the new
-  publication; retained cold Futures keep their original target; candidate
-  execution cannot suspend, spawn external work or export forbidden deferred work.
-- Source and artifact paths, malformed async artifacts, source-disabled SDK use,
-  synchronous API rejection and JIT pre-entry fallback satisfy the same semantics.
-- A separate host consumer adds a second RPC by changing only its declaration,
-  implementation, registration and tests, with no compiler/VM method cases.
-
-Reuse existing [session tests](../crates/kagari-vm/src/tests/sessions.rs),
-[native boundary tests](../crates/kagari-vm/tests/native_boundary.rs)
-and [host interface tests](../crates/kagari-embed/tests/host_interfaces.rs), extending
-their meaningful behavioral coverage. GitHub CI owns full implementation acceptance:
-repository structure, formatting, clippy, workspace-test and diff checks, plus the
-source-free/native feature and dependency matrix. Local iteration uses focused
-checks under repository policy. Measure runtime/parked memory,
-allocation counts and drive overhead before making performance claims.
+The [SDK async tests](../crates/kagari-embed/tests/async_execution.rs) cover source,
+artifact and host-driven execution. [Session tests](../crates/kagari-vm/src/tests/sessions.rs)
+and [native boundaries](../crates/kagari-vm/tests/native_boundary.rs) own cleanup,
+reentry and runtime safety. Use deterministic host completion/dispatch fixtures;
+preserve cold-effect timing, single Future drive, shared Task results, cancellation,
+GC, pinned reload and source-free rejection. CI owns the full feature/backend matrix.

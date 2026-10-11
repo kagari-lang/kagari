@@ -1,9 +1,8 @@
 # Kagari Documentation
 
 Start with [project goals](project_goal.md), [architecture](architecture.md) and
-[the pending roadmap](implementation-roadmap.md). Current behavior and queued
-designs are separate. Completed execution logs live in Git history rather than
-parallel migration documents.
+[the pending roadmap](implementation-roadmap.md). Specifications describe current
+behavior; queued designs do not imply implemented APIs.
 
 ## Language and execution specifications
 
@@ -19,50 +18,38 @@ parallel migration documents.
 
 ## Implementation references
 
-- [Syntax architecture](architecture/syntax.md), [grammar](kagari.ebnf) and
-  [syntax coverage audit](syntax-coverage.md); the TSV files are audit data.
-- [Structure checks](structure-checks.md) and [engineering rules](../AGENTS.md).
-- [Performance measurements](performance-baseline.md),
-  [architecture review/open findings](architecture-review-2026-10-03.md) and
-  [Kagari/Lua benchmarks](../benchmarks/lua-comparison/README.md).
-- [Review findings](review.md): the shared document for ongoing repository reviews.
-- [Builtin fixed-length array execution plan (SA20)](builtin-array-plan.md):
-  runtime-stored lengths, Array/Vec separation and explicit collection constructors;
-  implementation and local acceptance are complete; full CI remains open.
-- [Unified Iterable API execution plan](iterable-api-plan.md): agreed default
-  method ownership, lazy adapters, terminal operations and collection contracts;
-  implementation and local acceptance are complete; full CI remains open.
-- [Library-owned native collections execution plan](native-collections-plan.md):
-  migrate Vec/HashMap/HashSet to ordinary native extensions with checked storage,
-  retained calls and external collection acceptance; queued on the completed
-  Iterable baseline, with NC01-NC06 not started.
-- [Runnable examples](../examples/README.md).
-- [HIR reading guide](architecture/hir.md) and the completed
-  [HIR](hir-documentation-plan.md) / [syntax](syntax-documentation-plan.md)
-  documentation contracts.
-- [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md).
-- [Async contracts](async-execution-design.md), [host task scopes](host-task-scope-design.md)
-  and the [AX00-AX06 acceptance record](async-execution-plan.md).
-- [Compact values/interpreter acceptance (VE00-VE09)](interpreter-value-execution-plan.md).
-  Implementation is complete locally; Lua parity and full CI remain open.
-- [Interpreter execution architecture and prior-optimization review (HP00-HP06)](interpreter-hotpath-execution-plan.md).
-  Migration and final local evaluation are complete; full CI and Lua parity remain open.
-- Completed semantic contracts: [nominal enums/propagation](enum-propagation-plan.md),
-  [imports and namespaces](import-resolution-plan.md),
-  [Type/Value namespaces and import solving](name-resolution-plan.md), and
-  [native default bodies](native-default-bodies-plan.md). The roadmap distinguishes
-  implementation completion from pending CI; these are not queued migrations.
+- [HIR reading guide](architecture/hir.md), [syntax architecture](architecture/syntax.md),
+  [grammar](kagari.ebnf) and [syntax coverage audit](syntax-coverage.md).
+- [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md),
+  [async execution contracts](async-execution-design.md) and
+  [host task scopes](host-task-scope-design.md).
+- [Runnable examples](../examples/README.md), [structure checks](structure-checks.md)
+  and [engineering rules](../AGENTS.md).
+- [Performance measurements](performance-baseline.md) and
+  [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
+- [Open review findings](review.md) and
+  [architecture findings requiring confirmation](architecture-review-2026-10-03.md#outstanding-findings).
 
-## Queued designs
+## Queued work
 
-These documents do not imply implemented APIs or active execution. The roadmap
-owns activation, dependencies and phase order.
+The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
+  not started; reuse the implemented Iterable APIs while migrating storage.
 - [Rust value/opaque interoperability](rust-interop-design.md).
 - [Host API unification](host-api-refactor.md).
 - [Packages and dependency resolution](package-design.md).
 - [Compatible reload and state replacement](update-model-design.md).
 
-Historical per-phase logs are recoverable with
-`git show 9dfeba3c:docs/implementation-roadmap.md` and the corresponding plan/report
-path. Current reading guides, specifications and design contracts remain in-tree.
+## Documentation lifecycle
+
+Keep current contracts, reading guides, actionable open findings and bounded
+active/queued plans. When implementation completes, move lasting contracts to
+their architecture/specification owner and unresolved work to the roadmap or
+review, then remove the execution plan. Pending CI alone does not justify retaining
+a completed phase ledger. Keep only measurements needed for current decisions,
+with their environment, workload and limits.
+
+Git history owns completed plans, command transcripts and superseded measurements.
+Use `git log --all -- docs/<name>` to locate their revisions. Do not create an
+in-tree archive or depend on another developer's ignored logs and probe files.

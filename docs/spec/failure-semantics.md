@@ -122,12 +122,12 @@ requires a host-owned transaction; Kagari does not infer or emulate one.
 - A trap during nested host reentry clears all execution resources exactly once.
 - Reentry shares the outer version, cancellation state and call-depth limit.
 
-## Async outcomes (AX02-AX05)
+## Async outcomes
 
 Future/Task waiting, directional cancellation and Task failure provenance are
-implemented. Cross-boundary lifecycle acceptance remains AX05 work. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+implemented. The
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Await returns T, without an implicit Result wrapper. Business Err is an ordinary
 value; cancellation, traps and resource exhaustion terminate the waiting execution

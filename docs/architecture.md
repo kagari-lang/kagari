@@ -121,9 +121,13 @@ reachable namespace surfaces and the relevant body/signature inputs; local arena
 reuse still goes through the existing explicit remappers. Older snapshots retain
 their immutable catalogs and continue answering old queries.
 
-The fixed-point rescan schedule and iteration bound remain unchanged. SA1 inline
-AST reuse, SA2 scheduling and SA3 exhaustion handling remain follow-ups in
-[the repository review](review.md). No import-resolution performance claim is made.
+Import solving is dependency-driven: namespace observations and reverse watchers
+schedule affected modules. At quiescence the solver closes pending dependencies,
+rejects self-supporting cyclic derivations and publishes only complete graphs.
+Cancellation, exhaustion and non-convergence are distinct failures. The
+[HIR guide](architecture/hir.md#an-alias-through-a-public-glob) explains the proof
+and publication boundaries. Inline AST reuse and compact module handles remain
+open in [the review](review.md); no universal resolution speedup is claimed.
 
 ## Compilation Pipeline
 
@@ -885,7 +889,7 @@ returns use an opaque packet until the caller slot or public host boundary;
 shared environments and interface adapters retain their full return validation.
 Function/ModuleFunction, Shared, InterfaceMethod and ClosureRegister call sites prepare
 physical arguments and return destinations once. The executing canonical PC selects the record; module slots bind
-through the caller's pinned program descriptor. Shared calls select their HP01-owned
+through the caller's pinned program descriptor. Shared calls select their runtime-owned
 environment and retain caller-scoped semantic argument checks before common admission.
 Interface calls retain a `MethodInvocation` containing checked selection/application
 identities. Preparation borrows immutable snapshot/operation facts instead of cloning
@@ -1325,16 +1329,16 @@ Hash and Ord participate in implicit eligibility. Use this behavior, rather than
 module placement, to classify ownership.
 
 Type/member bindings are a separate list: String literal representation,
-ControlFlow variants for `?`, Option iterator results, Ordering results, range construction, `[T]`'s
-List declaration, default Vec construction and writable indexed access.
+ControlFlow variants for `?`, Option iterator results, Ordering results, range
+construction, builtin Array protocol bindings and writable indexed access.
 These bindings select checked declarations/members or intrinsic representations;
-they do not justify adding all library traits to a language-role enum. In particular,
-the bracket bridge may refer to native-authored List without duplicating its
-definition. String methods remain ordinary library implementations. IndexMut is not introduced.
+they do not justify adding all library traits to a language-role enum. Array literals
+construct the builtin array independently of Vec/List declarations. String methods
+remain ordinary library implementations. IndexMut is not introduced.
 
-The completed [nominal enum and propagation design](enum-propagation-plan.md)
-has replaced closed enum representation with ordinary library declarations and
-pinned layouts. `?` checks Try::Output/Residual and the enclosing FromResidual
+Nominal enums use ordinary library declarations and pinned layouts;
+[trait semantics](spec/traits.md) defines protocol-based propagation. `?` checks
+Try::Output/Residual and the enclosing FromResidual
 obligation in HIR; lowering consumes its checked calls and ControlFlow members.
 Standard Option/Result/ControlFlow policy belongs to registered library bodies.
 Custom source/native carriers use the same selected execution path. Native Result
@@ -1507,15 +1511,14 @@ and generation-pinned execution retain their current owners.
 
 ### Scope and completion boundary
 
-The [roadmap](implementation-roadmap.md#contract-and-common-responsibility-cleanup)
-owns AC01-AC05, checks and activation. Preserve the current finite trait/API surface,
-mandatory foundation, shared generics, storage safety and reload pinning. No new
-containers/traits, general downcast, async/permission redesign, blanket standard-enum
-replacement, stable external ABI or compatibility reader is authorized here.
-Performance effects are unmeasured. A future kagari-ffi C adapter belongs over
-kagari-embed; internal helper ABI stays separate, and no placeholder crate is needed.
+The [roadmap](implementation-roadmap.md) owns future changes. The current
+boundaries preserve the mandatory foundation, shared generics, storage safety
+and reload pinning. They do not promise a stable external ABI or compatibility
+readers. Performance effects require measurement. A future kagari-ffi C adapter
+belongs over kagari-embed; internal helper ABI stays separate, and no placeholder
+crate is needed.
 
-## Owned interpreter activation (AX01)
+## Owned interpreter activation
 
 Runtime session storage owns both synchronous and independently parked frame stacks.
 An owned execution token requests cancellation/retirement without keeping a Runtime

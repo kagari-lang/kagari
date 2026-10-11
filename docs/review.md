@@ -4,8 +4,9 @@ Keep ongoing repository review findings in this document rather than creating
 dated review files. Entries record observed behavior and possible follow-ups;
 they do not activate implementation work.
 
-SA1-SA3 were originally inspected against `c2f87c89`. SA2/SA3 and SA8 are now
-implemented and locally accepted; their full CI acceptance remains pending.
+Only unresolved findings remain here; identifiers stay stable when resolved
+entries are removed. Current contracts live in the specifications and architecture.
+CI status belongs to the roadmap, independently of implementation completion.
 
 ## SA1 Inline modules are parsed again
 
@@ -20,159 +21,17 @@ context. Preserve module ownership, visibility, stable child identities, origina
 UTF-8/CRLF offsets and diagnostic attribution. Reuse the existing inline-module
 navigation tests. Keep declaration, signature and body checking separate.
 
-## SA2 Import resolution rescans every module
-
-Implemented in NR04 and locally accepted in NR05 under the
-[name-resolution plan](name-resolution-plan.md). Full CI acceptance is pending.
-
-The old builder rescanned all modules after each propagation step. The
-[solver](../crates/kagari-hir/src/imports/solver.rs) now seeds declarations once,
-replaces affected module contributions and schedules reverse namespace observers.
-Observations include absent/pending names, namespace prefixes and glob membership;
-watchers remain distinct from linking dependencies. New revisions rebuild from
-current inputs, preserving removal, retargeting, access and ambiguity changes.
-
-On the bounded 48-module named chain, module visits fell from 2,304 to 86. Adding
-96 unrelated modules now adds 96 visits (182 total), compared with 6,912 total
-visits previously. Diamond and removed-seed workloads show small timing regressions;
-closure/proof overhead and measurement limits are documented in the
-[measurement ledger](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-ci-pending).
-This demonstrates reduced unrelated rescan work, not universal speedup.
-
-## SA3 Iteration exhaustion is not distinguished from convergence
-
-Implemented in NR04; focused failure/publication acceptance passes. Full CI remains
-pending. The old `2N + 2` loop could publish its last draft without convergence.
-
-The solver now distinguishes cancellation, work exhaustion and non-convergence.
-Queue exhaustion triggers pending-dependency closure; successful publication also
-requires settled directives and binding tiers. Category-qualified acyclic proofs
-prevent a named/glob cycle from manufacturing an order-dependent target. An exact,
-eight-state history detects repetition and a separate input-sized work bound
-limits remaining work. No mathematical completeness claim is made for that bound.
-
-The core failure fixture forces both work limits, exercises a non-convergent
-cycle and cancellation, checks old cache/snapshot retention and then successful
-recovery. Existing cycle tests cover seeded circulation, unseeded unresolved
-aliases, cross-category dependencies and source input order. Failures propagate
-through HIR and SDK preparation; no partial graph is admitted to checked execution.
-
-## SA4 Import records also represent namespace lookup state
-
-Resolved by the [IR01-IR03 execution plan](import-resolution-plan.md).
-Validation and phase commits are recorded in the
-[roadmap ledger](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-complete).
-
-The previous `ResolvedImport` model combined named bindings, glob roots, module
-headers, package/prelude bindings and empty-alias namespace entries. Import-vector
-positions served as declaration and namespace identities.
-
-The implementation now separates real directives and their source provenance from
-named, tiered candidates and snapshot-qualified targets. A shared
-[namespace catalog](../crates/kagari-hir/src/imports/catalog.rs) resolves nested
-members with importer visibility and explicit lookup states. Qualified source
-units include arena identity; aliases/re-exports share canonical declarations.
-Imported signature consumers, compiler handoff, navigation, dependencies and
-snapshot reuse use the new boundary. Deep aliases, grouped paths, strong/glob
-precedence, unused imports, stale arenas, retained snapshots and source-free/native
-execution are covered by behavioral acceptance. See
-[implemented ownership](architecture.md#source-namespaces-and-import-ownership).
-
-SA1 remains separate and unactivated. SA2/SA3 were subsequently implemented by
-NR04; their bounded measurements and CI status are recorded above.
-
-## SA5 Incremental reuse misses transitive namespace changes (P1)
-
-Resolved; validation is recorded in the [SA5 follow-up ledger](implementation-roadmap.md#import-and-namespace-resolution-ir01-ir03-complete).
-
-Reproduced against `c3294fad`. Signature reuse in
-[check_signatures](../crates/kagari-hir/src/lib.rs), full-file/body reuse in
-[snapshot](../crates/kagari-hir/src/analysis/mod.rs) and function-body reuse in
-[body](../crates/kagari-hir/src/analysis/body_queries.rs) previously compared local
-import facts and canonical imported contracts without comparing reachable namespace
-bindings. Declaration reuse already performed that comparison, but later reuse
-could still retain stale signatures, name resolution or checked body facts.
-
-Setup: `library` declares the items; `exports` publicly aliases them; unchanged
-`facade` contains `pub use pkg::exports::*;`; `root` imports
-`use pkg::facade as m;`. Change only the aliases in `exports`:
-
-- Rename `value as old` to `value as new`: incremental analysis still accepts
-  `m::old()` and retains its navigation target; fresh analysis reports `UnknownName`.
-- Swap `number as selected, flag as spare` to `flag as selected, number as spare`,
-  where returns are `i32` and `bool`. Add a comment to `root` to exercise body
-  remapping: incremental analysis reuses the body of
-  `fn main() -> i32 { m::selected() }` and misses the return-type error.
-- Swap `A as Selected, B as Spare` to `B as Selected, A as Spare`: incremental
-  signature analysis still types `fn accept(x: m::Selected) {}` as `A`; fresh
-  analysis returns `B`.
-
-All affected reuse paths now compare reachable namespace bindings. Retaining a
-complete file requires exact tables; reusing checked facts permits only the current
-module's arena rebasing through the existing remappers, including validated local
-variant owner/slot identities. Foreign namespace targets retain complete identities.
-[Five regression tests](../crates/kagari-hir/src/imports/cache_tests.rs) cover the
-three reproductions, single-function reuse, old snapshots, unrelated file sharing
-and local nominal namespace remapping. All five tests pass, as do the HIR suite,
-workspace tests completed in segments and the source-free/native feature matrix.
-
-## SA6 Generated cache names differed from analyzed paths on Windows
-
-Resolved at the SDK's [cache publication boundary](../crates/kagari-embed/src/engine/declarations.rs).
-Windows canonicalization produced `\\?\F:\...`, which was published verbatim while
-the source database normalized separators and drive spelling. The analyzed name
-lost the usable drive prefix and differed from the published declaration source.
-Four existing `registration_sources` tests failed their absolute-path assertion.
-
-Publication now converts canonical drive paths to ordinary paths and applies the
-same source-name normalization as analysis. The unchanged six-test suite passes,
-including actual file reads, matching source views, content validation and retained
-snapshot navigation. This bounded integration correction preserves all assertions.
-
 ## SA7 Routine fixes trigger expensive aggregate test suites
 
-SA5's five focused regressions executed in 1.07s, while unrelated aggregate
-language-contract, syntax-example and VM suites each took several minutes in that
-validation run. These are observed suite timings, not isolated benchmarks.
-Some runners serialize many scenarios inside one test and repeatedly create fresh
-analysis/standard-library environments; Cargo cannot schedule those cases separately.
+[Repository policy](../AGENTS.md#verification-and-tooling) limits local checks to
+affected contracts and a small regression set; complete suites belong to CI.
+The [test-cost audit](performance-baseline.md#workspace-test-cost-audit-2026-10-11)
+identifies expensive SDK/VM/HIR targets and repeated preparation for investigation.
+Optimization is deferred; confirm current costs before changing an owner.
 
-Routine follow-ups now use focused validation under [AGENTS.md](../AGENTS.md).
-The [numeric fixture follow-up](implementation-roadmap.md#focused-test-harness-optimization-sa7-numeric-fixtures-complete)
-retains all 90 cases and both artifact routes, batches 90 compilations into 4,
-and installs/loads 8 runtimes instead of 180. Only scalar locals are shared within
-each route; a successful call after every case checks trap cleanup. The four
-numeric tests pass in an observed 4.51s; timing conditions and limitations are in
-the ledger. Source-free validation and route isolation remain covered.
-
-SDK/other aggregate runners and selectively executing their individual cases
-remain separate follow-ups. Reuse immutable setup where safe and preserve tests
-that specifically require fresh snapshots or independent mutable runtimes.
-
-## SA8 Separate type/value lookup and unify export information
-
-Implemented by NR01-NR03 and locally accepted with the NR04 solver integration;
-full CI acceptance remains pending. The [execution plan](name-resolution-plan.md)
-and [roadmap ledger](implementation-roadmap.md#name-resolution-sa8-sa2-sa3-ci-pending)
-retain contracts, measurements and phase validation.
-
-Name tables, directive outcomes, host queries and semantic lookup now select Type
-or Value explicitly, with independent conflicts and `strong > glob > implicit`
-precedence. Prefixes select Type; terminal use sites select their syntactic category.
-One ordinary use leaf can introduce both bindings. Dual imports expose both tooling
-targets, and a single-target query does not choose an arbitrary winner. Cache
-comparison/remapping preserves both categories and qualified declaration ownership.
-
-HIR `Module.exports`, `Export` and `ExportItem` were removed. Resolved bindings
-provide public namespace members, including glob re-exports. Portable authored
-`ModuleDecl.exports` uses category-aware `ExportName` keys; generated native aliases
-retain their declared category and independent native ABI symbol validation.
-
-Existing language/import/native/query/cache fixtures were consolidated around
-these contracts. Focused SDK validation covers direct and encoded source-free
-execution; the selected Cranelift preparation used `InterpreterFallback`. One
-new normal test covers solver failure/publication as a distinct core boundary.
-Macros, new constructors, SA1 and SA9 remain outside this implementation.
+The numeric fixtures already share compilation while keeping independent runtime
+routes and successful calls after traps. Further work should reuse immutable setup
+where safe and preserve cases requiring fresh snapshots or mutable runtimes.
 
 ## SA9 Module paths are copied into internal graph keys and references
 
@@ -217,15 +76,6 @@ Keep this a separate follow-up from SA8 and SA2/SA3. Measure graph build allocat
 and time before/after on the same module workload, separating compilation time;
 reuse identity/snapshot and import tests for focused validation. Code migration is
 not activated by this review.
-
-## SA10 Generated trait declarations hide native default bodies
-
-Resolved by [ND01-ND04](native-default-bodies-plan.md): generated traits own real
-forwarding bodies, parsed `has_default` must agree with registration, and source
-compilation consumes checked calls. SDK preparation checks unused defaults before
-publishing their source files. Private native helpers and source-free validated
-recipes remain; direct dispatch adds no script frame. Broader CI acceptance is
-reported separately in the plan.
 
 ## SA11 HIR declarations and ADT members carry container-derived identities
 
@@ -764,124 +614,6 @@ cross-context import and generation-pinned dependencies. Reuse identity,
 alias/navigation, generic/associated-type and source-free artifact rejection
 coverage. Assess adoption/projection consumers before deciding scope and measure
 any claimed memory or speed improvement. Implementation remains deferred.
-
-## SA20 Separate builtin fixed-length arrays from library lists
-
-Implemented and locally accepted through BA01-BA05. `[T]` has a
-construction-time fixed length stored in the object, not in type identity. The
-[execution plan](builtin-array-plan.md) owns implementation contracts and the
-acceptance ledger, with status in the
-[roadmap](implementation-roadmap.md#builtin-fixed-length-arrays-sa20).
-Full CI acceptance remains open.
-
-Builtin Array length cannot change after construction. Array literals such as
-`[1, 2, 3]` construct that builtin type independently of installed Vec storage.
-Array remains distinct from List/MutableList and does not implicitly convert to
-or implement those interfaces.
-Its supported core protocols cover indexing and iteration, and element replacement
-is permitted. The execution plan owns the exact protocol integration.
-Fixed length does not imply immutable elements or a change to binding `val`/`var`.
-
-The agreed collection construction direction uses associated functions on the
-concrete implementation, following Rust-style naming. This supersedes the earlier
-`list_of`/`mutable_list_of` and Set factory-name candidates; do not retain a second
-factory surface as hypothetical compatibility. The initial API accepts one
-builtin Array rather than requiring macros or variadic parameters:
-
-| Entry | Result/responsibility |
-| --- | --- |
-| `Vec::new()` | Construct an empty concrete Vec. |
-| `Vec::from(array)` | Construct an independent concrete Vec from the array's elements, retaining their order and duplicates. |
-| `HashSet::new()` | Construct an empty concrete HashSet. |
-| `HashSet::from(array)` | Construct an independent concrete HashSet and deduplicate according to checked element Eq/Hash. |
-
-The following examples use the installed standard declarations:
-
-```kagari
-val array = [1, 2, 3]; // builtin Array; length stays 3
-val concrete = Vec::from(array);
-val readable: List<i32> = Vec::from([1, 2, 3]);
-val writable: MutableList<i32> = Vec::from([1, 2, 3]);
-val unique = HashSet::from([1, 2, 2, 3]);
-val readable_set: Set<i32> = HashSet::from([1, 2, 3]);
-val empty: Vec<i32> = Vec::new();
-```
-
-Construction selects a concrete implementation; a type annotation or ordinary
-checked upcast selects the exposed interface. List/MutableList and Set/MutableSet
-remain operation contracts without constructors that choose default storage.
-Constructing a Vec yields its concrete mutable API; annotating that value as List
-does not freeze the object or create an object-level mutability flag. HashSet's
-construction requirements are `T: Eq + Hash`, not requirements imposed on every
-possible Set implementation. Its iteration order remains unspecified; adopting
-Kotlin's ordered set factories is a separate decision.
-
-`from(array)` is an explicit construction operation, not implicit Array/List
-interoperability. It creates independent collection storage and leaves the input
-Array usable. Copy scalar/value elements according to Kagari value semantics;
-shared-object elements retain their identities without deep copying. Do not steal
-or move the input Array as if Kagari had Rust ownership semantics. Array element
-expressions evaluate left-to-right exactly once before the constructor executes;
-Set deduplication must not suppress evaluation of duplicate input expressions.
-
-These are ordinary library declarations and associated calls. Resolve `from`
-through the applicable declaration/implementation model; the naming choice does
-not authorize extra implicit conversions or compiler recognition of factory names.
-General variadic parameters and spread syntax remain deferred. If later added,
-evaluate lowering packed arguments through the same builtin Array construction
-path and define existing-array spread alias/copy behavior explicitly.
-
-Collection implementations and their constructor selection stay in library
-declarations/implementations. Semantic analysis consumes checked declaration IDs,
-generic arguments and trait facts. Vec now uses the existing nominal native-object
-model with registered sequence storage; Array has its own intrinsic semantic
-type and fixed-storage admission. Shared buffer kernels retain one implementation
-of element operations. The independent HashMap/HashSet representation cleanup
-remains deferred with broader collection work. No new Slice interface or implicit
-array/List coercion was introduced.
-
-The length alternatives were reviewed as follows:
-
-| Candidate | Meaning | Main consequence |
-| --- | --- | --- |
-| `[T; N]` (deferred) | N participates in type identity. | Exact-size parameters can reject wrong lengths statically; constant-length rules and possible const-generic binders need a separate bounded design. |
-| `[T]` (selected) | Each object has a fixed construction-time length, which is not part of type identity. | One parameter type accepts arrays of different lengths; lengths may be computed at runtime and indexing remains checked. |
-
-The initial form is `fn sum(values: [i32])`, accepting different array lengths.
-Runtime-sized `[value; count]` construction remains supported with fixed length
-after creation. The earlier `fn sum(values: [i32; 4])` suggestion is deferred;
-future exact-length constraints and general const generics are separate additions.
-Do not introduce placeholder length parameters now or mix builtin arrays,
-borrowed slices and the List interface. Element replacement remains supported,
-including through a `val` binding; no operation resizes an existing Array.
-
-Current [collection access](spec/collection-access.md),
-[value semantics](spec/value-semantics.md#repeat-arrays-and-bulk-replacement) and
-[architecture](architecture.md#language-contracts-and-native-implementations)
-now specify builtin `[T]` and fixed literal/repeat construction. Syntax, type,
-library, artifact/runtime, examples and tooling have migrated together. The
-implementation preserves left-to-right once-only evaluation, checked elements
-and indices, shared identity, GC roots and cleanup. Runtime repeat counts remain
-supported under the existing repeat-value safety rule. Rust move/borrow semantics,
-Kotlin variance and structural collection equality remain outside this change.
-
-Primary references: Rust's [array types](https://doc.rust-lang.org/reference/types/array.html)
-have type-level constant lengths; Kotlin's [arrays](https://kotlinlang.org/docs/arrays.html)
-are fixed-size objects without a size type parameter, and its
-[collection factories](https://kotlinlang.org/docs/constructing-collections.html)
-separate list construction from arrays. Rust's
-[Vec](https://doc.rust-lang.org/std/vec/struct.Vec.html) and
-[HashSet](https://doc.rust-lang.org/std/collections/struct.HashSet.html) provide
-`new` and array-based `From` construction using associated-call syntax. These
-support naming and responsibility comparisons, not copying either language's
-runtime ownership model.
-
-Implementation owners are syntax/type semantics, foundation declarations and
-collection constructors, checked executable contracts and runtime array storage.
-Existing literal/repetition, indexing/iteration, interface, generic, aliasing,
-source-free artifact and GC suites cover the migration. The execution plan retains
-validation evidence and repaired integration failures; this entry retains the
-design rationale.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 

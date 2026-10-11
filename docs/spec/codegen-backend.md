@@ -90,8 +90,9 @@ independent runtimes on other threads, and final destruction can occur there.
 Cranelift keeps its Send-only JITModule bookkeeping behind a private mutex;
 compilation and final destruction use exclusive access, while invocation uses only
 the finalized entry address and takes no owner lock. Runtime ownership and entry
-checks still apply. Runtime transfer itself remains GO03 work until its callback,
-payload and observer bounds and handoff tests are complete.
+checks still apply. Runtime transfer requires the callback, payload and observer
+Send bounds while execution remains exclusive; see
+[runtime ownership](../runtime-ownership-and-host-api-design.md#thread-transfer-contract).
 
 ## Links and Runtime ABI
 
@@ -176,11 +177,10 @@ own explicit contracts and acceptance tests; they are not implicitly provided by
 the current function compiler. Shareable code owners allow separate runtime
 installations, not concurrent entry into one runtime.
 
-## Async backend boundary draft (AX02-AX06)
+## Async backend boundary
 
-Scheduled behavior; not yet implemented. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+The implemented [async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Native backends must reject unsupported suspension before entry, selecting
 checked interpreter execution without restarting already executed effects.

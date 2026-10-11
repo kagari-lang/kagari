@@ -866,14 +866,12 @@ specializations. Callable adapters use the existing closure instruction and
 semantic signature validation, including capture and return contracts. Earlier
 artifacts are rejected; no legacy callable dispatch or migration is provided.
 
-## Async artifact draft (AX02-AX06)
+## Async artifacts
 
-Scheduled behavior; not yet implemented. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+The implemented [async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Async programs serialize validated factory/resume and await contracts, never live
 execution IDs, completion endpoints or host payloads. Encoded programs enforce the
 same cold creation, single-drive, output typing and suspension-resource rules as
-source programs. Regenerate affected unpublished fixtures at AX06 without adding
-old-format readers or routine format/ABI identifier increments.
+source programs. Live suspended executions are not serializable artifacts.

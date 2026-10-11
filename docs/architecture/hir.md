@@ -4,8 +4,9 @@
 contains more than the `hir/` node model: lowering, import/name resolution, type
 checking and snapshot publication have separate owners. The
 [architecture overview](../architecture.md#compilation-pipeline) describes the
-compiler handoff; the [execution plan](../hir-documentation-plan.md) tracks
-documentation completion. Detailed contracts and diagrams live beside the code.
+compiler handoff. Detailed contracts and source-to-field diagrams live beside
+the code; [engineering rules](../../AGENTS.md#documentation-maintenance) define
+the documentation conventions.
 
 ## Storage and IDs
 
@@ -227,9 +228,21 @@ available for navigation. Publication requires a drained queue and no pending
 candidate or directive. Exact bounded state history detects repetition; a separate
 input-sized work bound reports exhaustion. These are distinct from cancellation
 and ordinary unresolved source diagnostics. No failed draft enters analysis caches;
-old snapshots retain their immutable catalog. The
-[execution plan](../name-resolution-plan.md#implementation-refinements) details
-closure, proof ownership and work accounting.
+old snapshots retain their immutable catalog.
+
+Draft candidates retain the full LookupOutcome, so ambiguity and access failures
+cannot become absence. Each selected candidate carries a finite derivation of
+real `(DirectiveId, NameNamespace)` keys; lookup excludes a derivation containing
+its own directive/category. Type and Value are distinct here: a Value lookup may
+legitimately use a Type alias from the same import. Prefix/glob proofs compose;
+equal-target origins remain available, with the shortest valid derivation retained.
+Proofs are solver evidence, not definition identity or cache equivalence.
+
+The work limit counts module evaluations and produced binding contributions,
+derived from input modules, use leaves and seeded spellings. An eight-entry
+history compares exact facts, observations, queue and closed keys rather than
+trusting hash equality. Cancellation, exhaustion and non-convergence preserve
+bounded physical import sites and never publish successful graph/cache entries.
 
 At the call site, lexical resolution checks local bindings before module names:
 

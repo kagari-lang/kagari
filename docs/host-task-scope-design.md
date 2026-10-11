@@ -1,18 +1,11 @@
-# Host Task Scopes and Actor Dispatch Design
+# Host Task Scopes and Actor Dispatch
 
-Status: AX04/AX05 implemented and locally verified. Host-created scopes, transactional admission,
-bounded task driving, GC-traced terminal caches and reports are implemented and
-locally verified. Task await supports cached shared results, bounded waiters, cycle
-rejection and directional cancellation. Script `TaskScope.spawn` and `Task.cancel`
-are ordinary registered methods. Lifecycle/reload, detached diagnostics and debugger
-integration have focused local acceptance. AX06 products and full GitHub CI status
-are tracked separately in the roadmap.
-This document defines how a
-synchronous script handler can spawn an async business flow, return immediately,
+This document defines how a synchronous script handler can spawn an async
+business flow, return immediately,
 and have every later execution segment dispatched by its owning host scope. An
 Actor mailbox is the motivating integration, not a language or VM dependency.
 
-The [async execution proposal](async-execution-design.md) owns language-level await,
+The [async execution contracts](async-execution-design.md) define language-level await,
 native completion, suspension safety and execution semantics. This companion owns
 scope admission, spawn, scheduling notifications and the host drive protocol.
 The selected model separates independently retained cold `Future<T>` values from
@@ -21,22 +14,22 @@ scope-owned scheduled executions observed through `Task<T>` handles.
 These contracts build on current
 [native registration](spec/standard-declarations.md) and
 [execution control](spec/execution.md). The [roadmap](implementation-roadmap.md)
-owns activation and progress; the [AX00-AX06 execution plan](async-execution-plan.md)
-owns implementation sequencing. The async proposal owns observable semantics.
+owns unfinished work and CI status. The async contracts own observable semantics.
 The selected script names are `spawn`, `Future<T>` and `Task<T>`, with explicit
 postfix `.await`. Explicit `async |args| body` closures produce Futures through
-ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; AX00 fixes
+ordinary callable types. Spawn returns `Result<Task<T>, SpawnError>`; the executable contract fixes
 ScopeClosed, CapacityExceeded and DispatchUnavailable rejection variants. Concrete
 script scope methods are installed under `core::task`, with `Task`, `TaskScope` and
 `SpawnError` in the prelude. Application-specific Actor/RPC APIs below are examples.
 The current host API uses
 `create_task_scope`, `Runtime::spawn_task`, `drive_task`, `ready_tasks`,
-`take_task_report` and `drain_cancelled_tasks`; the roadmap records their coverage.
+`take_task_report` and `drain_cancelled_tasks`; the contract coverage below links
+the example and test owners.
 
-The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
+The [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns the Send runtime and centralized retention model. Scope/Actor ownership stays
-logical and serialized when its runtime moves between host workers. Completing GO
-does not implement the async spawn/drive protocol in this document.
+logical and serialized when its runtime moves between host workers. Runtime
+transfer and the async spawn/drive protocol have distinct responsibilities.
 
 The execution contract supplies the baseline: installed APIs authorize
 use, root cancellation and call-depth limits control execution, and the host manages task
@@ -47,7 +40,7 @@ lifetime and ownership checks, not another boolean permission matrix.
 
 Ordinary handlers remain synchronous. They explicitly spawn independent business
 work into a host-owned scope. Add `async` to the existing closure expression when
-its body needs to suspend; the parent proposal owns its evaluation/capture rules.
+its body needs to suspend; the async contract owns its evaluation/capture rules.
 The Result wrapper reports admission only, not the eventual Task outcome.
 
 ```kagari
@@ -84,7 +77,7 @@ driving returns to the mailbox loop. Completion makes work runnable but cannot
 execute script itself. Spawn's admission result is distinct from the eventual
 business result; Task is its observation/result/cancellation handle. There is no
 separate script `launch`/`async` method or Job type in this direction. Exact failure
-types and result reporting follow AX00. Registration uses a generic output `T` and
+types and result reporting follow the executable contracts. Registration uses a generic output `T` and
 an ordinary `fn() -> Future<T>` parameter. Existing checked callable coercions accept
 closures, explicit async closures, user implementations of `Fn` and generic
 `F: Fn() -> Future<T>` forwarding without additional syntax or a spawn-specific
@@ -278,7 +271,7 @@ affected execution or close the scope under a documented host policy. Record thi
 for owner-thread cleanup and wake the host control path; a failed mailbox send must
 not be the sole mechanism for requesting cleanup through that same failed mailbox.
 Scope shutdown is the final cleanup backstop. Use the bounded durable ready set and coalesced wake signal specified by the
-[AX00 contracts](async-execution-design.md#concrete-implementation-contracts-ax00).
+[Executable contracts](async-execution-design.md#executable-contracts).
 
 Actor restarts create a new scope incarnation. Old jobs, operation completions and
 ready notices cannot target the replacement Actor even when its application ID or
@@ -293,7 +286,7 @@ frames remain owned by the same logical driver. Current Runtime is Send and not
 Sync after GO; the driver may move it between workers outside active synchronous
 borrow scopes. Completion threads still cannot directly drive or access it.
 Async suspension and transfer of parked executions additionally require the
-contracts in the async proposal.
+contracts in the async contract.
 
 A host may run Actor/VM instances on local executors and use other workers for IO.
 Executing on the same OS thread is not sufficient isolation: unrelated local tasks
@@ -354,45 +347,12 @@ generations or explicitly cancel old jobs. Await remains a business interleaving
 point: messages may change shared state before resumption, so business code must
 revalidate conditions or use version-checked host operations.
 
-## Design gates and acceptance
+## Contract coverage
 
-The [AX00 contracts](async-execution-design.md#concrete-implementation-contracts-ax00)
-specify SpawnError variants, capture checks, capability identity, bounded storage,
-readiness, drive/report outcomes and shutdown ownership. AX04 owns scope
-admission/Task waiters and AX05 closes lifecycle integration. This companion
-introduces no independent phase ledger or separate implementation activation.
-
-Acceptance must demonstrate:
-
-- A synchronous handler spawns a task and returns before the task body starts;
-  GC after handler return preserves the admitted task's captures.
-- Ordinary `Fn() -> Future<T>` factories and explicit async closures are invoked
-  once on first drive, never during admission. Body/capture effects preserve their
-  specified timing; factory failures are reported and never leave orphan tasks.
-- While its RPC waits, another message handler runs; completion cannot run script
-  until the Actor processes its ready work.
-- A cold Future retained past its creating handler is usable in the new execution;
-  driving a started Future from a different execution is rejected. Task sharing
-  does not transfer ownership. Cross-runtime scopes, expired capabilities and
-  unsafe captured resources are rejected at their specified boundaries.
-- Admission failure leaves no orphan job; later handler failure does not silently
-  roll back a successful spawn; missing outcome observers do not hide failures.
-- Queue saturation, immediate completion, duplicate wakeups, stale IDs, scope close
-  and Actor restart neither lose accepted work silently nor resume it twice.
-- Task drop preserves scope ownership; cancel and shutdown release execution roots,
-  waiting endpoints and execution-owned generation retention without remote-result
-  dependencies. Retained results and unstarted Futures keep only necessary roots.
-- Waiter cancellation leaves its target running; target cancellation terminates
-  dependent waiters and records the originating Task. Cancellation reports are
-  observable without await, and scope shutdown can confirm completed cleanup.
-- Interleaved roots retain independent cancellation controls; resume turns do not
-  reset cancellation or call-depth limits, nested Future awaits share them, and
-  scope spawn obeys host admission limits without introducing execution charging.
-- A second RPC and a non-Actor dispatcher use the same registration/drive protocol
-  without changing generic compiler, verifier or VM method dispatch.
-
-Use a deterministic fake dispatcher and fake RPC provider, not live services or
-sleep-based ordering assertions. Follow the parent async proposal's source/artifact,
-GC, failure, reload and feature matrix. The roadmap maps these requirements to
-implemented contract owners and their focused local evidence; full feature/backend
-acceptance remains a separate GitHub CI gate.
+The [executable contracts](async-execution-design.md#executable-contracts) define
+admission errors, capture checks, capabilities, bounded storage and shutdown.
+The [host-driven example](../crates/kagari-embed/examples/async_tasks/main.rs)
+demonstrates registration, driving, reporting and shutdown. Extend existing
+[SDK async tests](../crates/kagari-embed/tests/async_execution.rs) with deterministic
+dispatch/completion fixtures for distinct missing contracts; avoid live services
+and sleep-based ordering assertions. Full feature/backend acceptance belongs to CI.

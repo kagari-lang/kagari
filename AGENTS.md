@@ -107,6 +107,22 @@ with explicit responsibilities; follow the active plan's migration size/build po
 - Write comments, API docs and repository docs in English; use the user's language
   for conversation/progress. Handwritten Rust follows the import/review rules below.
 
+### Documentation maintenance
+
+- Keep current contracts, guides, actionable findings and active/queued plans.
+  After completion, move lasting behavior to its architecture/specification owner
+  and unresolved work to the roadmap/review, then remove the completed plan.
+  Git history owns phase ledgers, successful command logs and superseded reports.
+- Use repository-relative links to tracked files or public sources. Do not make
+  documentation depend on ignored logs, generated reports or local probe files;
+  record necessary methods, results and limitations in the document itself.
+- Rustdoc starts with a short summary and explains behavior, ownership/ID targets,
+  errors and relevant examples. For syntax/HIR models, map a concrete source
+  example to fields and child nodes. AST diagrams distinguish nodes/tokens and
+  explain filtered positions, optional children and malformed-source recovery.
+  Keep examples beside their owner and link shared contracts instead of repeating
+  them. Rust examples should compile; mark Kagari/tree sketches as `text`.
+
 ### Imports and Module Paths
 
 - Use explicit module-scope imports of types/functions or meaningful short module

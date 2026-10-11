@@ -890,11 +890,11 @@ Calling or adapting a callable retains ordinary trap, cancellation and resource-
 behavior. Generic callable constraints reuse specialization; function values retain
 indirect closure dispatch. No inlining guarantee is part of this contract.
 
-## Async callable draft (AX03)
+## Async callable contract
 
 Implemented for functions and explicit async closures. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Async callables expose synchronous `Fn(A) -> Future<T>` factory behavior.
 Invocation allocates a fresh cold Future; the private resume body produces T.

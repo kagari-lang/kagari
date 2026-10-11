@@ -472,7 +472,7 @@ generic execution evidence is rejected without source analysis. Argument and ret
 type mismatches fail before entry, while a data-dependent return conversion failure
 preserves completed script effects. Conversion and execution share the active
 session's cancellation and pinned program. The explicit named-entry policy matches
-`execute`; cached visibility-checked public function bindings belong to GO05.
+`execute`.
 
 ## Typed native registration
 
@@ -763,7 +763,7 @@ one. Full-file and per-function queries share this implementation. Repeating an
 unchanged query uses its cached snapshot; source movement rebases query positions
 without changing the results retained by an earlier snapshot.
 
-## Owned execution and native waits (AX01-AX02)
+## Owned execution and native waits
 
 `KagariRuntime::{start, drive, drain_retired_executions}` exposes runtime-owned
 execution with or without SDK source/native features. Start validates a pinned
@@ -816,5 +816,5 @@ reply is required. Dropping a Task handle does not cancel the scope-owned job.
 The [async_tasks example](../../crates/kagari-embed/examples/async_tasks/main.rs)
 demonstrates this public API with two native providers, ordinary for-loop awaits,
 terminal reporting and scope shutdown. Its decoded artifact also executes without
-SDK source/native features. See the [execution plan](../async-execution-plan.md)
-and roadmap for focused local evidence and separate full GitHub CI acceptance.
+SDK source/native features. The [roadmap](../implementation-roadmap.md#verification-and-open-ci-acceptance)
+records the separate full GitHub CI gap.

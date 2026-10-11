@@ -1,47 +1,15 @@
 # Runtime ownership and host object API
 
-Status: GO01-GO06 accepted on 2026-10-06. The
-[roadmap](implementation-roadmap.md#runtime-ownership-and-host-objects-go01-go06-complete)
-records phase commits and verification. The core ownership and host APIs are
-implemented; explicitly optional generated views and later tooling remain proposals.
-The executable host_objects example demonstrates the current public call surface.
+Runtime-owned checked stores, automatically retained host handles, typed conversion
+and object/member calls are implemented. The
+[host_objects example](../crates/kagari-embed/examples/host_objects.rs) demonstrates
+the public API. Explicitly optional generated views remain proposals.
 
-This design covers two connected changes: concentrate runtime ownership in checked
-stores instead of a graph of Rust reference-counted owners, and provide a complete
-host API for registration, values, object mutation and checked calls. A host should
-be able to retain a result, edit an object and call its trait methods without
-managing raw Values, GC roots, argument slots or method-table ordinals.
-
-The target runtime is movable between host threads and executes exclusively at
-any instant. This changes the current fixed-thread ownership model. It does not
-add concurrent access to one script heap or asynchronous script execution.
-
-## Baseline and scope
-
-The table records the starting point before GO01. The roadmap ledger identifies
-completed changes; current behavior is documented in architecture and specifications.
-
-The script heap already uses an object table and checked handles. This is not a
-migration from reference-counted script objects to tracing GC. The existing
-collector is nonmoving, stop-the-world mark-sweep; the work changes its surrounding
-ownership, root representation and integration with execution metadata.
-
-| Existing owner | Current representation or API | Change required |
-| --- | --- | --- |
-| [GC heap](../crates/kagari-runtime/src/gc.rs) | Object slots plus owner/slot/generation IDs; roots are shared mutable Value vectors | Keep checked object identity; centralize root and frame storage |
-| [Runtime](../crates/kagari-runtime/src/lib.rs) and [frames](../crates/kagari-runtime/src/frame.rs) | Runtime, sessions and frames share heap/resource owners through Rc | Runtime owns mutable stores; execution accesses them through a scoped context |
-| [Sessions](../crates/kagari-runtime/src/session.rs) | Owned sessions and shared frame stacks provide cleanup and synchronous reentry | Preserve those semantics with session/frame identities and structured cleanup |
-| [Modules](../crates/kagari-runtime/src/module.rs) | Linked programs, module stores and retention guards have shared Rust ownership | Centralize runtime links and version retention; share only immutable code independently |
-| [Generic environments](../crates/kagari-runtime/src/frame/types.rs) and [selected operations](../crates/kagari-runtime/src/frame/types/operations.rs) | Rc/Weak graphs retain scopes, selected methods and version owners | Typed environment and operation IDs with explicit reachability |
-| [Function adapters](../crates/kagari-runtime/src/native/functions.rs) and [outputs](../crates/kagari-runtime/src/native/returns.rs) | Scalar conversion and selected special views; composite output often uses raw Value | Recursive fallible conversion and automatically retained object handles |
-| [Callable handles](../crates/kagari-runtime/src/native/callable.rs) | Scoped, stored and rooted callables with raw result paths | One checked call implementation, with explicit internal edges and automatic public retention |
-| [Embedding runtime](../crates/kagari-embed/src/runtime.rs) | Execution reports expose unrooted Value results; entry arguments are restricted | Typed arguments/results and an owning dynamic result API |
-
-Retain static typing, EN nominal enum/protocol semantics, generation-pinned calls,
-declared access, cooperative cancellation and source-free executable validation.
-Incremental/moving/generational GC, packages, schema-backed Serde, general derives,
-script async syntax, general JIT expansion and latest-version entry policy are
-outside this track. No performance improvement is claimed without measurement.
+One runtime executes exclusively and can move between host threads; it does not
+permit concurrent access to a script heap. The collector is nonmoving mark-sweep.
+Static typing, checked identities, GC roots, scoped access and generation-pinned
+calls remain enforced. This reference describes ownership and API contracts;
+[architecture](architecture.md) owns their implementation boundaries.
 
 ## Relationship to existing proposals
 
@@ -63,10 +31,9 @@ conversion, roots and object-call foundation. Pinned callable handles here do no
 activate or implement that proposal's latest-version policy.
 
 The [async](async-execution-design.md) and
-[task-scope](host-task-scope-design.md) proposals own suspension and scheduling.
-They must use this ownership model when implemented, but completing them is not
-required to move a quiescent synchronous runtime between Tokio tasks/threads.
-Existing specs describe the implemented baseline until the relevant phase lands.
+[task-scope](host-task-scope-design.md) contracts own implemented suspension and
+scheduling on this ownership model. Exclusive runtime transfer does not introduce
+concurrent script execution or require a particular host executor.
 
 ## Central ownership and checked identities
 
@@ -166,7 +133,7 @@ Object IDs identify stable logical objects, not stable payload addresses. Slot
 generations detect stale IDs; they are unrelated to object age in a generational
 collector. Public handles and prepared bindings must retain checked identities,
 not cached payload pointers. Incremental, generational, moving and concurrent
-collectors remain outside GO01-GO06; this track establishes and tests the boundaries
+collectors remain outside the current collector; these contracts establish the boundaries
 needed to evaluate them later without promising a cost-free algorithm replacement.
 
 ## Reachability and reclamation
@@ -714,7 +681,7 @@ player_api.on_damage(cx, &player, (damage,))?;
 A generator emits schemas, member references and thin wrappers, not unchecked
 physical offsets or permanent method-table ordinals. Loading still validates the
 actual program and resolves generation-specific slots. Generated calls and manual
-binding bundles share descriptors and execution paths. GO05 requires cached binding
+binding bundles share descriptors and execution paths. The public API supports cached binding
 and direct declaration-handle binding; an optional whole-program Rust code generator
 is a later tooling consumer, not another prerequisite or semantic implementation.
 
@@ -854,71 +821,15 @@ need. Do not move mixed ownership into common or make executable consumers depen
 on source analysis. High-level APIs and any necessary internal fast paths lower
 to the same checked operations; obsolete raw public entrypoints are replaced.
 
-## Implementation checkpoints
+## Contract coverage
 
-The roadmap holds the active checkboxes and progress ledger.
-Each accepted checkpoint uses its GO phase trailer and one
-coherent Conventional Commit. Earlier EN acceptance is not reopened.
-
-| Phase | Scope | Acceptance before progressing |
-| --- | --- | --- |
-| GO01 | Checked central root storage, common root enumeration, host root leases and object/slot identity | Retention/clone/drop, foreign/stale handles, root transfer, teardown and forced-GC coverage pass |
-| GO02 | Central frames/sessions/programs/environments; separate object policy, storage traversal/writes and collection | Coordinated reachability, reentry/unwind, escaped environments, cyclic metadata and old-version release pass; internal edge writes use controlled storage paths |
-| GO03 | Runtime transfer and callback/payload ownership constraints | Runtime Send/not-Sync contract, deterministic thread handoff, Tokio task acceptance and supported backend transfer pass |
-| GO04 | Recursive typed adapters, documented registration and owning public results | Strings/composites, argument tuples, business Result, typed entry arguments, KGR docs/navigation and source-free conversion pass |
-| GO05 | Object/collection mutation, restricted traced-payload editing, prepared member bindings and methods/closures/trait calls | Alias visibility, binding reuse, access/borrow failures, checked edge writes, GC during reentry, selected static/default/generic methods and pinned reload pass |
-| GO06 | Standard-library adoption, extension exercise, removal of superseded APIs and integration | New registrations use storage descriptions without collector changes; public examples, all behavior/feature/backend checks and current specifications pass |
-
-Keep intermediate checkpoints building. Work may replace a vertical internal path
-within one phase, but no accepted checkpoint carries an unresolved build failure.
-Do not retain compatibility aliases or duplicate runtime graphs to preserve obsolete
-callers. Unpublished generated artifacts are disposable and regenerated at a coherent
-checkpoint when their representation changes, without old readers or routine ABI
-version increments. Every implementation checkpoint includes structural review,
-focused behavioral checks and git diff --check; full integration is required at GO06.
-
-## Acceptance matrix
-
-| Area | Required evidence |
-| --- | --- |
-| Object graph | Shared aliases, cycles, nested enum/collection fields, payload/callback cycles and rootless reclamation under collection threshold 1 |
-| Metadata graph | Escaped generic environments, selected operation groups, old module-state cycles, exact dependency retention and release after last owner |
-| GC boundaries | Review object/type/error policy outside the collector; add an ordinary registered type and a managed payload with script edges through existing descriptors, then demonstrate retention and cyclic reclamation without mark/sweep changes |
-| Reference writes | Force collection around field/collection replacement, removal, bulk edits and publication; exercise frame/root and metadata link changes; new referents survive and detached rootless graphs are reclaimed |
-| Payload editing | Reject unrestricted edits of traced payloads and escaped traced-slot borrows; checked reference replacement preserves aliases and ownership/type checks; errors/unwind release leases and preserve completed writes |
-| Public handles | Automatic retention of return values/field reads/callback results, clone/drop across host threads, wrong runtime/generation and handles surviving runtime teardown |
-| Transfer | Runtime compiles as Send and rejects shared concurrent access; move live rooted objects between threads; native service/payload bounds; destruction on receiving thread |
-| Conversion | Supported scalar widths, UTF-8 strings, nested composites, installed nominal Option/Result, empty collections, bounded owned-cycle rejection and alias-preserving handles |
-| Registration/tooling | Full docs, parameter names, nominal identity, atomic invalid binding rejection, generated KGR parsing and materialized LSP targets |
-| Construction and mutation | Atomic object/enum/payload creation, shared-object updates, readonly/private/type rejection, short payload borrows, no escaped references, no callback during incompatible leases and completed-effect preservation |
-| Calls | Ordinary methods, closures, inherited/default/static trait members, generic witnesses, associated outputs, wrong signatures and source-free execution |
-| Binding reuse | Repeated access uses prepared descriptors; direct declaration-handle binding matches name-based binding; runtime/generic/access cache separation; old bindings remain pinned and caches do not leak retired versions |
-| Reentry/cleanup | Callback-triggered GC, result transfer without a root gap, traps/cancellation/depth failure, no outstanding frames/leases/roots after exit |
-| Reload | Live old objects/functions use old layouts/dependencies, new handles use their selected version, incompatible member binding rejected and failed reload leaves old handles valid |
-| Standard library | String split, object-valued Vec mutation, callback-based collection operations and trait-driven native algorithms use the public typed path without raw root/slot boilerplate |
-| Features/backends | Artifact-only/source/native/combined consumers; existing actual scalar JIT behavior and checked fallback; no claim of unsupported native GC-object execution |
-
-Use the existing runtime GC ownership, VM GC/reentry, embed generic reload/native
-artifact and standalone feature suites. Add behavioral tests for the listed new
-contracts, including compile-fail cases for escaping borrows and non-Send captures.
-Use repeated collection and version-count assertions to detect retention bugs.
-Benchmark any claimed improvement with the repository measurement policy; object
-counts alone do not establish lower memory usage or faster execution.
-
-Final integration commands:
-
-```text
-uv run --locked scripts/check_structure.py
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-uv run python scripts/check_features.py
-cargo test -p kagari-cli --features jit
-git diff --check
-```
-
-Documentation-only changes require local-link/content and diff checks; implementation
-checkpoints require the phase evidence above.
+Use existing GC ownership, native boundary, typed object, host reentry and pinned
+reload tests. Forced collection must preserve traced fields/captures and reclaim
+rootless data/metadata cycles. Foreign/stale identities, unsafe payload edits,
+escaped borrows and invalid thread transfer remain rejected. Validate source-free
+consumers separately from source analysis; do not infer actual native execution
+from a JIT-enabled configuration. [Engineering rules](../AGENTS.md) own scoped
+local checks and complete CI validation.
 
 ## Reference designs
 

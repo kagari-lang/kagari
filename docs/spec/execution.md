@@ -401,7 +401,7 @@ The incremental implementation order is:
 
 This order keeps the interpreter as the semantic foundation while preserving JIT as an optional backend path.
 
-## Owned interpreter driving (AX01)
+## Owned interpreter driving
 
 The VM exposes `start` and `drive` for verified script entries, including native-wait
 resume bodies. Start validates and retains arguments without executing script. An `OwnedExecution` token contains
@@ -436,8 +436,8 @@ are ordinary registered methods using transactional admission and cooperative ca
 Source async callables, Future/Task waits, script spawn and host scope driving are implemented
 below. Lifecycle, reload, cancellation and diagnostic integration have focused
 local acceptance; full GitHub CI status is recorded separately in the roadmap. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Runtime-owned execution records survive short driver activations. The driver
 returns Runnable, Waiting or Complete, and completion endpoints only publish
@@ -446,7 +446,7 @@ Task await waits for a scope-owned execution. Owned iteration leases remain in p
 so ordinary for bodies can await with existing structural-mutation exclusion.
 Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
 
-### Owned readiness and cancellation notifications (AX02)
+### Owned readiness and cancellation notifications
 
 Owned execution readiness is a durable coalescing bit. Host wakers only request
 scheduling; registering a waker rechecks existing readiness. Activation claims the

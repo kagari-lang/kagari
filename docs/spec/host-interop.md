@@ -902,12 +902,12 @@ Incremental implementation order:
 
 This gives Kagari a practical embedded scripting model early, especially for the "Rust owns the data, Kagari patches the behavior" use case.
 
-## Native async producers (AX02)
+## Native async producers
 
 The native producer, source async callables and owned SDK driver are implemented.
 Host Task scopes, shared waits and generic script spawn are implemented. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 `TaskScope.spawn<T>(fn() -> Future<T>) -> Result<Task<T>, SpawnError>` uses ordinary
 registered declaration/binding metadata and checked callable coercions, including
@@ -925,7 +925,7 @@ conversion into managed values occurs only under the owning driver. Endpoints
 retain no runtime references, frame borrows or unrooted Values. Cancellation hooks
 are bounded and invoked at most once; duplicate/stale completions are harmless.
 
-### Completion transport foundation (AX02)
+### Completion transport foundation
 
 `native::completion::CompletionRegistry` provides bounded operation reservations
 with opaque registry/slot/generation identities. Reserve before submitting external
@@ -942,7 +942,7 @@ reported as EngineFault. Exhausted generations never wrap or become reusable.
 The producer endpoint keeps only a weak reference to result storage, so retained
 late endpoints cannot keep completed payloads or reservations alive.
 
-### Registered cold producers and VM waits (AX02)
+### Registered cold producers and VM waits
 
 `ModuleBuilder::add_async_function<A, R>` declares `fn(A) -> Future<R>` using the
 catalog's unique checked `NativeStorageLayout::Future` role. `NativeStorage::future`
@@ -975,7 +975,7 @@ function returns a cold value through the ordinary entry path. Future-valued
 outputs are not implicitly flattened. Cancelling a queued owner before its first
 drive releases that owner's root without claiming the cold Future.
 
-### Shared Task waits (AX04)
+### Shared Task waits
 
 The host creates a TaskScope, admits a deferred factory with Runtime::spawn_task,
 and drives scope-owned Tasks explicitly. Awaiting a Task never drives its producer.
@@ -1002,5 +1002,5 @@ TaskReport.origin exposes detached factory identity and the script spawn site wh
 available. RuntimeError/EmbeddingError traces carry bounded logical Spawn/Await
 boundaries alongside the original failure stack. Module/function/instruction
 identity remains usable without source maps; snapshots own no roots or executable
-version leases. [Error reporting](error-reporting.md#async-terminal-reporting-ax04-ax05)
+version leases. [Error reporting](error-reporting.md#async-terminal-reporting)
 defines the ordering and truncation contract.

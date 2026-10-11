@@ -89,11 +89,11 @@ host diagnostic memory outside the script heap-unit accounting. Native backends
 publish logical instruction positions before resource checks; unsupported Result
 operations use the existing interpreter fallback.
 
-## Async terminal reporting (AX04-AX05)
+## Async terminal reporting
 
 Task reports and bounded logical spawn/await provenance are implemented. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Every admitted task reports terminal status even without an awaiter. Reports
 retain execution/task/scope identity, failure class, cancellation cause, original

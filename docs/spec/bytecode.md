@@ -933,11 +933,11 @@ Custom Iterator/Iterable methods are ordinary static calls. The existing JIT
 uses its normal interpreter fallback for unsupported iterator/control-flow bodies.
 The semantic contract is in [builtins](builtins.md#iteration-protocols).
 
-## Async execution contract (AX02-AX04)
+## Async execution contract
 
-Future factories and Future/Task await are implemented; generic script spawn remains AX04 work. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+Future factories, Future/Task await and generic script spawn are implemented. The
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Portable metadata identifies the checked Future and Task roles, native producers, factory
 and private resume-body signatures, output type and suspension capability. Await

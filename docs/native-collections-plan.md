@@ -42,7 +42,7 @@ Ordered implementations can require Ord instead.
 Scope includes collection declarations, public native storage capabilities,
 retained checked calls, collection cursors, host collection adapters, executable
 contracts and source-free validation. Migrate affected collection paths end to end.
-Generic iteration mechanisms remain shared with the Iterable plan.
+Generic iteration mechanisms follow the implemented iteration contracts.
 
 Exclude a kgr rewrite of collection algorithms, dynamic-library loading, the full
 SA21 host-registration migration, SA18/SA19 identity redesign, new language syntax,
@@ -54,8 +54,9 @@ Future, Task and TaskScope representations are not migration targets.
 ## Baseline evidence and root cause
 
 Planning baseline: `9cd90557`, after the five Iterable commits following
-`35de1818`. IA01-IA05 are implemented and locally accepted; their ledger records
-validation, while the full CI matrix remains unrun. NC01-NC06 have not started.
+`35de1818`. Iterable APIs are implemented and locally accepted; the roadmap records
+the remaining CI gap, while current contracts live in the specifications.
+NC01-NC06 have not started.
 Recheck implementation at NC01 without reopening the completed Iterable API work.
 
 | Current owner | Evidence and disposition |
@@ -268,8 +269,10 @@ new speed target or the Lua parity workstream; do not repeatedly run full benchm
 
 ## Sequencing and phases
 
-IA01-IA05 from the [Iterable plan](iterable-api-plan.md) are complete at this
-baseline; NC01-NC06 remain queued and unstarted. Implementation begins with NC01,
+The [Iterable APIs](spec/builtins.md#iteration-protocols) and
+[retained native cursors](spec/standard-declarations.md#sorting-and-lazy-iteration)
+are implemented at this baseline; NC01-NC06 remain queued and unstarted.
+Implementation begins with NC01,
 using the existing retained slots, adapters, terminal scopes and FromIterator
 implementations. Do not add another Iterable phase or make the trait surface
 depend on this storage migration. The full SA21 host-registration work remains
@@ -365,13 +368,11 @@ parallel progress/review queue.
 Planning refresh: inspected Iterable declarations/default requirements, adapter
 bindings, retained-call APIs, destination construction and source lease traversal
 at 9cd90557. The old NativeCursor/mapping path is not a migration prerequisite.
-IA's existing local acceptance remains recorded in its own ledger; it is not NC
-acceptance. Earlier test-cost measurements at 35de1818 remain historical and are
+Historical Iterable validation remains in Git; it does not establish NC acceptance.
+Earlier test-cost measurements at 35de1818 remain historical and are
 not a performance baseline for the rebased implementation.
 
-Planning validation passed: four changed documents, 155 local file links, code
-fences, six phase/ledger entries, CRLF and `git diff --check`. No builds, tests or
-benchmarks were run for this documentation-only refresh; implementation
+Documentation-only validation uses content/link/diff checks; implementation
 measurements begin at NC01.
 
 Design reference: Rust models ordinary library structs through

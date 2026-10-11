@@ -7,13 +7,10 @@ macro is involved. `kagari-stdlib` owns all 40 standard trait registrations,
 including the 26 reserved language traits. Source-free runtime installation uses
 these same declarations and local Rust bindings without a binary declaration product.
 
-This page describes current implemented behavior. CR01-CR02 established shared
-semantic ownership and explicit analysis providers. LR01 moved concrete standard
-registrations and algorithms to their own crate. LR02 connects complete generated
-modules, cached navigation and syntax-based role recognition to Engine registration.
-LR03 removes the unused trait product and independent handwritten declarations.
-The [single execution plan](../implementation-roadmap.md#crate-responsibility-migration-cr01-cr02-complete)
-owns sequencing and acceptance.
+This page describes current implemented behavior. Shared semantic declarations
+feed explicit analysis providers and runtime registration. Generated modules,
+cached navigation and checked language roles use the same library inputs.
+[Architecture](../architecture.md#unified-library-registration) defines the owners.
 
 ## Ownership and installation
 

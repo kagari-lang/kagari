@@ -10,11 +10,10 @@ An embedding host may explicitly call functions during a restricted candidate se
 
 The root call pins a dependency program. Nested calls and synchronous host reentry use that same version set and cancellation state. A later publication does not redirect existing calls. Old versions remain usable while reachable and are reclaimed after their remaining references and calls end.
 
-## Async activation draft (AX03-AX05)
+## Async activation
 
-Scheduled behavior; not yet implemented. The
-[AX00 contracts](../async-execution-design.md#concrete-implementation-contracts-ax00)
-and [execution plan](../async-execution-plan.md) define the handoff.
+The implemented [async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
 
 Cold Futures and waiting executions pin their original body, types, dependencies
 and native provider contracts across compatible publication. Candidate

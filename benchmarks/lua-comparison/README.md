@@ -27,14 +27,11 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The latest completed compact-value/interpreter report is recorded in the
-[VE09 enum result layout report](../../docs/performance-baseline.md#native-enum-result-layout-reuse-ve09-2026-10-10).
-The seven original workloads remain unchanged. VE08 local workspace integration
-and VE09 focused checks passed; the latter reduces map time to 0.489x VE08. All
-16 frozen matched nontrivial original/source-form cases still take 3.66-201.94x
-Lua time. Parity remains unmet and full GitHub CI is unrun. Historical reports
-below retain their distinct baseline scope. HP ownership and execution measurements
-and remaining architecture work are tracked in the [active plan](../../docs/interpreter-hotpath-execution-plan.md).
+The [latest retained interpreter evaluation](../../docs/performance-baseline.md#execution-architecture-evaluation-hp06-2026-10-10)
+records 16 unchanged matched workloads at 2.57-51.11x Lua time. Parity remains
+unmet; full GitHub CI acceptance was unverified. The report records environment,
+revision and measurement limits. [The roadmap](../../docs/implementation-roadmap.md#interpreter-performance-follow-up)
+owns proposed follow-up work; completed execution plans live in Git history.
 
 ## Matching and timing
 
@@ -65,16 +62,17 @@ loops. Its ratios are diagnostic, outside the frozen matched parity gate; it doe
 not claim Lua implements Kagari's entire integer/float domain or checked-overflow
 semantics.
 
-Saved VE00 binaries can be paired with either unchanged matrix as well as the
-original suite. For example:
+A baseline binary built from the selected revision can be paired with either
+unchanged matrix as well as the original suite. Replace the placeholder below
+with that binary's path; no saved binary from another machine is required:
 
 ```text
-uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/ve00/baseline-executable
+uv run python scripts/benchmark_lua.py --source-forms --baseline-executable <baseline-executable>
 ```
 
 Both binaries must contain the same selected fixtures. Results, binary/source hashes
 and process order are recorded; setup, allocation instrumentation and throughput
-runs remain separate. See the [VE00 report](../../docs/performance-baseline.md#compact-value-baseline-ve00-2026-10-09).
+runs remain separate. See the [measurement scope](../../docs/performance-baseline.md#frozen-paired-throughput).
 
 | Workload | Input | Measured script work |
 | --- | ---: | --- |
