@@ -181,7 +181,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
                 &context,
                 &BytecodeProgram {
                     root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::<DefinitionId>::default()],
+                    modules: vec![BytecodeModule::default()],
                 },
             ),
         )
@@ -193,7 +193,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
                 &context,
                 &BytecodeProgram {
                     root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::<DefinitionId>::default()],
+                    modules: vec![BytecodeModule::default()],
                 },
             ),
         )
@@ -211,7 +211,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
                     &context,
                     &BytecodeProgram {
                         root: ModuleRef::new(0),
-                        modules: vec![BytecodeModule::<DefinitionId>::default()]
+                        modules: vec![BytecodeModule::default()]
                     }
                 )
             )

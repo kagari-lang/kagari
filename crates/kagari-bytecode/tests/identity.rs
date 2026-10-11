@@ -2,8 +2,9 @@
 use bincode::{DefaultOptions, Options};
 use kagari_bytecode::{
     artifact::{
-        ArtifactBuildOptions, ArtifactFingerprint, ArtifactValidationError,
+        ArtifactBuildOptions, ArtifactFingerprint, ArtifactHeader, ArtifactValidationError,
         KBC_ARTIFACT_FORMAT_VERSION, KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_MODULES,
+        encode_program_facts,
     },
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
@@ -11,12 +12,11 @@ use kagari_bytecode::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, ModuleIdentity, PackageId,
-        map::DefinitionContext,
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
         metadata::DefinitionMetadata,
-        table::wire::{PortableDefinitionRef, PortableDefinitionTable},
     },
 };
+use std::io::Cursor;
 
 fn codec() -> impl Options {
     DefaultOptions::new()
@@ -230,6 +230,18 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         .records()
         .validate_for_loader(&Default::default(), &target)
         .unwrap();
+    assert_eq!(
+        encode_program_facts(&artifact.program, &context.snapshot(), &Default::default()).unwrap(),
+        encode_program_facts(
+            &imported.records().program,
+            imported.definitions(),
+            &Default::default()
+        )
+        .unwrap()
+    );
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert!(encode_program_facts(&artifact.program, &context.snapshot(), &cancelled).is_err());
     let foreign = imported.records().clone();
     assert!(
         foreign
@@ -252,11 +264,26 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     // Corrupt a file-local reference in a current envelope; decoding cannot turn
     // it into a trusted process identity or silently fall back to a path.
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
-    let (mut wire, definitions): (KbcArtifact<PortableDefinitionRef>, PortableDefinitionTable) =
-        codec().deserialize(&bytes).unwrap();
-    wire.program.modules[0].host_interface.paths[0].root =
-        codec().deserialize(&u32::MAX.to_le_bytes()).unwrap();
-    let forged = codec().serialize(&(wire, definitions)).unwrap();
+    // Read the identity-free prefix to locate this fixture's first Host path.
+    // Its header and module references have the real codec types; counts are
+    // asserted so a schema change cannot accidentally corrupt a different field.
+    let mut cursor = Cursor::new(&bytes);
+    let (_, _, modules, dependencies, paths): (
+        ArtifactHeader,
+        ModuleRef,
+        u64,
+        Vec<ModuleRef>,
+        u64,
+    ) = codec()
+        .allow_trailing_bytes()
+        .deserialize_from(&mut cursor)
+        .unwrap();
+    assert_eq!(modules, 1);
+    assert!(dependencies.is_empty());
+    assert_eq!(paths, 1);
+    let reference_offset = cursor.position() as usize;
+    let mut forged = bytes;
+    forged[reference_offset..reference_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(KbcArtifact::from_bytes(&forged).is_err());
 }
 

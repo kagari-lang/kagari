@@ -1,6 +1,6 @@
 use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::{interface::InterfaceCallContract, shared::SharedCall},
     effects::{EffectSet, runtime_primitive_effects},
@@ -25,23 +25,15 @@ pub struct MirValue {
     pub ty: ValueType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct AggregateFieldRef<I = DefinitionId> {
-    pub owner: NominalTy<I>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AggregateFieldRef {
+    pub owner: NominalTy<DefinitionId>,
     pub slot: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct PathRef<I = DefinitionId> {
-    pub declaration: Option<HostPathDeclaration<I>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathRef {
+    pub declaration: Option<HostPathDeclaration<DefinitionId>>,
     pub contract_fingerprint: u64,
     pub root_ty: ValueType,
     pub result_ty: ValueType,
@@ -49,16 +41,12 @@ pub struct PathRef<I = DefinitionId> {
     pub debug_name: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub enum Instruction<I = DefinitionId> {
+#[derive(Debug, Clone)]
+pub enum Instruction {
     Await {
         dst: MirValue,
         value: MirValue,
-        future: Ty<I>,
+        future: Ty<DefinitionId>,
     },
     Convert {
         dst: MirValue,
@@ -74,7 +62,7 @@ pub enum Instruction<I = DefinitionId> {
     Iter {
         dst: MirValue,
         value: Option<MirValue>,
-        ty: Ty<I>,
+        ty: Ty<DefinitionId>,
         op: IterOp,
     },
     LoadConst {
@@ -114,52 +102,47 @@ pub enum Instruction<I = DefinitionId> {
     },
     Call {
         dst: Option<MirValue>,
-        callee: CallTarget<I>,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
+        callee: CallTarget,
         args: ValueBuffer,
     },
     MakeTuple {
         dst: MirValue,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
         elements: ValueBuffer,
     },
     RangeBound {
         dst: MirValue,
         value: MirValue,
-        range: Ty<I>,
-        bound: Ty<I>,
+        range: Ty<DefinitionId>,
+        bound: Ty<DefinitionId>,
         upper: bool,
     },
     MakeRange {
         dst: MirValue,
         start: Option<MirValue>,
         end: Option<MirValue>,
-        ty: Ty<I>,
+        ty: Ty<DefinitionId>,
     },
     RepeatArray {
-        element: Ty<I>,
+        element: Ty<DefinitionId>,
         dst: MirValue,
         value: MirValue,
         count: MirValue,
     },
     MakeArray {
-        element: Ty<I>,
+        element: Ty<DefinitionId>,
         dst: MirValue,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
         elements: ValueBuffer,
     },
     /// Capture every resume parameter without entering its body.
     MakeFuture {
         dst: MirValue,
         function: InstanceId,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
         arguments: ValueBuffer,
-        future: Ty<I>,
+        future: Ty<DefinitionId>,
     },
     MakeClosure {
         dst: MirValue,
         function: InstanceId,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
         captures: ValueBuffer,
     },
     MakeCell {
@@ -177,50 +160,47 @@ pub enum Instruction<I = DefinitionId> {
     UpcastInterface {
         dst: MirValue,
         value: MirValue,
-        source: NominalTy<I>,
-        target: NominalTy<I>,
+        source: NominalTy<DefinitionId>,
+        target: NominalTy<DefinitionId>,
     },
     MakeInterface {
         dst: MirValue,
         value: MirValue,
-        implementation: I,
-        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-        arguments: Vec<Ty<I>>,
+        implementation: DefinitionId,
+        arguments: Vec<Ty<DefinitionId>>,
     },
     MakeStruct {
         dst: MirValue,
-        structure: NominalTy<I>,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
+        structure: NominalTy<DefinitionId>,
         fields: StructFieldInitBuffer,
     },
     MakeEnum {
         dst: MirValue,
-        enumeration: NominalTy<I>,
+        enumeration: NominalTy<DefinitionId>,
         variant: usize,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
         fields: ValueBuffer,
     },
     TestEnumVariant {
         dst: MirValue,
         value: MirValue,
-        enumeration: NominalTy<I>,
+        enumeration: NominalTy<DefinitionId>,
         variant: usize,
     },
     ReadEnumPayload {
         dst: MirValue,
         value: MirValue,
-        enumeration: NominalTy<I>,
+        enumeration: NominalTy<DefinitionId>,
         variant: usize,
         index: usize,
     },
     ReadAggregateField {
         dst: MirValue,
         base: MirValue,
-        field: AggregateFieldRef<I>,
+        field: AggregateFieldRef,
     },
     WriteAggregateField {
         base: MirValue,
-        field: AggregateFieldRef<I>,
+        field: AggregateFieldRef,
         value: MirValue,
     },
     ReadAggregateIndex {
@@ -236,22 +216,19 @@ pub enum Instruction<I = DefinitionId> {
     ReadPath {
         dst: MirValue,
         root_or_view: MirValue,
-        path: PathRef<I>,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
+        path: PathRef,
         dynamic_args: ValueBuffer,
     },
     SetPath {
         root_or_view: MirValue,
-        path: PathRef<I>,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
+        path: PathRef,
         dynamic_args: ValueBuffer,
         value: MirValue,
     },
     ModifyPath {
         dst: Option<MirValue>,
         root_or_view: MirValue,
-        path: PathRef<I>,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
+        path: PathRef,
         dynamic_args: ValueBuffer,
         op: BinaryOp,
         value: MirValue,
@@ -259,8 +236,7 @@ pub enum Instruction<I = DefinitionId> {
     MakePathView {
         dst: MirValue,
         root_or_view: MirValue,
-        path: PathRef<I>,
-        #[serde(deserialize_with = "crate::codec::small_operands")]
+        path: PathRef,
         dynamic_args: ValueBuffer,
     },
 }
@@ -277,21 +253,16 @@ pub enum Terminator {
     Unreachable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub enum CallTarget<I = DefinitionId> {
-    Shared(Box<SharedCall<I>>),
-    SourceFunction(Box<SourceFunctionContract<I>>),
+#[derive(Debug, Clone)]
+pub enum CallTarget {
+    Shared(Box<SharedCall<DefinitionId>>),
+    SourceFunction(Box<SourceFunctionContract>),
     Function(InstanceId),
-    InterfaceMethod(Box<InterfaceCallContract<I>>),
-    Native(Box<NativeImport<I>>),
+    InterfaceMethod(Box<InterfaceCallContract<DefinitionId>>),
+    Native(Box<NativeImport<DefinitionId>>),
     Value(MirValue),
     Closure {
         value: MirValue,
-        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
         params: Vec<ValueType>,
         return_type: ValueType,
     },
@@ -299,8 +270,8 @@ pub enum CallTarget<I = DefinitionId> {
     RuntimeHelper(RuntimeHelper),
 }
 
-impl<I: DefinitionReference> Instruction<I> {
-    pub fn path_reference(&self) -> Option<&PathRef<I>> {
+impl Instruction {
+    pub fn path_reference(&self) -> Option<&PathRef> {
         match self {
             Self::ReadPath { path, .. }
             | Self::SetPath { path, .. }
@@ -405,7 +376,7 @@ impl Terminator {
     }
 }
 
-impl<I: DefinitionReference> CallTarget<I> {
+impl CallTarget {
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::Function(_) | Self::SourceFunction(_) | Self::Value(_) | Self::Closure { .. } => {
@@ -460,23 +431,17 @@ pub struct StructFieldInit {
     pub value: MirValue,
 }
 
-pub type InstructionBuffer<I = DefinitionId> = Vec<Instruction<I>>;
+pub type InstructionBuffer = Vec<Instruction>;
 
 pub type ValueBuffer = SmallVec<[MirValue; 4]>;
 
 pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
 
 /// Unlinked declaration contract. It cannot be encoded as an executable call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct SourceFunctionContract<I = DefinitionId> {
-    pub declaration: I,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceFunctionContract {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<Ty<DefinitionId>>,
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
 }

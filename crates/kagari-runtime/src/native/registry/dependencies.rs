@@ -12,7 +12,7 @@ use kagari_types::{declaration::module::ImplDecl, language, language::Protocol, 
 /// trait record or changing an installed readonly interface into a mutable one.
 pub(super) fn validate_installed_traits(
     installed: &DeclarationCatalog,
-    module: &BytecodeModule<DefinitionId>,
+    module: &BytecodeModule,
 ) -> Result<(), RuntimeError> {
     let definitions = installed.definitions();
     for item in &module.public_items {

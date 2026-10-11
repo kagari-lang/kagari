@@ -2,7 +2,7 @@
 use crate::{module::BytecodeModule, verifier::BytecodeVerificationError};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{map::DefinitionContext, mapping::DefinitionRecord, table::DefinitionTable},
+    identity::{map::DefinitionContext, scoped::DefinitionReferences, table::DefinitionTable},
 };
 use kagari_contract::types::identity;
 
@@ -36,7 +36,7 @@ pub(crate) fn validate(
     let cancel = CancellationToken::default();
     for module in modules {
         module
-            .visit_definitions(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
+            .visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
             .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     }
     Ok(())

@@ -22,7 +22,6 @@ use kagari_common::{
         map::DefinitionContext,
         mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
-        reference::DefinitionReference,
         scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
     },
@@ -84,20 +83,54 @@ pub fn validate_program_resource_limits(
     Ok(())
 }
 
+/// Encode complete scoped program facts for exact native-input comparison.
+///
+/// Canonical bytes preserve every field and floating-point payload while excluding
+/// process-local identity numbers. This carries neither an artifact header nor
+/// executable evidence; callers must validate the supplying products separately.
+///
+/// Returns scope, count/byte-limit, cancellation or encoding errors. No semantic
+/// model instantiated with file references is exposed to the caller.
+pub fn encode_program_facts(
+    program: &BytecodeProgram,
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, ArtifactCodecError> {
+    cancel.check().map_err(|_| ArtifactCodecError {
+        message: "program encoding cancelled".into(),
+    })?;
+    if let Some(reason) = program_count_limit(program, definitions) {
+        return Err(ArtifactCodecError {
+            message: reason.into(),
+        });
+    }
+    let records =
+        wire::encode_program(program, definitions, cancel).map_err(|error| ArtifactCodecError {
+            message: error.to_string(),
+        })?;
+    let bytes = codec()
+        .serialize(&records)
+        .map_err(ArtifactCodecError::from)?;
+    cancel.check().map_err(|_| ArtifactCodecError {
+        message: "program encoding cancelled".into(),
+    })?;
+    Ok(bytes)
+}
+
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str =
     concat!("kagari-compiler/", env!("CARGO_PKG_VERSION"));
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + Serialize",
-    deserialize = "I: DefinitionReference + Deserialize<'de>"
-))]
-pub struct KbcArtifact<I = DefinitionId> {
+/// Editable artifact facts with fixed scoped identities and untrusted summaries.
+///
+/// File conversion uses the private wire records through to_bytes/from_bytes.
+/// Verification and runtime adoption must retain and validate the enclosing scope.
+#[derive(Debug, Clone)]
+pub struct KbcArtifact {
     pub header: ArtifactHeader,
-    pub program: BytecodeProgram<I>,
+    pub program: BytecodeProgram,
     pub tables: ArtifactTables,
-    pub verification: VerificationMetadata<I>,
+    pub verification: VerificationMetadata,
     pub debug: Option<DebugMetadata>,
     pub signatures: Option<ArtifactSignatures>,
     pub portable_mir: Option<PortableMir>,
@@ -774,26 +807,16 @@ pub struct ArtifactSection {
     pub fingerprint: ArtifactFingerprint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct VerificationMetadata<I = DefinitionId> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerificationMetadata {
     pub bytecode_verified: bool,
     /// Root-member summaries. Dependency metadata remains in its BytecodeModule;
     /// all members are verified before these derived summaries are accepted.
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub function_layouts: FunctionLayoutBuffer<I>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    pub function_layouts: FunctionLayoutBuffer,
     pub function_effects: FunctionEffectBuffer,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetMetadataBuffer,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub typed_path_fingerprints: PathFingerprintBuffer,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
     pub host_interface_fingerprint: ArtifactFingerprint,
     pub loader: LoaderValidationMetadata,
@@ -892,20 +915,13 @@ impl VerificationMetadata {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct FunctionLayoutMetadata<I = DefinitionId> {
-    pub semantic: SemanticSlots<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionLayoutMetadata {
+    pub semantic: SemanticSlots<DefinitionId>,
     pub function: FunctionRef,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: Vec<ValueType>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub registers: Vec<ValueType>,
     pub roots: RootSlotLayout,
 }
@@ -1142,7 +1158,7 @@ pub type SourceFileTable = Vec<String>;
 
 pub type DebugNameTable = Vec<String>;
 
-pub type FunctionLayoutBuffer<I = DefinitionId> = Vec<FunctionLayoutMetadata<I>>;
+pub type FunctionLayoutBuffer = Vec<FunctionLayoutMetadata>;
 
 pub type FunctionEffectBuffer = Vec<FunctionEffectMetadata>;
 

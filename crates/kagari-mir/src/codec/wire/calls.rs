@@ -10,10 +10,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_contract::{
@@ -38,7 +35,7 @@ impl AggregateFieldRefRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &AggregateFieldRef<DefinitionId>,
+        value: &AggregateFieldRef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -55,7 +52,7 @@ impl AggregateFieldRefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<AggregateFieldRef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<AggregateFieldRef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(AggregateFieldRef {
             owner: self.owner.decode(decoding, cancel)?,
@@ -79,7 +76,7 @@ impl PathRefRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &PathRef<DefinitionId>,
+        value: &PathRef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -108,7 +105,7 @@ impl PathRefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<PathRef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<PathRef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(PathRef {
             declaration: self
@@ -147,7 +144,7 @@ impl CallTargetRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &CallTarget<DefinitionId>,
+        value: &CallTarget,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -191,7 +188,7 @@ impl CallTargetRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<CallTarget<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<CallTarget, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
             Self::Shared(field0) => {
@@ -238,7 +235,7 @@ impl SourceFunctionContractRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &SourceFunctionContract<DefinitionId>,
+        value: &SourceFunctionContract,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -263,7 +260,7 @@ impl SourceFunctionContractRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<SourceFunctionContract<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<SourceFunctionContract, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SourceFunctionContract {
             declaration: decoding.resolve(self.declaration)?,

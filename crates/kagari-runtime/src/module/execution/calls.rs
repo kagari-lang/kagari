@@ -33,7 +33,7 @@ pub(crate) enum PreparedCallTarget {
 impl ExecutionModule {
     /// Module slots refer to the containing verified program. Activation binds
     /// them through the caller's pinned descriptor, never the latest publication.
-    pub(crate) fn prepare_calls(&mut self, slot: ModuleRef, module: &BytecodeModule<DefinitionId>) {
+    pub(crate) fn prepare_calls(&mut self, slot: ModuleRef, module: &BytecodeModule) {
         for (prepared, function) in self.functions.iter_mut().zip(&module.functions) {
             for (pc, instruction) in function.instructions.iter().enumerate() {
                 let BytecodeInstruction::Call { dst, callee, args } = instruction else {

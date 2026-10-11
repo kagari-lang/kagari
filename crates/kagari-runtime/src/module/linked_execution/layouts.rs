@@ -81,7 +81,7 @@ impl FunctionLayouts {
     pub(super) fn link(
         runtime: &Runtime,
         owner: &LoadedModule,
-        function: &BytecodeFunction<DefinitionId>,
+        function: &BytecodeFunction,
         prepared: &ExecutionFunction,
     ) -> Result<Option<Arc<Self>>, RuntimeError> {
         if !prepared.has_layout_operands {

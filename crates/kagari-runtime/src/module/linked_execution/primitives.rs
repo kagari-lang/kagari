@@ -13,13 +13,12 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, Register},
     module::BytecodeFunction,
 };
-use kagari_common::identity::table::DefinitionId;
 
 impl Runtime {
     pub(super) fn link_primitives(
         &self,
         owner: &LoadedModule,
-        function: &BytecodeFunction<DefinitionId>,
+        function: &BytecodeFunction,
         prepared: &ExecutionFunction,
     ) -> Result<Box<[Option<LinkedPrimitive>]>, RuntimeError> {
         let operations: Box<[_]> = function

@@ -7,7 +7,6 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, StructId},
     module::BytecodeModule,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 
 #[derive(Debug, Clone, Copy)]
@@ -29,9 +28,9 @@ pub(crate) struct PreparedFieldOperation {
 impl PreparedFieldOperation {
     pub(super) fn prepare(
         pc: usize,
-        instruction: &BytecodeInstruction<DefinitionId>,
+        instruction: &BytecodeInstruction,
         registers: &FrameLayout,
-        module: &BytecodeModule<DefinitionId>,
+        module: &BytecodeModule,
     ) -> Self {
         let (base, field, access) = match instruction {
             BytecodeInstruction::ReadAggregateField { dst, base, field } => (

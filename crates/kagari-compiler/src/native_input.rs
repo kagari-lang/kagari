@@ -1,13 +1,6 @@
 //! Frontend-free preparation of portable native input against validated bytecode.
-use bincode::{DefaultOptions, Options};
-use kagari_bytecode::{
-    artifact::validate_program_resource_limits,
-    program::{BytecodeProgram, verified::VerifiedBytecodeProgram},
-};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{metadata::PortableMetadata, table::wire::PortableDefinitionRef},
-};
+use kagari_bytecode::{artifact::encode_program_facts, program::verified::VerifiedBytecodeProgram};
+use kagari_common::cancellation::CancellationToken;
 use kagari_mir::{
     codec::{MirCodecError, decode_program},
     program::VerifiedMirProgram,
@@ -50,40 +43,19 @@ pub fn verify_native_input(
     check_cancel(cancel)?;
     let mir = decode_program(bytes, cancel)?;
     let lowered = lower_program_for_comparison(&mir).map_err(NativeInputError::Lowering)?;
-    validate_program_resource_limits(lowered.records(), lowered.definitions())
-        .map_err(|error| NativeInputError::Bytecode(error.to_string()))?;
-    check_cancel(cancel)?;
-    // Resource validation bounds both encodings before allocation. Comparing
-    // canonical bytes preserves floating-point payloads and covers every field,
-    // including layouts, concrete identities, imports, debug origins and budgets.
-    let expected = canonical(
-        &bytecode
-            .portable_projection(cancel)
-            .map_err(|error| conversion_error(error, cancel))?,
-    )?;
-    check_cancel(cancel)?;
-    let actual = canonical(
-        &lowered
-            .to_portable(cancel)
-            .map_err(|error| conversion_error(error, cancel))?,
-    )?;
-    check_cancel(cancel)?;
+    // Compare the complete canonical wire facts, including floating-point bits,
+    // layouts, concrete identities, imports and debug origins. The wire owner
+    // checks scope and resource bounds before returning either encoding.
+    let expected = encode_program_facts(bytecode.program(), bytecode.definitions(), cancel)
+        .map_err(|error| conversion_error(error, cancel))?;
+    let actual = encode_program_facts(lowered.records(), lowered.definitions(), cancel)
+        .map_err(|error| conversion_error(error, cancel))?;
     if actual != expected {
         return Err(NativeInputError::Mismatch);
     }
     // Exact canonical equality transfers the sealed bytecode's graph/bounds proof
     // to this lowering. The unsealed candidate is never returned or executed.
     Ok(mir)
-}
-
-fn canonical(
-    value: &PortableMetadata<BytecodeProgram<PortableDefinitionRef>>,
-) -> Result<Vec<u8>, NativeInputError> {
-    DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .serialize(value)
-        .map_err(|error| NativeInputError::Bytecode(error.to_string()))
 }
 
 fn conversion_error(error: impl ToString, cancel: &CancellationToken) -> NativeInputError {

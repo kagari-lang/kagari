@@ -96,7 +96,7 @@ impl FrameLayout {
         }
     }
 
-    pub(super) fn prepare(function: &BytecodeFunction<DefinitionId>, work: &mut usize) -> Self {
+    pub(super) fn prepare(function: &BytecodeFunction, work: &mut usize) -> Self {
         let registers = RegisterAllocation::prepare(function, work);
         let mut scalar_count = 0;
         let mut managed_count = 0;

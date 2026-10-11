@@ -967,11 +967,11 @@ fn main() -> () {
     );
 }
 
-fn assert_value_matches_temp_layout(function: &MirFunction<DefinitionId>, value: MirValue) {
+fn assert_value_matches_temp_layout(function: &MirFunction, value: MirValue) {
     assert_eq!(function.temps[value.temp.index()].ty, value.ty);
 }
 
-fn instruction_values(instruction: &Instruction<DefinitionId>) -> Vec<MirValue> {
+fn instruction_values(instruction: &Instruction) -> Vec<MirValue> {
     instruction
         .output()
         .into_iter()

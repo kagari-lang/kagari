@@ -3,118 +3,119 @@ use crate::function::{BasicBlock, MirFunction, MirModule};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for MirModule<I> {
-    type Rebind<J: DefinitionReference> = MirModule<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for MirModule {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(MirModule {
             native_targets: map_sequence(&self.native_targets, |value| {
-                (value).map_identities(mapper)
+                (value).remap_definitions(mapper)
             })?,
             interface_instances: map_sequence(&self.interface_instances, |value| {
-                (value).map_identities(mapper)
+                (value).remap_definitions(mapper)
             })?,
-            host_types: map_sequence(&self.host_types, |value| (value).map_identities(mapper))?,
+            host_types: map_sequence(&self.host_types, |value| (value).remap_definitions(mapper))?,
             dependencies: self.dependencies.clone(),
-            structures: map_sequence(&self.structures, |value| (value).map_identities(mapper))?,
-            enumerations: map_sequence(&self.enumerations, |value| (value).map_identities(mapper))?,
+            structures: map_sequence(&self.structures, |value| (value).remap_definitions(mapper))?,
+            enumerations: map_sequence(&self.enumerations, |value| {
+                (value).remap_definitions(mapper)
+            })?,
             identity: self.identity.clone(),
             source_name: self.source_name.clone(),
             module_slots: self.module_slots.clone(),
-            abi: self.abi.map_identities(mapper)?,
-            functions: map_sequence(&self.functions, |value| (value).map_identities(mapper))?,
+            abi: self.abi.remap_definitions(mapper)?,
+            functions: map_sequence(&self.functions, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for MirModule {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in &self.native_targets {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.interface_instances {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.host_types {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.structures {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.enumerations {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
-        self.abi.visit_definitions(visit, cancel)?;
+        self.abi.visit_definition_ids(visit, cancel)?;
         for value0 in &self.functions {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for MirFunction<I> {
-    type Rebind<J: DefinitionReference> = MirFunction<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for MirFunction {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(MirFunction {
-            semantic: self.semantic.map_identities(mapper)?,
+            semantic: self.semantic.remap_definitions(mapper)?,
             id: self.id,
-            instance: self.instance.map_identities(mapper)?,
+            instance: self.instance.remap_definitions(mapper)?,
             name: self.name.clone(),
             params: self.params.clone(),
             return_type: self.return_type,
             locals: self.locals.clone(),
             temps: self.temps.clone(),
-            blocks: map_sequence(&self.blocks, |value| (value).map_identities(mapper))?,
+            blocks: map_sequence(&self.blocks, |value| (value).remap_definitions(mapper))?,
             entry: self.entry,
             effects: self.effects,
             debug: self.debug.clone(),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for MirFunction {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.semantic.visit_definitions(visit, cancel)?;
-        self.instance.visit_definitions(visit, cancel)?;
+        self.semantic.visit_definition_ids(visit, cancel)?;
+        self.instance.visit_definition_ids(visit, cancel)?;
         for value0 in &self.blocks {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for BasicBlock<I> {
-    type Rebind<J: DefinitionReference> = BasicBlock<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for BasicBlock {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(BasicBlock {
-            instructions: map_sequence(&self.instructions, |value| (value).map_identities(mapper))?,
+            instructions: map_sequence(&self.instructions, |value| {
+                (value).remap_definitions(mapper)
+            })?,
             instruction_spans: self.instruction_spans.clone(),
             instruction_scopes: self.instruction_scopes.clone(),
             terminator: self.terminator.clone(),
@@ -122,15 +123,17 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BasicBlock<I> {
             terminator_scope: self.terminator_scope,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for BasicBlock {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in &self.instructions {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

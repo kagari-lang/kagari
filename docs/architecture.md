@@ -792,10 +792,14 @@ all referenced ancestors into the destination context.
 HIR records and shared semantic algorithms use fixed scoped IDs. Reference visitors
 validate retained fields and keys; ID-to-ID remappers rebuild reusable records in
 another context, rejecting collapsed keys and preserving cancellation and limits.
-Shared serializable type/executable models retain representation parameters during
-the active [Definition ID migration](definition-id-plan.md); the remaining work
-replaces those parameters with explicit codec records. Bytecode verification,
-linked executable proofs and Host contract validation use scoped records directly. Bytecode verification checks the complete input reference
+MIR, bytecode and artifact semantic models have no identity representation parameter
+or direct Serde implementation. Their scope visitors and ID-to-ID remappers are
+separate capabilities; vectors compose those capabilities without arbitrary
+representation rebinding. Shared types, declarations and callable/layout contracts
+retain legacy parameters during the active [Definition ID migration](definition-id-plan.md);
+remaining work deletes those parameters and mapping helpers. Bytecode verification,
+linked executable proofs and Host contract validation use scoped records directly.
+Bytecode verification checks the complete input reference
 prefix before collecting implicit public declaration names; interning these names
 is separate from validating their ABI. KBC decoding returns scoped unverified
 records with their table, and editable extraction retains that identity ownership
@@ -859,6 +863,11 @@ closure collection and conversion validate the supplied immutable scope before
 implicit declaration collection. Decoding returns unverified facts with their
 table; serialized summary flags grant no executable authority. Header/ABI, resource,
 content hash, graph and loader validation remain at the artifact owners.
+Native-input correspondence requests complete canonical program bytes from this
+wire owner through encode_program_facts, which checks the supplied scope, collection
+and encoded-byte bounds and cancellation. Both the sealed expected program and
+fresh MIR lowering use this same fixed conversion. Exact bytes, including floating
+payloads and debug origins, must match; fingerprints do not grant correspondence.
 
 MIR's codec owns fixed module/function/block/instruction records and composes the
 shared layout, Native callable, semantic-slot, module-ABI and Host records at their

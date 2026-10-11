@@ -1,8 +1,7 @@
 //! Operand rewriting preserves instruction policy and source evaluation order.
 use crate::instruction::{CallTarget, Instruction, MirValue, Terminator};
-use kagari_common::identity::reference::DefinitionReference;
 
-impl<I: DefinitionReference> Instruction<I> {
+impl Instruction {
     pub(crate) fn rewrite_inputs(&mut self, mut rewrite: impl FnMut(&mut MirValue)) {
         match self {
             Self::LoadConst { .. } | Self::LoadLocal { .. } | Self::LoadModule { .. } => {}

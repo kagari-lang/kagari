@@ -682,7 +682,7 @@ impl ExecutionFrame {
         Ok(())
     }
 
-    pub fn next_instruction(&mut self) -> Option<BytecodeInstruction<DefinitionId>> {
+    pub fn next_instruction(&mut self) -> Option<BytecodeInstruction> {
         let instruction = self.function()?.instructions.get(self.ip).cloned();
         if instruction.is_some() {
             self.executing = Some(self.ip);
@@ -695,7 +695,7 @@ impl ExecutionFrame {
         self.target
     }
 
-    pub fn function(&self) -> Option<&BytecodeFunction<DefinitionId>> {
+    pub fn function(&self) -> Option<&BytecodeFunction> {
         match self.target {
             CallableTarget::Script(function) => {
                 self.loaded.bytecode.functions.get(function.index())

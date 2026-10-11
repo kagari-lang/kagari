@@ -1,9 +1,8 @@
 //! Explicit register roles shared by verification and physical allocation.
 use crate::instruction::{BytecodeInstruction, CallTarget, Register};
-use kagari_common::identity::reference::DefinitionReference;
 use std::iter;
 
-impl<I: DefinitionReference> BytecodeInstruction<I> {
+impl BytecodeInstruction {
     pub fn register_inputs(&self) -> Vec<Register> {
         match self {
             BytecodeInstruction::Await { value, .. } => vec![*value],

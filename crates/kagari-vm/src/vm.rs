@@ -190,10 +190,7 @@ impl Vm {
     }
 }
 
-fn find_function_ref(
-    module: &BytecodeModule<DefinitionId>,
-    name: &str,
-) -> Result<FunctionRef, VmError> {
+fn find_function_ref(module: &BytecodeModule, name: &str) -> Result<FunctionRef, VmError> {
     let mut matches = module
         .functions
         .iter()

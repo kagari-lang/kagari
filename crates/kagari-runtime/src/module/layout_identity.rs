@@ -100,7 +100,7 @@ pub(super) struct ProgramLayouts {
 }
 
 impl ProgramLayouts {
-    pub(super) fn prepare(modules: &[Arc<BytecodeModule<DefinitionId>>]) -> Self {
+    pub(super) fn prepare(modules: &[Arc<BytecodeModule>]) -> Self {
         Self {
             structures: LayoutTable::prepare(
                 &modules
@@ -135,7 +135,7 @@ impl ProgramLayouts {
     pub(super) fn applied_structure(
         &self,
         layout: &StructLayout<DefinitionId>,
-        modules: &[Arc<BytecodeModule<DefinitionId>>],
+        modules: &[Arc<BytecodeModule>],
     ) -> Option<LayoutIdentity> {
         self.structures.applied(layout, |id| {
             &modules[id.member.index()].structures[id.index]
@@ -145,7 +145,7 @@ impl ProgramLayouts {
     pub(super) fn applied_enumeration(
         &self,
         layout: &EnumLayout<DefinitionId>,
-        modules: &[Arc<BytecodeModule<DefinitionId>>],
+        modules: &[Arc<BytecodeModule>],
     ) -> Option<LayoutIdentity> {
         self.enumerations.applied(layout, |id| {
             &modules[id.member.index()].enumerations[id.index]

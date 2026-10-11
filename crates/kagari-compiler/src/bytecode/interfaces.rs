@@ -105,7 +105,7 @@ pub(super) fn collect_interface_tables(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
     imports: &mut Vec<NativeImport<DefinitionId>>,
-) -> Result<Vec<InterfaceTableRecord<DefinitionId>>, BytecodeLoweringError> {
+) -> Result<Vec<InterfaceTableRecord>, BytecodeLoweringError> {
     let closure = program
         .map(VerifiedMirProgram::modules)
         .unwrap_or(slice::from_ref(ir));

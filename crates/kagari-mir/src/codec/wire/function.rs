@@ -15,10 +15,7 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
     span::Span,
 };
@@ -60,7 +57,7 @@ impl MirModuleRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &MirModule<DefinitionId>,
+        value: &MirModule,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -114,7 +111,7 @@ impl MirModuleRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<MirModule<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<MirModule, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(MirModule {
             native_targets: self
@@ -181,7 +178,7 @@ impl MirFunctionRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     fn encode(
-        value: &MirFunction<DefinitionId>,
+        value: &MirFunction,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -212,7 +209,7 @@ impl MirFunctionRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<MirFunction<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<MirFunction, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(MirFunction {
             semantic: self.semantic.decode(decoding, cancel)?,
@@ -253,7 +250,7 @@ impl BasicBlockRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     fn encode(
-        value: &BasicBlock<DefinitionId>,
+        value: &BasicBlock,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -278,7 +275,7 @@ impl BasicBlockRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<BasicBlock<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<BasicBlock, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(BasicBlock {
             instructions: self

@@ -3,56 +3,53 @@ use crate::artifact::{FunctionLayoutMetadata, KbcArtifact, VerificationMetadata}
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for KbcArtifact<I> {
-    type Rebind<J: DefinitionReference> = KbcArtifact<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for KbcArtifact {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(KbcArtifact {
             header: self.header.clone(),
-            program: self.program.map_identities(mapper)?,
+            program: self.program.remap_definitions(mapper)?,
             tables: self.tables.clone(),
-            verification: self.verification.map_identities(mapper)?,
+            verification: self.verification.remap_definitions(mapper)?,
             debug: self.debug.clone(),
             signatures: self.signatures.clone(),
             portable_mir: self.portable_mir.clone(),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for KbcArtifact {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.program.visit_definitions(visit, cancel)?;
-        self.verification.visit_definitions(visit, cancel)?;
+        self.program.visit_definition_ids(visit, cancel)?;
+        self.verification.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for VerificationMetadata<I> {
-    type Rebind<J: DefinitionReference> = VerificationMetadata<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for VerificationMetadata {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(VerificationMetadata {
             bytecode_verified: self.bytecode_verified,
             function_layouts: map_sequence(&self.function_layouts, |value| {
-                (value).map_identities(mapper)
+                (value).remap_definitions(mapper)
             })?,
             function_effects: self.function_effects.clone(),
             control_flow_targets: self.control_flow_targets.clone(),
@@ -63,30 +60,30 @@ impl<I: DefinitionReference> DefinitionRecord<I> for VerificationMetadata<I> {
             loader: self.loader.clone(),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for VerificationMetadata {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in &self.function_layouts {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for FunctionLayoutMetadata<I> {
-    type Rebind<J: DefinitionReference> = FunctionLayoutMetadata<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for FunctionLayoutMetadata {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FunctionLayoutMetadata {
-            semantic: self.semantic.map_identities(mapper)?,
+            semantic: self.semantic.remap_definitions(mapper)?,
             function: self.function,
             params: self.params.clone(),
             return_type: self.return_type,
@@ -95,14 +92,16 @@ impl<I: DefinitionReference> DefinitionRecord<I> for FunctionLayoutMetadata<I> {
             roots: self.roots.clone(),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for FunctionLayoutMetadata {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.semantic.visit_definitions(visit, cancel)?;
+        self.semantic.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

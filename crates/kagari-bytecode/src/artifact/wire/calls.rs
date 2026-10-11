@@ -9,10 +9,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
 use kagari_contract::{
@@ -36,7 +33,7 @@ impl FieldRefRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &FieldRef<DefinitionId>,
+        value: &FieldRef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -60,7 +57,7 @@ impl FieldRefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<FieldRef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<FieldRef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FieldRef {
             structure: self.structure,
@@ -107,7 +104,7 @@ impl CallTargetRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &CallTarget<DefinitionId>,
+        value: &CallTarget,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -161,7 +158,7 @@ impl CallTargetRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<CallTarget<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<CallTarget, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
             Self::Shared {

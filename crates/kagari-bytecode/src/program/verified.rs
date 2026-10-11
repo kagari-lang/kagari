@@ -6,12 +6,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        map::DefinitionContext,
-        metadata::{DefinitionMetadata, PortableMetadata},
-        table::wire::PortableDefinitionRef,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::{map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionTable},
 };
 
 /// Verification belongs to these exact owned bytes, never a serialized flag or hash.
@@ -32,7 +27,7 @@ use kagari_common::{
 /// ```
 #[derive(Debug, Clone)]
 pub struct VerifiedBytecodeProgram {
-    metadata: DefinitionMetadata<BytecodeProgram<DefinitionId>>,
+    metadata: DefinitionMetadata<BytecodeProgram>,
     suspensions: ProgramSuspensions,
 }
 
@@ -68,22 +63,12 @@ impl VerifiedBytecodeProgram {
         self.suspensions.get(module.index()).map(Vec::as_slice)
     }
 
-    pub fn program(&self) -> &BytecodeProgram<DefinitionId> {
+    pub fn program(&self) -> &BytecodeProgram {
         self.metadata.records()
     }
 
     pub fn definitions(&self) -> &DefinitionTable {
         self.metadata.definitions()
-    }
-
-    pub fn portable_projection(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<PortableMetadata<BytecodeProgram<PortableDefinitionRef>>, ArtifactValidationError>
-    {
-        self.metadata
-            .to_portable(cancel)
-            .map_err(ArtifactValidationError::Identity)
     }
 
     /// Copy editable records with their retained identity scope, without the seal.

@@ -7,10 +7,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_contract::types::wire::module::ConcreteFunctionIdentityRecord;
@@ -34,7 +31,7 @@ impl InterfaceTableRecordWire {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &InterfaceTableRecord<DefinitionId>,
+        value: &InterfaceTableRecord,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -72,7 +69,7 @@ impl InterfaceTableRecordWire {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceTableRecord<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InterfaceTableRecord, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceTableRecord {
             view: self
@@ -111,7 +108,7 @@ impl InterfaceParentRecordWire {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &InterfaceParentRecord<DefinitionId>,
+        value: &InterfaceParentRecord,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -133,7 +130,7 @@ impl InterfaceParentRecordWire {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceParentRecord<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InterfaceParentRecord, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceParentRecord {
             interface: self.interface.decode(decoding, cancel)?,
@@ -155,7 +152,7 @@ impl InterfaceViewRecordWire {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &InterfaceViewRecord<DefinitionId>,
+        value: &InterfaceViewRecord,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -176,7 +173,7 @@ impl InterfaceViewRecordWire {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceViewRecord<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InterfaceViewRecord, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceViewRecord {
             interface: self.interface.decode(decoding, cancel)?,
@@ -200,7 +197,7 @@ impl InterfaceResultAdapterRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &InterfaceResultAdapter<DefinitionId>,
+        value: &InterfaceResultAdapter,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -221,7 +218,7 @@ impl InterfaceResultAdapterRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceResultAdapter<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InterfaceResultAdapter, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceResultAdapter {
             method: decoding.resolve(self.method)?,
@@ -243,7 +240,7 @@ impl InterfaceMethodSlotRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &InterfaceMethodSlot<DefinitionId>,
+        value: &InterfaceMethodSlot,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -267,7 +264,7 @@ impl InterfaceMethodSlotRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceMethodSlot<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InterfaceMethodSlot, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceMethodSlot {
             method: decoding.resolve(self.method)?,

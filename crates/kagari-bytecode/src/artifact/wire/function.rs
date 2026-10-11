@@ -11,10 +11,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
 use kagari_contract::{
@@ -41,7 +38,7 @@ impl BytecodeFunctionRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &BytecodeFunction<DefinitionId>,
+        value: &BytecodeFunction,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -72,7 +69,7 @@ impl BytecodeFunctionRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<BytecodeFunction<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<BytecodeFunction, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(BytecodeFunction {
             id: self.id,
@@ -116,7 +113,7 @@ impl FunctionMetadataRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &FunctionMetadata<DefinitionId>,
+        value: &FunctionMetadata,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -140,7 +137,7 @@ impl FunctionMetadataRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<FunctionMetadata<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<FunctionMetadata, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FunctionMetadata {
             semantic: self.semantic.decode(decoding, cancel)?,
@@ -172,7 +169,7 @@ impl FunctionRecordWire {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &FunctionRecord<DefinitionId>,
+        value: &FunctionRecord,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -197,7 +194,7 @@ impl FunctionRecordWire {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<FunctionRecord<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<FunctionRecord, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FunctionRecord {
             id: self.id,

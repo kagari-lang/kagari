@@ -3,7 +3,9 @@
 use crate::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        mapping::{
+            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
+        },
         table::DefinitionId,
     },
 };
@@ -52,5 +54,29 @@ impl<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>> RemapDefinitio
         mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
     ) -> Result<Self, DefinitionMappingError> {
         self.map_identities(mapper)
+    }
+}
+
+impl<T: DefinitionReferences> DefinitionReferences for Vec<T> {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        check_cancel(cancel)?;
+        for record in self {
+            record.visit_definition_ids(visit, cancel)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: RemapDefinitions> RemapDefinitions for Vec<T> {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
+        mapper.check()?;
+        map_sequence(self, |record| record.remap_definitions(mapper))
     }
 }

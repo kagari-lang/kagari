@@ -21,10 +21,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{metadata::DefinitionMetadata, table::DefinitionId},
-};
+use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 
 impl Runtime {
     /// Keep one exact module version reachable until the last lease is dropped.
@@ -56,7 +53,7 @@ impl Runtime {
 
     fn link_native_module(
         &self,
-        module: &BytecodeModule<DefinitionId>,
+        module: &BytecodeModule,
         program: &VerifiedProgram,
     ) -> Result<LinkedHostBindings, RuntimeError> {
         self.native_entries.validate_installed_traits(module)?;

@@ -9,7 +9,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_types::host_interface::{
     path::{HostPathContract, HostPathInput, HostPathSegmentContract},
     type_declaration::PathAccess,
@@ -19,7 +19,7 @@ use kagari_types::host_interface::{
 impl HostRegistry {
     pub(crate) fn link_module(
         &self,
-        module: &BytecodeModule<DefinitionId>,
+        module: &BytecodeModule,
         types: &TypeRegistry,
         definitions: &DefinitionTable,
     ) -> Result<LinkedHostBindings, RuntimeError> {

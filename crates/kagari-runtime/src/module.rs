@@ -125,10 +125,10 @@ pub struct LoadedModule {
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
     root: ModuleRef,
-    modules: Arc<[Arc<BytecodeModule<DefinitionId>>]>,
+    modules: Arc<[Arc<BytecodeModule>]>,
     definitions: DefinitionTable,
     execution: Arc<[ExecutionModule]>,
-    version: Arc<[Arc<BytecodeModule<DefinitionId>>]>,
+    version: Arc<[Arc<BytecodeModule>]>,
     version_definitions: DefinitionTable,
     dependencies: ReloadDependencySnapshot,
 }
@@ -169,7 +169,7 @@ impl VerifiedProgram {
             ReloadDependencySnapshot::from_program(program.program(), program.definitions())
                 .expect("verified bytecode retains its bounded identity scope");
         let definitions = program.definitions().clone();
-        let modules: Arc<[Arc<BytecodeModule<DefinitionId>>]> = program
+        let modules: Arc<[Arc<BytecodeModule>]> = program
             .program()
             .modules
             .iter()
@@ -208,7 +208,7 @@ impl VerifiedProgram {
         self.root
     }
 
-    pub fn modules(&self) -> &[Arc<BytecodeModule<DefinitionId>>] {
+    pub fn modules(&self) -> &[Arc<BytecodeModule>] {
         &self.modules
     }
 
@@ -298,7 +298,7 @@ pub struct LinkedModule {
     pub id: ModuleId,
     pub name: String,
     pub epoch: ModuleEpoch,
-    pub bytecode: Arc<BytecodeModule<DefinitionId>>,
+    pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
     host_types: HashMap<DefinitionId, TypeId>,
     pub(crate) host_functions: Vec<HostFunctionId>,

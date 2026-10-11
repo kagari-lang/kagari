@@ -257,8 +257,8 @@ pub(super) fn valid(
 }
 
 fn template<'a>(
-    module: &'a BytecodeModule<DefinitionId>,
-    linked: &InterfaceTableRecord<DefinitionId>,
+    module: &'a BytecodeModule,
+    linked: &InterfaceTableRecord,
 ) -> Option<&'a InterfaceTable<DefinitionId>> {
     module.public_items.iter().find_map(|item| match item {
         PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
@@ -271,7 +271,7 @@ fn template<'a>(
 /// Locate the exact preselected table; symbolic applications use its canonical body.
 pub fn native_result_target(
     adapter: &NativeResultAdapter<DefinitionId>,
-    closure: &[&BytecodeModule<DefinitionId>],
+    closure: &[&BytecodeModule],
 ) -> Option<(ModuleRef, usize)> {
     let (owner_index, owner) = closure.iter().enumerate().find(|(_, owner)| {
         owner

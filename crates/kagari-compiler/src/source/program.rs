@@ -3,8 +3,7 @@ use crate::source::{
     lower::{MirLoweringError, instances::MirLoweringOptions},
 };
 use kagari_common::identity::{
-    ModuleIdentity,
-    mapping::{DefinitionMappingError, DefinitionRecord},
+    ModuleIdentity, mapping::DefinitionMappingError, scoped::DefinitionReferences,
     table::DefinitionId,
 };
 use kagari_contract::types::ConcreteFunctionIdentity;
@@ -154,7 +153,7 @@ pub fn lower_program_to_mir(
             // source declaration; host identities belong to the host contract table.
             let mut dependencies: BTreeSet<_> = module.dependencies.iter().cloned().collect();
             module
-                .visit_definitions(
+                .visit_definition_ids(
                     &mut |definition| {
                         if owner_of(*definition) != &module.identity
                             && source_owners.contains(owner_of(*definition))

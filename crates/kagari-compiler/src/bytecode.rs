@@ -119,7 +119,7 @@ fn lower_linked_module(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
     dependencies: Vec<ModuleRef>,
-) -> Result<BytecodeModule<DefinitionId>, BytecodeLoweringError> {
+) -> Result<BytecodeModule, BytecodeLoweringError> {
     let mut context = BytecodeLoweringContext {
         program,
         structures: &ir.structures,
@@ -292,7 +292,7 @@ impl BytecodeLoweringContext<'_> {
         )
     }
 
-    fn field_ref(&self, field: &AggregateFieldRef<DefinitionId>) -> FieldRef<DefinitionId> {
+    fn field_ref(&self, field: &AggregateFieldRef) -> FieldRef {
         FieldRef {
             structure: self.structure_id(&field.owner),
             arguments: field.owner.arguments.clone(),
@@ -300,7 +300,7 @@ impl BytecodeLoweringContext<'_> {
         }
     }
 
-    fn path_id(&mut self, path: &PathRef<DefinitionId>) -> PathId {
+    fn path_id(&mut self, path: &PathRef) -> PathId {
         if let Some(declaration) = &path.declaration
             && !self.host_interface.paths.contains(declaration)
         {
@@ -329,10 +329,10 @@ impl BytecodeLoweringContext<'_> {
 }
 
 fn lower_function(
-    function: &MirFunction<DefinitionId>,
+    function: &MirFunction,
     analysis: &FunctionAnalysis,
     context: &mut BytecodeLoweringContext,
-) -> Result<BytecodeFunction<DefinitionId>, BytecodeLoweringError> {
+) -> Result<BytecodeFunction, BytecodeLoweringError> {
     let block_offsets = compute_block_offsets(function, analysis);
     let mut instructions = Vec::with_capacity(
         function
@@ -395,9 +395,7 @@ fn lower_function(
     })
 }
 
-fn collect_function_table(
-    functions: &[BytecodeFunction<DefinitionId>],
-) -> Vec<FunctionRecord<DefinitionId>> {
+fn collect_function_table(functions: &[BytecodeFunction]) -> Vec<FunctionRecord> {
     functions
         .iter()
         .map(|function| FunctionRecord {
@@ -411,7 +409,7 @@ fn collect_function_table(
         .collect()
 }
 
-fn collect_type_table(module: &BytecodeModule<DefinitionId>) -> Vec<ValueType> {
+fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
     let mut types = Vec::new();
     for slot in &module.module_slots {
         push_type(&mut types, slot.ty);
@@ -453,9 +451,7 @@ fn push_type(types: &mut Vec<ValueType>, ty: ValueType) {
     }
 }
 
-fn collect_control_flow_targets(
-    instructions: &[BytecodeInstruction<DefinitionId>],
-) -> Vec<JumpTarget> {
+fn collect_control_flow_targets(instructions: &[BytecodeInstruction]) -> Vec<JumpTarget> {
     let mut targets = Vec::new();
     for instruction in instructions {
         match instruction {
@@ -481,7 +477,7 @@ fn push_target(targets: &mut Vec<JumpTarget>, target: JumpTarget) {
 }
 
 fn compute_block_offsets(
-    function: &MirFunction<DefinitionId>,
+    function: &MirFunction,
     analysis: &FunctionAnalysis,
 ) -> HashMap<BlockId, JumpTarget> {
     function
@@ -504,10 +500,10 @@ fn compute_block_offsets(
 }
 
 fn lower_block(
-    block: &BasicBlock<DefinitionId>,
+    block: &BasicBlock,
     block_offsets: &HashMap<BlockId, JumpTarget>,
     context: &mut BytecodeLoweringContext,
-    out: &mut Vec<BytecodeInstruction<DefinitionId>>,
+    out: &mut Vec<BytecodeInstruction>,
     spans: &mut Vec<Span>,
 ) -> Result<(), BytecodeLoweringError> {
     for (index, instruction) in block.instructions.iter().enumerate() {
@@ -530,9 +526,9 @@ fn lower_block(
 }
 
 fn lower_instruction(
-    instruction: &Instruction<DefinitionId>,
+    instruction: &Instruction,
     context: &mut BytecodeLoweringContext,
-) -> BytecodeInstruction<DefinitionId> {
+) -> BytecodeInstruction {
     match instruction {
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
             dst: lower_value(*dst),
@@ -978,7 +974,7 @@ fn lower_instruction(
 fn lower_terminator(
     terminator: &Terminator,
     block_offsets: &HashMap<BlockId, JumpTarget>,
-) -> Result<BytecodeInstruction<DefinitionId>, BytecodeLoweringError> {
+) -> Result<BytecodeInstruction, BytecodeLoweringError> {
     Ok(match terminator {
         Terminator::Return(value) => BytecodeInstruction::Return(value.map(lower_value)),
         Terminator::Jump(target) => BytecodeInstruction::Jump {

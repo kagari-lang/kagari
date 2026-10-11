@@ -1,7 +1,6 @@
 //! Native compilation consumes verified MIR and immutable ABI/link descriptions.
 pub mod diagnostic;
 use crate::diagnostic::BackendCompileError;
-use kagari_common::identity::table::DefinitionId;
 use kagari_mir::{
     analysis::FunctionAnalysis, function::MirFunction, ids::InstanceId, verify::VerifiedMirModule,
 };
@@ -35,7 +34,7 @@ impl<'a> BackendFunctionInput<'a> {
         self.module
     }
 
-    pub fn function(&self) -> &'a MirFunction<DefinitionId> {
+    pub fn function(&self) -> &'a MirFunction {
         &self.module.functions[self.function.index()]
     }
 

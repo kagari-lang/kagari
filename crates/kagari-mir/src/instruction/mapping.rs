@@ -5,51 +5,48 @@ use crate::instruction::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for AggregateFieldRef<I> {
-    type Rebind<J: DefinitionReference> = AggregateFieldRef<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for AggregateFieldRef {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AggregateFieldRef {
-            owner: self.owner.map_identities(mapper)?,
+            owner: self.owner.remap_definitions(mapper)?,
             slot: self.slot,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for AggregateFieldRef {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.owner.visit_definitions(visit, cancel)?;
+        self.owner.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for PathRef<I> {
-    type Rebind<J: DefinitionReference> = PathRef<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for PathRef {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(PathRef {
             declaration: self
                 .declaration
                 .as_ref()
-                .map(|value| (value).map_identities(mapper))
+                .map(|value| (value).remap_definitions(mapper))
                 .transpose()?,
             contract_fingerprint: self.contract_fingerprint,
             root_ty: self.root_ty,
@@ -58,27 +55,27 @@ impl<I: DefinitionReference> DefinitionRecord<I> for PathRef<I> {
             debug_name: self.debug_name.clone(),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for PathRef {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         if let Some(value0) = self.declaration.as_ref() {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
-    type Rebind<J: DefinitionReference> = Instruction<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for Instruction {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Convert {
@@ -110,17 +107,17 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 dst: *dst,
                 function: *function,
                 arguments: arguments.clone(),
-                future: future.map_identities(mapper)?,
+                future: future.remap_definitions(mapper)?,
             },
             Self::Await { dst, value, future } => Instruction::Await {
                 dst: *dst,
                 value: *value,
-                future: future.map_identities(mapper)?,
+                future: future.remap_definitions(mapper)?,
             },
             Self::Iter { dst, value, ty, op } => Instruction::Iter {
                 dst: *(dst),
                 value: *(value),
-                ty: (ty).map_identities(mapper)?,
+                ty: (ty).remap_definitions(mapper)?,
                 op: *(op),
             },
 
@@ -161,7 +158,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             },
             Self::Call { dst, callee, args } => Instruction::Call {
                 dst: *(dst),
-                callee: (callee).map_identities(mapper)?,
+                callee: (callee).remap_definitions(mapper)?,
                 args: (args).clone(),
             },
             Self::MakeTuple { dst, elements } => Instruction::MakeTuple {
@@ -177,8 +174,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => Instruction::RangeBound {
                 dst: *(dst),
                 value: *(value),
-                range: (range).map_identities(mapper)?,
-                bound: (bound).map_identities(mapper)?,
+                range: (range).remap_definitions(mapper)?,
+                bound: (bound).remap_definitions(mapper)?,
                 upper: *(upper),
             },
             Self::MakeRange {
@@ -190,7 +187,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 dst: *(dst),
                 start: *(start),
                 end: *(end),
-                ty: (ty).map_identities(mapper)?,
+                ty: (ty).remap_definitions(mapper)?,
             },
             Self::RepeatArray {
                 element,
@@ -198,7 +195,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 value,
                 count,
             } => Instruction::RepeatArray {
-                element: (element).map_identities(mapper)?,
+                element: (element).remap_definitions(mapper)?,
                 dst: *(dst),
                 value: *(value),
                 count: *(count),
@@ -208,7 +205,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 dst,
                 elements,
             } => Instruction::MakeArray {
-                element: (element).map_identities(mapper)?,
+                element: (element).remap_definitions(mapper)?,
                 dst: *(dst),
                 elements: (elements).clone(),
             },
@@ -241,8 +238,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => Instruction::UpcastInterface {
                 dst: *(dst),
                 value: *(value),
-                source: (source).map_identities(mapper)?,
-                target: (target).map_identities(mapper)?,
+                source: (source).remap_definitions(mapper)?,
+                target: (target).remap_definitions(mapper)?,
             },
             Self::MakeInterface {
                 dst,
@@ -253,7 +250,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 dst: *(dst),
                 value: *(value),
                 implementation: mapper.reference(implementation)?,
-                arguments: map_sequence(arguments, |value| (value).map_identities(mapper))?,
+                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
             },
             Self::MakeStruct {
                 dst,
@@ -261,7 +258,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 fields,
             } => Instruction::MakeStruct {
                 dst: *(dst),
-                structure: (structure).map_identities(mapper)?,
+                structure: (structure).remap_definitions(mapper)?,
                 fields: (fields).clone(),
             },
             Self::MakeEnum {
@@ -271,7 +268,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 fields,
             } => Instruction::MakeEnum {
                 dst: *(dst),
-                enumeration: (enumeration).map_identities(mapper)?,
+                enumeration: (enumeration).remap_definitions(mapper)?,
                 variant: *(variant),
                 fields: (fields).clone(),
             },
@@ -283,7 +280,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => Instruction::TestEnumVariant {
                 dst: *(dst),
                 value: *(value),
-                enumeration: (enumeration).map_identities(mapper)?,
+                enumeration: (enumeration).remap_definitions(mapper)?,
                 variant: *(variant),
             },
             Self::ReadEnumPayload {
@@ -295,18 +292,18 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => Instruction::ReadEnumPayload {
                 dst: *(dst),
                 value: *(value),
-                enumeration: (enumeration).map_identities(mapper)?,
+                enumeration: (enumeration).remap_definitions(mapper)?,
                 variant: *(variant),
                 index: *(index),
             },
             Self::ReadAggregateField { dst, base, field } => Instruction::ReadAggregateField {
                 dst: *(dst),
                 base: *(base),
-                field: (field).map_identities(mapper)?,
+                field: (field).remap_definitions(mapper)?,
             },
             Self::WriteAggregateField { base, field, value } => Instruction::WriteAggregateField {
                 base: *(base),
-                field: (field).map_identities(mapper)?,
+                field: (field).remap_definitions(mapper)?,
                 value: *(value),
             },
             Self::ReadAggregateIndex { dst, base, index } => Instruction::ReadAggregateIndex {
@@ -327,7 +324,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => Instruction::ReadPath {
                 dst: *(dst),
                 root_or_view: *(root_or_view),
-                path: (path).map_identities(mapper)?,
+                path: (path).remap_definitions(mapper)?,
                 dynamic_args: (dynamic_args).clone(),
             },
             Self::SetPath {
@@ -337,7 +334,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 value,
             } => Instruction::SetPath {
                 root_or_view: *(root_or_view),
-                path: (path).map_identities(mapper)?,
+                path: (path).remap_definitions(mapper)?,
                 dynamic_args: (dynamic_args).clone(),
                 value: *(value),
             },
@@ -351,7 +348,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => Instruction::ModifyPath {
                 dst: *(dst),
                 root_or_view: *(root_or_view),
-                path: (path).map_identities(mapper)?,
+                path: (path).remap_definitions(mapper)?,
                 dynamic_args: (dynamic_args).clone(),
                 op: *(op),
                 value: *(value),
@@ -364,15 +361,17 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => Instruction::MakePathView {
                 dst: *(dst),
                 root_or_view: *(root_or_view),
-                path: (path).map_identities(mapper)?,
+                path: (path).remap_definitions(mapper)?,
                 dynamic_args: (dynamic_args).clone(),
             },
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for Instruction {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -389,7 +388,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 rhs: _,
             } => {}
             Self::Await { future, .. } | Self::MakeFuture { future, .. } => {
-                future.visit_definitions(visit, cancel)?
+                future.visit_definition_ids(visit, cancel)?
             }
             Self::Iter {
                 dst: _,
@@ -397,7 +396,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 ty,
                 op: _,
             } => {
-                (ty).visit_definitions(visit, cancel)?;
+                (ty).visit_definition_ids(visit, cancel)?;
             }
 
             Self::LoadConst {
@@ -425,7 +424,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 callee,
                 args: _,
             } => {
-                (callee).visit_definitions(visit, cancel)?;
+                (callee).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeTuple {
                 dst: _,
@@ -438,8 +437,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 bound,
                 upper: _,
             } => {
-                (range).visit_definitions(visit, cancel)?;
-                (bound).visit_definitions(visit, cancel)?;
+                (range).visit_definition_ids(visit, cancel)?;
+                (bound).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeRange {
                 dst: _,
@@ -447,7 +446,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 end: _,
                 ty,
             } => {
-                (ty).visit_definitions(visit, cancel)?;
+                (ty).visit_definition_ids(visit, cancel)?;
             }
             Self::RepeatArray {
                 element,
@@ -455,14 +454,14 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 value: _,
                 count: _,
             } => {
-                (element).visit_definitions(visit, cancel)?;
+                (element).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeArray {
                 element,
                 dst: _,
                 elements: _,
             } => {
-                (element).visit_definitions(visit, cancel)?;
+                (element).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeClosure {
                 dst: _,
@@ -478,8 +477,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 source,
                 target,
             } => {
-                (source).visit_definitions(visit, cancel)?;
-                (target).visit_definitions(visit, cancel)?;
+                (source).visit_definition_ids(visit, cancel)?;
+                (target).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeInterface {
                 dst: _,
@@ -490,7 +489,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 check_cancel(cancel)?;
                 visit(implementation)?;
                 for value0 in arguments {
-                    (value0).visit_definitions(visit, cancel)?;
+                    (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::MakeStruct {
@@ -498,7 +497,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 structure,
                 fields: _,
             } => {
-                (structure).visit_definitions(visit, cancel)?;
+                (structure).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeEnum {
                 dst: _,
@@ -506,7 +505,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 variant: _,
                 fields: _,
             } => {
-                (enumeration).visit_definitions(visit, cancel)?;
+                (enumeration).visit_definition_ids(visit, cancel)?;
             }
             Self::TestEnumVariant {
                 dst: _,
@@ -514,7 +513,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 enumeration,
                 variant: _,
             } => {
-                (enumeration).visit_definitions(visit, cancel)?;
+                (enumeration).visit_definition_ids(visit, cancel)?;
             }
             Self::ReadEnumPayload {
                 dst: _,
@@ -523,21 +522,21 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 variant: _,
                 index: _,
             } => {
-                (enumeration).visit_definitions(visit, cancel)?;
+                (enumeration).visit_definition_ids(visit, cancel)?;
             }
             Self::ReadAggregateField {
                 dst: _,
                 base: _,
                 field,
             } => {
-                (field).visit_definitions(visit, cancel)?;
+                (field).visit_definition_ids(visit, cancel)?;
             }
             Self::WriteAggregateField {
                 base: _,
                 field,
                 value: _,
             } => {
-                (field).visit_definitions(visit, cancel)?;
+                (field).visit_definition_ids(visit, cancel)?;
             }
             Self::ReadAggregateIndex {
                 dst: _,
@@ -555,7 +554,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 path,
                 dynamic_args: _,
             } => {
-                (path).visit_definitions(visit, cancel)?;
+                (path).visit_definition_ids(visit, cancel)?;
             }
             Self::SetPath {
                 root_or_view: _,
@@ -563,7 +562,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 dynamic_args: _,
                 value: _,
             } => {
-                (path).visit_definitions(visit, cancel)?;
+                (path).visit_definition_ids(visit, cancel)?;
             }
             Self::ModifyPath {
                 dst: _,
@@ -573,7 +572,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 op: _,
                 value: _,
             } => {
-                (path).visit_definitions(visit, cancel)?;
+                (path).visit_definition_ids(visit, cancel)?;
             }
             Self::MakePathView {
                 dst: _,
@@ -581,34 +580,32 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 path,
                 dynamic_args: _,
             } => {
-                (path).visit_definitions(visit, cancel)?;
+                (path).visit_definition_ids(visit, cancel)?;
             }
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
-    type Rebind<J: DefinitionReference> = CallTarget<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for CallTarget {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Shared(field0) => {
-                CallTarget::Shared(Box::new(((field0).as_ref()).map_identities(mapper)?))
+                CallTarget::Shared(Box::new(((field0).as_ref()).remap_definitions(mapper)?))
             }
             Self::SourceFunction(field0) => {
-                CallTarget::SourceFunction(Box::new(((field0).as_ref()).map_identities(mapper)?))
+                CallTarget::SourceFunction(Box::new(((field0).as_ref()).remap_definitions(mapper)?))
             }
             Self::Function(field0) => CallTarget::Function(*(field0)),
-            Self::InterfaceMethod(field0) => {
-                CallTarget::InterfaceMethod(Box::new(((field0).as_ref()).map_identities(mapper)?))
-            }
+            Self::InterfaceMethod(field0) => CallTarget::InterfaceMethod(Box::new(
+                ((field0).as_ref()).remap_definitions(mapper)?,
+            )),
             Self::Native(field0) => {
-                CallTarget::Native(Box::new(((field0).as_ref()).map_identities(mapper)?))
+                CallTarget::Native(Box::new(((field0).as_ref()).remap_definitions(mapper)?))
             }
             Self::Value(field0) => CallTarget::Value(*(field0)),
             Self::Closure {
@@ -624,26 +621,28 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
             Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper((field0).clone()),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for CallTarget {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
             Self::Shared(field0) => {
-                ((field0).as_ref()).visit_definitions(visit, cancel)?;
+                ((field0).as_ref()).visit_definition_ids(visit, cancel)?;
             }
             Self::SourceFunction(field0) => {
-                ((field0).as_ref()).visit_definitions(visit, cancel)?;
+                ((field0).as_ref()).visit_definition_ids(visit, cancel)?;
             }
             Self::Function(_) => {}
             Self::InterfaceMethod(field0) => {
-                ((field0).as_ref()).visit_definitions(visit, cancel)?;
+                ((field0).as_ref()).visit_definition_ids(visit, cancel)?;
             }
             Self::Native(field0) => {
-                ((field0).as_ref()).visit_definitions(visit, cancel)?;
+                ((field0).as_ref()).visit_definition_ids(visit, cancel)?;
             }
             Self::Value(_) => {}
             Self::Closure {
@@ -658,31 +657,31 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for SourceFunctionContract<I> {
-    type Rebind<J: DefinitionReference> = SourceFunctionContract<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for SourceFunctionContract {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(SourceFunctionContract {
             declaration: mapper.reference(&self.declaration)?,
-            arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
+            arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
             params: self.params.clone(),
             return_type: self.return_type,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for SourceFunctionContract {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

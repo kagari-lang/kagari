@@ -8,10 +8,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_contract::{
@@ -237,7 +234,7 @@ impl InstructionRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &Instruction<DefinitionId>,
+        value: &Instruction,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -542,7 +539,7 @@ impl InstructionRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<Instruction<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<Instruction, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
             Self::Await { dst, value, future } => Instruction::Await {

@@ -7,7 +7,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
-    identity::{ModuleIdentity, reference::DefinitionReference, table::DefinitionId},
+    identity::{ModuleIdentity, table::DefinitionId},
     span::Span,
 };
 use kagari_contract::{
@@ -25,43 +25,25 @@ use kagari_types::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct BytecodeModule<I = DefinitionId> {
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+#[derive(Debug, Clone, Default)]
+pub struct BytecodeModule {
     pub dependencies: Vec<ModuleRef>,
-    pub host_interface: HostInterface<I>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub native_imports: Vec<NativeImport<I>>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub native_declarations: Vec<NativeDeclaration<I>>,
+    pub host_interface: HostInterface<DefinitionId>,
+    pub native_imports: Vec<NativeImport<DefinitionId>>,
+    pub native_declarations: Vec<NativeDeclaration<DefinitionId>>,
     pub identity: ModuleIdentity,
     pub source_name: String,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub module_slots: BytecodeModuleSlotBuffer,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub constants: ConstantPool,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub types: BytecodeTypeTable,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub structures: Vec<StructLayout<I>>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub enumerations: Vec<EnumLayout<I>>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub interface_tables: Vec<InterfaceTableRecord<I>>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    pub structures: Vec<StructLayout<DefinitionId>>,
+    pub enumerations: Vec<EnumLayout<DefinitionId>>,
+    pub interface_tables: Vec<InterfaceTableRecord>,
     pub paths: PathTable,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub function_table: FunctionTable<I>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub public_items: PublicItemTable<I>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-    pub trait_contracts: Vec<TraitContract<I>>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::functions")]
-    pub functions: BytecodeFunctionBuffer<I>,
+    pub function_table: FunctionTable,
+    pub public_items: PublicItemTable,
+    pub trait_contracts: Vec<TraitContract<DefinitionId>>,
+    pub functions: BytecodeFunctionBuffer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,55 +63,37 @@ pub struct PathRecord {
     pub debug_name: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct BytecodeFunction<I = DefinitionId> {
+#[derive(Debug, Clone, Default)]
+pub struct BytecodeFunction {
     pub id: FunctionRef,
-    pub identity: Option<ConcreteFunctionIdentity<I>>,
+    pub identity: Option<ConcreteFunctionIdentity<DefinitionId>>,
     pub name: String,
     pub parameter_count: u16,
     pub register_count: u16,
     pub local_count: u16,
-    pub metadata: FunctionMetadata<I>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
-    pub instructions: BytecodeInstructionBuffer<I>,
+    pub metadata: FunctionMetadata,
+    pub instructions: BytecodeInstructionBuffer,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct FunctionMetadata<I = DefinitionId> {
+#[derive(Debug, Clone, Default)]
+pub struct FunctionMetadata {
     /// Explicit logical charges in emission order; one entry per executable point.
-    pub semantic: SemanticSlots<I>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    pub semantic: SemanticSlots<DefinitionId>,
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub locals: TypeLayoutBuffer,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub registers: TypeLayoutBuffer,
     pub roots: RootSlotLayout,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub control_flow_targets: ControlFlowTargetBuffer,
     pub effects: EffectSet,
     pub debug: BytecodeDebugMetadata,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct FunctionRecord<I = DefinitionId> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionRecord {
     pub id: FunctionRef,
-    pub identity: Option<ConcreteFunctionIdentity<I>>,
+    pub identity: Option<ConcreteFunctionIdentity<DefinitionId>>,
     pub name: String,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub effects: EffectSet,
@@ -163,72 +127,47 @@ impl RootSlotLayout {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct InterfaceTableRecord<I = DefinitionId> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceTableRecord {
     /// Optional dynamic surface that hides a concrete associated iterator.
-    pub view: Option<InterfaceViewRecord<I>>,
+    pub view: Option<InterfaceViewRecord>,
     /// Ordered impl arguments. An empty record for a generic template retains
     /// static method instances and cannot be selected by MakeInterface.
-    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
-    pub declaration: I,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub methods: Vec<InterfaceMethodSlot<I>>,
+    pub arguments: Vec<Ty<DefinitionId>>,
+    pub declaration: DefinitionId,
+    pub methods: Vec<InterfaceMethodSlot>,
     /// Preselected ancestor tables, including their receiver argument mappings.
-    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-    pub parents: Vec<InterfaceParentRecord<I>>,
+    pub parents: Vec<InterfaceParentRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct InterfaceParentRecord<I = DefinitionId> {
-    pub interface: NominalTy<I>,
-    pub implementation: ConcreteFunctionIdentity<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceParentRecord {
+    pub interface: NominalTy<DefinitionId>,
+    pub implementation: ConcreteFunctionIdentity<DefinitionId>,
     pub view: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct InterfaceViewRecord<I = DefinitionId> {
-    pub interface: NominalTy<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceViewRecord {
+    pub interface: NominalTy<DefinitionId>,
     /// Only changed return representations have an adapter; raw slots remain exact.
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub results: Vec<InterfaceResultAdapter<I>>,
+    pub results: Vec<InterfaceResultAdapter>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct InterfaceResultAdapter<I = DefinitionId> {
-    pub method: I,
-    pub implementation: ConcreteFunctionIdentity<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceResultAdapter {
+    pub method: DefinitionId,
+    pub implementation: ConcreteFunctionIdentity<DefinitionId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct InterfaceMethodSlot<I = DefinitionId> {
-    pub method: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceMethodSlot {
+    pub method: DefinitionId,
     pub target: CallableTarget,
     /// Arguments for the target's shared entry, expressed in the table and
     /// method binder scopes. Receiver arguments are captured when boxing;
     /// method arguments are supplied by each call.
-    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
+    pub arguments: Vec<Ty<DefinitionId>>,
 }
 
 /// A checked executable entry owned by the module carrying this target.
@@ -318,9 +257,9 @@ pub struct FrameLayout {
     pub registers: TypeLayoutBuffer,
 }
 
-pub type BytecodeFunctionBuffer<I = DefinitionId> = Vec<BytecodeFunction<I>>;
+pub type BytecodeFunctionBuffer = Vec<BytecodeFunction>;
 
-pub type BytecodeInstructionBuffer<I = DefinitionId> = Vec<BytecodeInstruction<I>>;
+pub type BytecodeInstructionBuffer = Vec<BytecodeInstruction>;
 
 pub type BytecodeModuleSlotBuffer = Vec<BytecodeModuleSlot>;
 
@@ -330,11 +269,11 @@ pub type BytecodeTypeTable = Vec<ValueType>;
 
 pub type PathTable = Vec<PathRecord>;
 
-pub type FunctionTable<I = DefinitionId> = Vec<FunctionRecord<I>>;
+pub type FunctionTable = Vec<FunctionRecord>;
 
-pub type PublicItemRecord<I = DefinitionId> = PublicItem<I>;
+pub type PublicItemRecord = PublicItem<DefinitionId>;
 
-pub type PublicItemTable<I = DefinitionId> = Vec<PublicItem<I>>;
+pub type PublicItemTable = Vec<PublicItem<DefinitionId>>;
 
 pub type TypeLayoutBuffer = Vec<ValueType>;
 
@@ -349,60 +288,5 @@ pub type SafeDebugPointBuffer = Vec<SafeDebugPoint>;
 pub type LocalLiveRangeBuffer = Vec<LocalLiveRange>;
 
 pub type CapturedBindingDebugBuffer = Vec<CapturedBindingDebugInfo>;
-
-impl<I> Default for BytecodeModule<I> {
-    fn default() -> Self {
-        Self {
-            dependencies: Default::default(),
-            host_interface: Default::default(),
-            native_imports: Default::default(),
-            native_declarations: Default::default(),
-            identity: Default::default(),
-            source_name: Default::default(),
-            module_slots: Default::default(),
-            constants: Default::default(),
-            types: Default::default(),
-            structures: Default::default(),
-            enumerations: Default::default(),
-            interface_tables: Default::default(),
-            paths: Default::default(),
-            function_table: Default::default(),
-            public_items: Default::default(),
-            trait_contracts: Default::default(),
-            functions: Default::default(),
-        }
-    }
-}
-
-impl<I> Default for BytecodeFunction<I> {
-    fn default() -> Self {
-        Self {
-            id: Default::default(),
-            identity: Default::default(),
-            name: Default::default(),
-            parameter_count: Default::default(),
-            register_count: Default::default(),
-            local_count: Default::default(),
-            metadata: Default::default(),
-            instructions: Default::default(),
-        }
-    }
-}
-
-impl<I> Default for FunctionMetadata<I> {
-    fn default() -> Self {
-        Self {
-            semantic: Default::default(),
-            params: Default::default(),
-            return_type: Default::default(),
-            locals: Default::default(),
-            registers: Default::default(),
-            roots: Default::default(),
-            control_flow_targets: Default::default(),
-            effects: Default::default(),
-            debug: Default::default(),
-        }
-    }
-}
 
 mod mapping;

@@ -7,8 +7,9 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        mapping::{DefinitionMapper, DefinitionMappingError},
         metadata::DefinitionMetadata,
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionTable, DefinitionTableError},
     },
 };
@@ -53,7 +54,7 @@ impl VerifiedMirModule {
         let records = self
             .metadata
             .records()
-            .map_identities(&mut DefinitionMapper::new(&mut |id| Ok(*id), cancel))
+            .remap_definitions(&mut DefinitionMapper::new(&mut |id| Ok(*id), cancel))
             .map_err(mapping_error)?;
         DefinitionMetadata::checked(self.definitions().clone(), records, cancel)
             .map_err(mapping_error)
@@ -74,7 +75,7 @@ pub(crate) fn collect(
 ) -> Result<DefinitionTable, DefinitionMappingError> {
     let input = context.snapshot();
     for module in modules {
-        module.visit_definitions(&mut |id| Ok(input.resolve(*id).map(|_| ())?), cancel)?;
+        module.visit_definition_ids(&mut |id| Ok(input.resolve(*id).map(|_| ())?), cancel)?;
     }
     for module in modules {
         identity::collect(

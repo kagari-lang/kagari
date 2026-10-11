@@ -8,11 +8,7 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionKind,
-        metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionTable},
     span::Span,
 };
 use kagari_contract::{
@@ -45,12 +41,12 @@ mod suspension;
 /// ```
 #[derive(Debug, Clone)]
 pub struct VerifiedMirModule {
-    metadata: DefinitionMetadata<MirModule<DefinitionId>>,
+    metadata: DefinitionMetadata<MirModule>,
     analyses: Vec<FunctionAnalysis>,
 }
 
 impl Deref for VerifiedMirModule {
-    type Target = MirModule<DefinitionId>;
+    type Target = MirModule;
 
     fn deref(&self) -> &Self::Target {
         self.metadata.records()

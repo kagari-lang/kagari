@@ -78,7 +78,7 @@ impl<'a> Executor<'a> {
 
     pub(super) fn dispatch_instruction(
         &mut self,
-        instruction: &BytecodeInstruction<DefinitionId>,
+        instruction: &BytecodeInstruction,
     ) -> Result<InstructionProgress, VmError> {
         match *instruction {
             BytecodeInstruction::Unary { dst, op, operand } => {
@@ -476,7 +476,7 @@ impl<'a> Executor<'a> {
     fn dispatch_call(
         &mut self,
         dst: Option<Register>,
-        callee: &CallTarget<DefinitionId>,
+        callee: &CallTarget,
         args: &[Register],
     ) -> Result<InstructionProgress, VmError> {
         if let CallTarget::Native(import) = callee {

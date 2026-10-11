@@ -28,7 +28,6 @@ use kagari_bytecode::{
     module::BytecodeModule,
     suspension::AwaitLiveness,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::payload::{self, ScalarKernel};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -137,7 +136,7 @@ impl ExecutionModule {
     // Identity normalization preserves instruction order and physical operands,
     // so the product can be shared across runtime-local definition scopes.
     pub(super) fn prepare(
-        module: &BytecodeModule<DefinitionId>,
+        module: &BytecodeModule,
         suspensions: &[Vec<AwaitLiveness>],
         work: &mut usize,
     ) -> Self {
@@ -223,9 +222,9 @@ impl ExecutionModule {
 impl ExecutionInstruction {
     fn prepare(
         pc: usize,
-        instruction: &BytecodeInstruction<DefinitionId>,
+        instruction: &BytecodeInstruction,
         registers: &FrameLayout,
-        module: &BytecodeModule<DefinitionId>,
+        module: &BytecodeModule,
         fields: &mut Vec<PreparedFieldOperation>,
         indices: &mut Vec<PreparedIndexOperation>,
         native_calls: &mut usize,

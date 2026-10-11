@@ -83,30 +83,6 @@ pub trait DefinitionRecord<I: DefinitionReference> {
     ) -> Result<(), DefinitionMappingError>;
 }
 
-impl<I: DefinitionReference, T: DefinitionRecord<I>> DefinitionRecord<I> for Vec<T> {
-    type Rebind<J: DefinitionReference> = Vec<T::Rebind<J>>;
-
-    fn map_identities<J: DefinitionReference>(
-        &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
-        mapper.check()?;
-        map_sequence(self, |record| record.map_identities(mapper))
-    }
-
-    fn visit_definitions(
-        &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        for record in self {
-            record.visit_definitions(visit, cancel)?;
-        }
-        Ok(())
-    }
-}
-
 pub fn check_cancel(cancel: &CancellationToken) -> Result<(), DefinitionMappingError> {
     cancel
         .check()

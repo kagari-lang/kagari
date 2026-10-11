@@ -7,10 +7,7 @@ use crate::{
     verifier::BytecodeVerificationError,
 };
 use kagari_common::identity::{
-    DefinitionKind,
-    mapping::DefinitionMappingError,
-    reference::DefinitionReference,
-    table::{DefinitionId, DefinitionTable},
+    DefinitionKind, mapping::DefinitionMappingError, table::DefinitionTable,
 };
 use kagari_contract::{
     host, layout,
@@ -46,15 +43,10 @@ impl ModuleRef {
 /// Editable executable dependency records in the caller's definition context.
 /// Module and function slots are program-local; module references may form cycles.
 /// Verification produces separately owned immutable evidence and a retained table.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct BytecodeProgram<I = DefinitionId> {
+#[derive(Debug, Clone)]
+pub struct BytecodeProgram {
     pub root: ModuleRef,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::modules")]
-    pub modules: Vec<BytecodeModule<I>>,
+    pub modules: Vec<BytecodeModule>,
 }
 
 /// Check a complete executable graph against its retained identity prefix.

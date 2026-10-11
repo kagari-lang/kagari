@@ -3,48 +3,45 @@ use crate::instruction::{BytecodeInstruction, CallTarget, FieldRef};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for FieldRef<I> {
-    type Rebind<J: DefinitionReference> = FieldRef<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for FieldRef {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FieldRef {
             structure: self.structure,
-            arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
+            arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
             slot: self.slot,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for FieldRef {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in &self.arguments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
-    type Rebind<J: DefinitionReference> = CallTarget<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for CallTarget {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Shared {
@@ -54,7 +51,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
             } => CallTarget::Shared {
                 module: *(module),
                 target: *(target),
-                contract: Box::new(((contract).as_ref()).map_identities(mapper)?),
+                contract: Box::new(((contract).as_ref()).remap_definitions(mapper)?),
             },
             Self::ModuleFunction { module, function } => CallTarget::ModuleFunction {
                 module: *(module),
@@ -63,7 +60,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
             Self::Function(field0) => CallTarget::Function(*(field0)),
             Self::InterfaceMethod { module, contract } => CallTarget::InterfaceMethod {
                 module: *(module),
-                contract: Box::new(((contract).as_ref()).map_identities(mapper)?),
+                contract: Box::new(((contract).as_ref()).remap_definitions(mapper)?),
             },
             Self::Native(field0) => CallTarget::Native(*(field0)),
             Self::Register(field0) => CallTarget::Register(*(field0)),
@@ -80,10 +77,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
             Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper((field0).clone()),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for CallTarget {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -93,7 +92,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
                 target: _,
                 contract,
             } => {
-                ((contract).as_ref()).visit_definitions(visit, cancel)?;
+                ((contract).as_ref()).visit_definition_ids(visit, cancel)?;
             }
             Self::ModuleFunction {
                 module: _,
@@ -104,7 +103,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
                 module: _,
                 contract,
             } => {
-                ((contract).as_ref()).visit_definitions(visit, cancel)?;
+                ((contract).as_ref()).visit_definition_ids(visit, cancel)?;
             }
             Self::Native(_) => {}
             Self::Register(_) => {}
@@ -120,13 +119,11 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallTarget<I> {
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
-    type Rebind<J: DefinitionReference> = BytecodeInstruction<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for BytecodeInstruction {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Convert {
@@ -158,17 +155,17 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 dst: *dst,
                 function: *function,
                 arguments: arguments.clone(),
-                future: future.map_identities(mapper)?,
+                future: future.remap_definitions(mapper)?,
             },
             Self::Await { dst, value, future } => BytecodeInstruction::Await {
                 dst: *dst,
                 value: *value,
-                future: future.map_identities(mapper)?,
+                future: future.remap_definitions(mapper)?,
             },
             Self::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
                 dst: *(dst),
                 value: *(value),
-                ty: (ty).map_identities(mapper)?,
+                ty: (ty).remap_definitions(mapper)?,
                 op: *(op),
             },
 
@@ -209,7 +206,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             },
             Self::Call { dst, callee, args } => BytecodeInstruction::Call {
                 dst: *(dst),
-                callee: (callee).map_identities(mapper)?,
+                callee: (callee).remap_definitions(mapper)?,
                 args: (args).clone(),
             },
             Self::MakeTuple { dst, elements } => BytecodeInstruction::MakeTuple {
@@ -225,8 +222,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             } => BytecodeInstruction::RangeBound {
                 dst: *(dst),
                 value: *(value),
-                range: (range).map_identities(mapper)?,
-                bound: (bound).map_identities(mapper)?,
+                range: (range).remap_definitions(mapper)?,
+                bound: (bound).remap_definitions(mapper)?,
                 upper: *(upper),
             },
             Self::MakeRange {
@@ -238,7 +235,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 dst: *(dst),
                 start: *(start),
                 end: *(end),
-                ty: (ty).map_identities(mapper)?,
+                ty: (ty).remap_definitions(mapper)?,
             },
             Self::RepeatArray {
                 element,
@@ -246,7 +243,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 value,
                 count,
             } => BytecodeInstruction::RepeatArray {
-                element: (element).map_identities(mapper)?,
+                element: (element).remap_definitions(mapper)?,
                 dst: *(dst),
                 value: *(value),
                 count: *(count),
@@ -256,7 +253,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 dst,
                 elements,
             } => BytecodeInstruction::MakeArray {
-                element: (element).map_identities(mapper)?,
+                element: (element).remap_definitions(mapper)?,
                 dst: *(dst),
                 elements: (elements).clone(),
             },
@@ -289,8 +286,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             } => BytecodeInstruction::UpcastInterface {
                 dst: *(dst),
                 value: *(value),
-                source: (source).map_identities(mapper)?,
-                target: (target).map_identities(mapper)?,
+                source: (source).remap_definitions(mapper)?,
+                target: (target).remap_definitions(mapper)?,
             },
             Self::MakeInterface {
                 dst,
@@ -303,7 +300,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 value: *(value),
                 module: *(module),
                 implementation: *(implementation),
-                arguments: map_sequence(arguments, |value| (value).map_identities(mapper))?,
+                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
             },
             Self::MakeStruct {
                 dst,
@@ -313,7 +310,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             } => BytecodeInstruction::MakeStruct {
                 dst: *(dst),
                 structure: *(structure),
-                arguments: map_sequence(arguments, |value| (value).map_identities(mapper))?,
+                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
                 fields: (fields).clone(),
             },
             Self::MakeEnum {
@@ -325,7 +322,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             } => BytecodeInstruction::MakeEnum {
                 dst: *(dst),
                 enumeration: *(enumeration),
-                arguments: map_sequence(arguments, |value| (value).map_identities(mapper))?,
+                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
                 variant: *(variant),
                 fields: (fields).clone(),
             },
@@ -339,7 +336,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 dst: *(dst),
                 value: *(value),
                 enumeration: *(enumeration),
-                arguments: map_sequence(arguments, |value| (value).map_identities(mapper))?,
+                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
                 variant: *(variant),
             },
             Self::ReadEnumPayload {
@@ -353,7 +350,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 dst: *(dst),
                 value: *(value),
                 enumeration: *(enumeration),
-                arguments: map_sequence(arguments, |value| (value).map_identities(mapper))?,
+                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
                 variant: *(variant),
                 index: *(index),
             },
@@ -361,13 +358,13 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 BytecodeInstruction::ReadAggregateField {
                     dst: *(dst),
                     base: *(base),
-                    field: (field).map_identities(mapper)?,
+                    field: (field).remap_definitions(mapper)?,
                 }
             }
             Self::WriteAggregateField { base, field, value } => {
                 BytecodeInstruction::WriteAggregateField {
                     base: *(base),
-                    field: (field).map_identities(mapper)?,
+                    field: (field).remap_definitions(mapper)?,
                     value: *(value),
                 }
             }
@@ -447,10 +444,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             Self::Unreachable => BytecodeInstruction::Unreachable,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for BytecodeInstruction {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -467,7 +466,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 rhs: _,
             } => {}
             Self::Await { future, .. } | Self::MakeFuture { future, .. } => {
-                future.visit_definitions(visit, cancel)?
+                future.visit_definition_ids(visit, cancel)?
             }
             Self::Iter {
                 dst: _,
@@ -475,7 +474,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 ty,
                 op: _,
             } => {
-                (ty).visit_definitions(visit, cancel)?;
+                (ty).visit_definition_ids(visit, cancel)?;
             }
 
             Self::LoadConst {
@@ -503,7 +502,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 callee,
                 args: _,
             } => {
-                (callee).visit_definitions(visit, cancel)?;
+                (callee).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeTuple {
                 dst: _,
@@ -516,8 +515,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 bound,
                 upper: _,
             } => {
-                (range).visit_definitions(visit, cancel)?;
-                (bound).visit_definitions(visit, cancel)?;
+                (range).visit_definition_ids(visit, cancel)?;
+                (bound).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeRange {
                 dst: _,
@@ -525,7 +524,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 end: _,
                 ty,
             } => {
-                (ty).visit_definitions(visit, cancel)?;
+                (ty).visit_definition_ids(visit, cancel)?;
             }
             Self::RepeatArray {
                 element,
@@ -533,14 +532,14 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 value: _,
                 count: _,
             } => {
-                (element).visit_definitions(visit, cancel)?;
+                (element).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeArray {
                 element,
                 dst: _,
                 elements: _,
             } => {
-                (element).visit_definitions(visit, cancel)?;
+                (element).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeClosure {
                 dst: _,
@@ -556,8 +555,8 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 source,
                 target,
             } => {
-                (source).visit_definitions(visit, cancel)?;
-                (target).visit_definitions(visit, cancel)?;
+                (source).visit_definition_ids(visit, cancel)?;
+                (target).visit_definition_ids(visit, cancel)?;
             }
             Self::MakeInterface {
                 dst: _,
@@ -567,7 +566,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 arguments,
             } => {
                 for value0 in arguments {
-                    (value0).visit_definitions(visit, cancel)?;
+                    (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::MakeStruct {
@@ -577,7 +576,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 fields: _,
             } => {
                 for value0 in arguments {
-                    (value0).visit_definitions(visit, cancel)?;
+                    (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::MakeEnum {
@@ -588,7 +587,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 fields: _,
             } => {
                 for value0 in arguments {
-                    (value0).visit_definitions(visit, cancel)?;
+                    (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::TestEnumVariant {
@@ -599,7 +598,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 variant: _,
             } => {
                 for value0 in arguments {
-                    (value0).visit_definitions(visit, cancel)?;
+                    (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::ReadEnumPayload {
@@ -611,7 +610,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 index: _,
             } => {
                 for value0 in arguments {
-                    (value0).visit_definitions(visit, cancel)?;
+                    (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
             Self::ReadAggregateField {
@@ -619,14 +618,14 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 base: _,
                 field,
             } => {
-                (field).visit_definitions(visit, cancel)?;
+                (field).visit_definition_ids(visit, cancel)?;
             }
             Self::WriteAggregateField {
                 base: _,
                 field,
                 value: _,
             } => {
-                (field).visit_definitions(visit, cancel)?;
+                (field).visit_definition_ids(visit, cancel)?;
             }
             Self::ReadAggregateIndex {
                 dst: _,

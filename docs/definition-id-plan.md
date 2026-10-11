@@ -2706,3 +2706,75 @@ backend matrix, artifact regeneration or performance measurement ran. Both compl
 executable codecs now avoid representation rebinding; shared semantic model
 parameters, old generic Serde/mapping/path APIs and recorded compiler/runtime test
 fixture repairs remain SI06 work. The plan stays active and CI acceptance is unrun.
+
+
+### SI06 fixed executable models and native correspondence
+
+MIR and bytecode/artifact semantic records and their buffer aliases no longer have
+an identity representation parameter. Direct Serde derives/attributes are removed
+from identity-bearing executable records; their already established private wire
+owners retain all bounded readers. Scalar instruction values, layout slots and
+identity-free envelope/debug data retain their existing codecs. There are no
+compatibility aliases or alternative path/file-reference executable models.
+
+The executable mapping implementations now explicitly implement DefinitionReferences
+and RemapDefinitions. Every reference-bearing field is visited and ID-to-ID remapped
+with the previous cancellation/count behavior; they cannot rebind to paths or file
+references. Vec implements these fixed capabilities directly, replacing its generic
+DefinitionRecord implementation. Editable extraction, scope-prefix validation before
+implicit-name collection and explicit cross-context import use these capabilities.
+Compiler specialization/lowering, runtime, VM and codegen consumers use the fixed
+model types. Removing the generic Default bounds also permits equivalent ordinary
+Default derives for bytecode module/function metadata.
+
+The remaining production Native comparison projections are removed.
+VerifiedBytecodeProgram no longer exposes portable_projection, and compiler native
+input verification does not serialize a semantic file-reference model. The KBC
+owner's fixed encode_program_facts entrypoint bounds counts/bytes, validates the
+supplied scope and preserves cancellation before returning complete canonical bytes.
+Both the sealed expected program and fresh MIR lowering use that exact wire path.
+The compiler compares all bytes, preserving floating-point payloads, origins,
+concrete identities and imports, before returning the verified MIR seal. Moving
+this conversion removes the separate compiler serializer and repeated preparation
+of the lowered comparison program; no performance claim is made.
+
+The existing bytecode identity fixture now corrupts a file reference by decoding
+only the identity-free envelope prefix, asserting the fixture's module/dependency/
+path counts and changing the located four-byte path root. It no longer instantiates
+KbcArtifact with file references. The same case additionally checks canonical program
+facts after independent-scope adoption and rejects cancelled encoding. All prior
+identity, scope, source-free and forged-reference assertions remain.
+
+Focused local evidence:
+
+- `cargo test -p kagari-bytecode --test identity --message-format=short
+  --no-fail-fast`: all six cases pass with the migrated corruption fixture.
+- `cargo test -p kagari-runtime --test offline_host --message-format=short
+  --no-fail-fast`: all eight cases pass after fixed executable consumer migration,
+  including source-free loading and rejected reload/publication behavior.
+- Scoped library Clippy/fix checks cover common, MIR, bytecode, compiler, runtime,
+  VM, codegen and Cranelift, the directly changed executable chain. These are library
+  targets only, not package-wide test/feature sweeps. The remaining unused bytecode
+  trait import is removed; the final `cargo clippy -p kagari-bytecode --lib --test
+  identity --message-format=short -- -D warnings` passes. Earlier failed scoped
+  builds identified two leftover MIR generic annotations/visitor calls and a
+  Cancelled-to-string assumption; all are repaired before behavioral validation.
+- Reused temporary probes now call encode_program_facts instead of the removed
+  executable projections. The source-free I32/42 scenario confirms MIR/bytecode
+  scope retention, canonical correspondence, foreign/later-ID rejection, explicit
+  adoption, seal invalidation on malformed edits, cancellation and rejection when
+  a different bytecode constant is supplied as Native input. The source scenarios
+  confirm captured-closure snapshot retention, source release before decoding,
+  canonical re-encoding/lowering and enum Hash identity under independent
+  compilation/variant reordering. Both probes pass against the rebuilt libraries.
+
+Manual review confirms every mapping field, scalar-copy behavior, imports,
+verification ownership, fixed-ID signatures, private wire records and canonical
+comparison. Structure checks 1086 Rust files with zero violations/exceptions;
+formatting and diff checks pass. Shared type/declaration/Host/contract parameters,
+their generic Serde/mapping implementations, DefinitionReference and obsolete
+metadata path/wire projection APIs still require deletion. Compiler/runtime
+library-test fixture failures remain open; the old canonical test fixtures also
+still reference removed executable projections and must migrate with their owning
+SI06 test cleanup. No unchanged failing library-test target was rerun or counted as
+passing. Full backend/feature acceptance remains CI work; the goal is not complete.

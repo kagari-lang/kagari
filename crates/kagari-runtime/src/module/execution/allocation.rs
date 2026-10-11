@@ -2,7 +2,6 @@
 //! semantic type inference. Canonical register identities remain unchanged for
 //! contracts, native boundaries and debugging. Locals have separate fixed slots.
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeFunction};
-use kagari_common::identity::table::DefinitionId;
 use std::collections::BTreeSet;
 
 const MAX_WORK: usize = 4_000_000;
@@ -26,7 +25,7 @@ struct Block {
 }
 
 impl RegisterAllocation {
-    pub(super) fn prepare(function: &BytecodeFunction<DefinitionId>, work: &mut usize) -> Self {
+    pub(super) fn prepare(function: &BytecodeFunction, work: &mut usize) -> Self {
         Self::allocate(function, work).unwrap_or_else(|| {
             // Bounded preparation may decline allocation without changing code
             // semantics or accepting unchecked data. This is not an old format.
@@ -42,7 +41,7 @@ impl RegisterAllocation {
         self.slots.get(logical).copied()
     }
 
-    fn allocate(function: &BytecodeFunction<DefinitionId>, work: &mut usize) -> Option<Self> {
+    fn allocate(function: &BytecodeFunction, work: &mut usize) -> Option<Self> {
         let code = &function.instructions;
         let count = usize::from(function.register_count);
         let words = count.div_ceil(64);

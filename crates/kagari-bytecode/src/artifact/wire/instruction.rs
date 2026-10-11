@@ -11,10 +11,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
 use kagari_contract::{
@@ -260,7 +257,7 @@ impl BytecodeInstructionRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &BytecodeInstruction<DefinitionId>,
+        value: &BytecodeInstruction,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -615,7 +612,7 @@ impl BytecodeInstructionRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<BytecodeInstruction<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<BytecodeInstruction, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
             Self::Await { dst, value, future } => BytecodeInstruction::Await {

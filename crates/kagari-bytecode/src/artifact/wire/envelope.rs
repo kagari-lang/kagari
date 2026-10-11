@@ -15,10 +15,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
 use kagari_contract::{ids::FunctionRef, slots::wire::SemanticSlotsRecord};
@@ -40,7 +37,7 @@ impl KbcArtifactRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &KbcArtifact<DefinitionId>,
+        value: &KbcArtifact,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -66,7 +63,7 @@ impl KbcArtifactRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<KbcArtifact<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<KbcArtifact, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(KbcArtifact {
             header: self.header,
@@ -104,7 +101,7 @@ impl VerificationMetadataRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &VerificationMetadata<DefinitionId>,
+        value: &VerificationMetadata,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -132,7 +129,7 @@ impl VerificationMetadataRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<VerificationMetadata<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<VerificationMetadata, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(VerificationMetadata {
             bytecode_verified: self.bytecode_verified,
@@ -171,7 +168,7 @@ impl FunctionLayoutMetadataRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &FunctionLayoutMetadata<DefinitionId>,
+        value: &FunctionLayoutMetadata,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -193,7 +190,7 @@ impl FunctionLayoutMetadataRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<FunctionLayoutMetadata<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<FunctionLayoutMetadata, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FunctionLayoutMetadata {
             semantic: self.semantic.decode(decoding, cancel)?,

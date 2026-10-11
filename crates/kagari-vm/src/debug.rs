@@ -2,7 +2,6 @@ use kagari_bytecode::{
     instruction::LocalSlot,
     module::{BytecodeFunction, CallableTarget, SafeDebugPoint},
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
 use kagari_contract::ids::{DebugPointId, FunctionRef};
 use kagari_runtime::{
@@ -521,7 +520,7 @@ impl DebugSession {
 }
 
 fn breakpoint_matches(
-    function: &BytecodeFunction<DefinitionId>,
+    function: &BytecodeFunction,
     breakpoint: &SourceBreakpoint,
     point: &SafeDebugPoint,
 ) -> bool {
@@ -544,7 +543,7 @@ fn breakpoint_matches(
 }
 
 fn safe_debug_point(
-    function: &BytecodeFunction<DefinitionId>,
+    function: &BytecodeFunction,
     instruction_offset: usize,
 ) -> Option<&SafeDebugPoint> {
     function
@@ -555,7 +554,7 @@ fn safe_debug_point(
         .find(|point| point.instruction_offset == instruction_offset)
 }
 
-fn source_span_for(function: &BytecodeFunction<DefinitionId>, instruction_offset: usize) -> Span {
+fn source_span_for(function: &BytecodeFunction, instruction_offset: usize) -> Span {
     function
         .metadata
         .debug

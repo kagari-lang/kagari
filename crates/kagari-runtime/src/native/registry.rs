@@ -117,10 +117,7 @@ impl Default for NativeRegistry {
 }
 
 impl NativeRegistry {
-    pub(crate) fn validate_installed_traits(
-        &self,
-        module: &BytecodeModule<DefinitionId>,
-    ) -> NativeResult<()> {
+    pub(crate) fn validate_installed_traits(&self, module: &BytecodeModule) -> NativeResult<()> {
         dependencies::validate_installed_traits(&self.catalog, module)
     }
 

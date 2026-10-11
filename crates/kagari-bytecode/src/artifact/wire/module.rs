@@ -14,10 +14,7 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
 use kagari_contract::{
@@ -42,7 +39,7 @@ impl BytecodeProgramRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &BytecodeProgram<DefinitionId>,
+        value: &BytecodeProgram,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -63,7 +60,7 @@ impl BytecodeProgramRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<BytecodeProgram<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<BytecodeProgram, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(BytecodeProgram {
             root: self.root,
@@ -116,7 +113,7 @@ impl BytecodeModuleRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(in crate::artifact) fn encode(
-        value: &BytecodeModule<DefinitionId>,
+        value: &BytecodeModule,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -184,7 +181,7 @@ impl BytecodeModuleRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<BytecodeModule<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<BytecodeModule, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(BytecodeModule {
             dependencies: self.dependencies,

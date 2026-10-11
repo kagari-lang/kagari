@@ -6,7 +6,6 @@ use crate::{
         read_register, write_register,
     },
 };
-use kagari_common::identity::table::DefinitionId;
 
 use cranelift_codegen::{
     Context,
@@ -259,7 +258,7 @@ fn safepoint(instruction_offset: usize) -> ExecutableSafepoint {
     }
 }
 
-fn check_subset(function: &MirFunction<DefinitionId>) -> Result<(), BackendCompileError> {
+fn check_subset(function: &MirFunction) -> Result<(), BackendCompileError> {
     if function.effects.may_suspend {
         return Err(BackendCompileError::unsupported(
             "Cranelift cannot execute resume bodies",
