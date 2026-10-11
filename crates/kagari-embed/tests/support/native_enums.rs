@@ -12,17 +12,17 @@ use kagari_runtime::{
 };
 
 pub fn module() -> NativeResult<NativeModule> {
-    let mut module = ModuleBuilder::new("external::enums", &DeclarationCatalog::default());
-    let mut event = module.define_enum("Event");
+    let mut module = ModuleBuilder::new("external::enums", &DeclarationCatalog::default())?;
+    let mut event = module.define_enum("Event")?;
     event.documentation("A native-authored managed enum.");
     let item = event.type_parameter("T")?;
     let data = event.variant("Data", [item.ty(), Type::i32()])?;
     let closed = event.variant("Closed", [])?;
     let event = event.finish()?;
-    let mut other = module.define_enum("Other");
+    let mut other = module.define_enum("Other")?;
     let foreign = other.variant("Data", [Type::i32()])?;
     other.finish()?;
-    module.define_enum("Empty").finish()?;
+    module.define_enum("Empty")?.finish()?;
 
     for name in [
         "make",
@@ -34,9 +34,9 @@ pub fn module() -> NativeResult<NativeModule> {
         let function = module.define_function(FunctionDecl::new(name))?;
         module.function(&function, |function| {
             let item = function.type_parameter("T")?.ty();
-            function.parameter("value", item.clone());
-            function.parameter("sequence", Type::i32());
-            function.returns(event.apply([item])?);
+            function.parameter("value", item.clone())?;
+            function.parameter("sequence", Type::i32())?;
+            function.returns(event.apply([item])?)?;
             Ok(())
         })?;
         let data = data.clone();
@@ -45,7 +45,7 @@ pub fn module() -> NativeResult<NativeModule> {
         module.bind_with(
             function,
             NativeBinding::new(
-                [Codec::Value, Codec::Scalar(Type::i32().abi().clone())],
+                [Codec::Value, Codec::Exact(Type::i32())],
                 event.codec(),
                 move |call| {
                     let applied = call.result_type_argument()?;
@@ -72,14 +72,14 @@ pub fn module() -> NativeResult<NativeModule> {
         module.function(&function, |function| {
             let item = function.type_parameter("T")?.ty();
             let applied = event.apply([item])?;
-            function.parameter("event", applied.clone());
+            function.parameter("event", applied.clone())?;
             function.returns(if name == "roundtrip" {
                 applied
             } else if name == "is_data" {
                 Type::bool()
             } else {
                 Type::i32()
-            });
+            })?;
             Ok(())
         })?;
         let data = data.clone();
@@ -90,7 +90,7 @@ pub fn module() -> NativeResult<NativeModule> {
                 call.collect_garbage()?;
                 match name {
                     "is_data" => call.enum_argument_is(0, &data).map(Value::Bool),
-                    "roundtrip" => Ok(call.argument(0)?),
+                    "roundtrip" => call.argument(0),
                     "wrong_variant" => call.enum_argument_field(0, &closed, 0),
                     "wrong_field" => call.enum_argument_field(0, &data, 2),
                     _ => call.enum_argument_field(0, &data, 1),

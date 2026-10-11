@@ -1,4 +1,10 @@
 use kagari_bytecode::program::verify_program;
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+    metadata::DefinitionMetadata,
+};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -6,21 +12,25 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
-use kagari_runtime::value::Value;
-use kagari_source::source::SourceFile;
+use kagari_runtime::{Runtime, native::module::NativeModule, value::Value};
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_types::ty::Ty;
 use kagari_vm::vm::Vm;
 
-fn compile(source: &str) -> Result<BytecodeArtifact, EmbeddingError> {
+fn compile(source: &str) -> Result<DefinitionMetadata<BytecodeArtifact>, EmbeddingError> {
     KagariEngine::default().compile_to_artifact(
         SourceFile::new("inheritance.kgr", source),
         ArtifactOptions::default(),
     )
 }
 
-fn execute(artifact: BytecodeArtifact) {
+fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -38,7 +48,7 @@ fn execute(artifact: BytecodeArtifact) {
                 .unwrap();
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &program,
@@ -80,10 +90,6 @@ fn main() -> i32 { val x: Child = Number { value: 14 }; generic(Number { value: 
 
 #[test]
 fn imported_child_bounds_keep_hidden_parent_declarations_and_projections() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = KagariEngine::default();
     let mut root = None;
     for (name, source) in [
@@ -145,7 +151,10 @@ fn main() -> i32 { read(Number { value: 20 }) + direct(Number { value: 22 }) }
     let context = ExecutionContext::default();
     for encoded in [false, true] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -202,7 +211,9 @@ fn main() -> i32 {
 }
 "#;
     let artifact = compile(source).unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = KagariEngine::default().runtime(context.clone());
     let program_program =
@@ -254,10 +265,9 @@ fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
 
 #[test]
 fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected() {
-    use kagari_contract::types::PublicItem;
     let artifact = compile("pub trait Parent {} pub trait Child: Parent {} struct S {} impl Parent for S {} impl Child for S {} fn main() {}").unwrap();
     for cycle in [true, false] {
-        let mut program = artifact.program.clone();
+        let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];
         if cycle {
             let parent = module
@@ -278,9 +288,9 @@ fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected()
             };
             ty.supertraits.push(parent);
         } else {
-            module.public_items.retain(|item| !matches!(item, PublicItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_types::ty::Ty::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
+            module.public_items.retain(|item| !matches!(item, PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(ty) if artifact.definitions().resolve(ty.declaration).unwrap().last().unwrap().name == "Parent")));
         }
-        assert!(verify_program(&program).is_err());
+        assert!(verify_program(&program, artifact.definitions()).is_err());
     }
 }
 
@@ -298,17 +308,16 @@ fn main() -> i32 { boxed().read() }
 "#;
     let artifact = compile(source).unwrap();
     let mut vm = Vm::new({
-        let mut registered = kagari_runtime::Runtime::default();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut registered,
-        )
-        .unwrap();
+        let mut registered = Runtime::default();
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut registered).unwrap();
         registered
     });
+    let (definitions, artifact) = artifact.into_parts();
+    let program =
+        DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap();
     let loaded = vm
         .runtime_mut()
-        .load_program("inheritance", artifact.program)
+        .load_program("inheritance", program)
         .unwrap();
     let value = vm
         .execute(&loaded, "boxed")
@@ -317,7 +326,6 @@ fn main() -> i32 { boxed().read() }
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(value).unwrap();
-    use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
     let method = DefinitionPath {
         module: loaded.bytecode.identity.clone(),
         path: vec![
@@ -333,6 +341,7 @@ fn main() -> i32 { boxed().read() }
             },
         ],
     };
+    let method = loaded.definitions().lookup(&method).unwrap();
     let resolved = vm
         .runtime()
         .resolve_interface_method(&value, &method)
@@ -373,12 +382,8 @@ fn main() -> i32 { boxed().read() }
         "Read"
     );
     let foreign = {
-        let mut registered = kagari_runtime::Runtime::default();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut registered,
-        )
-        .unwrap();
+        let mut registered = Runtime::default();
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut registered).unwrap();
         registered
     };
     assert!(foreign.resolve_interface_method(&value, &method).is_err());

@@ -3703,3 +3703,39 @@ SI06 owns their migration and selected execution checks. The shared provider als
 requires the final standalone-consumer audit. No package-wide tests were executed.
 Lasting documentation transfer, final dependent/fixture audit and plan retirement
 remain required. Exhaustive workspace/features/backend acceptance remains CI scope.
+
+### SI06 trait, iteration and managed-enum executable consumers
+
+The shared execution fixture accepts scoped artifacts and retains their tables
+through direct preparation and wire decoding. Associated-type and iterator negative
+fixtures import into a writer before rebuilding forged artifacts; verification uses
+the same scope. Inheritance queries resolve one explicit path in the loaded table,
+preserving old interface values across reload. Native enum registration propagates
+fallible type construction and uses exact scalar codecs.
+
+Focused local evidence:
+
+- Eleven cases pass across five targets with `cargo test -p kagari-embed
+  --test native_enums --test cranelift_preparation --test associated_types
+  --test trait_inheritance --test iteration_traits --no-fail-fast
+  --message-format=short -- <selected filters>`: both native enum contracts;
+  source_and_encoded_mir and real_native_entries; tampered_associated_schemas,
+  malformed_generic_interface and imported_generic_interfaces;
+  artifact_inheritance_cycles and rooted_child_and_parent_views;
+  malformed_native_iter and native_iterators_validate.
+- This selection covers actual Native execution after backend/program drop,
+  safepoints and reload, source-free managed enum payload tracing, forged schemas,
+  generic imported interfaces, iterator revision/GC/failure cleanup and old-version
+  interface dispatch. Other cases in these targets remain CI scope.
+- Clippy passes for those five targets with `--message-format=short -- -D warnings`.
+  Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Reviewed scope ownership, mutation/reverification, exact scalar
+  codecs, normal imports and unchanged assertions.
+
+The preceding 363-diagnostic baseline is reduced by these consumer repairs; it is
+not a new package-wide success claim. Shared execution also has default_methods,
+syntax_examples, collection_access, conversion_traits, instantiation, standard_traits
+and collection_interfaces consumers; their remaining old artifact APIs need SI06
+integration. Shared enum/provider fixtures also feed artifact_features and its
+standalone loader. Offline Host, async and other known consumers remain assigned to
+SI06; final documentation transfer and plan retirement are still pending.

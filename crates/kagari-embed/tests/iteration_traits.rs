@@ -1,13 +1,27 @@
 mod support;
-use kagari_bytecode::program::verify_program;
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, CallTarget},
+    program::verify_program,
+};
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::map::DefinitionContext;
+use kagari_contract::operations::IterOp;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::{session::ExecutionOptions, value::Value};
+use kagari_runtime::{
+    native::conversion::context::ConversionContext, session::ExecutionOptions, value::Value,
+};
 use kagari_source::source::SourceFile;
+use kagari_types::{
+    language::binding::option_declaration,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
+};
 
 #[test]
 fn lazy_adapters_do_not_prefetch_or_fuse_resumable_sources() {
@@ -98,7 +112,10 @@ fn execute(source: &str) {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -118,7 +135,7 @@ fn execute(source: &str) {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let result = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -213,10 +230,6 @@ fn main()->i32 {val a=Vec::from([20]);val b=head(a);a.push(22);b+a[1]}
 
 #[test]
 fn native_iterators_validate_revisions_and_survive_gc_and_failure() {
-    use {
-        kagari_contract::operations::IterOp,
-        kagari_types::{scalar::BuiltinType, ty::Ty},
-    };
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -235,7 +248,9 @@ fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
             Default::default(),
         )
         .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -255,21 +270,20 @@ fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         assert_eq!(runtime.runtime().gc().active_roots(), 0, "{entry}");
     }
     let rt = runtime.runtime();
-    let root = kagari_runtime::native::conversion::context::ConversionContext::new(rt, &loaded)
+    let root = ConversionContext::new(rt, &loaded)
         .unwrap()
         .encode(vec![20i32, 22])
         .unwrap();
     let Value::GcHandle(array) = root.value(rt.gc()).unwrap() else {
         panic!("Vec")
     };
-    let vector_type =
-        kagari_runtime::native::conversion::context::ConversionContext::new(rt, &loaded)
-            .unwrap()
-            .type_for::<Vec<i32>>()
-            .unwrap();
+    let vector_type = ConversionContext::new(rt, &loaded)
+        .unwrap()
+        .type_for::<Vec<i32>>()
+        .unwrap();
     let item = Ty::Builtin(BuiltinType::I32);
     let ty = Ty::Iter(Box::new(item.clone()));
-    let cancellation = kagari_common::cancellation::CancellationToken::default();
+    let cancellation = CancellationToken::default();
     let options = ExecutionOptions {
         cancellation: cancellation.clone(),
         ..Default::default()
@@ -457,8 +471,6 @@ fn main()->i32 {
 
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
-    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -468,20 +480,23 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             Default::default(),
         )
         .unwrap();
-    let root = artifact.program.root.index();
-    let import = artifact.program.modules[root]
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact.import_into(&context, &Default::default()).unwrap();
+    let root = artifact.records().program.root.index();
+    let import = artifact.records().program.modules[root]
         .native_imports
         .iter()
         .position(|import| {
-            import
-                .binding
-                .path
+            artifact
+                .definitions()
+                .resolve(import.binding)
+                .unwrap()
                 .last()
                 .is_some_and(|part| part.name == "$foundation_array_iter")
         })
         .unwrap();
     for corrupt in 0..3 {
-        let mut program = artifact.program.clone();
+        let mut program = artifact.records().program.clone();
         match corrupt {
             0 => {
                 program.modules[root].native_imports[import]
@@ -507,15 +522,18 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             _ => {
                 program.modules[root].native_imports[import]
                     .signature
-                    .params[0] = Ty::Array(Box::new(Ty::Enum(kagari_types::ty::NominalTy {
-                    declaration: kagari_types::language::binding::option_declaration(),
+                    .params[0] = Ty::Array(Box::new(Ty::Enum(NominalTy {
+                    declaration: artifact
+                        .definitions()
+                        .lookup(&option_declaration())
+                        .unwrap(),
                     arguments: vec![],
                     associated_types: Default::default(),
                 })))
             }
         }
-        assert!(verify_program(&program).is_err());
-        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+        assert!(verify_program(&program, artifact.definitions()).is_err());
+        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
     }
 }
 

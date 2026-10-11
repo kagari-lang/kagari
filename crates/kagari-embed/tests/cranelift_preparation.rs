@@ -21,7 +21,10 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         .unwrap();
     for encoded in [false, true] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -81,7 +84,10 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
         let artifact = engine
             .compile_to_artifact(SourceFile::new("fallback.kgr", source), options)
             .unwrap();
-        let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let artifact = BytecodeArtifact::from_bytes(
+            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
+        .unwrap();
         let program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
@@ -134,7 +140,10 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             )
             .unwrap();
         PreparedProgram::from_artifact(
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap(),
             &Default::default(),
             &Default::default(),
         )

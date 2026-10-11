@@ -1,4 +1,5 @@
 #![cfg(feature = "source")]
+use kagari_common::identity::metadata::DefinitionMetadata;
 #[path = "support/native_enums.rs"]
 mod provider;
 use kagari_embed::{
@@ -18,7 +19,7 @@ fn engine() -> KagariEngine {
     builder.build().unwrap()
 }
 
-fn artifact(engine: &KagariEngine, body: &str) -> BytecodeArtifact {
+fn artifact(engine: &KagariEngine, body: &str) -> DefinitionMetadata<BytecodeArtifact> {
     engine
         .compile_to_artifact(
             SourceFile::new(
@@ -41,7 +42,10 @@ fn native_registered_enums_execute_from_serialized_artifacts_with_traced_payload
         "fn main() -> i32 { val nested = enums::make(enums::make([38], 2), 2); match enums::roundtrip(nested) { enums::Event::Data(inner, outer) => match inner { enums::Event::Data(value, sequence) => value[0usize] + sequence + outer, enums::Event::Closed => 0 }, enums::Event::Closed => 0 } }",
     ] {
         let original = artifact(&compiler, body);
-        let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
+        let decoded = BytecodeArtifact::from_bytes(
+            &original.records().to_bytes(original.definitions()).unwrap(),
+        )
+        .unwrap();
         let program =
             PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
                 .unwrap();

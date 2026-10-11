@@ -4,11 +4,19 @@ mod execution;
 use execution::Route;
 
 use kagari_bytecode::program::verify_program;
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_types::{
+    scalar::BuiltinType,
+    surface::StandardTypeConstraint,
+    ty::{Constraint, Ty},
+};
 
-fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
+fn execute_artifact(engine: &KagariEngine, artifact: DefinitionMetadata<BytecodeArtifact>) {
     execution::assert_returns_i32(
         engine,
         artifact,
@@ -200,17 +208,12 @@ fn trait_inputs_and_associated_outputs_remain_distinct() {
 
 #[test]
 fn tampered_associated_schemas_and_bounds_are_rejected() {
-    use {
-        kagari_contract::types::PublicItem,
-        kagari_types::{
-            surface::StandardTypeConstraint,
-            ty::{Constraint, Ty},
-        },
-    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "use std::hash::{Hash};\npub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact.import_into(&context, &Default::default()).unwrap();
     for mutation in 0..3 {
-        let mut program = artifact.program.clone();
+        let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];
         for item in &mut module.public_items {
             match item {
@@ -221,7 +224,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
                     match mutation {
                         0 => {
                             *instance.associated_types.values_mut().next().unwrap() =
-                                Ty::Builtin(kagari_types::scalar::BuiltinType::F32);
+                                Ty::Builtin(BuiltinType::F32);
                         }
                         1 => {
                             instance.associated_types.clear();
@@ -239,10 +242,10 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
             }
         }
         assert!(
-            verify_program(&program).is_err(),
+            verify_program(&program, artifact.definitions()).is_err(),
             "accepted mutation {mutation}"
         );
-        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
     }
 }
 
@@ -270,7 +273,8 @@ fn generic_implementation_interface_tables_specialize_and_deduplicate() {
             Default::default(),
         )
         .unwrap();
-    let tables = &artifact.program.modules[artifact.program.root.index()].interface_tables;
+    let tables = &artifact.records().program.modules[artifact.records().program.root.index()]
+        .interface_tables;
     assert_eq!(
         tables
             .iter()
@@ -327,10 +331,9 @@ fn generic_interface_conversion_checks_implementation_bounds() {
 
 #[test]
 fn interface_instance_bounds_are_checked_without_method_slots() {
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "use std::hash::{Hash};\ntrait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"),  Default::default()).unwrap();
-    let mut program = artifact.program.clone();
+    let mut program = artifact.records().program.clone();
     let table = program.modules[program.root.index()]
         .interface_tables
         .iter_mut()
@@ -338,7 +341,7 @@ fn interface_instance_bounds_are_checked_without_method_slots() {
         .unwrap();
     assert!(table.methods.is_empty());
     table.arguments[0] = Ty::Builtin(BuiltinType::F32);
-    assert!(verify_program(&program).is_err());
+    assert!(verify_program(&program, artifact.definitions()).is_err());
     execute_artifact(&engine, artifact);
 }
 
@@ -378,6 +381,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let model = artifact
+        .records()
         .program
         .modules
         .iter()
@@ -395,11 +399,12 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
 
 #[test]
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "use std::hash::{Hash};\ntrait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact.import_into(&context, &Default::default()).unwrap();
     for mutation in 0..6 {
-        let mut program = artifact.program.clone();
+        let mut program = artifact.records().program.clone();
         let tables = &mut program.modules[program.root.index()].interface_tables;
         let index = tables
             .iter()
@@ -420,9 +425,9 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&program).is_err(),
+            verify_program(&program, artifact.definitions()).is_err(),
             "accepted mutation {mutation}"
         );
-        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
     }
 }

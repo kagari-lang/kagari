@@ -1,6 +1,7 @@
 //! Shared preparation for ordinary source/SDK contracts. Registration and
 //! invalidation tests should build their own engine instead of using this helper.
 use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -31,11 +32,13 @@ pub enum Route {
 
 pub fn assert_returns_i32(
     engine: &KagariEngine,
-    artifact: BytecodeArtifact,
+    artifact: DefinitionMetadata<BytecodeArtifact>,
     routes: &[Route],
     expected: i32,
 ) {
-    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let direct =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let decoded =
