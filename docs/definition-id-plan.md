@@ -3111,3 +3111,35 @@ Focused local evidence (only affected contract scopes):
 Compiler/runtime library fixtures and remaining SDK/VM consumers still require
 SI06 cleanup. This checkpoint resolves contract fixture build failures, not final
 cross-subsystem acceptance; final CI scope and plan retirement remain outstanding.
+
+
+### SI06 compiler fixture ownership entrypoints
+
+Compiler test helpers now unwrap the fallible scoped foundation catalog, retain
+DefinitionMetadata when returning lowered bytecode and explicitly import edited
+MIR roots and the original dependency closure into a common verification context.
+The shared helper revalidates the whole graph before lowering; it does not discard
+scope evidence or restore bare path records. Source ABI fixtures query protocols
+and associated members through the analyzed table, validate Native/public records
+with that same retained scope, and remove scope_record from the ABI test owner.
+
+`cargo test -p kagari-compiler --lib source::lower::abi::tests:: --no-fail-fast
+--message-format=short` remains a carried build failure, now reporting 839 errors
+and one unused-import warning across the old compiler consumers; no selected test
+ran. There are no diagnostics in the two changed files. The larger diagnostic set
+reflects the fixed helper return types exposing callers' direct field access and
+the completed shared model API removals, not passing integration acceptance.
+Representative counts are bytecode identities 122, interfaces 111, lowering 87,
+MIR verify 83, bytecode validation 80, Host contracts 75 and artifacts 65. Their
+SI06 follow-up must retain scope while editing/revalidating records, update exact-ID
+assertions and use codec-owned wire facts instead of semantic serde. The compiler
+codec test is now the only remaining scope_record/to_portable consumer. Its forged
+MIR codec cases need an owner-appropriate fixture migration without exposing a new
+unverified production encoder or weakening decoder/analysis-budget assertions.
+Do not repeat unchanged library build failures before repairing those consumers;
+complete the selected ABI cases once the library test target builds.
+
+Manual review covers table provenance, identity Copy changes and graph revalidation.
+Structure checks 1085 Rust files with zero violations/exceptions; formatting and
+diff checks pass. Previous contract and production checks remain evidence for
+unchanged code; full-workspace/backend checks and final cleanup remain outstanding.

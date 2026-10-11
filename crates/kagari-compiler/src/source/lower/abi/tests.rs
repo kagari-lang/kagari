@@ -1,6 +1,6 @@
 use super::{collect_module_abi, const_abi_value};
 use crate::source::lower::support::lower_scalar;
-use kagari_common::identity::{associated_type_id, metadata::scope_record};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_contract::{
     types as abi,
     types::{PublicItem, inherent::native_signatures_match, verify},
@@ -19,15 +19,15 @@ use kagari_types::{
         native::{NativeStorageLayout, NativeTypeConstructor},
         verify::validate_native_declarations,
     },
-    language as traits,
     language::Protocol,
     scalar::IntegerType,
     ty::{NominalTy, Ty, inheritance::trait_closure},
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, slice};
 
 #[test]
 fn unified_integers_preserve_constant_encoding_and_physical_lowering() {
+    let definitions = DefinitionContext::new().unwrap().snapshot();
     for (ty, value, encoded, constant) in [
         (
             IntegerType::I8,
@@ -81,7 +81,7 @@ fn unified_integers_preserve_constant_encoding_and_physical_lowering() {
         ),
     ] {
         let scalar = ScalarValue::integer(value, ty).unwrap();
-        assert_eq!(const_abi_value(&scalar), encoded);
+        assert_eq!(const_abi_value(&scalar, &definitions), encoded);
         assert_eq!(lower_scalar(scalar), constant);
     }
 }
@@ -114,7 +114,13 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             declared.source().name(),
             analyzed.result().diagnostics()
         );
-        let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
+        let abi = collect_module_abi(
+            analyzed
+                .to_unverified(&Default::default())
+                .unwrap()
+                .records()
+                .facts(),
+        );
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
             matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { .. })))
         }).collect();
@@ -122,6 +128,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             &native,
             declared.source().module_identity(),
             &Default::default(),
+            analyzed.definitions(),
         )
         .unwrap();
         for item in &native {
@@ -201,21 +208,29 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             declared.source().name(),
             analyzed.result().diagnostics()
         );
-        let module =
-            collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
+        let module = collect_module_abi(
+            analyzed
+                .to_unverified(&Default::default())
+                .unwrap()
+                .records()
+                .facts(),
+        );
         for kind in Protocol::ALL {
-            let id = traits::identity(kind);
-            if id.module != *declared.source().module_identity() {
+            let id = kind.definition(analyzed.definitions()).unwrap();
+            let definitions = analyzed.definitions();
+            let owner = definitions.resolve(id).unwrap().module();
+            if owner != declared.source().module_identity() {
                 continue;
             }
             let record = abi::trait_contract(
-                &id.module,
+                owner,
                 &module.public_items,
                 &module.trait_contracts,
                 &id,
+                definitions,
             )
             .expect("lowered source trait");
-            let source = root.facts().aggregates.trait_(&id).unwrap();
+            let source = root.records().facts().aggregates.trait_(&id).unwrap();
             assert_eq!(record.generic_params.len(), source.generic_params.len());
             assert_eq!(record.methods.len(), source.methods.len());
             for (slot, method) in source.methods.iter().enumerate() {
@@ -224,7 +239,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
                     None => CallableImplementation::Required,
                     Some(MethodDefault::Script) => CallableImplementation::Script,
                     Some(MethodDefault::Native(HirNativeBinding::Entry(binding))) => {
-                        CallableImplementation::Native(binding.clone())
+                        CallableImplementation::Native(*binding)
                     }
                     Some(MethodDefault::Native(HirNativeBinding::Default(application))) => {
                         CallableImplementation::NativeDefault(application.clone())
@@ -242,7 +257,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     assert_eq!(contracts.len(), Protocol::ALL.len());
     for (id, record) in &contracts {
         let interface = NominalTy {
-            declaration: id.clone(),
+            declaration: *id,
             arguments: record
                 .generic_params
                 .iter()
@@ -251,20 +266,17 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             associated_types: BTreeMap::new(),
         };
         assert!(
-            trait_closure(
-                &interface,
-                &Ty::SelfType(id.clone()),
-                &Default::default(),
-                &|id| contracts.get(id)
-            )
+            trait_closure(&interface, &Ty::SelfType(*id), &Default::default(), &|id| {
+                contracts.get(id)
+            })
             .is_ok(),
             "{}",
             record.name
         );
     }
-    let add = traits::identity(Protocol::Add);
+    let add = Protocol::Add.definition(root.definitions()).unwrap();
     let method = &contracts[&add].methods[0];
-    assert_eq!(method.params[0].ty, Ty::SelfType(add.clone()));
+    assert_eq!(method.params[0].ty, Ty::SelfType(add));
     let Ty::Projection {
         receiver,
         interface,
@@ -274,9 +286,14 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     else {
         panic!("source-owned operator output projection");
     };
-    assert_eq!(**receiver, Ty::SelfType(add.clone()));
+    assert_eq!(**receiver, Ty::SelfType(add));
     assert_eq!(interface.declaration, add);
-    assert_eq!(*member, associated_type_id(&add, "Output"));
+    assert_eq!(
+        *member,
+        root.definitions()
+            .lookup_child(add, DefinitionKind::AssociatedType, "Output", 0)
+            .unwrap()
+    );
     assert!(arguments.is_empty());
 }
 
@@ -295,15 +312,20 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
         .unwrap();
     for declared in snapshot.declaration_snapshot().files() {
         let analyzed = snapshot.file(declared.source().id()).unwrap();
-        let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
+        let abi = collect_module_abi(
+            analyzed
+                .to_unverified(&Default::default())
+                .unwrap()
+                .records()
+                .facts(),
+        );
         let identity = declared.source().module_identity();
         for declaration in &abi.native_declarations {
-            let scoped = scope_record(declaration, &Default::default()).unwrap();
             assert!(
                 validate_native_declarations(
-                    std::slice::from_ref(scoped.records()),
+                    slice::from_ref(declaration),
                     identity,
-                    scoped.definitions(),
+                    analyzed.definitions(),
                     &Default::default()
                 )
                 .is_ok(),
@@ -323,20 +345,33 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
                 );
             }
             assert!(
-                verify::validate(&context, identity, &Default::default()).is_ok(),
+                verify::validate(
+                    &context,
+                    identity,
+                    &Default::default(),
+                    analyzed.definitions()
+                )
+                .is_ok(),
                 "invalid public declaration {identity}: {item:#?}"
             );
         }
-        verify::validate(&abi.public_items, identity, &Default::default()).unwrap();
+        verify::validate(
+            &abi.public_items,
+            identity,
+            &Default::default(),
+            analyzed.definitions(),
+        )
+        .unwrap();
         assert!(native_signatures_match(
             &abi.public_items,
-            &abi.native_declarations
+            &abi.native_declarations,
+            analyzed.definitions()
         ));
     }
 }
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().unwrap());
     database
 }
