@@ -34,7 +34,7 @@ carried build/test failures; their completion does not establish performance gai
 ### Unified Iterable API
 
 The [execution plan](iterable-api-plan.md) records the agreed follow-up to SA20;
-implementation has not started. IA01-IA05 cover one default method surface on
+IA01 inventory is complete and IA02 is active. IA01-IA05 cover one default method surface on
 Iterable, Iterator identity adaptation, lazy transformations, terminal operations
 and explicit collection through FromIterator. Both container.map(...) and
 container.iter().map(...) use the same default algorithm; cursors retain shared
@@ -43,7 +43,9 @@ and includes HashSet/HashMap collection without a storage-model migration.
 
 The plan owns the finite API inventory, runtime retention/guard contracts,
 phase acceptance and progress ledger. SA18/SA19/SA21 and the separate performance
-follow-up remain outside this task. No implementation or CI acceptance is claimed.
+follow-up remain outside this task. IA01 records focused baseline proofs and the
+role/default, identity-call and retained-selection gaps; no final local or CI
+acceptance is claimed yet.
 
 ### Builtin fixed-length arrays (SA20)
 

@@ -1,6 +1,6 @@
 # Unified Iterable API execution plan
 
-Status: agreed design recorded; implementation has not started. The
+Status: IA01 inventory and contract proof are complete; IA02 implementation is active. The
 [roadmap](implementation-roadmap.md#unified-iterable-api) owns queue placement.
 This file owns the finite API inventory, phase order, acceptance and progress
 ledger. Examples below describe the target API, not currently implemented calls.
@@ -295,7 +295,7 @@ separately. Documentation-only planning needs content/link/diff checks, not buil
 ## Progress and error ledger
 
 - [x] Record agreed ownership, API inventory, examples and phase acceptance.
-- [ ] IA01: Inventory and contract proof.
+- [x] IA01: Inventory and contract proof.
 - [ ] IA02: Lazy transformation foundation and mapping migration.
 - [ ] IA03: Terminal construction and reduction.
 - [ ] IA04: Remaining APIs and hash collection construction.
@@ -317,3 +317,68 @@ illustrates lazy adapters and terminal collection;
 pipelines from eager collection operations. Kagari's accepted surface puts these
 methods on Iterable and keeps shared GC cursor identity rather than importing
 Rust's borrowing model or introducing a second eager/lazy method family.
+
+
+### IA01 inventory and accepted representation
+
+Starting checkout: `35de1818`, clean working tree. No unrelated changes existed.
+IA01 adds no public methods without implementations.
+
+- Adapter declarations remain element-only nominal native types owned by
+  `core::iter`. Their result types contain Item/method parameters, never the
+  concrete receiver Self. Container calls retain the actual result of one checked
+  `iter` call; Iterator identity adaptation retains the same cursor value.
+- Retain checked `next` selections through the existing `NativeObject.selected`
+  graph and `StoredSelection`, alongside the cursor value in traced payload state.
+  `allocate_result_payload` currently leaves selections empty; IA02 must provide
+  bounded slot retention and invocation from the rooted native object. This avoids
+  forcing concrete cursors into Iterator interface objects, storing borrowed
+  CallContext/selected references, name lookup on next, or payload-owned host roots
+  that could leak code/data cycles. Dynamic interface sources retain their existing
+  selected interface call; concrete sources retain their concrete selected target.
+- `NativePayload::iteration_sources` already recursively propagates cursor/source
+  dependencies through native wrappers and interface views. For-loop and native
+  terminal consumption must both use `begin_collection_iteration`; scoped guards
+  end without resetting shared progress. Native aggregation currently relies on
+  session cleanup for generic cursors; IA03 must add consumer-scoped cleanup.
+- HIR receiver-method inventory already derives identity Iterable for concrete,
+  generic and erased Iterator receivers. Method selection/lowering still needs
+  support for Iterable native defaults when there is no explicit Iterable impl.
+  Source-free callable proof must validate the same default recipe and Iterator
+  obligation, rather than treating every Iterable method as the closed iter adapter.
+- Reserved-role shape validation currently demands no defaults and no method
+  bounds. IA02 must compare registered default recipes and normalized bounds while
+  preserving exact member/binder/parent checks. Ordinary native-default lowering,
+  method-local binders and interface dispatch remain the shared foundation.
+- The old collections-owned free map retains a sequence-only NativeCursor.
+  Replace that implementation and identity directly in IA02. Its private
+  intermediate-Option allocation assertion does not establish general Iterable
+  semantics; migrate that case to checked custom traversal and behavioral/root
+  evidence. Retain the separately reviewed standard-Vec aggregation fast paths;
+  sequence layout alone never authorizes skipping selected iter/next callbacks.
+
+Focused evidence passed:
+
+- `cargo test -p kagari-embed --test default_methods generic_interface_default`:
+  four generic/interface/default cases, including retained closure environments
+  and bounded forwarding.
+- `cargo test -p kagari-embed --test list_algorithms generic_custom_receiver_uses_its_associated_iterator_in_default_calls`:
+  the existing native default receives the selected associated iterator.
+- `cargo test -p kagari-embed --test iteration_traits generic_iterator_bound_also_supplies_for_and_nested_associated_outputs`:
+  generic Iterator identity Iterable and associated output use.
+- `cargo test -p kagari-contract --test native_defaults hidden_associated_arguments_are_rechecked_against_linked_contracts`:
+  source-free proof rejects invalid hidden iterator arguments.
+
+Prototype findings carried to IA02: an element-only script Deferred<T,U> returned
+by a generic default on `Preview<T>: Iterable<Item=T>` passes source typing for
+concrete, generic and interface calls, but lowering its Iterator implementation
+fails `InvalidEnumLayout`. The initial probe also used an invalid inherited member
+binding `Preview<Item=i32>`; using the parent's checked Item constraint removed
+those diagnostics. Reproduction source/log are under `target/iterable-api/`;
+`cargo run -p kagari-cli -- emit target/iterable-api/ia01-prototype.kgr` reproduces
+lowering. The temporary test was removed after inventory; actual IA02 adapter
+coverage must resolve or isolate this owner gap rather than claim the prototype
+passed. No failing test/stub or production API is committed by IA01.
+
+IA01 format/structure/diff and documentation-link checks are recorded with this
+checkpoint. Full workspace validation remains reserved for IA05; CI is unrun.
