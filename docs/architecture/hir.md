@@ -94,17 +94,18 @@ impl Reader for Number {
 | Trait's `const LIMIT: i32 = 10;` | `AssociatedConst { name: "LIMIT", name_ref: n, ty: t, initializer: Some(c) }` | n is a synthetic name-site type node; t is i32 syntax; c selects a ConstItem whose initializer expression spells 10. |
 | Trait's `type Item;` | `AssociatedType { name: "Item", name_ref: n_item, ty: None, generic_params: [], parameter_bounds: [], bounds: [] }` | n_item is a synthetic name-site node; absence of ty requires an implementation definition. |
 | Impl's `type Item = i32;` | Same member fields, with a distinct name_ref and `ty: Some(t_impl)` | t_impl selects i32 type syntax, not the trait member's name node. |
-| Trait's `fn read(self) -> Self::Item;` | `TraitMethod { has_default: false, id: m, name: "read", receiver: Value, function: f_trait }` | f_trait selects Function with kind TraitMethod, a self parameter, result syntax and no body. |
+| Trait's `fn read(self) -> Self::Item;` | `TraitMethod { has_default: false, id: m, name: "read", function: f_trait }` | f_trait selects Function with kind TraitMethod, a self parameter, result syntax and no body. |
 | Impl's method body | `ImplMethod { name: "read", function: f_impl }` | f_impl selects Function with kind ImplMethod; its body links to a block whose tail is a Field expression for self.value. |
 
 The omitted impl constant uses the checked trait default; it does not create an
 extra impl AssociatedConst record. The expanded impl/trait header, generic family
 and where-clause examples in behavior.rs explain the remaining fields. An
 associated type's optional assigned syntax does not enable trait type defaults:
-current checking rejects them. Likewise, `Method`/`MethodOwner`/`Module.methods`
-and the ADT member-link vectors are documented as unpopulated; current methods
-belong to trait/impl collections. Review candidates remain in [the review](../review.md),
-and documenting their current state does not activate their removal.
+current checking rejects them. Methods belong to trait/impl collections and link
+to `Module.functions` through `FunctionId`. Receiver presence comes from the
+function parameters; `self` uses ordinary value semantics without a separate
+receiver-category tag. ADT `impls` vectors remain unpopulated; use `Module.impls`
+and checked lookup facts to find associated implementations.
 
 ## One function through the tables
 

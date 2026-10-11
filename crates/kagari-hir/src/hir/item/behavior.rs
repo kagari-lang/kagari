@@ -1,72 +1,9 @@
 //! Trait/implementation surfaces, generic binders and links to method functions.
 
 use crate::hir::ids::{
-    ConstId, FunctionId, GenericParamId, ImplId, MethodId, StructId, TraitId, TraitMethodId,
-    TypeRefId,
+    ConstId, FunctionId, GenericParamId, ImplId, TraitId, TraitMethodId, TypeRefId,
 };
 use kagari_types::visibility::Visibility;
-
-/// The currently single receiver category, separate from parameter writeability.
-///
-/// `trait R { fn run(self); }` produces `TraitMethod.receiver = Value` and a
-/// function parameter named "self". There are no `&self`/`&mut self` categories.
-/// Current lowering writes `Value` even for a trait method without `self`; inspect
-/// `Function.params` to establish whether a receiver parameter exists. Ordinary
-/// value semantics determine copying versus shared identity, not this tag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReceiverKind {
-    /// A `self` receiver; static writeability/host access checks remain separate.
-    Value,
-}
-
-/// Intended owner of a record in the currently unpopulated method registry.
-///
-/// `Struct(s)` would select `Module.structs[s.index()]`; `Trait(t)` would select
-/// `Module.traits[t.index()]`. These are model alternatives, not the output of
-/// current method lowering: actual members live in `TraitDef.methods` and
-/// `Impl.methods`, linked to function rows. No current source example populates
-/// `MethodOwner`; do not infer that `impl S { ... }` creates this record.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MethodOwner {
-    /// A struct-owned method.
-    Struct(StructId),
-    /// A trait-owned method.
-    Trait(TraitId),
-}
-
-/// An unused unified method surface intended for `Module.methods`.
-///
-/// Hypothetical registry record, not current lowering output:
-///
-/// ```text
-/// Method { id: m, owner: Struct(s), visibility: Public, name: "run",
-///          receiver: Value, function: f }
-/// m -> Module.methods[m.index()]
-/// s -> Module.structs[s.index()]
-/// f -> Module.functions[f.index()] -> signature and optional body
-/// ```
-///
-/// `id`/`owner` would be allocated links; visibility/name/receiver would describe
-/// the member surface, and `function` would supply its function syntax.
-/// Current `impl S { pub fn run(self) {} }` instead creates an `ImplMethod`
-/// with `function: f`; visibility resides in that function. Trait members use
-/// `TraitMethod`. The registry is a deferred cleanup candidate, not another
-/// active semantic implementation.
-#[derive(Debug, Clone)]
-pub struct Method {
-    /// Slot in `Module.methods`.
-    pub id: MethodId,
-    /// Enclosing struct or trait.
-    pub owner: MethodOwner,
-    /// Declared method visibility.
-    pub visibility: Visibility,
-    /// Method name within its owner.
-    pub name: String,
-    /// Receiver syntax category.
-    pub receiver: ReceiverKind,
-    /// Function slot containing signature/body syntax.
-    pub function: FunctionId,
-}
 
 /// A trait's inline member declarations, generic inputs and parent requirements.
 ///
@@ -205,17 +142,16 @@ pub struct AssociatedType {
 ///
 /// ```text
 /// trait Reader { fn read(self) -> i32; }
-/// TraitMethod { has_default: false, id: m, name: "read", receiver: Value, function: f }
+/// TraitMethod { has_default: false, id: m, name: "read", function: f }
 /// m -> SourceMap.trait_method_span(m)
 /// f -> Module.functions[f.index()] -> Function { kind: TraitMethod, body: None, ... }
 /// ```
 ///
 /// Replacing `;` with `{ 1 }` sets `has_default: true` and `Function.body: Some(b)`.
 /// `id` is a source-map-wide trait-method identity, not its ordinal within one
-/// trait. `name` is written syntax; `receiver` is currently the constant `Value`
-/// category (the function parameters establish receiver presence). Generics,
-/// visibility, parameter/return types and body live in the function row.
-/// Trait checking and method lookup consume this link, not `Module.methods`.
+/// trait. `name` is written syntax; the function parameters establish receiver
+/// presence. Generics, visibility, parameter/return types and body live in the
+/// function row. Trait checking and method lookup consume this link.
 #[derive(Debug, Clone)]
 pub struct TraitMethod {
     /// Whether syntax supplied a default method body.
@@ -224,8 +160,6 @@ pub struct TraitMethod {
     pub id: TraitMethodId,
     /// Method name within the trait.
     pub name: String,
-    /// Receiver syntax category.
-    pub receiver: ReceiverKind,
     /// Slot in `Module.functions` containing this method's signature/body.
     pub function: FunctionId,
 }
@@ -259,8 +193,8 @@ pub struct TraitMethod {
 ///
 /// Method/constant bodies occupy shared function/constant collections; associated
 /// types remain inline syntax. Aggregate/type analysis validates implementations
-/// and supplies lookup facts. Struct/enum `methods` and `impls` fields are not
-/// populated by this path.
+/// and supplies lookup facts. Struct/enum `impls` fields are not populated by
+/// this path.
 #[derive(Debug, Clone)]
 pub struct Impl {
     /// Associated constant definitions retained in this impl.
@@ -290,7 +224,7 @@ pub struct Impl {
 ///   -> Function { kind: ImplMethod, visibility: Public, name: "count", body: Some(b), ... }
 /// ```
 ///
-/// The member has no separate MethodId or body. Signature, visibility, async flag,
+/// The member has no separate method ID or body. Signature, visibility, async flag,
 /// inherited/method generic binders and receiver parameters all live in Function.
 /// Method lookup connects this record to the containing impl's target/trait.
 #[derive(Debug, Clone)]
@@ -370,8 +304,6 @@ pub struct TraitRef {
     pub ty: TypeRefId,
 }
 
-/// Ordered `Vec<Method>` storage for the owning declaration records.
-pub type MethodBuffer = Vec<Method>;
 /// Ordered `Vec<TraitDef>` storage for the owning declaration records.
 pub type TraitBuffer = Vec<TraitDef>;
 /// Ordered `Vec<TraitMethod>` storage for the owning declaration records.

@@ -115,7 +115,7 @@ trait/impl methods stored in the same collection.
 The field has active consumers: lowering publishes `Item::Function` and links
 trait/impl method records; signature checking uses `function.id` to index typed
 functions and source locations. It is a redundant identity with convenience
-uses, not an unused declaration model like the registry discussed in SA13.
+uses; removing it requires updating those consumers.
 Review retaining the field versus supplying `(FunctionId, &Function)` from the
 container and passing the identity explicitly to consumers. `FunctionId` itself
 must remain available for method links, name resolution, source maps and
@@ -148,80 +148,6 @@ with redundant self IDs, or widen visibility/add forwarding APIs to hide the
 ownership question. Reuse existing declaration, navigation and snapshot contracts
 if implementation is activated; measure any claimed memory or speed benefit.
 This entry records a design review only and does not activate a migration.
-
-## SA12 HIR receiver category records only one language model
-
-[ReceiverKind](../crates/kagari-hir/src/hir/item/behavior.rs) has only `Value`.
-Both `Method` and `TraitMethod` carry a `receiver: ReceiverKind` field;
-[trait-method lowering](../crates/kagari-hir/src/lower/item.rs) always assigns
-`ReceiverKind::Value`. The inspected handwritten consumers do not select behavior
-based on this category. The enum and fields therefore record a constant policy,
-not a current distinction between receiver forms.
-
-The [receiver contract](spec/traits.md#receiver-model) provides only `self` and
-uses the ordinary parameter value model, without Rust-style `&self` or `&mut self`
-receivers. The [value contract](spec/value-semantics.md#values-and-identity)
-distinguishes value semantics from shared object identity: scalars, strings,
-tuples and enums have value semantics; tuple/enum members retain their own
-semantics. Structs, arrays, maps and sets share identity when passed. GC-backed
-storage alone does not imply mutable identity semantics or a separate receiver
-category. Passing `self` neither deep-copies a shared object nor introduces
-exclusive ownership transfer.
-
-Follow-up owner: HIR method surfaces and lowering. Under the current language
-contract, the enum and both fields are candidates for removal together with their
-imports and constant initialization; no replacement marker or speculative receiver
-variants are needed. Preserve receiver parameters, method selection, ordinary
-argument semantics and writeability checks. Host-boundary passing styles and
-scoped borrow validation have separate responsibilities; retain
-[HostPassingStyle](../crates/kagari-types/src/host_interface/type_declaration.rs)
-and its checked consumers.
-
-Reuse existing method/trait and host-boundary contracts for focused validation
-if removal is activated. No correctness failure or measured performance benefit
-was established here. This entry records the simplification candidate only;
-implementation remains deferred.
-
-## SA13 Unused HIR method registry duplicates the active ownership model
-
-The unified method registry in [behavior.rs](../crates/kagari-hir/src/hir/item/behavior.rs)
-provides `MethodOwner`, `Method` and `MethodBuffer`, with `MethodId` in
-[ids.rs](../crates/kagari-hir/src/hir/ids.rs). [Module.methods](../crates/kagari-hir/src/hir/item/mod.rs)
-and [Struct.methods / Enum.methods](../crates/kagari-hir/src/hir/item/adt.rs)
-expose storage and links for that registry. Repository inspection found no
-construction or consumption of these HIR method records; normal
-[item lowering](../crates/kagari-hir/src/lower/item.rs) leaves both ADT method
-lists empty and does not populate the module registry.
-
-The active model already assigns methods to traits and impls. For example,
-`impl Example { fn run(self) { ... } }` lowers to an `Impl` containing an
-`ImplMethod { name, function }`; its `FunctionId` identifies the signature and
-body in `Module.functions`. Trait declarations similarly contain `TraitMethod`
-records linked to functions, including default bodies. This is the ownership
-model to preserve, including method lookup and trait implementation checking.
-
-This division of responsibilities resembles rustc HIR: its
-[ItemKind](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/enum.ItemKind.html)
-separates struct, trait and impl declarations, and an
-[Impl](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.Impl.html)
-owns associated-item IDs together with its target type and optional trait.
-Kagari currently uses inline trait/impl method records plus `FunctionId`, so the
-storage representations differ. The reason to consider removal is the unused
-parallel model and existing responsibility owner; similarity to Rust is only a
-design reference.
-
-Follow-up owner: HIR method storage and lowering. Consider removing
-`MethodOwner`, `Method`, `MethodBuffer`, `MethodId`, `Module.methods`,
-`Struct.methods` and `Enum.methods` together with their imports and initializers.
-Retain `TraitMethod`, `TraitMethodId`, `ImplMethod`, the active trait/impl method
-collections and their `FunctionId` links. Receiver-category simplification is
-tracked in SA12; removing the unused `Method` record would also remove its
-receiver field. Other crates' runtime/host method models are outside this scope.
-
-Before activating cleanup, reconfirm consumers and update affected documentation;
-use focused existing method/trait contracts and relevant compile/structure checks.
-No behavior defect or measured performance benefit was established here. This
-entry records a future cleanup candidate only; implementation remains deferred.
 
 ## SA14 Function bodies cannot declare named local functions
 

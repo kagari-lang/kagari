@@ -182,11 +182,6 @@ id_newtype!(
     FunctionId
 );
 id_newtype!(
-    /// A lowering-local index identifying `Module.methods`.
-    /// See the [identity families](crate::hir::ids) for allocation and validity rules.
-    MethodId
-);
-id_newtype!(
     /// A lowering-local index identifying `Module.consts`.
     /// See the [identity families](crate::hir::ids) for allocation and validity rules.
     ConstId

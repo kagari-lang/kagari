@@ -9,7 +9,7 @@ use crate::hir::{
     },
     item::{
         adt::{EnumBuffer, Field, OpaqueType, StructBuffer, Variant},
-        behavior::{ImplBuffer, MethodBuffer, TraitBuffer},
+        behavior::{ImplBuffer, TraitBuffer},
         function::FunctionBuffer,
         module::{ImportBuffer, ModuleDeclBuffer},
         storage::{ConstBuffer, ConstItem},
@@ -37,7 +37,7 @@ pub mod storage;
 ///     items: [Const(c), Struct(s), Function(f)],
 ///     functions: [main_function], consts: [limit_constant], structs: [point_struct],
 ///     imports: [Import { path: "pkg::math::sum", kind: Named { alias: None }, ... }],
-///     methods: [], modules: [], opaque_types: [], enums: [], traits: [], impls: [],
+///     modules: [], opaque_types: [], enums: [], traits: [], impls: [],
 ///     body: Body { types, exprs, blocks, ... },
 /// }
 /// f -> functions[f.index()]; s -> structs[s.index()]; c -> constant(c)
@@ -50,7 +50,6 @@ pub mod storage;
 /// impl/type/module syntax populates enums/traits/impls/opaque_types/modules.
 /// Trait/impl methods also allocate function rows and associated constant defaults
 /// allocate constant rows, but do not add top-level Item entries for those members.
-/// Current `methods` is an unpopulated alternative registry, not active method storage.
 ///
 /// `body` owns declaration type syntax and all function/constant nodes together;
 /// it is not one Body per function. Child module rows are headers, with their
@@ -65,8 +64,6 @@ pub struct Module {
     pub items: ItemBuffer,
     /// Function declarations indexed by `FunctionId`, including trait/impl methods.
     pub functions: FunctionBuffer,
-    /// Unpopulated MethodId registry; active methods link from trait/impl records to functions.
-    pub methods: MethodBuffer,
     /// Constant declarations indexed by `ConstId`, including associated initializers.
     pub consts: ConstBuffer,
     /// Child module headers indexed by `ModuleId`; child analysis is separate.

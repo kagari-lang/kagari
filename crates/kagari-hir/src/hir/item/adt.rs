@@ -1,7 +1,7 @@
 //! Nominal struct, enum and native-backed type declarations; no runtime object storage.
 
 use crate::hir::{
-    ids::{EnumId, FieldId, ImplId, MethodId, OpaqueTypeId, StructId, TypeRefId, VariantId},
+    ids::{EnumId, FieldId, ImplId, OpaqueTypeId, StructId, TypeRefId, VariantId},
     item::behavior::{GenericParam, TraitBound, TraitRef},
     writeability::Writeability,
 };
@@ -53,7 +53,7 @@ pub struct OpaqueType {
 /// Struct {
 ///     id: s, visibility: Public, name: "Point",
 ///     generic_params: [GenericParam { id: g, name: "T", bounds: [] }],
-///     fields: [x_field, label_field], methods: [], impls: [],
+///     fields: [x_field, label_field], impls: [],
 /// }
 /// x_field = Field { id: x, visibility: Public, writeability: Var, name: "x", ty: t }
 /// x = FieldId { arena, owner: s, slot: 0 }
@@ -65,9 +65,9 @@ pub struct OpaqueType {
 /// `s` is allocated from the declaration/source-map slots. Fields retain source
 /// order; `struct Empty {}` has no fields, and omitted generics leave no binders.
 /// Field types and generic requirements are unresolved until signature checking.
-/// Current lowering leaves `methods` and `impls` empty, including when a separate
+/// Current lowering leaves `impls` empty, including when a separate
 /// `impl Point<i32> { ... }` exists; active method ownership lives in Module.impls.
-/// These vectors must not be read as a complete list of associated members.
+/// This vector must not be read as a complete list of associated implementations.
 #[derive(Debug, Clone)]
 pub struct Struct {
     /// Slot in `Module.structs`.
@@ -80,8 +80,6 @@ pub struct Struct {
     pub generic_params: Vec<GenericParam>,
     /// Inline fields addressed by arena, struct owner and slot.
     pub fields: FieldBuffer,
-    /// Unpopulated method-registry links; current members are stored in trait/impl records.
-    pub methods: Vec<MethodId>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.
     pub impls: Vec<ImplId>,
 }
@@ -124,7 +122,7 @@ pub struct Field {
 ///     generic_params: [GenericParam { id: g, name: "T", bounds: [] }],
 ///     variants: [Variant { id: none_id, name: "None", payload: [] },
 ///                Variant { id: some_id, name: "Some", payload: [t] }],
-///     methods: [], impls: [],
+///     impls: [],
 /// }
 /// some_id = VariantId { arena, owner: e, slot: 1 }
 /// Module.variant(some_id) -> enums[e.index()].variants[1]
@@ -133,7 +131,7 @@ pub struct Field {
 ///
 /// `e` is an allocated declaration slot; variant IDs carry their enum owner and
 /// source-order slot. Omitted generics/visibility give empty binders/Private.
-/// Current lowering leaves `methods`/`impls` empty; separate impl records carry
+/// Current lowering leaves `impls` empty; separate impl records carry
 /// active methods. Signature checking builds variant/type facts, and checked
 /// aggregate/executable metadata determines representation, not this source row.
 #[derive(Debug, Clone)]
@@ -148,8 +146,6 @@ pub struct Enum {
     pub generic_params: Vec<GenericParam>,
     /// Inline variants addressed by arena, enum owner and slot.
     pub variants: VariantBuffer,
-    /// Unpopulated method-registry links; current members are stored in trait/impl records.
-    pub methods: Vec<MethodId>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.
     pub impls: Vec<ImplId>,
 }

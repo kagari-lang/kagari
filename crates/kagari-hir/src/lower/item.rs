@@ -12,8 +12,8 @@ use crate::{
             Item,
             adt::{Enum, Field, OpaqueType, Struct, Variant},
             behavior::{
-                AssociatedConst, AssociatedType, GenericParam, Impl, ImplMethod, ReceiverKind,
-                TraitBound, TraitDef, TraitMethod, TraitRef,
+                AssociatedConst, AssociatedType, GenericParam, Impl, ImplMethod, TraitBound,
+                TraitDef, TraitMethod, TraitRef,
             },
             function::{Function, FunctionKind, Param},
             module::{Import, ImportLeaf, ModuleDecl},
@@ -333,7 +333,6 @@ impl Lowerer {
             has_default: method.body().is_some(),
             id,
             name: method.name_text().unwrap_or_default(),
-            receiver: ReceiverKind::Value,
             function: function_id,
         }
     }
@@ -699,7 +698,6 @@ impl Lowerer {
             name: struct_def.name_text().unwrap_or_default(),
             generic_params,
             fields,
-            methods: Vec::new(),
             impls: Vec::new(),
         }
     }
@@ -748,7 +746,6 @@ impl Lowerer {
             name: enum_def.name_text().unwrap_or_default(),
             generic_params,
             variants,
-            methods: Vec::new(),
             impls: Vec::new(),
         }
     }
