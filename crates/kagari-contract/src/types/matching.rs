@@ -40,9 +40,9 @@ pub fn match_implementation<'a>(
 mod tests {
     use super::*;
     use kagari_common::identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, associated_type_id,
+        DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
     };
-    use kagari_stdlib::identity as library;
+    use kagari_stdlib::{catalog, namespaces};
     use kagari_types::{
         collection::CollectionAccess,
         declaration::AssociatedTypeFamily,
@@ -51,26 +51,33 @@ mod tests {
     };
     use std::slice;
 
-    fn id(kind: DefinitionKind, name: &str) -> DefinitionPath {
-        DefinitionPath {
-            module: ModuleIdentity::single_file("match.kgr"),
-            path: vec![DefinitionPathSegment {
-                kind,
-                name: name.into(),
-                occurrence: 0,
-            }],
+    fn id(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> DefinitionId {
+        let root = context
+            .intern_root(&ModuleIdentity::single_file("match.kgr"))
+            .unwrap();
+        context.intern_child(root, kind, name, 0).unwrap()
+    }
+
+    fn applied(declaration: DefinitionId, arguments: Vec<Ty>) -> NominalTy {
+        NominalTy {
+            declaration,
+            arguments,
+            associated_types: Default::default(),
         }
     }
 
     #[test]
     fn native_templates_weaken_only_declared_readonly_outer_access() {
-        let catalog = kagari_stdlib::catalog::shared()
+        let context = DefinitionContext::new().unwrap();
+        let catalog = catalog::shared()
+            .unwrap()
             .into_iter()
-            .find(|module| {
-                module.identity == kagari_stdlib::namespaces::module("std", "collections")
-            })
+            .find(|module| module.records().identity == namespaces::module("std", "collections"))
+            .unwrap()
+            .import_into(&context, &CancellationToken::default())
             .unwrap();
         let mut contract = catalog
+            .records()
             .traits
             .iter()
             .find(|contract| contract.name == "Set")
@@ -80,61 +87,88 @@ mod tests {
         let mutable = Ty::Set(Box::new(integer.clone()), CollectionAccess::Mutable);
         let readonly = Ty::Set(Box::new(integer.clone()), CollectionAccess::ReadOnly);
         let parameter = GenericParam {
-            owner: id(DefinitionKind::Impl, ""),
+            owner: id(&context, DefinitionKind::Impl, ""),
             position: 0,
         };
-        let mut interface = library::applied("Set", vec![integer.clone()]);
         // An ordinary installed interface gets its capability from its record,
         // without any addition to the language protocol inventory.
-        let custom = id(DefinitionKind::Trait, "CustomSet");
-        interface.declaration = custom.clone();
+        let custom = id(&context, DefinitionKind::Trait, "CustomSet");
+        let mut interface = applied(custom, vec![integer.clone()]);
         let mut table = InterfaceTable {
-            declaration: parameter.owner.clone(),
+            declaration: parameter.owner,
             name: "Set".into(),
             generic_params: vec![parameter.clone()],
             bounds: vec![],
             methods: vec![],
             associated_consts: vec![],
             for_type: Ty::Set(Box::new(parameter.as_type()), CollectionAccess::Mutable),
-            trait_type: Ty::Trait(library::applied("Set", vec![parameter.as_type()])),
+            trait_type: Ty::Trait(applied(custom, vec![parameter.as_type()])),
             associated_type_families: vec![],
             host_bridge: false,
         };
         let Ty::Trait(implemented) = &mut table.trait_type else {
             unreachable!()
         };
-        implemented.declaration = custom.clone();
+        implemented.declaration = custom;
         let cancel = CancellationToken::default();
         assert!(
-            match_implementation(&table, Some(&contract), &interface, &mutable, &cancel)
-                .unwrap()
-                .is_some()
+            match_implementation(
+                &table,
+                Some(&contract),
+                &interface,
+                &mutable,
+                &cancel,
+                &context.snapshot()
+            )
+            .unwrap()
+            .is_some()
         );
         assert!(
-            match_implementation(&table, Some(&contract), &interface, &readonly, &cancel)
-                .unwrap()
-                .is_some()
+            match_implementation(
+                &table,
+                Some(&contract),
+                &interface,
+                &readonly,
+                &cancel,
+                &context.snapshot()
+            )
+            .unwrap()
+            .is_some()
         );
         contract.storage_access = Some(CollectionAccess::Mutable);
         let Ty::Trait(implemented) = &mut table.trait_type else {
             unreachable!()
         };
-        implemented.declaration = interface.declaration.clone();
+        implemented.declaration = interface.declaration;
         assert!(
-            match_implementation(&table, Some(&contract), &interface, &mutable, &cancel)
-                .unwrap()
-                .is_some()
+            match_implementation(
+                &table,
+                Some(&contract),
+                &interface,
+                &mutable,
+                &cancel,
+                &context.snapshot()
+            )
+            .unwrap()
+            .is_some()
         );
         assert!(
-            match_implementation(&table, Some(&contract), &interface, &readonly, &cancel)
-                .unwrap()
-                .is_none()
+            match_implementation(
+                &table,
+                Some(&contract),
+                &interface,
+                &readonly,
+                &cancel,
+                &context.snapshot()
+            )
+            .unwrap()
+            .is_none()
         );
         contract.storage_access = Some(CollectionAccess::ReadOnly);
         // Generic arguments cannot acquire the outer access relaxation.
-        interface = library::applied("Set", vec![readonly.clone()]);
-        interface.declaration = custom.clone();
-        table.trait_type = Ty::Trait(library::applied("Set", vec![parameter.as_type()]));
+        interface = applied(custom, vec![readonly.clone()]);
+        interface.declaration = custom;
+        table.trait_type = Ty::Trait(applied(custom, vec![parameter.as_type()]));
         let Ty::Trait(implemented) = &mut table.trait_type else {
             unreachable!()
         };
@@ -142,25 +176,37 @@ mod tests {
         table.for_type = Ty::Set(Box::new(mutable), CollectionAccess::Mutable);
         let nested = Ty::Set(Box::new(readonly), CollectionAccess::ReadOnly);
         assert!(
-            match_implementation(&table, Some(&contract), &interface, &nested, &cancel)
-                .unwrap()
-                .is_none()
+            match_implementation(
+                &table,
+                Some(&contract),
+                &interface,
+                &nested,
+                &cancel,
+                &context.snapshot()
+            )
+            .unwrap()
+            .is_none()
         );
     }
 
     #[test]
     fn implementation_matching_keeps_repeated_binders_consistent_and_applies_families() {
-        let implementation = id(DefinitionKind::Impl, "");
-        let interface_id = id(DefinitionKind::Trait, "Read");
+        let context = DefinitionContext::new().unwrap();
+        let implementation = id(&context, DefinitionKind::Impl, "");
+        let interface_id = id(&context, DefinitionKind::Trait, "Read");
         let parameter = GenericParam {
-            owner: implementation.clone(),
+            owner: implementation,
             position: 0,
         };
         let family_parameter = GenericParam {
-            owner: associated_type_id(&implementation, "Item"),
+            owner: context
+                .intern_child(implementation, DefinitionKind::AssociatedType, "Item", 0)
+                .unwrap(),
             position: 0,
         };
-        let member = associated_type_id(&interface_id, "Item");
+        let member = context
+            .intern_child(interface_id, DefinitionKind::AssociatedType, "Item", 0)
+            .unwrap();
         let table = InterfaceTable {
             declaration: implementation,
             name: "Read".into(),
@@ -170,12 +216,12 @@ mod tests {
             associated_consts: vec![],
             for_type: Ty::Tuple(vec![parameter.as_type(), parameter.as_type()]),
             trait_type: Ty::Trait(NominalTy {
-                declaration: interface_id.clone(),
+                declaration: interface_id,
                 arguments: vec![parameter.as_type()],
                 associated_types: Default::default(),
             }),
             associated_type_families: vec![AssociatedTypeFamily {
-                declaration: member.clone(),
+                declaration: member,
                 generic_params: vec![family_parameter.clone()],
                 bounds: vec![],
                 value: Ty::Tuple(vec![parameter.as_type(), family_parameter.as_type()]),
@@ -192,20 +238,37 @@ mod tests {
         let cancel = CancellationToken::default();
         let receiver = Ty::Tuple(vec![integer.clone(), integer.clone()]);
         assert!(
-            match_implementation(&table, None, &interface, &receiver, &cancel)
-                .unwrap()
-                .is_some()
+            match_implementation(
+                &table,
+                None,
+                &interface,
+                &receiver,
+                &cancel,
+                &context.snapshot()
+            )
+            .unwrap()
+            .is_some()
         );
         let mismatch = Ty::Tuple(vec![integer.clone(), boolean.clone()]);
         assert!(
-            match_implementation(&table, None, &interface, &mismatch, &cancel)
-                .unwrap()
-                .is_none()
+            match_implementation(
+                &table,
+                None,
+                &interface,
+                &mismatch,
+                &cancel,
+                &context.snapshot()
+            )
+            .unwrap()
+            .is_none()
         );
         assert_eq!(
             projection_output(
                 ImplementationPattern {
-                    protocol: Protocol::from_id(&interface.declaration),
+                    protocol: Protocol::from_definition(
+                        &interface.declaration,
+                        &context.snapshot()
+                    ),
                     storage_access: None,
                     parameters: &table.generic_params,
                     receiver: &table.for_type,
@@ -226,7 +289,14 @@ mod tests {
         );
         cancel.cancel();
         assert!(matches!(
-            match_implementation(&table, None, &interface, &receiver, &cancel),
+            match_implementation(
+                &table,
+                None,
+                &interface,
+                &receiver,
+                &cancel,
+                &context.snapshot()
+            ),
             Err(TypeTransformError::Cancelled)
         ));
     }

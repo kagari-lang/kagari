@@ -1,5 +1,6 @@
 use crate::types::verify::*;
-use kagari_stdlib::catalog;
+use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
+use kagari_stdlib::{catalog, namespaces};
 use kagari_types::collection::CollectionAccess;
 use kagari_types::{
     callable::CallableImplementation,
@@ -11,15 +12,30 @@ use kagari_types::{
     },
 };
 
+fn owner(
+    context: &DefinitionContext,
+    module: &ModuleIdentity,
+    kind: DefinitionKind,
+    name: &str,
+) -> DefinitionId {
+    let root = context.intern_root(module).unwrap();
+    context.intern_child(root, kind, name, 0).unwrap()
+}
+
 #[test]
 fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
+    let context = DefinitionContext::new().unwrap();
     let module = catalog::shared()
+        .unwrap()
         .into_iter()
-        .find(|module| module.identity == kagari_stdlib::namespaces::module("core", "convert"))
+        .find(|module| module.records().identity == namespaces::module("core", "convert"))
+        .unwrap()
+        .import_into(&context, &CancellationToken::default())
         .unwrap();
     let cancel = CancellationToken::default();
     for name in ["Into", "TryInto", "TryFrom"] {
         let contract = module
+            .records()
             .traits
             .iter()
             .find(|contract| contract.name == name)
@@ -27,8 +43,9 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
         let valid = |contract: &TraitDef| {
             validate(
                 &[PublicItem::Trait(contract.clone())],
-                &module.identity,
+                &module.records().identity,
                 &cancel,
+                &context.snapshot(),
             )
             .is_ok()
         };
@@ -42,10 +59,16 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
         changed = contract.clone();
         match changed.conversion_adapter.as_mut().unwrap() {
             ConversionAdapter::Reverse { origin, .. } => {
-                *origin = module.definition(DefinitionKind::Trait, name);
+                *origin = module
+                    .records()
+                    .definition(DefinitionKind::Trait, name, &context.snapshot())
+                    .unwrap();
             }
             ConversionAdapter::Forward { method, .. } => {
-                method.path.last_mut().unwrap().name = "undeclared".into();
+                let parent = context.snapshot().parent(*method).unwrap().unwrap();
+                *method = context
+                    .intern_child(parent, DefinitionKind::Method, "undeclared", 0)
+                    .unwrap();
             }
         }
         assert!(!valid(&changed));
@@ -54,14 +77,26 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
             ConversionAdapter::Reverse { method, .. }
             | ConversionAdapter::Forward { method, .. } => method,
         };
-        method.path.last_mut().unwrap().kind = DefinitionKind::Function;
+        let definitions = context.snapshot();
+        let parent = definitions.parent(*method).unwrap().unwrap();
+        let segment = definitions.resolve(*method).unwrap().last().unwrap();
+        *method = context
+            .intern_child(
+                parent,
+                DefinitionKind::Function,
+                segment.name,
+                segment.occurrence,
+            )
+            .unwrap();
         assert!(!valid(&changed));
     }
 }
 
 #[test]
 fn requirements_are_not_executable_functions_or_forged_native_entries() {
+    let context = DefinitionContext::new().unwrap();
     let module = ModuleIdentity::single_file("requirements.kgr");
+    owner(&context, &module, DefinitionKind::Function, "read");
     let cancel = CancellationToken::default();
     let mut function = FnDecl {
         method_policy: Default::default(),
@@ -73,7 +108,13 @@ fn requirements_are_not_executable_functions_or_forged_native_entries() {
         return_type: Ty::Builtin(BuiltinType::I32),
     };
     let valid = |function: &FnDecl| {
-        validate(&[PublicItem::Function(function.clone())], &module, &cancel).is_ok()
+        validate(
+            &[PublicItem::Function(function.clone())],
+            &module,
+            &cancel,
+            &context.snapshot(),
+        )
+        .is_ok()
     };
     assert!(!valid(&function));
     function.implementation = CallableImplementation::Script;
@@ -82,13 +123,18 @@ fn requirements_are_not_executable_functions_or_forged_native_entries() {
     assert!(!valid(&function));
     function.method_policy.override_allowed = true;
     function.implementation =
-        CallableImplementation::Native(owner(&module, &[], DefinitionKind::Trait, "forged"));
+        CallableImplementation::Native(owner(&context, &module, DefinitionKind::Trait, "forged"));
     assert!(!valid(&function));
 }
 
 #[test]
 fn required_methods_cannot_forbid_an_implementation() {
+    let context = DefinitionContext::new().unwrap();
     let module = ModuleIdentity::single_file("method-policy.kgr");
+    let interface_id = owner(&context, &module, DefinitionKind::Trait, "Reader");
+    context
+        .intern_child(interface_id, DefinitionKind::Method, "read", 0)
+        .unwrap();
     let cancel = CancellationToken::default();
     let mut interface = TraitDef {
         conversion_adapter: None,
@@ -110,7 +156,13 @@ fn required_methods_cannot_forbid_an_implementation() {
         }],
     };
     let valid = |interface: &TraitDef| {
-        validate(&[PublicItem::Trait(interface.clone())], &module, &cancel).is_ok()
+        validate(
+            &[PublicItem::Trait(interface.clone())],
+            &module,
+            &cancel,
+            &context.snapshot(),
+        )
+        .is_ok()
     };
     assert!(valid(&interface));
     interface.methods[0].method_policy.override_allowed = false;
@@ -121,14 +173,19 @@ fn required_methods_cannot_forbid_an_implementation() {
 
 #[test]
 fn interface_method_contract_substitutes_self_and_method_binders_inside_containers() {
+    let context = DefinitionContext::new().unwrap();
     let module = ModuleIdentity::single_file("interface.kgr");
-    let trait_owner = owner(&module, &[], DefinitionKind::Trait, "Read");
-    let impl_owner = owner(&module, &[], DefinitionKind::Impl, "");
-    let trait_method = owner(&module, &trait_owner.path, DefinitionKind::Method, "read");
-    let impl_method = owner(&module, &impl_owner.path, DefinitionKind::Method, "read");
+    let trait_owner = owner(&context, &module, DefinitionKind::Trait, "Read");
+    let impl_owner = owner(&context, &module, DefinitionKind::Impl, "");
+    let trait_method = context
+        .intern_child(trait_owner, DefinitionKind::Method, "read", 0)
+        .unwrap();
+    let impl_method = context
+        .intern_child(impl_owner, DefinitionKind::Method, "read", 0)
+        .unwrap();
     let for_type = Ty::Struct(NominalTy {
         associated_types: Default::default(),
-        declaration: owner(&module, &[], DefinitionKind::Struct, "Player"),
+        declaration: owner(&context, &module, DefinitionKind::Struct, "Player"),
         arguments: Vec::new(),
     });
     let mut declared = FnDecl {
@@ -136,16 +193,16 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         implementation: CallableImplementation::Required,
         name: "read".into(),
         generic_params: vec![GenericParam {
-            owner: trait_method.clone(),
+            owner: trait_method,
             position: 0,
         }],
         bounds: Vec::new(),
         params: vec![Param {
             name: "input".into(),
             ty: Ty::Array(Box::new(Ty::Tuple(vec![
-                Ty::SelfType(trait_owner.clone()),
+                Ty::SelfType(trait_owner),
                 Ty::Parameter {
-                    owner: trait_method.clone(),
+                    owner: trait_method,
                     position: 0,
                 },
             ]))),
@@ -158,7 +215,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         implementation: CallableImplementation::Script,
         name: "read".into(),
         generic_params: vec![GenericParam {
-            owner: impl_method.clone(),
+            owner: impl_method,
             position: 0,
         }],
         bounds: Vec::new(),
@@ -167,7 +224,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
             ty: Ty::Array(Box::new(Ty::Tuple(vec![
                 for_type.clone(),
                 Ty::Parameter {
-                    owner: impl_method.clone(),
+                    owner: impl_method,
                     position: 0,
                 },
             ]))),
@@ -177,7 +234,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
     };
     let cancel = CancellationToken::default();
     let trait_instance = NominalTy {
-        declaration: trait_owner.clone(),
+        declaration: trait_owner,
         arguments: Vec::new(),
         associated_types: Default::default(),
     };
@@ -185,7 +242,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         name: "Read".into(),
         associated_type_families: Vec::new(),
         associated_consts: Vec::new(),
-        declaration: impl_owner.clone(),
+        declaration: impl_owner,
         for_type: for_type.clone(),
         trait_type: Ty::Trait(trait_instance.clone()),
         generic_params: Vec::new(),
@@ -199,6 +256,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
     declared.implementation = CallableImplementation::Script;
     declared.method_policy.override_allowed = false;
@@ -208,6 +266,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
     declared.method_policy.override_allowed = true;
     assert!(same_method_contract(
@@ -216,6 +275,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
     declared.implementation = CallableImplementation::Required;
     let original_param = implemented.params[0].ty.clone();
@@ -229,11 +289,12 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
     implemented.params[0].ty = original_param;
     declared.bounds.push(GenericBound {
         ty: Ty::Parameter {
-            owner: trait_method.clone(),
+            owner: trait_method,
             position: 0,
         },
         constraints: vec![Constraint::Standard(
@@ -242,7 +303,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
     });
     implemented.bounds.push(GenericBound {
         ty: Ty::Parameter {
-            owner: impl_method.clone(),
+            owner: impl_method,
             position: 0,
         },
         constraints: declared.bounds[0].constraints.clone(),
@@ -253,6 +314,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
     implemented.bounds[0].constraints.clear();
     assert!(!same_method_contract(
@@ -261,19 +323,20 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
-    let marker = owner(&module, &[], DefinitionKind::Trait, "Marker");
+    let marker = owner(&context, &module, DefinitionKind::Trait, "Marker");
     let applied = |parameter_owner| {
         Constraint::Trait(NominalTy {
             associated_types: Default::default(),
-            declaration: marker.clone(),
+            declaration: marker,
             arguments: vec![Ty::Array(Box::new(Ty::Parameter {
                 owner: parameter_owner,
                 position: 0,
             }))],
         })
     };
-    declared.bounds[0].constraints = vec![applied(trait_method.clone())];
+    declared.bounds[0].constraints = vec![applied(trait_method)];
     implemented.bounds[0].constraints = vec![applied(impl_method)];
     assert!(same_method_contract(
         &declared,
@@ -281,6 +344,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
     let Constraint::Trait(instance) = &mut implemented.bounds[0].constraints[0] else {
         unreachable!()
@@ -292,20 +356,24 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &trait_instance,
         &make_table(),
         &cancel,
+        &context.snapshot()
     ));
 }
 
 #[test]
 fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
+    let context = DefinitionContext::new().unwrap();
     let module = ModuleIdentity::single_file("caller.kgr");
-    let interface_id = owner(&module, &[], DefinitionKind::Trait, "Read");
+    let interface_id = owner(&context, &module, DefinitionKind::Trait, "Read");
     let dependency_id = owner(
+        &context,
         &ModuleIdentity::single_file("dependency.kgr"),
-        &[],
         DefinitionKind::Trait,
         "Value",
     );
-    let member = identity::associated_type_id(&dependency_id, "Item");
+    let member = context
+        .intern_child(dependency_id, DefinitionKind::AssociatedType, "Item", 0)
+        .unwrap();
     let receiver = Ty::Builtin(BuiltinType::I32);
     let dependency_view = NominalTy {
         declaration: dependency_id,
@@ -322,7 +390,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         return_type: Ty::Projection {
             receiver: Box::new(receiver.clone()),
             interface: Box::new(dependency_view.clone()),
-            member: member.clone(),
+            member: member,
             arguments: vec![],
         },
     };
@@ -339,7 +407,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
     };
     let table = InterfaceTable {
         name: "Read".into(),
-        declaration: owner(&module, &[], DefinitionKind::Impl, ""),
+        declaration: owner(&context, &module, DefinitionKind::Impl, ""),
         generic_params: vec![],
         bounds: vec![],
         for_type: receiver.clone(),
@@ -362,7 +430,8 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         &implemented,
         &view,
         &table,
-        &cancel
+        &cancel,
+        &context.snapshot()
     ));
     let normalize = |ty: &Ty| {
         normalize_projections(
@@ -371,7 +440,10 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
                 projection_output(
                     ImplementationPattern {
                         protocol: match &dependency.trait_type {
-                            Ty::Trait(interface) => Protocol::from_id(&interface.declaration),
+                            Ty::Trait(interface) => Protocol::from_definition(
+                                &interface.declaration,
+                                &context.snapshot(),
+                            ),
                             _ => None,
                         },
                         storage_access: None,

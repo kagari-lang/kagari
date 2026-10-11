@@ -3024,3 +3024,37 @@ source/decoded/runtime scope separation and equivalent malformed identity cases.
 Structure checks 1085 Rust files with zero violations/exceptions; formatting and
 diff checks pass. No new production exports, generic identity models or semantic
 path projections were introduced.
+
+
+### SI06 contract matching and verifier fixture migration
+
+Matching fixtures now import the installed collection contract into an explicit
+context and construct custom nominal applications from registered IDs. Repeated
+binders and associated family members keep distinct registered owners. Verifier
+fixtures likewise register source declarations before validating them, import
+installed conversion adapters, and construct forged method names/kinds through
+context allocation. A registered wrong-kind member still reaches contract
+verification; registration does not authorize a forged adapter. Method-substitution,
+linked projection and cancellation assertions remain intact.
+
+`cargo test -p kagari-contract --lib types::matching::tests:: --no-fail-fast
+--message-format=short` was selected for the changed matching behavior, but the
+library test executable cannot yet build. The initial diagnostic set had 221
+errors; after migrating matching/verify fixtures and fixing one definition-query
+argument order, the final attempt reports 165 errors, none in these two changed
+files. Representative remaining failures are missing DefinitionPath fixture types
+in applications/proofs, old ModuleDecl::definition/variant_id signatures in callable
+interface tests, missing retained tables in ProofCatalog::new and trait_contract,
+and path mutation on fixed IDs in inheritance/native tests. The owning SI06
+follow-up is migration of those existing library fixture files; no selected test
+ran, and no pass is claimed. Do not repeat this command before repairing those
+consumers. The next behavioral selection should include the changed verifier cases
+once the library test executable builds, then the directly changed fixture contracts;
+complete workspace/backend coverage remains CI-only.
+
+Manual review confirms fixed owner/member IDs, retained scope access and unchanged
+rejection assertions. `uv run --locked scripts/check_structure.py` checks 1085 Rust
+files with zero violations/exceptions; `cargo fmt --all -- --check` and
+`git diff --check` pass. This intermediate checkpoint changes test fixtures only;
+previous production/library and focused integration evidence remains applicable.
+The goal and final documentation retirement remain open.
