@@ -209,7 +209,9 @@ impl KbcArtifact {
         Ok(artifact)
     }
 
-    fn validate_resource_limits(
+    /// Bound the complete editable envelope and check its reference scope.
+    /// This does not establish compatibility, graph validity or executable evidence.
+    pub fn validate_resource_limits(
         &self,
         definitions: &DefinitionTable,
     ) -> Result<(), ArtifactValidationError> {

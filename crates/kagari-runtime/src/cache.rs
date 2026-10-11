@@ -6,7 +6,9 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::ModuleIdentity;
+use kagari_common::identity::{
+    ModuleIdentity, mapping::DefinitionMappingError, table::DefinitionTable,
+};
 use std::{cell::RefCell, collections::HashMap};
 
 use {kagari_abi::version::KAGARI_RUNTIME_HELPER_ABI_VERSION, kagari_contract::ids::FunctionRef};
@@ -36,29 +38,41 @@ pub struct ReloadDependencySnapshot {
 }
 
 impl ReloadDependencySnapshot {
-    pub fn from_program(program: &BytecodeProgram) -> Self {
-        let mut snapshot = Self::from_bytecode(&program.modules[program.root.index()]);
-        snapshot.module_fingerprint = ArtifactFingerprint::of_serialized(program);
-        snapshot.host_interface_fingerprint = ArtifactFingerprint::of_program_hosts(program);
-        snapshot.dependency_fingerprints = program.dependency_fingerprints();
-        snapshot
+    pub fn from_program(
+        program: &BytecodeProgram,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        let mut snapshot =
+            Self::from_bytecode(&program.modules[program.root.index()], definitions)?;
+        snapshot.module_fingerprint = ArtifactFingerprint::of_record(program, definitions)?;
+        snapshot.host_interface_fingerprint =
+            ArtifactFingerprint::of_program_hosts(program, definitions)?;
+        snapshot.dependency_fingerprints = program.dependency_fingerprints(definitions)?;
+        Ok(snapshot)
     }
 
-    pub fn from_bytecode(module: &BytecodeModule) -> Self {
-        Self {
-            module_fingerprint: ArtifactFingerprint::of_serialized(module),
-            public_abi_fingerprints: public_abi_fingerprints_for_module(module),
+    pub fn from_bytecode(
+        module: &BytecodeModule,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            module_fingerprint: ArtifactFingerprint::of_record(module, definitions)?,
+            public_abi_fingerprints: public_abi_fingerprints_for_module(module, definitions)?,
             typed_path_fingerprints: path_fingerprints_for_module(module),
             dependency_fingerprints: Vec::new(),
             host_interface_fingerprint: ArtifactFingerprint::of_host_interface(
                 &module.host_interface,
-            ),
+                definitions,
+            )?,
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
-        }
+        })
     }
 
-    pub fn from_artifact(artifact: &KbcArtifact) -> Self {
-        Self::from_program(&artifact.program)
+    pub fn from_artifact(
+        artifact: &KbcArtifact,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        Self::from_program(&artifact.program, definitions)
     }
 }
 

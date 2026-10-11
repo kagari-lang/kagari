@@ -715,3 +715,62 @@ Structural review checked changed production imports, table ownership, visibilit
 path uses, representation parameters and effective LOC. Removed copied-handle
 clones and an unnecessary collector visibility. The structure checker passes 1043
 Rust files with no violations or exceptions; formatting and diff checks pass.
+
+
+### SI05 runtime program adoption and Native interface bindings
+
+Runtime program creation now accepts scoped editable metadata with its immutable
+input table, preflights resources before import, imports into the explicit target
+writer and consumes bytecode verification evidence. Loaded-module editable extraction
+retains its scope. Removed `VerifiedProgram::paths` and whole-module path conversions
+from dependency snapshots, interpreter invalidation and reload ABI comparison.
+Those boundaries hash canonical scoped records; independent contexts are compared
+by their exact portable content without confusing ID equality with generation
+identity. Module-key/epoch checks, source-version Arcs, retained dependency versions,
+Host relinking and publication checks remain separate and unchanged.
+
+Raw reload preflight functions now consume the candidate and return the bytecode
+or artifact verification evidence they established. Installation adopts that seal
+instead of constructing and verifying the same candidate again. Artifact resource
+preflight is an explicit bounded-envelope operation, also run before cross-context
+import; it does not grant graph/compatibility evidence. Raw and already-verified
+reload routes still check the active target and complete member ABI/path set.
+
+A normalized runtime program must retain identities for implicit public declarations
+as well as explicit type/binder references. The bytecode identity collector is now
+a shared, documented owner for this concrete adoption requirement. It checks the
+entire input reference prefix before registering names and returns a frozen table;
+it does not establish ABI validity. Runtime normalization invokes it after explicit
+ID remapping, including programs with no nominal references, and preserves the
+original source-version identity. Reference-free modules still share their existing
+module Arcs. This is not a second declaration resolver or a module interner.
+
+Native interface member lookup now borrows scoped contracts from the pinned program,
+queries method IDs from that snapshot and carries an ID plus its retained owner.
+The public member handle exposes its declaration ID and matching table; explicit
+path-taking queries resolve at entry. Closed and generic interface signatures use
+scoped checked call evidence directly, without catalog path export/reimport. Existing
+public/ambiguous-inheritance rules, generic call witness keys, type provenance,
+program leases and cache version checks remain. Native registry link validation also
+uses the installed scoped import directly. Four runtime trait lookup consumers now
+call the fixed-ID contract owner.
+
+`cargo check -p kagari-runtime --lib` now reaches 20 errors, all in unmigrated Host
+registration/reflection code: `host/registry.rs`, `host/path_fingerprint.rs`,
+`host.rs` and `metadata/host.rs`. This supersedes the 59-error runtime diagnostic.
+Temporary migration mistakes in the trait-call argument order and borrowing of
+interface contracts from temporary loaded handles were repaired; scoped interfaces
+now borrow the immutable program module array. Runtime library checking and runtime
+behavioral tests are still not passed. SI02 Host input adoption must own the remaining
+path records and registration context, including member/path contracts and reflection
+fingerprints; do not restore path validators to resolve these errors.
+
+Bytecode library build and Clippy pass after sharing the collector. The two affected
+tracked identity tests (consuming seal/extraction and imported Host path/canonical
+encoding) pass again through the direct harness described above. Earlier unchanged
+focused checks remain evidence for their own code; no workspace sweep was run.
+Structure passes 1043 Rust files with no exceptions; changed production imports,
+visibility, borrowed ownership and retained version checks were reviewed. Formatting
+and diff checks pass. Runtime pinned-reload/interface behavior, the normal Cargo
+integration route, remaining bytecode fixtures and downstream MIR/compiler/HIR
+migration remain required, with the exhaustive feature/backend matrix reserved for CI.

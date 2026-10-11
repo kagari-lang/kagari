@@ -803,9 +803,11 @@ verification and executable adoption. Existing envelope and type limits still ap
 
 Runtime preparation normalizes independent verified inputs into its own context
 while retaining original immutable version identity and dependency versions.
-Nonempty module metadata is copied during contextual normalization; code-image
-sharing across independent runtimes must not be inferred from original version
-sharing. Definition table snapshots share their prefix storage, but appending
+Metadata with identity references is copied during contextual normalization;
+reference-free module records can retain their existing Arcs. Implicit public
+names are collected in the destination context by the same bytecode-owned identity
+collector used before verification. Code-image sharing across independent runtimes
+must not be inferred from original version sharing. Definition table snapshots share their prefix storage, but appending
 while a snapshot is retained currently copies the table's index containers.
 
 ## Runtime Model

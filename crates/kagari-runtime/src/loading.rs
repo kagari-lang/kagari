@@ -21,7 +21,10 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{metadata::DefinitionMetadata, table::DefinitionId},
+};
 
 impl Runtime {
     /// Keep one exact module version reachable until the last lease is dropped.
@@ -141,9 +144,10 @@ impl Runtime {
     pub fn load_program(
         &mut self,
         name: impl Into<String>,
-        bytecode: BytecodeProgram,
+        bytecode: DefinitionMetadata<BytecodeProgram>,
     ) -> Result<LoadedModule, RuntimeError> {
-        self.load_verified_program(name, VerifiedProgram::new(bytecode)?)
+        let verified = VerifiedProgram::new(bytecode, self.definition_context())?;
+        self.load_verified_program(name, verified)
     }
 
     /// Link shared verified code with this runtime's own host bindings and state.
@@ -176,15 +180,27 @@ impl Runtime {
         &self,
         active: &LoadedModule,
         name: impl Into<String>,
-        bytecode: BytecodeProgram,
+        bytecode: DefinitionMetadata<BytecodeProgram>,
     ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
-        validate_program_resource_limits(&bytecode).map_err(ReloadValidationError::Artifact)?;
+        validate_program_resource_limits(bytecode.records(), bytecode.definitions())
+            .map_err(ReloadValidationError::Artifact)?;
         self.validate_loaded_module(active)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&active.name);
-        validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
-        let program = VerifiedProgram::new(bytecode).map_err(ReloadValidationError::Runtime)?;
+        let bytecode = bytecode
+            .import_into(self.definition_context(), &CancellationToken::default())
+            .map_err(|error| {
+                ReloadValidationError::Runtime(RuntimeError::module_validation(error.to_string()))
+            })?;
+        let verified = validate_reload_candidate(
+            active,
+            &name,
+            bytecode.into_records(),
+            latest.as_ref(),
+            self.definition_context(),
+        )?;
+        let program = VerifiedProgram::from_bytecode(verified);
         self.stage_reload_verified_program(active, name, program)
     }
 
@@ -192,22 +208,31 @@ impl Runtime {
         &self,
         active: &LoadedModule,
         name: impl Into<String>,
-        artifact: KbcArtifact,
+        artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,
     ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
         self.validate_loaded_module(active)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&active.name);
-        validate_reload_artifact_candidate(
+        artifact
+            .records()
+            .validate_resource_limits(artifact.definitions())
+            .map_err(ReloadValidationError::Artifact)?;
+        let artifact = artifact
+            .import_into(self.definition_context(), &CancellationToken::default())
+            .map_err(|error| {
+                ReloadValidationError::Runtime(RuntimeError::module_validation(error.to_string()))
+            })?;
+        let verified = validate_reload_artifact_candidate(
             active,
             &name,
-            &artifact,
+            artifact.into_records(),
             compatibility,
             latest.as_ref(),
+            self.definition_context(),
         )?;
-        let program =
-            VerifiedProgram::new(artifact.program).map_err(ReloadValidationError::Runtime)?;
+        let program = VerifiedProgram::from_bytecode(verified.into_bytecode());
         self.stage_reload_verified_program(active, name, program)
     }
 
@@ -373,12 +398,11 @@ impl Runtime {
             .invalidate_for_reload(&ReloadInvalidation {
                 module_name: module.name.clone(),
                 module_identity: module.bytecode.identity.clone(),
-                module_fingerprint: ArtifactFingerprint::of_serialized(
-                    &module
-                        .verified_program()
-                        .paths(module.bytecode.as_ref())
-                        .expect("verified module identity scope"),
-                ),
+                module_fingerprint: ArtifactFingerprint::of_record(
+                    module.bytecode.as_ref(),
+                    module.definitions(),
+                )
+                .expect("verified module identity scope"),
                 module_id: module.id,
                 published: module.key(),
                 dependencies,

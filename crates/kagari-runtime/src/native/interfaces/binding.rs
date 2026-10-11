@@ -13,7 +13,10 @@ use crate::{
         },
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_contract::{callable::interface::InterfaceCallContract, types::PublicItem};
 use kagari_types::{
     declaration::TraitDef,
@@ -32,14 +35,19 @@ pub struct InterfaceMember {
     pub(super) interface: TypeArgument,
     pub(super) owner: LoadedModule,
     pub(super) slot: usize,
-    declaration: DefinitionPath,
-    pub(super) contract: TraitDef,
+    declaration: DefinitionId,
+    pub(super) contract: TraitDef<DefinitionId>,
     _program: ProgramLease,
 }
 
 impl InterfaceMember {
-    pub fn declaration(&self) -> &DefinitionPath {
-        &self.declaration
+    /// Declaration identity within this member's pinned program snapshot.
+    pub fn declaration(&self) -> DefinitionId {
+        self.declaration
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        self.owner.definitions()
     }
 }
 
@@ -99,34 +107,32 @@ fn resolve_member(
     runtime: &Runtime,
     source_owner: &LoadedModule,
     source: &TypeArgument,
-    accepts: impl Fn(&DefinitionPath, &str) -> bool,
+    accepts: impl Fn(DefinitionId, &str) -> bool,
 ) -> NativeResult<InterfaceMember> {
     runtime.gc().ensure_no_native_borrow()?;
     runtime.validate_loaded_module(source_owner)?;
     source.validate(runtime)?;
-    let catalog = &runtime.native_entries.catalog;
+    let definitions = source_owner.definitions();
     let mut contracts = BTreeMap::new();
-    for owner in source_owner.members() {
-        for item in &owner.bytecode.public_items {
+    for owner in source_owner.verified_program().modules() {
+        for item in &owner.public_items {
             if let PublicItem::Trait(contract) = item {
-                let declaration = DefinitionPath {
-                    module: owner.bytecode.identity.clone(),
-                    path: vec![DefinitionPathSegment {
-                        kind: DefinitionKind::Trait,
-                        name: contract.name.clone(),
-                        occurrence: 0,
-                    }],
-                };
-                contracts.insert(declaration, (catalog.paths(contract)?, true));
+                let root = definitions
+                    .lookup_root(&owner.identity)
+                    .ok_or_else(invalid)?;
+                let declaration = definitions
+                    .lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
+                    .ok_or_else(invalid)?;
+                contracts.insert(declaration, (contract, true));
             }
         }
-        for contract in &owner.bytecode.trait_contracts {
+        for contract in &owner.trait_contracts {
             contracts
-                .entry(owner.definition(contract.declaration)?.to_path())
-                .or_insert((catalog.paths(&contract.abi)?, false));
+                .entry(contract.declaration)
+                .or_insert((&contract.abi, false));
         }
     }
-    let Ty::Trait(root) = catalog.paths(source.ty())? else {
+    let Ty::Trait(root) = source.ty() else {
         return Err(invalid());
     };
     if !contracts
@@ -135,11 +141,12 @@ fn resolve_member(
     {
         return Err(invalid());
     }
-    let lookup = |id: &DefinitionPath| contracts.get(id).map(|(contract, _)| contract);
+    let lookup = |id: &DefinitionId| contracts.get(id).map(|(contract, _)| *contract);
     let ancestry = interface_views(
-        &root,
+        root,
         &Ty::Trait(root.clone()),
         &Default::default(),
+        definitions,
         &lookup,
     )
     .map_err(|_| invalid())?;
@@ -150,13 +157,15 @@ fn resolve_member(
             continue;
         }
         for (slot, method) in contract.methods.iter().enumerate() {
-            let mut declaration = interface.declaration.clone();
-            declaration.path.push(DefinitionPathSegment {
-                kind: DefinitionKind::Method,
-                name: method.name.clone(),
-                occurrence: 0,
-            });
-            if !accepts(&declaration, &method.name) {
+            let declaration = definitions
+                .lookup_child(
+                    interface.declaration,
+                    DefinitionKind::Method,
+                    &method.name,
+                    0,
+                )
+                .ok_or_else(invalid)?;
+            if !accepts(declaration, &method.name) {
                 continue;
             }
             if found.is_some() {
@@ -165,20 +174,21 @@ fn resolve_member(
                 ));
             }
             let argument = source.derive(runtime, source_owner, |expression| {
-                let Ty::Trait(root) = catalog.paths(expression).ok()? else {
+                let Ty::Trait(root) = expression else {
                     return None;
                 };
                 let ancestry = interface_views(
-                    &root,
+                    root,
                     &Ty::Trait(root.clone()),
                     &Default::default(),
+                    definitions,
                     &lookup,
                 )
                 .ok()?;
                 let parent = ancestry
                     .into_iter()
                     .find(|parent| parent.declaration == interface.declaration)?;
-                catalog.scope(&Ty::Trait(parent)).ok()
+                Some(Ty::Trait(parent))
             })?;
             let program = runtime
                 .retain_program(source_owner, ModuleEpochRetention::RuntimeValue)
@@ -189,7 +199,7 @@ fn resolve_member(
                 owner: source_owner.clone(),
                 slot,
                 declaration,
-                contract: contract.clone(),
+                contract: (*contract).clone(),
                 _program: program,
             });
         }
@@ -214,6 +224,10 @@ impl Runtime {
         interface: &TypeArgument,
         declaration: &DefinitionPath,
     ) -> NativeResult<InterfaceMember> {
+        let declaration = owner
+            .definitions()
+            .lookup(declaration)
+            .ok_or_else(invalid)?;
         resolve_member(self, owner, interface, |candidate, _| {
             candidate == declaration
         })
@@ -305,26 +319,25 @@ impl Runtime {
         &self,
         member: &InterfaceMember,
     ) -> NativeResult<ScopedSignature> {
-        let catalog = &self.native_entries.catalog;
         let function = member.interface.derive(self, &member.owner, |expression| {
-            let Ty::Trait(interface) = catalog.paths(expression).ok()? else {
+            let Ty::Trait(interface) = expression else {
                 return None;
             };
             let call = InterfaceCallContract {
                 normalizations: vec![],
                 receiver: None,
                 operations: vec![],
-                interface,
+                interface: interface.clone(),
                 method_slot: u32::try_from(member.slot).ok()?,
                 arguments: vec![],
             };
-            let signature = call.signature(&member.contract, &Default::default()).ok()?;
-            catalog
-                .scope(&Ty::Function {
-                    params: signature.params,
-                    result: Box::new(signature.result),
-                })
-                .ok()
+            let signature = call
+                .signature(&member.contract, &Default::default(), member.definitions())
+                .ok()?;
+            Some(Ty::Function {
+                params: signature.params,
+                result: Box::new(signature.result),
+            })
         })?;
         let Ty::Function { params, .. } = function.ty() else {
             return Err(invalid());

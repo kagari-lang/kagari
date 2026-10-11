@@ -107,12 +107,12 @@ impl Runtime {
             let contract = owner
                 .members()
                 .find_map(|member| {
-                    abi::trait_contract_in(
-                        Some(member.definitions()),
+                    abi::trait_contract(
                         &member.bytecode.identity,
                         &member.bytecode.public_items,
                         &member.bytecode.trait_contracts,
                         &interface.declaration,
+                        member.definitions(),
                     )
                     .cloned()
                 })

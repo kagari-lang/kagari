@@ -13,8 +13,8 @@ use kagari_contract::types::PublicItem;
 
 /// Existing references must belong to the input prefix before any names are added.
 /// Collected names assign identity only; module and linked verifiers establish ABI.
-pub(crate) fn prepare(
-    modules: &[BytecodeModule],
+pub fn collect(
+    modules: &[&BytecodeModule],
     context: &DefinitionContext,
 ) -> Result<DefinitionTable, BytecodeVerificationError> {
     let cancel = CancellationToken::default();
@@ -25,12 +25,12 @@ pub(crate) fn prepare(
             .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     }
     for module in modules {
-        collect(module, context).map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+        collect_module(module, context).map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     }
     Ok(context.snapshot())
 }
 
-fn collect(
+fn collect_module(
     module: &BytecodeModule,
     context: &DefinitionContext,
 ) -> Result<(), DefinitionTableError> {

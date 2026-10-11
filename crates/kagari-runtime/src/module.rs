@@ -32,10 +32,10 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{
-    artifact::{ArtifactFingerprint, ArtifactValidationError},
+    artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     instruction::{EnumId, PathId, StructId},
     module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
+    program::{BytecodeProgram, ModuleRef, identity, verified::VerifiedBytecodeProgram},
 };
 
 use kagari_contract::layout::{EnumLayout, EnumVariantLayout, StructLayout};
@@ -43,9 +43,10 @@ use kagari_contract::layout::{EnumLayout, EnumVariantLayout, StructLayout};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath, ModuleIdentity,
+        ModuleIdentity,
         map::DefinitionContext,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
 };
@@ -132,8 +133,12 @@ pub struct VerifiedProgram {
 }
 
 impl VerifiedProgram {
-    pub fn new(program: BytecodeProgram) -> Result<Self, RuntimeError> {
-        let program = VerifiedBytecodeProgram::new(program).map_err(|error| match error {
+    /// Import scoped editable records, verify once, and retain immutable evidence.
+    pub fn new(
+        program: DefinitionMetadata<BytecodeProgram>,
+        context: &DefinitionContext,
+    ) -> Result<Self, RuntimeError> {
+        let invalid = |error: ArtifactValidationError| match error {
             ArtifactValidationError::ResourceLimit(_) => {
                 RuntimeError::resource_limit(error.to_string())
             }
@@ -141,18 +146,27 @@ impl VerifiedProgram {
                 RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
             }
             error => RuntimeError::module_validation(error.to_string()),
-        })?;
+        };
+        validate_program_resource_limits(program.records(), program.definitions())
+            .map_err(invalid)?;
+        let program = if program.definitions().id() == context.snapshot().id() {
+            program.into_records()
+        } else {
+            program
+                .import_into(context, &CancellationToken::default())
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?
+                .into_records()
+        };
+        let program = VerifiedBytecodeProgram::new(program, context).map_err(invalid)?;
         Ok(Self::from_bytecode(program))
     }
 
     /// Adopt bytecode-owned immutable verification evidence. Runtime-local host,
     /// native, ownership and generation checks still run when linking this code.
     pub fn from_bytecode(program: VerifiedBytecodeProgram) -> Self {
-        let dependencies = ReloadDependencySnapshot::from_program(
-            &program
-                .to_unverified(&CancellationToken::default())
-                .expect("verified program retains its bounded identity scope"),
-        );
+        let dependencies =
+            ReloadDependencySnapshot::from_program(program.program(), program.definitions())
+                .expect("verified bytecode retains its bounded identity scope");
         let definitions = program.definitions().clone();
         let modules: Arc<[Arc<BytecodeModule<DefinitionId>>]> = program
             .program()
@@ -187,18 +201,6 @@ impl VerifiedProgram {
             modules,
             dependencies,
         }
-    }
-
-    pub(crate) fn paths<T: DefinitionRecord<DefinitionId>>(
-        &self,
-        record: &T,
-    ) -> Result<T::Rebind<DefinitionPath>, RuntimeError> {
-        record
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |id| Ok(self.definitions.resolve(*id)?.to_path()),
-                &CancellationToken::default(),
-            ))
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))
     }
 
     pub fn root(&self) -> ModuleRef {
@@ -239,29 +241,34 @@ impl VerifiedProgram {
                 )
                 .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         }
-        if ids.is_empty() {
-            return Ok(self.clone());
-        }
-        let remap = context
-            .import(&self.definitions, ids)
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let modules = self
-            .modules
-            .iter()
-            .map(|module| {
-                module
-                    .map_identities(&mut DefinitionMapper::new(
-                        &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
-                        &cancel,
-                    ))
-                    .map(Arc::new)
-            })
-            .collect::<Result<_, _>>()
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let modules = if ids.is_empty() {
+            self.modules.clone()
+        } else {
+            let remap = context
+                .import(&self.definitions, ids)
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+            self.modules
+                .iter()
+                .map(|module| {
+                    module
+                        .map_identities(&mut DefinitionMapper::new(
+                            &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
+                            &cancel,
+                        ))
+                        .map(Arc::new)
+                })
+                .collect::<Result<_, _>>()
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?
+        };
+        let definitions = identity::collect(
+            &modules.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            context,
+        )
+        .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         Ok(Self {
             root: self.root,
             modules,
-            definitions: context.snapshot(),
+            definitions,
             execution: self.execution.clone(),
             version: self.version.clone(),
             version_definitions: self.version_definitions.clone(),
@@ -322,17 +329,17 @@ impl LoadedModule {
         self.host_types.get(&id).copied()
     }
 
-    /// Materialize editable authoring metadata without verification evidence.
+    /// Copy editable records and their retained identity scope, without the seal.
     pub fn to_unverified(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<BytecodeModule, RuntimeError> {
-        self.bytecode
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |id| Ok(self.definitions().resolve(*id)?.to_path()),
-                cancel,
-            ))
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))
+    ) -> Result<DefinitionMetadata<BytecodeModule>, RuntimeError> {
+        DefinitionMetadata::checked(
+            self.definitions().clone(),
+            self.bytecode.as_ref().clone(),
+            cancel,
+        )
+        .map_err(|error| RuntimeError::module_validation(error.to_string()))
     }
 
     pub(crate) fn definition(&self, id: DefinitionId) -> Result<DefinitionView<'_>, RuntimeError> {

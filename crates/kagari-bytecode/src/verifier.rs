@@ -35,7 +35,7 @@ use kagari_types::{
     declaration::verify::{concrete_type_valid, validate_native_declarations},
     ty::Ty,
 };
-use std::{collections::HashSet, iter, slice};
+use std::{collections::HashSet, iter};
 
 #[cfg(test)]
 mod async_tests;
@@ -204,7 +204,7 @@ pub fn verify_module(
     if !module.dependencies.is_empty() {
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
-    let definitions = identity::prepare(slice::from_ref(module), context)?;
+    let definitions = identity::collect(&[module], context)?;
     verify_module_with_program(module, None, &mut FlowBudget::default(), &definitions)?;
     trait_bounds::verify_trait_bounds(module, &[module], None, context)?;
     Ok(())

@@ -226,12 +226,12 @@ impl Runtime {
             .members()
             .find(|member| &member.bytecode.identity == module)
             .and_then(|member| {
-                abi::trait_contract_in(
-                    Some(member.definitions()),
+                abi::trait_contract(
                     &member.bytecode.identity,
                     &member.bytecode.public_items,
                     &member.bytecode.trait_contracts,
                     &interface_type.declaration,
+                    member.definitions(),
                 )
                 .cloned()
             })

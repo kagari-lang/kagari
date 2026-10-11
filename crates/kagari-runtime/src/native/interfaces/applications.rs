@@ -102,13 +102,12 @@ impl ApplicationEvidence {
         runtime: &Runtime,
         member: &InterfaceMember,
     ) -> NativeResult<ScopedSignature> {
-        let catalog = &runtime.native_entries.catalog;
-        let call = catalog.paths(&self.contract)?;
-        let signature = call
-            .signature(&member.contract, &Default::default())
+        let signature = self
+            .contract
+            .signature(&member.contract, &Default::default(), member.definitions())
             .map_err(|_| missing())?;
-        let params = catalog.scope(&signature.params)?;
-        let result = catalog.scope(&signature.result)?;
+        let params = signature.params;
+        let result = signature.result;
         Ok(ScopedSignature {
             params: runtime
                 .resolve_type_arguments(&self.owner, params.get(1..).ok_or_else(missing)?)?,
@@ -125,10 +124,7 @@ impl ApplicationEvidence {
         member: &InterfaceMember,
     ) -> NativeResult<AppliedMethod> {
         let arguments = runtime.resolve_type_arguments(&self.owner, &self.contract.arguments)?;
-        let parameters = runtime
-            .native_entries
-            .catalog
-            .scope(&member.contract.methods[member.slot].generic_params)?;
+        let parameters = member.contract.methods[member.slot].generic_params.clone();
         let operations =
             runtime.bind_operations_in(&self.owner, None, &self.contract.operations)?;
         let mut environment =

@@ -28,7 +28,7 @@ use std::{
     slice,
 };
 
-pub(crate) mod identity;
+pub mod identity;
 pub mod verified;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,7 +69,7 @@ pub(crate) fn verify_with_suspensions(
     program: &BytecodeProgram,
     context: &DefinitionContext,
 ) -> Result<ProgramSuspensions, BytecodeVerificationError> {
-    let definitions = &identity::prepare(&program.modules, context)?;
+    let definitions = &identity::collect(&program.modules.iter().collect::<Vec<_>>(), context)?;
     let mut flow_budget = FlowBudget::default();
     let mut suspensions = Vec::with_capacity(program.modules.len());
     let invalid = || BytecodeVerificationError::InvalidProgramGraph;

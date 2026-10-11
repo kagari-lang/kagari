@@ -234,8 +234,7 @@ impl NativeRegistry {
                     .find(|declaration| declaration.declaration == import.instance.declaration)
             })
             .ok_or_else(|| RuntimeError::module_validation("native declaration is absent"))?;
-        let authored = program.paths(import)?;
-        if !authored.structurally_valid()
+        if !import.structurally_valid(program.definitions())
             || !entry.declarations.contains(declaration)
             || declaration.function.implementation != CallableImplementation::Native(import.binding)
         {

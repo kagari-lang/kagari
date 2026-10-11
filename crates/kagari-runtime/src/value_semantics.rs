@@ -26,12 +26,12 @@ pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
         .modules()
         .iter()
         .any(|module| {
-            abi::trait_contract_in(
-                Some(owner.definitions()),
+            abi::trait_contract(
                 &module.identity,
                 &module.public_items,
                 &module.trait_contracts,
                 &snapshot.interface_type.declaration,
+                owner.definitions(),
             )
             .is_some_and(|contract| contract.storage_access.is_some())
         })
