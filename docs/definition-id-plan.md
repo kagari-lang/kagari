@@ -2649,3 +2649,60 @@ diff checks pass. No full workspace/backend matrix or performance measurement ra
 KBC aggregate wire conversion, shared semantic representation-parameter removal,
 obsolete rebinding/path APIs and the recorded compiler/runtime fixture repairs
 remain SI05/SI06 work. This checkpoint does not complete SI integration.
+
+
+### SI05 complete KBC wire aggregate and fingerprint path
+
+The KBC owner now has fixed envelope, program/module, function, instruction,
+interface-table and call/field wire records. They compose the shared Native, trait,
+layout, semantic-slot, type and Host records introduced by the preceding boundary.
+TraitContractRecord and the HostInterfaceRecord decoder are exposed only through
+their codec modules for these actual cross-crate consumers; all KBC wire modules,
+fields and conversions remain private to the artifact owner. No re-exports or
+representation-generic conversion API were introduced.
+
+KbcArtifact read/write, program/artifact encoded-size admission and the three
+executable fingerprint entrypoints all use these same fixed records. The private
+of_executable_record rebinding helper and portable_projection wrapper are removed.
+They no longer clone whole semantic programs/envelopes to construct a second
+semantic model instantiated with file references. Canonical reference collection
+validates every supplied ID against the retained prefix through DefinitionEncoding
+before implicit declarations are collected by verification. Decoding validates the
+file table, builds fixed-ID unverified facts and retains their table. Existing
+header/ABI, resource, fingerprint, graph, loader and executable sealing steps remain
+separate; serialized bytecode_verified and other summaries are still claims to
+check, not executable authority. Field/tag order, domains and format IDs are unchanged.
+
+Focused local evidence:
+
+- `cargo test -p kagari-bytecode --test identity --message-format=short
+  --no-fail-fast`: all six boundary cases pass, covering malformed envelopes,
+  in-memory resource admission, changed content/ABI/graph rejection, Host ABI
+  canonicalization and portable path records.
+- `cargo test -p kagari-runtime --test offline_host --message-format=short
+  --no-fail-fast`: all eight cases pass. These exercise actual source-free artifact
+  encoding/loading, independent registration scopes, bound-handle ownership,
+  representation/borrowing/effect checks, failed-publication atomicity and reload
+  binding compatibility. Callbacks are not executed by offline validation/linking.
+- A temporary public-API probe reuses the captured-closure and derived enum Hash
+  scenarios from the source-identity checks (including user PartialEq/Eq/Hash
+  implementations). For each lowered program, compare new program/module/artifact
+  fingerprints with the prior canonical portable-record hash; compare complete KBC
+  bytes with the prior encoding; decode into an independent scope, encode again,
+  explicitly adopt into a new context, fully verify the artifact and compare the
+  executable portable facts. All comparisons and verification pass, including enum
+  variant reordering and independent compilation. The probe is migration evidence,
+  not a retained consumer justifying the old semantic representations.
+- `cargo clippy -p kagari-types -p kagari-contract -p kagari-bytecode --lib
+  --message-format=short -- -D warnings` passes. The initial new conversion code
+  dereferenced a decoded boxed-call result rather than its wire input; ordinary
+  owned-box conversion repaired both cases before running the selected tests.
+
+Manual review covers shared ownership, private wire visibility, bounded readers,
+all copied fields/tags, ordered interface/operand vectors, cancellation, error
+propagation and the preserved validation sequence. Structure checks 1086 Rust files
+with zero violations/exceptions; formatting and diff checks pass. No workspace or
+backend matrix, artifact regeneration or performance measurement ran. Both complete
+executable codecs now avoid representation rebinding; shared semantic model
+parameters, old generic Serde/mapping/path APIs and recorded compiler/runtime test
+fixture repairs remain SI06 work. The plan stays active and CI acceptance is unrun.

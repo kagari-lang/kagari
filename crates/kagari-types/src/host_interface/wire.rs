@@ -210,7 +210,7 @@ impl HostInterfaceRecord {
     /// validity; publication and loading keep their existing validation boundary.
     ///
     /// # Errors
-    /// Returns invalid-reference or bounded value-shape errors.
+    /// Returns cancellation, invalid-reference or bounded value-shape errors.
     pub fn encode(
         interface: &HostInterface<DefinitionId>,
         encoding: &DefinitionEncoding,
@@ -229,8 +229,9 @@ impl HostInterfaceRecord {
     ///
     /// # Errors
     /// Rejects unresolved references and malformed, over-deep or trailing value
-    /// nodes. Serde has already bounded the vectors before this conversion.
-    pub(super) fn decode(
+    /// nodes, and propagates cancellation. Serde has already bounded the vectors
+    /// before this conversion.
+    pub fn decode(
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,

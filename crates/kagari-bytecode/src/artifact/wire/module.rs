@@ -1,0 +1,245 @@
+//! Program and module records shared by KBC serialization and fingerprints.
+use crate::{
+    artifact::wire::{
+        function::{BytecodeFunctionRecord, FunctionRecordWire},
+        interface::InterfaceTableRecordWire,
+    },
+    module::{
+        BytecodeModule, BytecodeModuleSlotBuffer, BytecodeTypeTable, ConstantPool, PathTable,
+    },
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        ModuleIdentity,
+        mapping::{DefinitionMappingError, check_cancel},
+        table::{
+            DefinitionId,
+            wire::{DefinitionDecoding, DefinitionEncoding},
+        },
+    },
+};
+use kagari_contract::{
+    layout::wire::{EnumLayoutRecord, StructLayoutRecord},
+    native_import::wire::NativeImportRecord,
+    types::wire::{PublicItemRecord, module::TraitContractRecord},
+};
+use kagari_types::{
+    declaration::wire::native::NativeDeclarationRecord, host_interface::wire::HostInterfaceRecord,
+};
+use serde::{Deserialize, Serialize};
+
+/// File-local BytecodeProgram facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+pub(in crate::artifact) struct BytecodeProgramRecord {
+    root: ModuleRef,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::modules")]
+    modules: Vec<BytecodeModuleRecord>,
+}
+
+impl BytecodeProgramRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(in crate::artifact) fn encode(
+        value: &BytecodeProgram<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            root: value.root,
+            modules: value
+                .modules
+                .iter()
+                .map(|value| BytecodeModuleRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(in crate::artifact) fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<BytecodeProgram<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(BytecodeProgram {
+            root: self.root,
+            modules: self
+                .modules
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+/// File-local BytecodeModule facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+pub(in crate::artifact) struct BytecodeModuleRecord {
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    dependencies: Vec<ModuleRef>,
+    host_interface: HostInterfaceRecord,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    native_imports: Vec<NativeImportRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    native_declarations: Vec<NativeDeclarationRecord>,
+    identity: ModuleIdentity,
+    source_name: String,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    module_slots: BytecodeModuleSlotBuffer,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    constants: ConstantPool,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    types: BytecodeTypeTable,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    structures: Vec<StructLayoutRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    enumerations: Vec<EnumLayoutRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    interface_tables: Vec<InterfaceTableRecordWire>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    paths: PathTable,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    function_table: Vec<FunctionRecordWire>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    public_items: Vec<PublicItemRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+    trait_contracts: Vec<TraitContractRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::functions")]
+    functions: Vec<BytecodeFunctionRecord>,
+}
+
+impl BytecodeModuleRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(in crate::artifact) fn encode(
+        value: &BytecodeModule<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            dependencies: value.dependencies.clone(),
+            host_interface: HostInterfaceRecord::encode(&value.host_interface, encoding, cancel)?,
+            native_imports: value
+                .native_imports
+                .iter()
+                .map(|value| NativeImportRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            native_declarations: value
+                .native_declarations
+                .iter()
+                .map(|value| NativeDeclarationRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            identity: value.identity.clone(),
+            source_name: value.source_name.clone(),
+            module_slots: value.module_slots.clone(),
+            constants: value.constants.clone(),
+            types: value.types.clone(),
+            structures: value
+                .structures
+                .iter()
+                .map(|value| StructLayoutRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            enumerations: value
+                .enumerations
+                .iter()
+                .map(|value| EnumLayoutRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            interface_tables: value
+                .interface_tables
+                .iter()
+                .map(|value| InterfaceTableRecordWire::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            paths: value.paths.clone(),
+            function_table: value
+                .function_table
+                .iter()
+                .map(|value| FunctionRecordWire::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            public_items: value
+                .public_items
+                .iter()
+                .map(|value| PublicItemRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            trait_contracts: value
+                .trait_contracts
+                .iter()
+                .map(|value| TraitContractRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            functions: value
+                .functions
+                .iter()
+                .map(|value| BytecodeFunctionRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(in crate::artifact) fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<BytecodeModule<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(BytecodeModule {
+            dependencies: self.dependencies,
+            host_interface: self.host_interface.decode(decoding, cancel)?,
+            native_imports: self
+                .native_imports
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            native_declarations: self
+                .native_declarations
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            identity: self.identity,
+            source_name: self.source_name,
+            module_slots: self.module_slots,
+            constants: self.constants,
+            types: self.types,
+            structures: self
+                .structures
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            enumerations: self
+                .enumerations
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            interface_tables: self
+                .interface_tables
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            paths: self.paths,
+            function_table: self
+                .function_table
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            public_items: self
+                .public_items
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            trait_contracts: self
+                .trait_contracts
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            functions: self
+                .functions
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}

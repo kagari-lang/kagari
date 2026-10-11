@@ -87,7 +87,7 @@ impl ModuleContractRecord {
 
 /// File-local TraitContract facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
-struct TraitContractRecord {
+pub struct TraitContractRecord {
     declaration: PortableDefinitionRef,
     abi: TraitDefRecord,
 }
@@ -95,7 +95,7 @@ struct TraitContractRecord {
 impl TraitContractRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
-    fn encode(
+    pub fn encode(
         value: &TraitContract<DefinitionId>,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
@@ -109,7 +109,7 @@ impl TraitContractRecord {
 
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
-    fn decode(
+    pub fn decode(
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,

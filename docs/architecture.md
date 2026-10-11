@@ -851,6 +851,15 @@ or executable evidence. Artifact and reload owners retain their verification and
 publication checks. The fingerprint API accepts specific program, module, artifact
 or public-item inputs rather than arbitrary representation-rebindable records.
 
+KBC's private artifact wire records serve file encoding/decoding, encoded-size
+admission and program/module/artifact fingerprints. The same fixed records cover
+functions, instruction operands, interface tables, parent mappings and claimed
+verification summaries, composing the shared contract and Host codecs. Reference
+closure collection and conversion validate the supplied immutable scope before
+implicit declaration collection. Decoding returns unverified facts with their
+table; serialized summary flags grant no executable authority. Header/ABI, resource,
+content hash, graph and loader validation remain at the artifact owners.
+
 MIR's codec owns fixed module/function/block/instruction records and composes the
 shared layout, Native callable, semantic-slot, module-ABI and Host records at their
 contract owners. It never serializes a semantic MIR model instantiated with file

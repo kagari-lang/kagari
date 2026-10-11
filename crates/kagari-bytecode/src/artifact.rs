@@ -20,11 +20,11 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         map::DefinitionContext,
-        mapping::{DefinitionMappingError, DefinitionRecord},
-        metadata::{DefinitionMetadata, PortableMetadata},
+        mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata,
         reference::DefinitionReference,
         scoped::DefinitionReferences,
-        table::{DefinitionId, DefinitionTable, wire::PortableDefinitionRef},
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_contract::{
@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, io, io::Write};
 
 mod limits;
+mod wire;
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 116;
@@ -74,12 +75,7 @@ pub fn validate_program_resource_limits(
     if let Some(reason) = program_count_limit(program, definitions) {
         return Err(ArtifactValidationError::ResourceLimit(reason));
     }
-    let portable = DefinitionMetadata::checked(
-        definitions.clone(),
-        program.clone(),
-        &CancellationToken::default(),
-    )?
-    .to_portable(&CancellationToken::default())?;
+    let portable = wire::encode_program(program, definitions, &CancellationToken::default())?;
     if exceeds_encoded_size(&portable) {
         return Err(ArtifactValidationError::ResourceLimit(
             "artifact encoded size limit exceeded",
@@ -224,8 +220,7 @@ impl KbcArtifact {
         // Check every envelope reference against the input prefix before verification
         // collects implicit declaration names in the append-only context.
         let cancel = CancellationToken::default();
-        let portable = DefinitionMetadata::checked(definitions.clone(), self.clone(), &cancel)?
-            .to_portable(&cancel)?;
+        let portable = wire::encode_artifact(self, definitions, &cancel)?;
         if exceeds_encoded_size(&portable) {
             return Err(ArtifactValidationError::ResourceLimit(
                 "artifact encoded size limit exceeded",
@@ -359,7 +354,10 @@ impl KbcArtifact {
                 message: reason.into(),
             });
         }
-        let portable = self.portable_projection(definitions)?;
+        let portable = wire::encode_artifact(self, definitions, &CancellationToken::default())
+            .map_err(|error| ArtifactCodecError {
+                message: error.to_string(),
+            })?;
         if exceeds_encoded_size(&portable) {
             return Err(ArtifactCodecError {
                 message: "artifact encoded size limit exceeded".into(),
@@ -383,7 +381,7 @@ impl KbcArtifact {
                 message: "unsupported artifact magic or format version".into(),
             });
         }
-        let portable: PortableMetadata<KbcArtifact<PortableDefinitionRef>> = codec()
+        let portable: wire::ArtifactEnvelope = codec()
             .deserialize(bytes)
             .map_err(ArtifactCodecError::from)?;
         let cancel = CancellationToken::default();
@@ -398,18 +396,6 @@ impl KbcArtifact {
             });
         }
         Ok(artifact)
-    }
-
-    fn portable_projection(
-        &self,
-        definitions: &DefinitionTable,
-    ) -> Result<PortableMetadata<KbcArtifact<PortableDefinitionRef>>, ArtifactCodecError> {
-        let cancel = CancellationToken::default();
-        DefinitionMetadata::checked(definitions.clone(), self.clone(), &cancel)
-            .and_then(|metadata| metadata.to_portable(&cancel))
-            .map_err(|error| ArtifactCodecError {
-                message: error.to_string(),
-            })
     }
 
     fn validate_header(
@@ -574,7 +560,11 @@ impl ArtifactFingerprint {
         program: &BytecodeProgram,
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError> {
-        Self::of_executable_record(program, definitions)
+        Ok(Self::of_serialized(&wire::encode_program(
+            program,
+            definitions,
+            &CancellationToken::default(),
+        )?))
     }
 
     /// Hash an executable module's canonical referenced closure.
@@ -582,7 +572,11 @@ impl ArtifactFingerprint {
         module: &BytecodeModule,
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError> {
-        Self::of_executable_record(module, definitions)
+        Ok(Self::of_serialized(&wire::encode_module(
+            module,
+            definitions,
+            &CancellationToken::default(),
+        )?))
     }
 
     /// Hash an artifact envelope's canonical referenced closure, including its header.
@@ -590,22 +584,11 @@ impl ArtifactFingerprint {
         artifact: &KbcArtifact,
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError> {
-        Self::of_executable_record(artifact, definitions)
-    }
-
-    // SI05 removes semantic rebinding here with the remaining executable wire owners.
-    fn of_executable_record<T>(
-        record: &T,
-        definitions: &DefinitionTable,
-    ) -> Result<Self, DefinitionMappingError>
-    where
-        T: DefinitionRecord<DefinitionId> + Clone,
-        T::Rebind<PortableDefinitionRef>: Serialize,
-    {
-        let cancel = CancellationToken::default();
-        let portable = DefinitionMetadata::checked(definitions.clone(), record.clone(), &cancel)?
-            .to_portable(&cancel)?;
-        Ok(Self::of_serialized(&portable))
+        Ok(Self::of_serialized(&wire::encode_artifact(
+            artifact,
+            definitions,
+            &CancellationToken::default(),
+        )?))
     }
 
     pub fn empty() -> Self {
