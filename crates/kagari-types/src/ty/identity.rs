@@ -2,6 +2,7 @@
 use crate::ty::{
     NominalTy, Ty,
     substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES, TypeTransformError},
+    wire::WireType,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -10,7 +11,7 @@ use kagari_common::{
         reference::DefinitionReference,
         table::{
             DefinitionId, DefinitionTable, DefinitionTableBuilder, DefinitionTableError,
-            wire::{MAX_PORTABLE_IDENTITY_RECORDS, PortableDefinitionRef, PortableDefinitionTable},
+            wire::{MAX_PORTABLE_IDENTITY_RECORDS, PortableDefinitionTable},
         },
     },
 };
@@ -272,13 +273,14 @@ impl<F> Mapper<'_, F> {
     }
 }
 
-/// A portable type set contains local references and the exact identities needed
-/// to interpret them. Scoped process table numbers have no Serialize implementation.
+/// A portable type set owns flat file records and their exact identity table.
+/// Serde reads bounded unverified nodes; decode checks their shapes and references
+/// while constructing scoped types. Process table numbers are never serialized.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PortableTypes {
     definitions: PortableDefinitionTable,
     #[serde(deserialize_with = "crate::decode_limits::table")]
-    types: Vec<Ty<PortableDefinitionRef>>,
+    types: Vec<WireType>,
 }
 
 #[derive(Debug, Clone)]
@@ -306,12 +308,7 @@ impl PortableTypes {
         let encoding = definitions.encode(references)?;
         let types = types
             .iter()
-            .map(|ty| {
-                ty.map_definitions(
-                    &mut |id| encoding.reference(*id).map_err(Into::into),
-                    cancel,
-                )
-            })
+            .map(|ty| WireType::encode(ty, &encoding, cancel))
             .collect::<Result<_, _>>()?;
         Ok(Self {
             definitions: encoding.table,
@@ -327,13 +324,8 @@ impl PortableTypes {
         let decoding = self.definitions.decode()?;
         let types = self
             .types
-            .iter()
-            .map(|ty| {
-                ty.map_definitions(
-                    &mut |reference| decoding.resolve(*reference).map_err(Into::into),
-                    cancel,
-                )
-            })
+            .into_iter()
+            .map(|ty| ty.decode(&decoding, cancel))
             .collect::<Result<_, _>>()?;
         Ok(DecodedTypes {
             definitions: decoding.table,

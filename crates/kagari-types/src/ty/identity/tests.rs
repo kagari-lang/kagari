@@ -8,6 +8,7 @@ use bincode::{DefaultOptions, Options};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, associated_type_id,
 };
+use std::collections::BTreeSet;
 
 fn path(kind: DefinitionKind, name: &str) -> DefinitionPath {
     DefinitionPath {
@@ -118,6 +119,12 @@ fn one_type_model_preserves_every_reference_across_portable_and_runtime_contexts
     let types = intern(&mut source, &authoring);
     let encoded = PortableTypes::encode(&source.freeze(), &types, &Default::default()).unwrap();
     let bytes = codec().serialize(&encoded).unwrap();
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert_eq!(
+        encoded.clone().decode(&cancelled).unwrap_err(),
+        IdentityTransformError::Type(TypeTransformError::Cancelled)
+    );
     let decoded = codec()
         .deserialize::<PortableTypes>(&bytes)
         .unwrap()
@@ -153,8 +160,14 @@ fn canonical_bytes_ignore_process_scopes_insertion_order_and_unrelated_definitio
     second
         .intern_path(&path(DefinitionKind::Function, "unrelated"))
         .unwrap();
-    let reversed: Vec<_> = authoring.iter().rev().cloned().collect();
-    intern(&mut second, &reversed);
+    // Reverse identity allocation too, including associated keys within one type.
+    let mut references = BTreeSet::new();
+    for ty in &authoring {
+        references.extend(ty.definition_references(&Default::default()).unwrap());
+    }
+    for path in references.into_iter().rev() {
+        second.intern_path(path).unwrap();
+    }
     let second_types = intern(&mut second, &authoring);
     let encode = |builder: &DefinitionTableBuilder, types: &[Ty<DefinitionId>]| {
         codec()
@@ -189,7 +202,7 @@ fn foreign_handles_and_out_of_range_wire_references_fail_before_adoption() {
     }));
     let id = source.intern_path(&deep).unwrap();
     let encoding = source.freeze().encode([id]).unwrap();
-    portable.types[0] = Ty::Host(encoding.reference(id).unwrap());
+    portable.types[0] = WireType::encode(&Ty::Host(id), &encoding, &Default::default()).unwrap();
     let portable = codec()
         .deserialize::<PortableTypes>(&codec().serialize(&portable).unwrap())
         .unwrap();

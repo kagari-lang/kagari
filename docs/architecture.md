@@ -821,6 +821,13 @@ rejects invalid/foreign references, duplicate identities, forward/cyclic parents
 paths above 64 segments and tables above one million records before semantic
 verification and executable adoption. Existing envelope and type limits still apply.
 
+The standalone type-set codec owns private flat node records containing file-local
+references. Encoding orders associated bindings by those references, including their
+paired value subtrees; ID allocation order is not wire order. Serde bounds the flat
+node/binding vectors, then explicit decoding checks shape, depth, canonical binding
+order and references while building scoped types. It creates no execution evidence.
+The type-set path does not instantiate the semantic type model with file references.
+
 Runtime preparation normalizes independent verified inputs into its own context
 while retaining original immutable version identity and dependency versions.
 Host registration shares that context with the Native catalog. Function and type

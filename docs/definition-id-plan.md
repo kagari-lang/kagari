@@ -2324,3 +2324,65 @@ catalog key/value imports, roots, original verification versions and import grou
 No compatibility wrapper, new semantic representation, re-export or structural
 exception was added. Structure checks 1060 Rust files with zero violations or
 exceptions; formatting and diff checks pass. No full workspace/backend matrix ran.
+
+
+### SI05 private flat type-set wire records
+
+The existing PortableTypes boundary now retains codec-private WireType records,
+not Ty<PortableDefinitionRef>. Encoding walks scoped types directly into bounded
+flat nodes using DefinitionEncoding. Decoding reads bounded node vectors and uses
+DefinitionDecoding while constructing scoped types; no file-reference semantic tree
+or intermediate path model is constructed. This is the first shared wire leaf
+boundary; Host value types and declaration/contract/MIR/KBC aggregate wire owners
+still need their coupled migration before semantic representation parameters can be
+removed. PortableTypes is a standalone type-set API, not a claim that those aggregate
+artifact paths have all migrated.
+
+The former flat type writer/builder is shared by this explicit conversion and the
+remaining generic Serde consumers, avoiding another tree codec. Private Node has no
+default path representation. Node/child limits, depth limits, missing/trailing node
+rejection and associated-binding uniqueness/order remain enforced. The private wire
+Serde reader validates flat counts; explicit decode validates shape and references
+before returning scoped records. Canonical binding validation checks file references
+before mapping, and rebuilding the ID-keyed map rejects collisions. Cancellation is
+checked in the explicit encoder/decoder; ordinary limit checks and legacy Serde do
+not allocate a new cancellation token merely to share the traversal. No process-ID
+Serde, global context, public wire re-export or version bump was introduced.
+
+Associated binding keys and value subtrees must move together when ID allocation
+order differs from file order. Encoding now orders the pairs by mapped references,
+then emits the corresponding children. The existing canonical-byte test allocates
+all referenced identities in reverse order, including members within the same trait;
+its bytes still match an independent context with normal allocation and ignore
+unrelated definitions. Existing malformed-wire cases now exercise the private wire
+path, including duplicate/reversed binding order, excessive node/binding counts,
+missing children, trailing nodes and excessive depth. Identity tests retain foreign
+scope and forged file-reference rejection and exercise cancelled explicit decoding.
+
+Focused local validation:
+
+- `cargo test -p kagari-types --lib ty::identity::tests --message-format=short
+  --no-fail-fast` passes five existing cases for complete references, canonical bytes,
+  foreign/forged identities, explicit adoption, binder ownership and cancellation.
+- `cargo test -p kagari-types --lib ty::wire::tests --message-format=short
+  --no-fail-fast` passes three existing composite/associated/invalid-node cases.
+  The final run also checks the removal of Node's obsolete default path parameter.
+- `cargo clippy -p kagari-types --lib --message-format=short -- -D warnings` and
+  `cargo build -p kagari-compiler --lib --message-format=short` pass. The compiler
+  build selects a directly affected consumer of the shared type Serde traversal.
+- The previously documented source-free MIR/bytecode public-API probe passes against
+  the rebuilt library artifacts: scope retention, canonical independent codec
+  correspondence, explicit adoption, foreign/later-reference rejection, Native input
+  mismatch and cancellation. This checks shared-parser integration while the existing
+  compiler lib codec fixture target still awaits its recorded migration; the probe
+  does not replace that retained acceptance owner.
+
+Manual review covers paired key/value order, source-reference validation before
+remapping, bounded flat reads and bounded recursive reconstruction, error propagation,
+private visibility and explicit imports. A structure finding on A::Error::custom was
+resolved by the existing imported Serde error trait. Structure, formatting and diff
+checks pass with 1060 Rust files and no violations/exceptions. No full workspace or
+backend matrix, generated-artifact refresh or performance measurement ran. Shared
+semantic model parameters and remaining generic Serde support must be removed with
+the aggregate private wire owners in SI05/SI06; final integration/docs cleanup and the
+previous compiler fixture failure remain open.
