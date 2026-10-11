@@ -2,7 +2,7 @@
 
 use crate::{
     DiagnosticBuffer,
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     declarations::Declarations,
     hir::item::{Module, behavior::TraitDef},
     host::HostDeclarations,
@@ -83,7 +83,7 @@ pub(crate) fn validate(
             == identity
     }) {
         let applied = NominalType {
-            declaration: contract.id.clone(),
+            declaration: contract.id,
             arguments: contract
                 .generic_params
                 .iter()
@@ -92,7 +92,7 @@ pub(crate) fn validate(
                 .collect(),
             associated_types: Default::default(),
         };
-        let receiver = TypeId::SelfType(contract.id.clone());
+        let receiver = TypeId::SelfType(contract.id);
         let mut assumptions = contract.bounds.clone();
         assumptions
             .entry(receiver.clone())
@@ -101,11 +101,14 @@ pub(crate) fn validate(
         if let Ok(assumptions) = catalog.expanded_bounds(&assumptions, cancel) {
             for parent in &contract.supertraits {
                 applications::validate(
-                    declarations.definitions(),
+                    applications::ApplicationContext {
+                        definitions: declarations.definitions(),
+                        catalog,
+                        hosts: &declarations.hosts,
+                        table,
+                    },
                     &TypeId::Trait(parent.clone()),
                     &assumptions,
-                    (catalog, &declarations.hosts),
-                    table,
                     contract.declaration.location.range,
                     diagnostics,
                     cancel,
@@ -113,7 +116,7 @@ pub(crate) fn validate(
             }
         }
         if catalog
-            .trait_closure(&applied, &TypeId::SelfType(contract.id.clone()), cancel)
+            .trait_closure(&applied, &TypeId::SelfType(contract.id), cancel)
             .is_err()
             && cancel.check().is_ok()
         {
@@ -147,7 +150,9 @@ pub(crate) fn validate(
                         .expect("trait identity")
                         .name
                         .to_owned(),
-                    type_name: implementation.for_type.display_name(),
+                    type_name: implementation
+                        .for_type
+                        .display_name(declarations.definitions()),
                     reason: reason.into(),
                 })
                 .with_span(
@@ -186,8 +191,10 @@ pub(crate) fn validate(
                         &parent,
                         &implementation.for_type,
                         &bounds,
-                        100_000,
-                        64,
+                        ImplementationSearchLimits {
+                            max_checks: 100_000,
+                            max_depth: 64
+                        },
                         cancel
                     ),
                     Ok(Some(_))
@@ -203,10 +210,12 @@ pub(crate) fn validate(
                             .expect("trait identity")
                             .name
                             .to_owned(),
-                        type_name: implementation.for_type.display_name(),
+                        type_name: implementation
+                            .for_type
+                            .display_name(declarations.definitions()),
                         reason: format!(
                             "required supertrait `{}` is not implemented under these bounds",
-                            TypeId::Trait(parent).display_name()
+                            TypeId::Trait(parent).display_name(declarations.definitions())
                         ),
                     })
                     .with_span(
@@ -236,7 +245,7 @@ pub(crate) fn validate(
                 continue;
             }
             let applied = HostDeclarations::trait_type(implementation);
-            let receiver = TypeId::Host(host.id.clone());
+            let receiver = TypeId::Host(host.id);
             let Ok(parents) = catalog.trait_closure(&applied, &receiver, cancel) else {
                 continue;
             };
@@ -247,11 +256,12 @@ pub(crate) fn validate(
                 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                            trait_name: TypeId::Trait(applied.clone()).display_name(),
+                            trait_name: TypeId::Trait(applied.clone())
+                                .display_name(declarations.definitions()),
                             type_name: host.symbol.clone(),
                             reason: format!(
                                 "missing host supertrait `{}`",
-                                TypeId::Trait(parent).display_name()
+                                TypeId::Trait(parent).display_name(declarations.definitions())
                             ),
                         })
                         .with_span(Span::default()),

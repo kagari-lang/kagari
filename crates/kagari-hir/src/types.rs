@@ -1,5 +1,6 @@
 //! Semantic type values, generic identity and substitution; source type IDs live in `hir::ids`.
 
+mod display;
 pub mod semantic;
 
 use crate::typeck::{GenericBounds, associated};
@@ -226,7 +227,7 @@ impl TypeId {
                     != &Self::Projection {
                         receiver: Box::new(receiver.clone()),
                         interface: Box::new(projected.clone()),
-                        member: member.clone(),
+                        member: *member,
                         arguments: vec![],
                     })
                     .then(|| output.clone());
@@ -234,170 +235,10 @@ impl TypeId {
             (projected != interface).then(|| Self::Projection {
                 receiver: Box::new(receiver.clone()),
                 interface: Box::new(interface.clone()),
-                member: member.clone(),
+                member: *member,
                 arguments: vec![],
             })
         })
-    }
-
-    /// Formats a diagnostic type spelling from portable definition paths.
-    ///
-    /// This is not a unique serialized identity or guaranteed round-trippable source.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a host/nominal/associated identity that requires a name has an empty path.
-    pub fn display_name(&self) -> String {
-        enum Part<'a> {
-            Type(&'a TypeId),
-            Text(&'a str),
-        }
-
-        fn sequence<'a>(
-            pending: &mut Vec<Part<'a>>,
-            args: &'a [TypeId],
-            open: &'a str,
-            close: &'a str,
-        ) {
-            pending.push(Part::Text(close));
-            for (index, ty) in args.iter().enumerate().rev() {
-                pending.push(Part::Type(ty));
-                if index > 0 {
-                    pending.push(Part::Text(", "));
-                }
-            }
-            pending.push(Part::Text(open));
-        }
-
-        let mut output = String::new();
-        let mut pending = vec![Part::Type(self)];
-        while let Some(part) = pending.pop() {
-            match part {
-                Part::Text(text) => output.push_str(text),
-                Part::Type(ty) => match ty {
-                    Self::Inference(_) => output.push('_'),
-                    Self::Unknown => output.push_str("<unknown>"),
-                    Self::Error => output.push_str("<error>"),
-                    Self::Host(id) => {
-                        output.push_str(&id.path.last().expect("host type identity").name)
-                    }
-                    Self::Builtin(ty) => output.push_str(
-                        standard_surface::builtin_type_spec(*ty)
-                            .map_or("<builtin>", |spec| spec.name),
-                    ),
-                    Self::Tuple(items) => sequence(&mut pending, items, "(", ")"),
-                    Self::Function { params, result } => {
-                        pending.push(Part::Type(result));
-                        pending.push(Part::Text(" -> "));
-                        sequence(&mut pending, params, "fn(", ")");
-                    }
-                    Self::Iter(item) => {
-                        pending.push(Part::Text(">"));
-                        pending.push(Part::Type(item));
-                        pending.push(Part::Text("Iter<"));
-                    }
-                    Self::Array(item) => {
-                        pending.push(Part::Text("]"));
-                        pending.push(Part::Type(item));
-                        pending.push(Part::Text("["));
-                    }
-                    Self::Map { key, value, access } => {
-                        pending.push(Part::Text(">"));
-                        pending.push(Part::Type(value));
-                        pending.push(Part::Text(", "));
-                        pending.push(Part::Type(key));
-                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "HashMap<"
-                        } else {
-                            "Map<"
-                        }));
-                    }
-                    Self::Set(item, access) => {
-                        pending.push(Part::Text(">"));
-                        pending.push(Part::Type(item));
-                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "HashSet<"
-                        } else {
-                            "Set<"
-                        }));
-                    }
-                    Self::NativeObject(nominal)
-                    | Self::Struct(nominal)
-                    | Self::Enum(nominal)
-                    | Self::Trait(nominal) => {
-                        if !nominal.arguments.is_empty() || !nominal.associated_types.is_empty() {
-                            pending.push(Part::Text(">"));
-                            for (index, (member, ty)) in
-                                nominal.associated_types.iter().enumerate().rev()
-                            {
-                                pending.push(Part::Type(ty));
-                                pending.push(Part::Text(" = "));
-                                pending.push(Part::Text(
-                                    &member.path.last().expect("associated member").name,
-                                ));
-                                if index > 0 || !nominal.arguments.is_empty() {
-                                    pending.push(Part::Text(", "));
-                                }
-                            }
-                            for (index, ty) in nominal.arguments.iter().enumerate().rev() {
-                                pending.push(Part::Type(ty));
-                                if index > 0 {
-                                    pending.push(Part::Text(", "));
-                                }
-                            }
-                            pending.push(Part::Text("<"));
-                        }
-                        pending.push(Part::Text(
-                            &nominal
-                                .declaration
-                                .path
-                                .last()
-                                .expect("type declaration path")
-                                .name,
-                        ));
-                    }
-                    Self::Generic(parameter) => output.push_str(&parameter.name),
-                    Self::SelfType(_) => output.push_str("Self"),
-                    Self::Projection {
-                        receiver,
-                        interface,
-                        member,
-                        arguments,
-                    } => {
-                        output.push_str(&format!(
-                            "<{} as {}>::{}",
-                            receiver.display_name(),
-                            interface
-                                .declaration
-                                .path
-                                .last()
-                                .map_or("", |p| p.name.as_str()),
-                            member.path.last().map_or("", |p| p.name.as_str())
-                        ));
-                        if !arguments.is_empty() {
-                            output.push('<');
-                            output.push_str(
-                                &arguments
-                                    .iter()
-                                    .map(TypeId::display_name)
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                            );
-                            output.push('>');
-                        }
-                    }
-                    Self::Range(item, kind) => {
-                        if *kind != RangeKind::Full {
-                            pending.push(Part::Text(">"));
-                            pending.push(Part::Type(item));
-                            pending.push(Part::Text("<"));
-                        }
-                        pending.push(Part::Text(kind.name()));
-                    }
-                },
-            }
-        }
-        output
     }
 }
 

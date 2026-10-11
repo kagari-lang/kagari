@@ -1,9 +1,15 @@
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, associated_type_id},
+    identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId},
 };
 use kagari_contract::types::{PublicItem, verify};
-use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
+use kagari_hir::{
+    aggregates::AggregateCatalog,
+    analysis::AnalysisDatabase,
+    language::semantics::{ProtocolSemantics, intrinsic_holds},
+    native::render::declaration_source,
+    types::TypeId,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{
     catalog as foundation_catalog, catalog as language, identity as library, namespaces,
@@ -12,15 +18,20 @@ use kagari_types::{
     language as identities,
     language::Protocol,
     scalar::BuiltinType,
-    ty::{Constraint, Ty, inheritance},
+    ty::{Constraint, NominalTy, Ty, inheritance},
 };
 
 #[test]
 fn portable_language_catalog_has_complete_contracts() {
-    let modules = language::declarations();
-    for module in &modules {
+    let modules = language::declarations().unwrap();
+    for metadata in &modules {
+        let module = metadata.records();
+        let definitions = metadata.definitions();
         module
-            .validate(&namespaces::receiver_owner)
+            .validate(
+                &|ty| namespaces::receiver_owner(ty, definitions),
+                definitions,
+            )
             .expect("valid language declarations");
         let items: Vec<_> = module
             .traits
@@ -29,10 +40,23 @@ fn portable_language_catalog_has_complete_contracts() {
             .map(PublicItem::Trait)
             .chain(module.types.iter().cloned().map(PublicItem::Type))
             .collect();
-        verify::validate(&items, &module.identity, &CancellationToken::default()).unwrap();
+        verify::validate(
+            &items,
+            &module.identity,
+            &CancellationToken::default(),
+            definitions,
+        )
+        .unwrap();
     }
-    let traits: Vec<_> = modules.iter().flat_map(|module| &module.traits).collect();
-    let types: Vec<_> = modules.iter().flat_map(|module| &module.types).collect();
+    let definitions = modules[0].definitions();
+    let traits: Vec<_> = modules
+        .iter()
+        .flat_map(|module| &module.records().traits)
+        .collect();
+    let types: Vec<_> = modules
+        .iter()
+        .flat_map(|module| &module.records().types)
+        .collect();
     for protocol in Protocol::ALL {
         assert_eq!(
             traits
@@ -47,11 +71,17 @@ fn portable_language_catalog_has_complete_contracts() {
         .associated_types
         .iter()
         .find(|t| {
-            t.declaration == associated_type_id(&identities::identity(Protocol::Iterable), "Iter")
+            Some(t.declaration)
+                == definitions.lookup_child(
+                    Protocol::Iterable.definition(definitions).unwrap(),
+                    DefinitionKind::AssociatedType,
+                    "Iter",
+                    0,
+                )
         })
         .unwrap();
     assert!(
-        matches!(&iter.bounds[..], [Constraint::Trait(required)] if Protocol::from_id(&required.declaration) == Some(Protocol::Iterator))
+        matches!(&iter.bounds[..], [Constraint::Trait(required)] if Protocol::from_reference(&required.declaration, Some(definitions)) == Some(Protocol::Iterator))
     );
     for kind in ["Map", "Set", "MutableMap", "MutableSet"] {
         assert!(
@@ -69,7 +99,8 @@ fn portable_language_catalog_has_complete_contracts() {
                 .constraints
                 .iter()
                 .map(|bound| match bound {
-                    Constraint::Trait(interface) => Protocol::from_id(&interface.declaration),
+                    Constraint::Trait(interface) =>
+                        Protocol::from_reference(&interface.declaration, Some(definitions)),
                     _ => None,
                 })
                 .collect::<Vec<_>>(),
@@ -83,7 +114,7 @@ fn portable_language_catalog_has_complete_contracts() {
     let generated = modules
         .iter()
         .map(|module| {
-            declaration_source(module, &foundation_catalog::shared())
+            declaration_source(module, &foundation_catalog::shared().unwrap())
                 .unwrap()
                 .text
         })
@@ -107,7 +138,7 @@ fn explicitly_installed_language_records_are_available() {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared());
+    analysis.set_native_modules(language::shared().unwrap());
     let snapshot = analysis
         .declarations(sources.snapshot(), &CancellationToken::default())
         .unwrap();
@@ -121,13 +152,16 @@ fn explicitly_installed_language_records_are_available() {
     assert!(
         snapshot
             .declaration(&kagari_hir::declarations::DeclarationId::Definition(
-                identities::identity(Protocol::Iterable)
+                Protocol::Iterable
+                    .definition(core.declarations().definitions())
+                    .unwrap()
             ))
             .is_some()
     );
     let array = language::declarations()
+        .unwrap()
         .into_iter()
-        .flat_map(|module| module.types)
+        .flat_map(|module| module.into_parts().1.types)
         .find(|t| t.name == "Vec")
         .unwrap();
     assert!(matches!(
@@ -138,45 +172,62 @@ fn explicitly_installed_language_records_are_available() {
 
 #[test]
 fn portable_collection_view_preserves_concrete_iterator_proofs() {
-    let modules = language::declarations();
-    let lookup = |id: &DefinitionPath| {
+    let modules = language::declarations().unwrap();
+    let definitions = modules[0].definitions();
+    let lookup = |id: &DefinitionId| {
+        let view = definitions.resolve(*id).ok()?;
         modules
             .iter()
-            .find(|module| module.identity == id.module)
+            .find(|module| &module.records().identity == view.module())
             .and_then(|module| {
-                module.traits.iter().find(|contract| {
-                    module.definition(
-                        kagari_common::identity::DefinitionKind::Trait,
-                        &contract.name,
-                    ) == *id
+                module.records().traits.iter().find(|contract| {
+                    definitions.lookup(&library::trait_id(&contract.name)) == Some(*id)
                 })
             })
     };
-    let list = library::applied("List", vec![Ty::Builtin(BuiltinType::I32)]);
+    let list = NominalTy {
+        declaration: definitions.lookup(&library::trait_id("List")).unwrap(),
+        arguments: vec![Ty::Builtin(BuiltinType::I32)],
+        associated_types: Default::default(),
+    };
     let receiver = Ty::Trait(list.clone());
     let cancel = CancellationToken::default();
     let original = inheritance::trait_closure(&list, &receiver, &cancel, &lookup).unwrap();
-    let views = inheritance::interface_views(&list, &receiver, &cancel, &lookup).unwrap();
-    let iter = associated_type_id(&identities::identity(Protocol::Iterable), "Iter");
+    let views =
+        inheritance::interface_views(&list, &receiver, &cancel, definitions, &lookup).unwrap();
+    let iter = definitions
+        .lookup_child(
+            Protocol::Iterable.definition(definitions).unwrap(),
+            DefinitionKind::AssociatedType,
+            "Iter",
+            0,
+        )
+        .unwrap();
     let original = original
         .iter()
-        .find(|parent| Protocol::from_id(&parent.declaration) == Some(Protocol::Iterable))
+        .find(|parent| {
+            Protocol::from_reference(&parent.declaration, Some(definitions))
+                == Some(Protocol::Iterable)
+        })
         .unwrap();
     assert!(!original.associated_types.contains_key(&iter));
     let view = views
         .iter()
-        .find(|parent| Protocol::from_id(&parent.declaration) == Some(Protocol::Iterable))
+        .find(|parent| {
+            Protocol::from_reference(&parent.declaration, Some(definitions))
+                == Some(Protocol::Iterable)
+        })
         .unwrap();
     assert!(matches!(&view.associated_types[&iter], Ty::Trait(iterator)
-        if Protocol::from_id(&iterator.declaration) == Some(Protocol::Iterator)
-            && iterator.associated_types[&associated_type_id(&iterator.declaration, "Item")] == Ty::Builtin(BuiltinType::I32)));
+        if Protocol::from_reference(&iterator.declaration, Some(definitions)) == Some(Protocol::Iterator)
+            && iterator.associated_types[&definitions.lookup_child(iterator.declaration, DefinitionKind::AssociatedType, "Item", 0).unwrap()] == Ty::Builtin(BuiltinType::I32)));
     let mut actual = original.clone();
     actual
         .associated_types
         .insert(iter, Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32))));
     let receiver = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
     assert_eq!(
-        inheritance::interface_views(&actual, &receiver, &cancel, &lookup).unwrap()[0],
+        inheritance::interface_views(&actual, &receiver, &cancel, definitions, &lookup).unwrap()[0],
         actual
     );
 }
@@ -187,7 +238,7 @@ fn diagnostics(text: &str) -> Vec<String> {
         .set("contracts.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared());
+    analysis.set_native_modules(language::shared().unwrap());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &CancellationToken::default())
         .unwrap();
@@ -305,17 +356,18 @@ fn iterable_requires_a_real_iterator_with_the_same_item() {
 #[test]
 fn list_method_navigation_uses_language_owned_declarations() {
     let module = language::declarations()
+        .unwrap()
         .into_iter()
-        .find(|module| module.identity == namespaces::module("std", "collections"))
+        .find(|module| module.records().identity == namespaces::module("std", "collections"))
         .unwrap();
-    let generated = declaration_source(&module, &foundation_catalog::shared()).unwrap();
+    let generated = declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
     let source = "use std::collections::{List};\nfn main() { val values: List<i32> = Vec::from([2,1]); values.sorted_by_key(|value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("list-navigation.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared());
+    analysis.set_native_modules(language::shared().unwrap());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -336,10 +388,11 @@ fn list_method_navigation_uses_language_owned_declarations() {
 fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
     let generated = declaration_source(
         &language::declarations()
+            .unwrap()
             .into_iter()
-            .find(|module| module.identity == namespaces::type_owner("String"))
+            .find(|module| module.records().identity == namespaces::type_owner("String"))
             .unwrap(),
-        &foundation_catalog::shared(),
+        &foundation_catalog::shared().unwrap(),
     )
     .unwrap();
     let source = "fn main() { val text = \"é🙂\"; text.slice(0usize, 2usize); text. }";
@@ -348,7 +401,7 @@ fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
         .set("string-navigation.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared());
+    analysis.set_native_modules(language::shared().unwrap());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -404,4 +457,36 @@ fn builtin_arrays_type_check_without_installed_library_declarations() {
     let errors = snapshot.file(file).unwrap().result().diagnostics();
     assert!(errors.is_empty(), "{errors:#?}");
     snapshot.check_program(file, &Default::default()).unwrap();
+}
+
+#[test]
+fn intrinsic_equality_without_providers_does_not_fabricate_nominal_views() {
+    let definitions = DefinitionContext::new().unwrap().snapshot();
+    let catalog = AggregateCatalog::default();
+    let bounds = Default::default();
+    let integer = TypeId::Builtin(BuiltinType::I32);
+    let float = TypeId::Builtin(BuiltinType::F64);
+    for source in [None, Some(&catalog)] {
+        for protocol in [Protocol::Eq, Protocol::Hash, Protocol::PartialEq] {
+            assert!(intrinsic_holds(
+                &definitions,
+                protocol,
+                &integer,
+                source,
+                &bounds
+            ));
+            assert!(intrinsic_holds(
+                &definitions,
+                protocol,
+                &TypeId::Tuple(vec![integer.clone()]),
+                source,
+                &bounds
+            ));
+            assert_eq!(
+                intrinsic_holds(&definitions, protocol, &float, source, &bounds),
+                protocol == Protocol::PartialEq
+            );
+            assert_eq!(protocol.nominal(&definitions), None);
+        }
+    }
 }

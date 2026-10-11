@@ -179,7 +179,7 @@ impl AggregateCatalog {
     /// Returns the installed declaration for a supported language protocol, or `None` if its role/trait is absent.
     pub fn language_trait(&self, protocol: Protocol) -> Option<NominalType> {
         let role = LangRole::from_protocol(protocol)?;
-        let declaration = self.language_items.get(&role)?.clone();
+        let declaration = *self.language_items.get(&role)?;
         self.trait_(&declaration)?;
         Some(NominalType {
             declaration,
@@ -214,7 +214,7 @@ impl AggregateCatalog {
             declarations
                 .language_items
                 .iter()
-                .map(|(role, id)| (*role, id.clone())),
+                .map(|(role, id)| (*role, *id)),
         );
         for item in &lowered.module.opaque_types {
             cancel.check()?;
@@ -228,9 +228,9 @@ impl AggregateCatalog {
                 continue;
             };
             self.native_types.insert(
-                id.clone(),
+                *id,
                 Arc::new(NativeTypeSignature {
-                    id: id.clone(),
+                    id: *id,
                     generic_params: declarations.parameters_of(id),
                     bounds: signatures
                         .type_bounds(id)
@@ -258,11 +258,10 @@ impl AggregateCatalog {
                 let DeclarationId::Definition(field_id) = &declaration.id else {
                     continue;
                 };
-                self.fields
-                    .insert(field_id.clone(), (id.clone(), fields.len()));
+                self.fields.insert(*field_id, (*id, fields.len()));
                 fields.push(FieldSignature {
-                    id: field_id.clone(),
-                    owner: id.clone(),
+                    id: *field_id,
+                    owner: *id,
                     slot: field.id.slot(),
                     name: field.name.clone(),
                     visibility: field.visibility,
@@ -275,9 +274,9 @@ impl AggregateCatalog {
                 });
             }
             self.structures.insert(
-                id.clone(),
+                *id,
                 Arc::new(StructSignature {
-                    id: id.clone(),
+                    id: *id,
                     generic_params: declarations.parameters_of(id),
                     bounds: signatures
                         .type_bounds(id)
@@ -317,12 +316,11 @@ impl AggregateCatalog {
                             .clone(),
                     );
                 }
-                self.variants
-                    .insert(variant_id.clone(), (id.clone(), variants.len()));
+                self.variants.insert(*variant_id, (*id, variants.len()));
                 variants.push(VariantSignature {
                     reports_failure: lowered.registered_enum_failures.contains(&variant.id),
-                    id: variant_id.clone(),
-                    owner: id.clone(),
+                    id: *variant_id,
+                    owner: *id,
                     slot: variant.id.slot(),
                     name: variant.name.clone(),
                     payload,
@@ -330,9 +328,9 @@ impl AggregateCatalog {
                 });
             }
             self.enumerations.insert(
-                id.clone(),
+                *id,
                 Arc::new(EnumSignature {
-                    id: id.clone(),
+                    id: *id,
                     generic_params: declarations.parameters_of(id),
                     bounds: signatures
                         .type_bounds(id)
@@ -364,14 +362,11 @@ impl AggregateCatalog {
                             &member.name,
                             0,
                         )?,
-                        declarations
-                            .definition(ResolvedName::Const(initializer))?
-                            .clone(),
+                        *declarations.definition(ResolvedName::Const(initializer))?,
                     ))
                 })
                 .collect();
-            self.implementation_constants
-                .insert(owner.clone(), constants);
+            self.implementation_constants.insert(*owner, constants);
         }
         for host in declarations.hosts.type_declarations() {
             for implementation in &host.trait_implementations {
@@ -385,7 +380,7 @@ impl AggregateCatalog {
                 {
                     self.host_implementations.push((
                         HostDeclarations::trait_type(implementation),
-                        TypeId::Host(host.id.clone()),
+                        TypeId::Host(host.id),
                     ));
                 }
             }
@@ -429,13 +424,13 @@ impl AggregateCatalog {
                     continue;
                 };
                 self.inherent_methods.insert(
-                    declaration.clone(),
+                    *declaration,
                     Arc::new(InherentMethodSignature {
                         id: SourceDeclRef {
                             unit: SourceUnit::of(lowered),
                             item: SourceItem::Function(method.function),
                         },
-                        declaration: declaration.clone(),
+                        declaration: *declaration,
                         site: site.clone(),
                         owner: owner.clone(),
                         visibility: lowered_function.visibility,

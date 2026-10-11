@@ -1,6 +1,9 @@
 //! Checked implicit protocol applications, independent of executable planning.
 use crate::{
-    aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
+    aggregates::{
+        AggregateCatalog,
+        implementations::{ImplementationSearchError, ImplementationSearchLimits},
+    },
     types::{
         NominalType, TypeId, TypeSubstitution,
         semantic::{lower_nominal_type, lower_type},
@@ -53,8 +56,10 @@ impl AggregateCatalog {
                     interface,
                     receiver,
                     &Default::default(),
-                    100_000,
-                    64,
+                    ImplementationSearchLimits {
+                        max_checks: 100_000,
+                        max_depth: 64,
+                    },
                     cancel,
                 )?
                 .is_some()
@@ -80,7 +85,7 @@ impl AggregateCatalog {
                 .cloned()
                 .zip(interface.arguments.iter().cloned()),
         );
-        substitution.insert_receiver(interface.declaration.clone(), receiver.clone());
+        substitution.insert_receiver(interface.declaration, receiver.clone());
         let normalize = |ty: &TypeId| {
             lower_type(
                 &self.normalize_type(

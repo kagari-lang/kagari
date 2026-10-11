@@ -32,7 +32,7 @@ fn storage_declaration(
 
 pub(super) fn future_type(declarations: &Declarations, output: TypeId) -> Option<TypeId> {
     Some(TypeId::NativeObject(NominalType {
-        declaration: storage_declaration(declarations, NativeStorageLayout::Future)?.clone(),
+        declaration: *storage_declaration(declarations, NativeStorageLayout::Future)?,
         arguments: vec![output],
         associated_types: Default::default(),
     }))

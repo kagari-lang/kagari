@@ -12,7 +12,7 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_common::{cancellation::CancellationToken, identity::associated_const_id, span::Span};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind, span::Span};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
 use std::collections::HashSet;
@@ -132,7 +132,14 @@ pub(crate) fn validate(
             .and_then(|signature| catalog.trait_(&signature.trait_type.declaration));
         let mut defined = HashSet::new();
         for member in &item.associated_consts {
-            let id = contract.map(|owner| associated_const_id(&owner.id, &member.name));
+            let id = contract.and_then(|owner| {
+                declarations.definitions().lookup_child(
+                    owner.id,
+                    DefinitionKind::Const,
+                    &member.name,
+                    0,
+                )
+            });
             let expected = id
                 .as_ref()
                 .and_then(|id| contract?.associated_consts.get(id));
@@ -161,7 +168,13 @@ pub(crate) fn validate(
             for (id, member) in &contract.associated_consts {
                 if member.initializer.is_none() && !defined.contains(id) {
                     diagnostics.push(error(
-                        &id.path.last().expect("member").name,
+                        declarations
+                            .definitions()
+                            .resolve(*id)
+                            .expect("scoped associated constant")
+                            .last()
+                            .expect("associated constant")
+                            .name,
                         "missing definition in trait implementation",
                         lowered.source_map.impl_span(item.id),
                     ));

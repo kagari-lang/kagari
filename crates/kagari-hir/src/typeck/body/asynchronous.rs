@@ -33,7 +33,7 @@ impl BodyChecker<'_> {
         if !operand_type.is_unresolved() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidAwaitOperand {
-                    type_name: display_type_id(&operand_type),
+                    type_name: display_type_id(self.declarations.definitions(), &operand_type),
                 })
                 .with_span(self.lowered.source_map.expr_span(operand)),
             );

@@ -1,7 +1,9 @@
 //! Receiver method surfaces shared by body checking and source tooling.
 
 use crate::{
-    aggregates::{AggregateCatalog, InherentMethodSignature},
+    aggregates::{
+        AggregateCatalog, InherentMethodSignature, implementations::ImplementationSearchLimits,
+    },
     language::semantics::{self as traits, ProtocolSemantics},
     typeck::{GenericBounds, inference, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
@@ -91,8 +93,10 @@ pub(crate) fn interfaces(
                         &applied,
                         ty,
                         assumptions,
-                        100_000,
-                        64,
+                        ImplementationSearchLimits {
+                            max_checks: 100_000,
+                            max_depth: 64
+                        },
                         cancel
                     ),
                     Ok(Some(_))
@@ -151,7 +155,7 @@ pub(crate) fn interfaces(
             .cloned()
             .zip(interface.arguments.iter().cloned())
             .collect();
-        substitution.insert_receiver(interface.declaration.clone(), (**receiver).clone());
+        substitution.insert_receiver(interface.declaration, (**receiver).clone());
         if let Some(inputs) = contract.associated_type_parameters.get(member) {
             substitution.extend(
                 inputs

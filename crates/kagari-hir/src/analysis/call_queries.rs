@@ -72,7 +72,7 @@ impl FileAnalysis {
             CallTarget::HostFunction(function) => {
                 let callable = facts.names.hosts.callable(*function)?;
                 callable_signature(
-                    DeclarationId::Definition(callable.contract().id.clone()),
+                    DeclarationId::Definition(callable.contract().id),
                     callable.parameters().map(|(name, _)| name),
                     applied,
                     receiver_offset,

@@ -261,8 +261,8 @@ impl<'a> BodyChecker<'a> {
         {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                    expected: display_type_id(expected),
-                    found: display_type_id(&found),
+                    expected: display_type_id(self.declarations.definitions(), expected),
+                    found: display_type_id(self.declarations.definitions(), &found),
                 })
                 .with_span(self.lowered.source_map.expr_span(value)),
             );
@@ -373,7 +373,7 @@ impl<'a> BodyChecker<'a> {
                         HostPathSegmentDeclaration::Field(id),
                     ) = (step, declared)
                     {
-                        self.type_table.insert_expr_field(*node, id.clone());
+                        self.type_table.insert_expr_field(*node, *id);
                     }
                     if let (
                         HostPathNode::Index { argument, .. },
@@ -409,7 +409,7 @@ impl<'a> BodyChecker<'a> {
                                 recovered_all_members = false;
                                 break;
                             };
-                            self.type_table.insert_expr_field(*node, field.id.clone());
+                            self.type_table.insert_expr_field(*node, field.id);
                             current = host::signature_type(&field.ty);
                         }
                         HostPathNode::Index { .. } => {
@@ -502,7 +502,7 @@ impl<'a> BodyChecker<'a> {
                         HostPathSegmentDeclaration::Field(id),
                     ) = (step, declared)
                     {
-                        self.type_table.insert_place_field(*node, id.clone());
+                        self.type_table.insert_place_field(*node, *id);
                     }
                     if let (
                         HostPathNode::Index { argument, .. },
@@ -546,7 +546,7 @@ impl<'a> BodyChecker<'a> {
                                 recovered_all_members = false;
                                 break;
                             };
-                            self.type_table.insert_place_field(*node, field.id.clone());
+                            self.type_table.insert_place_field(*node, field.id);
                             current = host::signature_type(&field.ty);
                         }
                         HostPathNode::Index { .. } => {

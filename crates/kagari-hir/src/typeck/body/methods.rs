@@ -3,7 +3,7 @@
 //! operation separately from the original HIR member spelling.
 
 use crate::{
-    aggregates::implementations::ImplementationSearchError,
+    aggregates::implementations::{ImplementationSearchError, ImplementationSearchLimits},
     hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
     typeck::{
         BodyTypeEnv,
@@ -18,11 +18,9 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::identity;
+use kagari_common::identity::DefinitionKind;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    declaration::conversion::ConversionAdapter, language as standard_traits, language::Protocol,
-};
+use kagari_types::{declaration::conversion::ConversionAdapter, language::Protocol};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_expr_with_coercion(
@@ -113,8 +111,10 @@ impl<'a> BodyChecker<'a> {
             interface,
             &source,
             &env.generic_bounds,
-            4096,
-            64,
+            ImplementationSearchLimits {
+                max_checks: 4096,
+                max_depth: 64,
+            },
             self.cancel,
         ) {
             Ok(Some((implementation, arguments))) => {
@@ -176,7 +176,11 @@ impl<'a> BodyChecker<'a> {
                         .first()
                         .is_some_and(|parameter| parameter.name == "self")
                     && method.visibility.allows(
-                        &method.declaration.module,
+                        self.declarations
+                            .definitions()
+                            .resolve(method.declaration)
+                            .expect("scoped member owner")
+                            .module(),
                         self.lowered.source.module_identity(),
                     )
             })
@@ -192,7 +196,7 @@ impl<'a> BodyChecker<'a> {
                 let target = if method.id.unit.matches(self.lowered) {
                     CallTarget::Function(method.id.function().expect("function target"))
                 } else {
-                    CallTarget::SourceFunction(method.declaration.clone())
+                    CallTarget::SourceFunction(method.declaration)
                 };
                 Some((function, substitution, target))
             })
@@ -345,7 +349,14 @@ impl<'a> BodyChecker<'a> {
         let mut candidates = Vec::new();
         for interface in self.trait_bounds_for(&receiver, env) {
             if requested.as_ref().is_some_and(|requested| !matches!(requested, TypeId::Trait(required) if interface.satisfies(required))) { continue; }
-            let id = identity::associated_const_id(&interface.declaration, &member);
+            let Some(id) = self.declarations.definitions().lookup_child(
+                interface.declaration,
+                DefinitionKind::Const,
+                &member,
+                0,
+            ) else {
+                continue;
+            };
             if let Some(signature) = self
                 .aggregates
                 .trait_(&interface.declaration)
@@ -423,7 +434,7 @@ impl<'a> BodyChecker<'a> {
                         ))
                         && contract.methods.iter().any(|method| method.name == *name)
                 })
-                .map(|contract| contract.id.clone())
+                .map(|contract| contract.id)
                 .collect::<Vec<_>>();
             for declaration in candidates {
                 let requested = NominalType {
@@ -453,7 +464,7 @@ impl<'a> BodyChecker<'a> {
                         .methods
                         .iter()
                         .any(|method| method.name == *name)
-                        .then(|| (contract.id.clone(), result.clone()))
+                        .then_some((contract.id, *result))
                 })
                 .collect::<Vec<_>>();
             for (declaration, result) in candidates {
@@ -503,9 +514,9 @@ impl<'a> BodyChecker<'a> {
                             .first()
                             .is_some_and(|parameter| parameter.name == "self")
                             == receiver.is_some()
-                        && !candidates.contains(&(method.id.clone(), interface.clone()))
+                        && !candidates.contains(&(method.id, interface.clone()))
                     {
-                        candidates.push((method.id.clone(), interface.clone()));
+                        candidates.push((method.id, interface.clone()));
                     }
                 }
             }
@@ -522,9 +533,9 @@ impl<'a> BodyChecker<'a> {
                 Some(self.declarations.definitions()),
             )
             && (protocol.binary_operator() || protocol == Protocol::Index)
-            && candidates
-                .iter()
-                .all(|(_, interface)| interface.declaration == standard_traits::identity(protocol))
+            && candidates.iter().all(|(_, interface)| {
+                Some(interface.declaration) == protocol.definition(self.declarations.definitions())
+            })
         {
             let argument = self.infer_expr_type(args[0], env);
             let applicable: Vec<_> = candidates
@@ -567,7 +578,7 @@ impl<'a> BodyChecker<'a> {
             .collect();
         let self_owner = &method.owner;
         let self_ty = receiver_ty;
-        substitution.insert_receiver(self_owner.clone(), self_ty.clone());
+        substitution.insert_receiver(*self_owner, self_ty.clone());
         let method_generics = &method.generic_params[trait_contract.generic_params.len()..];
         self.seed_callable_context(callee, method_generics, &method.bounds, &mut substitution);
         self.seed_explicit_arguments(callee, method_generics, &mut substitution);
@@ -592,7 +603,7 @@ impl<'a> BodyChecker<'a> {
         self.type_table.insert_call(
             call_expr,
             CallTarget::TraitMethod {
-                method: method.id.clone(),
+                method: method.id,
                 interface: interface.clone(),
             },
             receiver,

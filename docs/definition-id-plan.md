@@ -1460,3 +1460,70 @@ imports, associated member lookup, host-prefix
 lifetime and retained search guards. No broader Cargo test sweep was performed;
 exhaustive feature/backend acceptance remains CI scope. This is a broken intermediate
 SI03 checkpoint, not completion of SI03 or SI01-SI06.
+
+### SI03 member consumers, scoped diagnostics and build recovery
+
+HIR's production library now builds with fixed-ID semantic consumers. Constructor,
+field/place/pattern and associated-constant selection no longer return DefinitionPath.
+Visibility checks resolve borrowed owner modules in the analysis table, and associated
+constants look up the registered Const child before consulting the trait contract.
+Family/member diagnostics borrow names from the same scope. No name-only fallback
+supplies a semantic identity, and access checks and source diagnostics remain in place.
+
+TypeId diagnostic formatting now takes an explicit retained DefinitionTable. Its
+implementation lives in `types/display.rs`; callers pass their declaration/analysis
+scope, including Host contract validation and constant checking. Formatting uses
+borrowed name segments and orders associated members by canonical identity rather
+than numeric ID allocation. It remains a diagnostic spelling, not a portable ID or
+source parser. Absent/foreign named identities are invariant violations; retained
+snapshots keep their names after the writer grows. No per-type table or path-shaped
+semantic copy is introduced.
+
+Removed obsolete clones of Copy IDs in production HIR with compiler-guided edits.
+Application validation now groups its checked catalog, Host contracts, TypeTable and
+definition table in ApplicationContext. Constant validation similarly groups immutable
+checked inputs. Concrete implementation searches take ImplementationSearchLimits for
+candidate/depth limits; all HIR call sites retain their previous values and cancellation
+argument. These changes keep scope and resource ownership explicit without new
+semantic policies or lint exemptions. SI04 compiler callers must adopt the new scoped
+query/display interfaces; those consumers are not claimed buildable yet.
+
+Focused evidence:
+
+- `cargo check -p kagari-hir --lib --message-format=short` passes, resolving the 43
+  carried library diagnostics from the previous checkpoint.
+- `cargo clippy -p kagari-hir --lib -- -D warnings` passes after removing 142 obsolete
+  Copy clones, grouping three expanded argument lists and resolving consequent
+  shorthand/lazy-evaluation findings. The first run reported 145 errors; no lint
+  allowance was added. Final Clippy also checks the final production-library edits.
+- Migrated the existing `language_contracts` integration fixture to scoped catalog
+  metadata, existing-ID lookups and scope-aware validation. `cargo test -p kagari-hir
+  --test language_contracts --no-fail-fast` passes all 10 selected contract tests.
+  These cover complete portable language contracts, installed input adoption,
+  concrete versus erased iterator proofs, default containers, readonly/hash-key
+  rejection, Iterable item compatibility, array-only analysis without providers,
+  and method documentation/navigation/completion. The added missing-provider case
+  checks intrinsic scalar/tuple equality and hashing with/without an empty catalog
+  while nominal protocol lookup remains absent. An initial fixture build incorrectly
+  queried FileDeclarations directly for its table; it now uses its Declarations owner.
+- `cargo test -p kagari-hir --test identity_display -- --exact
+  diagnostic_names_preserve_canonical_order_and_snapshot_ownership` passes. It checks
+  both associated-member allocation orders, exact diagnostic spelling, old-prefix
+  and foreign-scope rejection, and retained names after context growth.
+- `cargo test -p kagari-hir --lib
+  analysis::prelude_tests::standard_variants_and_propagation_rebase_on_body_reuse
+  -- --exact` cannot build the lib-test target: 536 errors remain in unmigrated test
+  fixtures. Representative failures call removed `ownership::paths`, construct
+  path-shaped HIR/Host records, and pass fallible catalog results to old signatures.
+  The selected propagation/rebase test did not execute. SI03 owns migrating these
+  fixtures and running the existing selected propagation, snapshot/identity,
+  associated-constant and Host-boundary contract cases. Preserve assertions and
+  compare independently scoped snapshots by explicit remapping, not path projections.
+
+Structure passes 1055 Rust files with no violations or documented exceptions;
+formatting and diff checks pass. Reviewed imports, ID copies, ownership/visibility,
+display ordering, scoped inputs and unchanged search budgets. No ABI bump, workspace
+sweep or full backend matrix was run. Remaining SI03 test migration and identity
+visitor/remapping audits, SI04 integration, SI05/SI06 representation removal and final
+documentation cleanup are still required; production HIR build recovery is not overall
+plan acceptance.

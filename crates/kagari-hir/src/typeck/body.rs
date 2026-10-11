@@ -370,7 +370,7 @@ impl<'a> BodyChecker<'a> {
                             type_name: format!(
                                 "interpolation requires {} for {}",
                                 protocol.name(),
-                                display_type_id(&ty)
+                                display_type_id(self.declarations.definitions(), &ty)
                             ),
                         })
                         .with_span(self.lowered.source_map.expr_span(*expr)),
@@ -412,8 +412,8 @@ impl<'a> BodyChecker<'a> {
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidNumericCast {
-                            from: display_type_id(&input),
-                            to: display_type_id(&output),
+                            from: display_type_id(self.declarations.definitions(), &input),
+                            to: display_type_id(self.declarations.definitions(), &output),
                         })
                         .with_span(self.lowered.source_map.expr_span(expr_id)),
                     );
@@ -441,8 +441,14 @@ impl<'a> BodyChecker<'a> {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                                     operator: "range",
-                                    expected: display_type_id(expected),
-                                    found: display_type_id(&actual),
+                                    expected: display_type_id(
+                                        self.declarations.definitions(),
+                                        expected,
+                                    ),
+                                    found: display_type_id(
+                                        self.declarations.definitions(),
+                                        &actual,
+                                    ),
                                 })
                                 .with_span(self.lowered.source_map.expr_span(*operand)),
                             );
@@ -512,7 +518,7 @@ impl<'a> BodyChecker<'a> {
                     {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidClosureCapture {
-                                type_name: display_type_id(ty),
+                                type_name: display_type_id(self.declarations.definitions(), ty),
                             })
                             .with_span(self.lowered.source_map.expr_span(expr_id)),
                         );
@@ -563,7 +569,7 @@ impl<'a> BodyChecker<'a> {
                     if *is_async && ty.contains_host_value() {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
-                                type_name: display_type_id(&ty),
+                                type_name: display_type_id(self.declarations.definitions(), &ty),
                             })
                             .with_span(self.lowered.source_map.local_span(param.local)),
                         );
@@ -611,8 +617,8 @@ impl<'a> BodyChecker<'a> {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                                 function_name: "closure".into(),
-                                expected: display_type_id(&result),
-                                found: display_type_id(&returned),
+                                expected: display_type_id(self.declarations.definitions(), &result),
+                                found: display_type_id(self.declarations.definitions(), &returned),
                             })
                             .with_span(self.lowered.source_map.expr_span(*body)),
                         );
@@ -769,8 +775,14 @@ impl<'a> BodyChecker<'a> {
                             } else if else_completes && then_ty.conflicts_with(&else_ty) {
                                 self.diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
-                                        expected: display_type_id(&then_ty),
-                                        found: display_type_id(&else_ty),
+                                        expected: display_type_id(
+                                            self.declarations.definitions(),
+                                            &then_ty,
+                                        ),
+                                        found: display_type_id(
+                                            self.declarations.definitions(),
+                                            &else_ty,
+                                        ),
                                     })
                                     .with_span(self.lowered.source_map.expr_span(*else_expr)),
                                 );
@@ -858,8 +870,11 @@ impl<'a> BodyChecker<'a> {
                         } else if found.conflicts_with(result) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
-                                    expected: display_type_id(result),
-                                    found: display_type_id(&found),
+                                    expected: display_type_id(
+                                        self.declarations.definitions(),
+                                        result,
+                                    ),
+                                    found: display_type_id(self.declarations.definitions(), &found),
                                 })
                                 .with_span(self.lowered.source_map.expr_span(arm.expr)),
                             );
@@ -932,7 +947,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                            type_name: element.display_name(),
+                            type_name: element.display_name(self.declarations.definitions()),
                             constraint: "array repetition without shared mutable objects".into(),
                             reason: "initialize each element separately to create distinct objects"
                                 .into(),
@@ -946,8 +961,11 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                             operator: "array repeat count",
-                            expected: display_type_id(&length_type),
-                            found: display_type_id(&actual),
+                            expected: display_type_id(
+                                self.declarations.definitions(),
+                                &length_type,
+                            ),
+                            found: display_type_id(self.declarations.definitions(), &actual),
                         })
                         .with_span(self.lowered.source_map.expr_span(*count)),
                     );
@@ -984,8 +1002,11 @@ impl<'a> BodyChecker<'a> {
                         if ty.conflicts_with(element_ty) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::ArrayElementTypeMismatch {
-                                    expected: display_type_id(element_ty),
-                                    found: display_type_id(&ty),
+                                    expected: display_type_id(
+                                        self.declarations.definitions(),
+                                        element_ty,
+                                    ),
+                                    found: display_type_id(self.declarations.definitions(), &ty),
                                 })
                                 .with_span(self.lowered.source_map.expr_span(*expr)),
                             );
@@ -1022,11 +1043,14 @@ impl<'a> BodyChecker<'a> {
         };
 
         applications::validate(
-            self.declarations.definitions(),
+            applications::ApplicationContext {
+                definitions: self.declarations.definitions(),
+                catalog: self.aggregates,
+                hosts: &self.declarations.hosts,
+                table: self.type_table,
+            },
             &ty,
             &env.generic_bounds,
-            (self.aggregates, &self.declarations.hosts),
-            self.type_table,
             self.lowered.source_map.expr_span(expr_id),
             self.diagnostics,
             self.cancel,

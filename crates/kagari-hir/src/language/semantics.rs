@@ -2,7 +2,7 @@
 
 use crate::builtin::surface;
 use crate::{
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     typeck::{GenericBounds, table::ConstraintTarget},
     types::{NominalType, TypeId},
 };
@@ -209,7 +209,7 @@ pub fn intrinsic_applies(
     if let Some((required, target)) = conversion_requirement(interface, receiver, catalog) {
         return intrinsic_applies(definitions, &required, &target, catalog, bounds)
             || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
-            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(definitions, &required, &target, bounds, 100_000, 64, &Default::default()).is_ok_and(|found| found.is_some()));
+            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(definitions, &required, &target, bounds, ImplementationSearchLimits { max_checks: 100_000, max_depth: 64 }, &Default::default()).is_ok_and(|found| found.is_some()));
     }
     let Some(kind) = Protocol::from_reference(&interface.declaration, Some(definitions)) else {
         return false;
@@ -310,8 +310,10 @@ pub fn intrinsic_holds(
                     &interface,
                     ty,
                     bounds,
-                    4096,
-                    64,
+                    ImplementationSearchLimits {
+                        max_checks: 4096,
+                        max_depth: 64
+                    },
                     &Default::default()
                 ),
                 Ok(Some(_))
@@ -465,8 +467,10 @@ pub fn iteration_outputs(
                 &kind.nominal(definitions)?,
                 receiver,
                 bounds,
-                4096,
-                64,
+                ImplementationSearchLimits {
+                    max_checks: 4096,
+                    max_depth: 64,
+                },
                 &Default::default(),
             )
             .ok()
@@ -485,7 +489,7 @@ pub fn iteration_outputs(
                 .trait_type
                 .associated_types
                 .iter()
-                .map(|(member, ty)| (member.clone(), ty.instantiate(&substitution)))
+                .map(|(member, ty)| (*member, ty.instantiate(&substitution)))
                 .collect(),
         );
     }
@@ -504,8 +508,10 @@ pub fn iteration_outputs(
                 &iterator,
                 receiver,
                 bounds,
-                4096,
-                64,
+                ImplementationSearchLimits {
+                    max_checks: 4096,
+                    max_depth: 64,
+                },
                 &Default::default(),
             )
             .is_ok_and(|i| i.is_some())
@@ -617,7 +623,7 @@ pub fn conversion_requirement(
         return None;
     };
     let mut required = NominalType {
-        declaration: origin.clone(),
+        declaration: *origin,
         arguments: vec![receiver.clone()],
         associated_types: Default::default(),
     };
@@ -626,7 +632,7 @@ pub fn conversion_requirement(
         if member != source {
             return None;
         }
-        required.associated_types.insert(target.clone(), ty.clone());
+        required.associated_types.insert(*target, ty.clone());
     }
     Some((required, target.clone()))
 }

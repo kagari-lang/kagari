@@ -46,7 +46,7 @@ impl<'a> BodyChecker<'a> {
                 if local {
                     CallTarget::Function(imported.id.function().expect("function target"))
                 } else {
-                    CallTarget::SourceFunction(imported.declaration.clone())
+                    CallTarget::SourceFunction(imported.declaration)
                 },
                 None,
             );
@@ -152,7 +152,7 @@ impl<'a> BodyChecker<'a> {
             if !callee_ty.is_unresolved() {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidCallTarget {
-                        type_name: display_type_id(&callee_ty),
+                        type_name: display_type_id(self.declarations.definitions(), &callee_ty),
                     })
                     .with_span(self.lowered.source_map.expr_span(callee)),
                 );
@@ -219,7 +219,11 @@ impl<'a> BodyChecker<'a> {
             .is_some()
                 && method.function.name == member
                 && method.visibility.allows(
-                    &method.declaration.module,
+                    self.declarations
+                        .definitions()
+                        .resolve(method.declaration)
+                        .expect("scoped member owner")
+                        .module(),
                     self.lowered.source.module_identity(),
                 )
         });
@@ -371,7 +375,7 @@ impl<'a> BodyChecker<'a> {
                 .cloned()
                 .zip(call.type_arguments),
         );
-        substitution.insert_receiver(owner.id.clone(), receiver.clone());
+        substitution.insert_receiver(owner.id, receiver.clone());
         self.type_table.insert_call_signature(
             site,
             AppliedCallSignature {
@@ -465,16 +469,17 @@ impl<'a> BodyChecker<'a> {
                                 .trait_(&trait_type.declaration)
                                 .map(|contract| contract.declaration.name.clone())
                                 .or_else(|| {
-                                    trait_type
-                                        .declaration
-                                        .path
+                                    self.declarations
+                                        .definitions()
+                                        .resolve(trait_type.declaration)
+                                        .expect("scoped trait")
                                         .last()
-                                        .map(|segment| segment.name.clone())
+                                        .map(|segment| segment.name.to_owned())
                                 })
                                 .unwrap_or_default();
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
-                                    type_name: actual.display_name(),
+                                    type_name: actual.display_name(self.declarations.definitions()),
                                     trait_name,
                                 })
                                 .with_span(self.lowered.source_map.expr_span(callee)),
@@ -550,8 +555,8 @@ impl<'a> BodyChecker<'a> {
                 Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                     function_name: function_name.to_owned(),
                     parameter_name: parameter_name.to_owned(),
-                    expected: display_type_id(&expected),
-                    found: display_type_id(found),
+                    expected: display_type_id(self.declarations.definitions(), &expected),
+                    found: display_type_id(self.declarations.definitions(), found),
                 })
                 .with_span(self.lowered.source_map.expr_span(*arg_expr)),
             );
@@ -570,8 +575,8 @@ impl<'a> BodyChecker<'a> {
             Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
                 function_name: function_name.to_owned(),
                 parameter_name: parameter_name.to_owned(),
-                expected: display_type_id(expected),
-                found: display_type_id(found),
+                expected: display_type_id(self.declarations.definitions(), expected),
+                found: display_type_id(self.declarations.definitions(), found),
             })
             .with_span(self.lowered.source_map.expr_span(span_expr)),
         );
@@ -606,7 +611,7 @@ impl<'a> BodyChecker<'a> {
             {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                        type_name: ty.display_name(),
+                        type_name: ty.display_name(self.declarations.definitions()),
                         constraint: standard_surface::standard_constraint_name(constraint).into(),
                         reason: constraints::standard_constraint_reason(constraint).into(),
                     })

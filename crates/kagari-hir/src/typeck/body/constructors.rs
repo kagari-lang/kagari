@@ -21,12 +21,12 @@ use crate::{
 };
 use std::collections::HashSet;
 use {
-    kagari_common::identity::DefinitionPath,
+    kagari_common::identity::table::DefinitionId,
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn enum_member(&self, expr: ExprId) -> Option<(DefinitionPath, String)> {
+    pub(super) fn enum_member(&self, expr: ExprId) -> Option<(DefinitionId, String)> {
         if let Some(variant) = self
             .names
             .expr_resolution(expr)
@@ -36,14 +36,14 @@ impl<'a> BodyChecker<'a> {
                 return None;
             };
             let variant = self.aggregates.variant(id)?;
-            return Some((variant.owner.clone(), variant.name.clone()));
+            return Some((variant.owner, variant.name.clone()));
         }
         let member = self.names.qualified_member(expr)?;
         if let ResolvedName::Enum(id) = member.owner {
             return self
                 .declarations
                 .definition(ResolvedName::Enum(id))
-                .map(|owner| (owner.clone(), member.name.clone()));
+                .map(|owner| (*owner, member.name.clone()));
         }
         let imported = self
             .declarations
@@ -55,7 +55,7 @@ impl<'a> BodyChecker<'a> {
         let DeclarationId::Definition(id) = &imported.declaration.id else {
             return None;
         };
-        Some((id.clone(), member.name.clone()))
+        Some((*id, member.name.clone()))
     }
 
     pub(super) fn resolve_constructor_type(&mut self, ty: TypeRefId, env: &BodyTypeEnv) -> TypeId {
@@ -133,8 +133,8 @@ impl<'a> BodyChecker<'a> {
         let name = format!("{}::{}", signature.declaration.name, member);
         let generic_params = signature.generic_params.clone();
         let target = ResolvedEnumConstructor {
-            enumeration: enumeration.clone(),
-            variant: variant.as_ref().map(|variant| variant.id.clone()),
+            enumeration,
+            variant: variant.as_ref().map(|variant| variant.id),
         };
         self.type_table
             .insert_enum_constructor(callee, target.clone());
@@ -281,9 +281,14 @@ impl<'a> BodyChecker<'a> {
             }
             let parameter = struct_def.fields.iter().find(|member| {
                 member.name == field.name
-                    && member
-                        .visibility
-                        .allows(&member.owner.module, self.lowered.source.module_identity())
+                    && member.visibility.allows(
+                        self.declarations
+                            .definitions()
+                            .resolve(member.owner)
+                            .expect("scoped member owner")
+                            .module(),
+                        self.lowered.source.module_identity(),
+                    )
             });
             let expected = parameter.map(|member| {
                 member
@@ -326,7 +331,7 @@ impl<'a> BodyChecker<'a> {
         );
         let mut seen = HashSet::new();
         let resolved = ResolvedStructInit {
-            structure: struct_def.id.clone(),
+            structure: struct_def.id,
             fields: fields
                 .iter()
                 .map(|init| {
@@ -336,11 +341,15 @@ impl<'a> BodyChecker<'a> {
                         .find(|field| {
                             field.name == init.name
                                 && field.visibility.allows(
-                                    &field.owner.module,
+                                    self.declarations
+                                        .definitions()
+                                        .resolve(field.owner)
+                                        .expect("scoped member owner")
+                                        .module(),
                                     self.lowered.source.module_identity(),
                                 )
                         })
-                        .map(|field| field.id.clone())
+                        .map(|field| field.id)
                 })
                 .collect(),
         };
@@ -383,8 +392,8 @@ impl<'a> BodyChecker<'a> {
             if *field_completes && expected.conflicts_with(value_ty) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                        expected: display_type_id(&expected),
-                        found: display_type_id(value_ty),
+                        expected: display_type_id(self.declarations.definitions(), &expected),
+                        found: display_type_id(self.declarations.definitions(), value_ty),
                     })
                     .with_span(self.lowered.source_map.expr_span(*value_expr)),
                 );

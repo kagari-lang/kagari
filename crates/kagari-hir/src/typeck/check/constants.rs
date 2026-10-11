@@ -15,7 +15,7 @@ use crate::{
     typeck::{TopLevelTypeIndex, const_budget::ConstBudget, table::TypeTable, ty::display_type_id},
     types::TypeId,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
@@ -27,16 +27,32 @@ pub(super) enum ConstVisitState {
     Done,
 }
 
+/// Immutable checked inputs used to validate one module's constant initializers.
+pub(super) struct ConstValidationInputs<'a> {
+    pub definitions: &'a DefinitionTable,
+    pub lowered: &'a LoweredModule,
+    pub names: &'a ResolvedNames,
+    pub top_level_index: &'a TopLevelTypeIndex,
+    pub type_table: &'a TypeTable,
+    pub cancel: &'a CancellationToken,
+}
+
 pub(super) fn validate_const_initializers(
-    lowered: &LoweredModule,
-    names: &ResolvedNames,
-    top_level_index: &TopLevelTypeIndex,
-    type_table: &TypeTable,
-    cancel: &CancellationToken,
+    inputs: ConstValidationInputs<'_>,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     budget: &mut ConstBudget,
 ) {
+    let ConstValidationInputs {
+        definitions,
+        lowered,
+        names,
+        top_level_index,
+        type_table,
+        cancel,
+    } = inputs;
+
     struct ConstValidator<'a> {
+        definitions: &'a DefinitionTable,
         lowered: &'a LoweredModule,
         names: &'a ResolvedNames,
         top_level_index: &'a TopLevelTypeIndex,
@@ -89,7 +105,7 @@ pub(super) fn validate_const_initializers(
                         const_name: const_item.name.clone(),
                         reason: format!(
                             "const type `{}` is heap-backed; const supports value types only",
-                            display_type_id(const_ty)
+                            display_type_id(self.definitions, const_ty)
                         ),
                     })
                     .with_span(self.lowered.source_map.const_span(const_id)),
@@ -114,8 +130,8 @@ pub(super) fn validate_const_initializers(
                         const_name: const_item.name.clone(),
                         reason: format!(
                             "expected `{}`, found `{}`",
-                            display_type_id(declared),
-                            display_type_id(&actual)
+                            display_type_id(self.definitions, declared),
+                            display_type_id(self.definitions, &actual)
                         ),
                     })
                     .with_span(self.lowered.source_map.expr_span(const_item.initializer)),
@@ -292,6 +308,7 @@ pub(super) fn validate_const_initializers(
     }
 
     let mut validator = ConstValidator {
+        definitions,
         lowered,
         names,
         top_level_index,

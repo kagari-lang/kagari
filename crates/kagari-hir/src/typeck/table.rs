@@ -793,7 +793,7 @@ impl TypeTable {
             }
             if let Some(variant) = old.pattern_variants.get(&old_map.pattern_id(a)) {
                 self.pattern_variants
-                    .insert(new_map.pattern_id(b), variant.clone());
+                    .insert(new_map.pattern_id(b), *variant);
             }
         }
         for (a, b) in exprs {
@@ -820,7 +820,7 @@ impl TypeTable {
                     .insert(new_map.expr_id(b), coercion.clone());
             }
             if let Some(field) = old.expr_fields.get(&old_map.expr_id(a)) {
-                self.expr_fields.insert(new_map.expr_id(b), field.clone());
+                self.expr_fields.insert(new_map.expr_id(b), *field);
             }
             if let Some(target) = old.struct_inits.get(&old_map.expr_id(a)) {
                 self.struct_inits.insert(new_map.expr_id(b), target.clone());
@@ -852,7 +852,7 @@ impl TypeTable {
                     .insert(new_map.place_id(b), interface.clone());
             }
             if let Some(field) = old.place_fields.get(&old_map.place_id(a)) {
-                self.place_fields.insert(new_map.place_id(b), field.clone());
+                self.place_fields.insert(new_map.place_id(b), *field);
             }
             if let Some(ty) = old.places.get(&old_map.place_id(a)) {
                 self.places.insert(new_map.place_id(b), ty.clone());

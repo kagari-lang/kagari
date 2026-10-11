@@ -50,11 +50,14 @@ impl<'a> BodyChecker<'a> {
                     );
                     if resolved.contains_projection() {
                         applications::validate(
-                            self.declarations.definitions(),
+                            applications::ApplicationContext {
+                                definitions: self.declarations.definitions(),
+                                catalog: self.aggregates,
+                                hosts: &self.names.hosts,
+                                table: self.type_table,
+                            },
                             &resolved,
                             &env.generic_bounds,
-                            (self.aggregates, &self.names.hosts),
-                            self.type_table,
                             self.lowered.source_map.type_span(ty),
                             self.diagnostics,
                             self.cancel,
@@ -95,11 +98,14 @@ impl<'a> BodyChecker<'a> {
                     self.cancel,
                 );
                 applications::validate(
-                    self.declarations.definitions(),
+                    applications::ApplicationContext {
+                        definitions: self.declarations.definitions(),
+                        catalog: self.aggregates,
+                        hosts: &self.declarations.hosts,
+                        table: self.type_table,
+                    },
                     &local_ty,
                     &env.generic_bounds,
-                    (self.aggregates, &self.declarations.hosts),
-                    self.type_table,
                     self.lowered.source_map.stmt_span(stmt_id),
                     self.diagnostics,
                     self.cancel,
@@ -116,8 +122,11 @@ impl<'a> BodyChecker<'a> {
                 if completes && local_ty.conflicts_with(&initializer_ty) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                            expected: display_type_id(&local_ty),
-                            found: display_type_id(&initializer_ty),
+                            expected: display_type_id(self.declarations.definitions(), &local_ty),
+                            found: display_type_id(
+                                self.declarations.definitions(),
+                                &initializer_ty,
+                            ),
                         })
                         .with_span(self.lowered.source_map.expr_span(*initializer)),
                     );
@@ -169,8 +178,11 @@ impl<'a> BodyChecker<'a> {
                     {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                                expected: display_type_id(&expected),
-                                found: display_type_id(&value_ty),
+                                expected: display_type_id(
+                                    self.declarations.definitions(),
+                                    &expected,
+                                ),
+                                found: display_type_id(self.declarations.definitions(), &value_ty),
                             })
                             .with_span(self.lowered.source_map.place_span(*target)),
                         )
@@ -211,8 +223,11 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                             function_name: self.function_name.to_string(),
-                            expected: display_type_id(&self.expected_return),
-                            found: display_type_id(&found),
+                            expected: display_type_id(
+                                self.declarations.definitions(),
+                                &self.expected_return,
+                            ),
+                            found: display_type_id(self.declarations.definitions(), &found),
                         })
                         .with_span(self.lowered.source_map.stmt_span(stmt_id)),
                     );
@@ -257,7 +272,10 @@ impl<'a> BodyChecker<'a> {
                     if !iterable_ty.is_unresolved() {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidForIterable {
-                                type_name: display_type_id(&iterable_ty),
+                                type_name: display_type_id(
+                                    self.declarations.definitions(),
+                                    &iterable_ty,
+                                ),
                             })
                             .with_span(self.lowered.source_map.expr_span(*iterable)),
                         );
@@ -349,8 +367,8 @@ impl<'a> BodyChecker<'a> {
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::BreakValueTypeMismatch {
-                            expected: display_type_id(expected),
-                            found: display_type_id(&ty),
+                            expected: display_type_id(self.declarations.definitions(), expected),
+                            found: display_type_id(self.declarations.definitions(), &ty),
                         })
                         .with_span(span),
                     );

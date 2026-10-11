@@ -43,7 +43,7 @@ pub fn list_interface(
         CollectionAccess::ReadOnly
     };
     Some(NominalType {
-        declaration: declarations.array_interfaces.get(&access)?.clone(),
+        declaration: *declarations.array_interfaces.get(&access)?,
         arguments: vec![item],
         associated_types: Default::default(),
     })

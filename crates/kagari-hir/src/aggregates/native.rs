@@ -1,7 +1,10 @@
 //! Installed implementation selection uses checked source contracts and provenance.
 
 use crate::{
-    aggregates::{AggregateCatalog, implementations::ImplementationSignature},
+    aggregates::{
+        AggregateCatalog, implementations::ImplementationSearchLimits,
+        implementations::ImplementationSignature,
+    },
     typeck::{GenericBounds, table::match_implementation},
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -55,8 +58,10 @@ impl AggregateCatalog {
                 interface,
                 receiver,
                 bounds,
-                4096,
-                64,
+                ImplementationSearchLimits {
+                    max_checks: 4096,
+                    max_depth: 64,
+                },
                 &Default::default(),
             )
             .ok()??;

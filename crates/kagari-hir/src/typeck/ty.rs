@@ -17,7 +17,10 @@ use crate::{
     },
     types::{NominalType, TypeId},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionTable},
+};
 use kagari_types::{declaration::names::NameNamespace, language::Protocol, scalar::BuiltinType};
 
 /// Borrowed declaration environment for resolving one written type.
@@ -81,7 +84,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     if let ResolvedName::HostType(id) = resolved {
                         target = Some(TypeTarget::Host(id));
                         return Some(TypeId::Host(
-                            context.declarations.hosts.type_declaration(id)?.id.clone(),
+                            context.declarations.hosts.type_declaration(id)?.id,
                         ));
                     }
                     if let Some(imported) = context
@@ -90,12 +93,12 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                         .resolved(resolved.clone())
                     {
                         target = Some(TypeTarget::Source(match &imported.declaration.id {
-                            DeclarationId::Definition(id) => id.clone(),
+                            DeclarationId::Definition(id) => *id,
                             _ => return None,
                         }));
                         return Some(imported.ty.clone());
                     }
-                    let definition = context.declarations.definition(resolved.clone())?.clone();
+                    let definition = *context.declarations.definition(resolved.clone())?;
                     let arguments = context
                         .declarations
                         .parameters_of(&definition)
@@ -500,6 +503,6 @@ pub(super) fn display_type(module: &Module, ty: TypeRefId) -> String {
     }
 }
 
-pub(crate) fn display_type_id(ty: &TypeId) -> String {
-    ty.display_name()
+pub(crate) fn display_type_id(definitions: &DefinitionTable, ty: &TypeId) -> String {
+    ty.display_name(definitions)
 }

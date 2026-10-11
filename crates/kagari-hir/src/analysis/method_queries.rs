@@ -1,7 +1,7 @@
 //! Source method completion projects the same checked receiver surfaces as calls.
 
 use crate::{
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     analysis::FileAnalysis,
     declarations::DeclarationId,
     typeck::{
@@ -118,8 +118,10 @@ impl FileAnalysis {
                     &interface,
                     &receiver,
                     assumptions,
-                    4096,
-                    64,
+                    ImplementationSearchLimits {
+                        max_checks: 4096,
+                        max_depth: 64,
+                    },
                     &cancel,
                 )
                 .ok()
@@ -137,7 +139,7 @@ impl FileAnalysis {
                     .cloned()
                     .zip(interface.arguments.iter().cloned())
                     .collect();
-                substitution.insert_receiver(contract.id.clone(), receiver.clone());
+                substitution.insert_receiver(contract.id, receiver.clone());
                 for parameter in &method.generic_params {
                     substitution
                         .entry(parameter.clone())
@@ -146,10 +148,9 @@ impl FileAnalysis {
                 if !query.bounds_allow(&method.bounds, &substitution, Some(&interface)) {
                     continue;
                 }
-                let declaration = implementation
+                let declaration = *implementation
                     .and_then(|implementation| implementation.methods.get(&method.id))
-                    .unwrap_or(&method.id)
-                    .clone();
+                    .unwrap_or(&method.id);
                 candidates.push(MethodCompletion {
                     declaration: DeclarationId::Definition(declaration),
                     name: method.name.clone(),
@@ -231,8 +232,10 @@ impl MemberQuery<'_> {
                                 &required,
                                 &actual,
                                 self.assumptions,
-                                4096,
-                                64,
+                                ImplementationSearchLimits {
+                                    max_checks: 4096,
+                                    max_depth: 64,
+                                },
                                 self.cancel,
                             )
                             .is_ok_and(|selected| selected.is_some())

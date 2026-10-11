@@ -29,17 +29,28 @@ use kagari_types::{
     surface::StandardTypeConstraint,
 };
 
+/// Checked declaration sources and their retained identity scope for application validation.
+pub(super) struct ApplicationContext<'a> {
+    pub definitions: &'a DefinitionTable,
+    pub catalog: &'a AggregateCatalog,
+    pub hosts: &'a HostDeclarations,
+    pub table: &'a TypeTable,
+}
+
 pub(super) fn validate(
-    definitions: &DefinitionTable,
+    context: ApplicationContext<'_>,
     ty: &TypeId,
     bounds: &GenericBounds,
-    sources: (&AggregateCatalog, &HostDeclarations),
-    table: &TypeTable,
     span: Span,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
-    let (catalog, hosts) = sources;
+    let ApplicationContext {
+        definitions,
+        catalog,
+        hosts,
+        table,
+    } = context;
     let expanded = catalog
         .expanded_bounds(bounds, cancel)
         .unwrap_or_else(|_| bounds.clone());
@@ -56,7 +67,7 @@ pub(super) fn validate(
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                    type_name: element.display_name(),
+                    type_name: element.display_name(definitions),
                     constraint: "integer range endpoint".into(),
                     reason: "range endpoints must have a builtin integer type".into(),
                 })
@@ -89,7 +100,7 @@ pub(super) fn validate(
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                    type_name: key.display_name(),
+                    type_name: key.display_name(definitions),
                     constraint: "Eq + Hash".into(),
                     reason: "every key component must support stable equality and hashing".into(),
                 })
@@ -119,7 +130,7 @@ pub(super) fn validate(
                                 .zip(arguments.iter().cloned()),
                         )
                         .collect();
-                    substitution.insert_receiver(contract.id.clone(), receiver.as_ref().clone());
+                    substitution.insert_receiver(contract.id, receiver.as_ref().clone());
                     if inputs.parameters.len() != arguments.len() {
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
@@ -258,7 +269,7 @@ pub(super) fn validate(
                                         diagnostics.push(
                                             Diagnostic::error(
                                                 DiagnosticKind::GenericBoundNotSatisfied {
-                                                    type_name: actual.display_name(),
+                                                    type_name: actual.display_name(definitions),
                                                     trait_name: catalog
                                                         .trait_(&id.declaration)
                                                         .expect("checked trait contract")
@@ -303,7 +314,7 @@ pub(super) fn validate(
                                         TypeId::Trait(required.instantiate(&substitution))
                                             .with_associated_types(
                                                 instance,
-                                                &TypeId::SelfType(instance.declaration.clone()),
+                                                &TypeId::SelfType(instance.declaration),
                                             )
                                     else {
                                         unreachable!()
@@ -325,7 +336,7 @@ pub(super) fn validate(
                                             .to_owned(),
                                         reason: format!(
                                             "type `{}` does not satisfy its declared bound",
-                                            actual.display_name()
+                                            actual.display_name(definitions)
                                         ),
                                     })
                                     .with_span(span),
@@ -386,11 +397,14 @@ pub(crate) fn validate_signatures(
                 cancel,
             );
             validate(
-                definitions,
+                ApplicationContext {
+                    definitions,
+                    catalog,
+                    hosts: &declarations.hosts,
+                    table: signatures.type_table(),
+                },
                 &parameter.ty,
                 &function.bounds,
-                (catalog, &declarations.hosts),
-                signatures.type_table(),
                 lowered.source_map.param_span(parameter.id),
                 diagnostics,
                 cancel,
@@ -406,11 +420,14 @@ pub(crate) fn validate_signatures(
             cancel,
         );
         validate(
-            definitions,
+            ApplicationContext {
+                definitions,
+                catalog,
+                hosts: &declarations.hosts,
+                table: signatures.type_table(),
+            },
             &function.return_type,
             &function.bounds,
-            (catalog, &declarations.hosts),
-            signatures.type_table(),
             lowered.source_map.function_span(function.id),
             diagnostics,
             cancel,
@@ -434,11 +451,14 @@ pub(crate) fn validate_signatures(
         let available =
             constraints::implementation_bounds(impl_block, declarations, signatures.type_table());
         validate(
-            definitions,
+            ApplicationContext {
+                definitions,
+                catalog,
+                hosts: &declarations.hosts,
+                table: signatures.type_table(),
+            },
             &TypeId::Trait(instance.clone()),
             &available,
-            (catalog, &declarations.hosts),
-            signatures.type_table(),
             lowered.source_map.type_span(trait_ref.ty),
             diagnostics,
             cancel,
@@ -533,11 +553,14 @@ pub(crate) fn validate_signatures(
     }) {
         for field in &structure.fields {
             validate(
-                definitions,
+                ApplicationContext {
+                    definitions,
+                    catalog,
+                    hosts: &declarations.hosts,
+                    table: signatures.type_table(),
+                },
                 &field.ty,
                 &structure.bounds,
-                (catalog, &declarations.hosts),
-                signatures.type_table(),
                 field.declaration.location.range,
                 diagnostics,
                 cancel,
@@ -554,11 +577,14 @@ pub(crate) fn validate_signatures(
         for variant in &enumeration.variants {
             for payload in &variant.payload {
                 validate(
-                    definitions,
+                    ApplicationContext {
+                        definitions,
+                        catalog,
+                        hosts: &declarations.hosts,
+                        table: signatures.type_table(),
+                    },
                     payload,
                     &enumeration.bounds,
-                    (catalog, &declarations.hosts),
-                    signatures.type_table(),
                     variant.declaration.location.range,
                     diagnostics,
                     cancel,
@@ -590,18 +616,18 @@ pub(super) fn validate_imported_interface_type(
                             .is_some_and(LangRole::requires_static_dispatch)
                     },
                 ) {
-                    diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
+                    diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(definitions), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
                 }
                 let erased = catalog.trait_closure(instance, ty, cancel);
                 let preserved = catalog.trait_closure(
                     instance,
-                    &TypeId::SelfType(instance.declaration.clone()),
+                    &TypeId::SelfType(instance.declaration),
                     cancel,
                 );
                 if erased != preserved {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                            trait_name: ty.display_name(),
+                            trait_name: ty.display_name(definitions),
                             reason: "supertrait arguments cannot depend on erased Self".into(),
                         })
                         .with_span(span),
@@ -630,7 +656,7 @@ pub(super) fn validate_imported_interface_type(
                         {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                    trait_name: ty.display_name(),
+                                    trait_name: ty.display_name(definitions),
                                     reason: "standard supertraits require static dispatch".into(),
                                 })
                                 .with_span(span),
@@ -667,7 +693,7 @@ pub(super) fn validate_imported_interface_type(
                                     .is_some_and(|param| param.name == "self"),
                                 &method.return_type.with_associated_types(
                                     &parent,
-                                    &TypeId::SelfType(parent.declaration.clone()),
+                                    &TypeId::SelfType(parent.declaration),
                                 ),
                                 method
                                     .params
@@ -676,7 +702,7 @@ pub(super) fn validate_imported_interface_type(
                                     .map(|param| {
                                         param.ty.with_associated_types(
                                             &parent,
-                                            &TypeId::SelfType(parent.declaration.clone()),
+                                            &TypeId::SelfType(parent.declaration),
                                         )
                                     })
                                     .collect::<Vec<_>>()

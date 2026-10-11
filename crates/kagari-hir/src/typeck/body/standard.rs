@@ -109,12 +109,10 @@ impl BodyChecker<'_> {
         ) else {
             return TypeId::Error;
         };
+        requested.associated_types.insert(output_id, output.clone());
         requested
             .associated_types
-            .insert(output_id.clone(), output.clone());
-        requested
-            .associated_types
-            .insert(residual_id.clone(), residual.clone());
+            .insert(residual_id, residual.clone());
         self.constrain_declared_bound(&ty, &requested, env);
         let ty = self.solver.resolve(&ty);
         let Some((interface, _)) = self.select_operator(
@@ -129,7 +127,7 @@ impl BodyChecker<'_> {
         };
         let projection_interface = interface.clone();
         let mut outputs = Vec::new();
-        for (member, fallback) in [(output_id.clone(), output), (residual_id.clone(), residual)] {
+        for (member, fallback) in [(output_id, output), (residual_id, residual)] {
             let value = interface
                 .associated_types
                 .get(&member)
@@ -140,7 +138,7 @@ impl BodyChecker<'_> {
                         &TypeId::Projection {
                             receiver: Box::new(ty.clone()),
                             interface: Box::new(projection_interface.clone()),
-                            member: member.clone(),
+                            member,
                             arguments: vec![],
                         },
                     )
@@ -171,7 +169,10 @@ impl BodyChecker<'_> {
                 self.propagation_bound_error(
                     site,
                     &target,
-                    format!("FromResidual<{}>", residual.display_name()),
+                    format!(
+                        "FromResidual<{}>",
+                        residual.display_name(self.declarations.definitions())
+                    ),
                 );
             }
             return output;
@@ -235,8 +236,8 @@ impl BodyChecker<'_> {
                 branch,
                 from_residual,
                 return_type: target.clone(),
-                break_variant: break_variant.id.clone(),
-                continue_variant: continue_variant.id.clone(),
+                break_variant: break_variant.id,
+                continue_variant: continue_variant.id,
             },
         );
         let returned = self.propagation_return_context(&target, &output_id);
@@ -249,7 +250,7 @@ impl BodyChecker<'_> {
     fn propagation_bound_error(&mut self, site: ExprId, ty: &TypeId, trait_name: String) {
         self.diagnostics.push(
             Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
-                type_name: ty.display_name(),
+                type_name: ty.display_name(self.declarations.definitions()),
                 trait_name,
             })
             .with_span(self.lowered.source_map.expr_span(site)),
@@ -335,7 +336,7 @@ impl BodyChecker<'_> {
             .cloned()
             .zip(interface.arguments.iter().cloned())
             .collect();
-        substitution.insert_receiver(contract.id.clone(), receiver.clone());
+        substitution.insert_receiver(contract.id, receiver.clone());
         let resolve = |ty: &TypeId| {
             self.aggregates.normalize_type(
                 self.declarations.definitions(),
@@ -345,7 +346,7 @@ impl BodyChecker<'_> {
         };
         Some(ResolvedCall {
             target: CallTarget::TraitMethod {
-                method: method.id.clone(),
+                method: method.id,
                 interface: interface.clone(),
             },
             receiver: None,

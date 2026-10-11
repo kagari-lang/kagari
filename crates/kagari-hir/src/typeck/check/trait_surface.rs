@@ -156,7 +156,7 @@ pub(super) fn validate_trait_surface(
                             if !satisfied {
                                 diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
-                                        type_name: actual.display_name(),
+                                        type_name: actual.display_name(declarations.definitions()),
                                         trait_name: declarations
                                             .definitions()
                                             .resolve(required_trait.declaration)
@@ -190,7 +190,7 @@ pub(super) fn validate_trait_surface(
             );
             continue;
         };
-        let type_name = display_type_id(&for_ty);
+        let type_name = display_type_id(declarations.definitions(), &for_ty);
         let erased_iterator_identity = lowered.registered_native_api
             && Protocol::from_reference(&id.declaration, Some(declarations.definitions()))
                 == Some(Protocol::Iterable)
@@ -253,10 +253,9 @@ pub(super) fn validate_trait_surface(
                         .find(|implementation| implementation.name == method.name)
                         .map(|implementation| {
                             (
-                                declarations
+                                *declarations
                                     .definition(ResolvedName::Function(method.function))
-                                    .expect("trait method declaration")
-                                    .clone(),
+                                    .expect("trait method declaration"),
                                 implementation.function,
                             )
                         })
@@ -271,7 +270,7 @@ pub(super) fn validate_trait_surface(
                         .methods
                         .iter()
                         .find(|implementation| implementation.name == method.name)
-                        .map(|implementation| (method.declaration.clone(), implementation.function))
+                        .map(|implementation| (method.declaration, implementation.function))
                 })
                 .collect()
         };
@@ -282,10 +281,9 @@ pub(super) fn validate_trait_surface(
             .collect();
         let bounds = constraints::implementation_bounds(impl_block, declarations, table);
         table.insert_implementation(
-            declarations
+            *declarations
                 .impl_identity(impl_block.id)
-                .expect("checked impl declaration identity")
-                .clone(),
+                .expect("checked impl declaration identity"),
             id,
             for_ty,
             parameters,
@@ -310,16 +308,15 @@ pub(super) fn trait_method_interface_compatible(
             .is_some_and(|param| param.name == "self"),
         &function
             .return_type
-            .with_associated_types(interface, &TypeId::SelfType(interface.declaration.clone())),
+            .with_associated_types(interface, &TypeId::SelfType(interface.declaration)),
         function
             .params
             .iter()
             .skip(1)
             .map(|param| {
-                param.ty.with_associated_types(
-                    interface,
-                    &TypeId::SelfType(interface.declaration.clone()),
-                )
+                param
+                    .ty
+                    .with_associated_types(interface, &TypeId::SelfType(interface.declaration))
             })
             .collect::<Vec<_>>()
             .iter(),

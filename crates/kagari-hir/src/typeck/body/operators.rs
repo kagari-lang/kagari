@@ -75,7 +75,7 @@ impl BodyChecker<'_> {
                         Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                             operator: "-",
                             expected: "numeric".to_owned(),
-                            found: display_type_id(&inner),
+                            found: display_type_id(self.declarations.definitions(), &inner),
                         })
                         .with_span(self.lowered.source_map.expr_span(*expr)),
                     );
@@ -88,7 +88,7 @@ impl BodyChecker<'_> {
                         Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
                             operator: "!",
                             expected: "bool".to_owned(),
-                            found: display_type_id(&inner),
+                            found: display_type_id(self.declarations.definitions(), &inner),
                         })
                         .with_span(self.lowered.source_map.expr_span(*expr)),
                     );
@@ -334,7 +334,7 @@ impl<'a> BodyChecker<'a> {
             .cloned()
             .zip(interface.arguments.iter().cloned())
             .collect();
-        substitution.insert_receiver(contract.id.clone(), ty.clone());
+        substitution.insert_receiver(contract.id, ty.clone());
         let result = self.aggregates.normalize_type(
             self.declarations.definitions(),
             &method
@@ -361,8 +361,7 @@ impl<'a> BodyChecker<'a> {
             .trait_(&interface.declaration)?
             .methods
             .first()?
-            .id
-            .clone();
+            .id;
         self.type_table.insert_call(
             site,
             CallTarget::TraitMethod { method, interface },
@@ -573,8 +572,8 @@ impl<'a> BodyChecker<'a> {
             Diagnostic::error(DiagnosticKind::BinaryOperandTypeMismatch {
                 operator: self.binary_operator_name(op),
                 expected: expected.to_owned(),
-                lhs: display_type_id(lhs),
-                rhs: display_type_id(rhs),
+                lhs: display_type_id(self.declarations.definitions(), lhs),
+                rhs: display_type_id(self.declarations.definitions(), rhs),
             })
             .with_span(self.lowered.source_map.expr_span(span_expr)),
         );
@@ -624,7 +623,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
                     context,
-                    found: display_type_id(&ty),
+                    found: display_type_id(self.declarations.definitions(), &ty),
                 })
                 .with_span(self.lowered.source_map.expr_span(expr_id)),
             );

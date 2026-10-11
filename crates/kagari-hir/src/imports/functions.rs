@@ -42,10 +42,10 @@ impl ImportedFunctions {
     pub(crate) fn include_inherent_methods(&mut self, aggregates: &AggregateCatalog) {
         for method in aggregates.inherent_methods() {
             self.methods.insert(
-                method.declaration.clone(),
+                method.declaration,
                 ImportedFunction {
                     id: method.id.clone(),
-                    declaration: method.declaration.clone(),
+                    declaration: method.declaration,
                     site: method.site.clone(),
                     signature: method.function.clone(),
                 },
@@ -120,7 +120,7 @@ impl<'a> FunctionCatalog<'a> {
         };
         Ok(Some(ImportedFunction {
             id: target.clone(),
-            declaration: declaration.clone(),
+            declaration: *declaration,
             site: module
                 .declarations
                 .target(ResolvedName::Function(function))

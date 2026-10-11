@@ -42,6 +42,15 @@ pub enum ImplementationSearchError {
     LimitExceeded,
 }
 
+/// Explicit candidate/depth limits for one implementation lookup.
+#[derive(Debug, Clone, Copy)]
+pub struct ImplementationSearchLimits {
+    /// Maximum candidate checks, including recursive requirements.
+    pub max_checks: usize,
+    /// Maximum nested implementation requirements.
+    pub max_depth: usize,
+}
+
 /// Per-search candidate/depth accounting, caller assumptions and guarded intrinsic-default exploration.
 struct SearchBudget<'a> {
     definitions: &'a DefinitionTable,
@@ -218,8 +227,10 @@ impl AggregateCatalog {
                         &interface,
                         &implementation.for_type,
                         &implementation.bounds,
-                        4096,
-                        64,
+                        ImplementationSearchLimits {
+                            max_checks: 4096,
+                            max_depth: 64
+                        },
                         &CancellationToken::default()
                     )),
                 Some(Ok(Some(_)))
@@ -572,10 +583,10 @@ impl AggregateCatalog {
                 else {
                     continue;
                 };
-                method_identities.insert(trait_method.clone(), declaration.clone());
+                method_identities.insert(*trait_method, *declaration);
             }
             self.implementations.insert(
-                id.clone(),
+                *id,
                 Arc::new(ImplementationSignature {
                     engine_owned: lowered.registered_native_api,
                     associated_type_families: signatures
@@ -599,7 +610,7 @@ impl AggregateCatalog {
                             ))
                         })
                         .collect(),
-                    id: id.clone(),
+                    id: *id,
                     trait_type: trait_type.clone(),
                     for_type: for_type.clone(),
                     generic_params: generic_params.to_vec(),
@@ -741,15 +752,14 @@ impl AggregateCatalog {
         trait_type: &NominalType,
         receiver: &TypeId,
         assumptions: &GenericBounds,
-        max_checks: usize,
-        max_depth: usize,
+        limits: ImplementationSearchLimits,
         cancel: &CancellationToken,
     ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
         let mut budget = SearchBudget {
             definitions,
-            checks_left: max_checks,
+            checks_left: limits.max_checks,
             depth: 0,
-            max_depth,
+            max_depth: limits.max_depth,
             cancel,
             assumptions,
             defaults: HashSet::new(),
@@ -774,7 +784,7 @@ impl AggregateCatalog {
                 else {
                     return Ok(None);
                 };
-                selected = Some((implementation.id.clone(), arguments));
+                selected = Some((implementation.id, arguments));
             }
         }
         Ok(selected)

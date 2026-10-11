@@ -417,7 +417,7 @@ pub(super) fn resolve_projection_name(
     let mut candidates = Vec::new();
     if let TypeId::SelfType(owner) = &receiver {
         candidates.push(NominalType {
-            declaration: owner.clone(),
+            declaration: *owner,
             arguments: context
                 .declarations
                 .parameters_of(owner)

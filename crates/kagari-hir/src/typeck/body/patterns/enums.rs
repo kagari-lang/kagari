@@ -41,7 +41,7 @@ impl BodyChecker<'_> {
         let span = self.lowered.source_map.pattern_span(pattern);
         let mismatch = || {
             Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                expected: expected.display_name(),
+                expected: expected.display_name(self.declarations.definitions()),
                 found: format!("enum variant `{path}`"),
             })
             .with_span(span)

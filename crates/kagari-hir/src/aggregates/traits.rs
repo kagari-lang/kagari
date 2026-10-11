@@ -235,8 +235,7 @@ impl AggregateCatalog {
                         ty: param.ty.clone(),
                     });
                 }
-                self.methods
-                    .insert(method_id.clone(), (id.clone(), methods.len()));
+                self.methods.insert(*method_id, (*id, methods.len()));
                 methods.push(MethodSignature {
                     default: match function.implementation.clone() {
                         FunctionImplementation::Native(binding) => {
@@ -250,8 +249,8 @@ impl AggregateCatalog {
                         .get(&method.function)
                         .copied()
                         .unwrap_or_default(),
-                    id: method_id.clone(),
-                    owner: id.clone(),
+                    id: *method_id,
+                    owner: *id,
                     slot,
                     name: method.name.clone(),
                     bounds: function.bounds.clone(),
@@ -262,7 +261,7 @@ impl AggregateCatalog {
                 });
             }
             self.traits.insert(
-                id.clone(),
+                *id,
                 Arc::new(TraitSignature {
                     storage_access: lowered.native_trait_access.get(&item.id).copied(),
                     conversion_adapter: lowered.native_trait_adapters.get(&item.id).cloned(),
@@ -277,7 +276,7 @@ impl AggregateCatalog {
                                 return None;
                             };
                             Some((
-                                id.clone(),
+                                id,
                                 signatures
                                     .type_table()
                                     .associated_type_parameters(&id)?
@@ -338,7 +337,7 @@ impl AggregateCatalog {
                             (member, bounds)
                         })
                         .collect(),
-                    id: id.clone(),
+                    id: *id,
                     generic_params,
                     bounds,
                     methods,
@@ -436,10 +435,10 @@ pub fn trait_inheritance_closure(
             .into_iter()
             .zip(applied.arguments.iter().cloned())
             .collect();
-        path.push(applied.declaration.clone());
+        path.push(applied.declaration);
         for parent in supertraits.iter().rev() {
             let TypeId::Trait(parent) = TypeId::Trait(parent.clone())
-                .with_associated_types(&applied, &TypeId::SelfType(applied.declaration.clone()))
+                .with_associated_types(&applied, &TypeId::SelfType(applied.declaration))
                 .with_self(&applied.declaration, receiver)
                 .instantiate(&substitution)
             else {

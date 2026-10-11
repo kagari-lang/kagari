@@ -92,7 +92,7 @@ impl<'a> BodyChecker<'a> {
                 if expected.conflicts_with(&integer) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
+                            expected: display_type_id(self.declarations.definitions(), expected),
                             found: "i32 range pattern".into(),
                         })
                         .with_span(span),
@@ -136,8 +136,14 @@ impl<'a> BodyChecker<'a> {
                     if value.ty().conflicts_with(expected) {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                                expected: display_type_id(expected),
-                                found: display_type_id(&value.ty()),
+                                expected: display_type_id(
+                                    self.declarations.definitions(),
+                                    expected,
+                                ),
+                                found: display_type_id(
+                                    self.declarations.definitions(),
+                                    &value.ty(),
+                                ),
                             })
                             .with_span(span),
                         );
@@ -155,7 +161,7 @@ impl<'a> BodyChecker<'a> {
                 let TypeId::Tuple(types) = expected else {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
+                            expected: display_type_id(self.declarations.definitions(), expected),
                             found: "tuple pattern".into(),
                         })
                         .with_span(span),
@@ -165,7 +171,7 @@ impl<'a> BodyChecker<'a> {
                 if elements.len() != types.len() {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
+                            expected: display_type_id(self.declarations.definitions(), expected),
                             found: format!("tuple of {} elements", elements.len()),
                         })
                         .with_span(span),
@@ -184,7 +190,7 @@ impl<'a> BodyChecker<'a> {
                 let TypeId::Struct(owner) = expected else {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
+                            expected: display_type_id(self.declarations.definitions(), expected),
                             found: format!("struct pattern `{path}`"),
                         })
                         .with_span(span),
@@ -194,7 +200,7 @@ impl<'a> BodyChecker<'a> {
                 if self.resolve_struct_id(&path).as_ref() != Some(&owner.declaration) {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
+                            expected: display_type_id(self.declarations.definitions(), expected),
                             found: format!("struct pattern `{path}`"),
                         })
                         .with_span(span),
@@ -217,7 +223,10 @@ impl<'a> BodyChecker<'a> {
                     let Some(signature) = self.resolve_field(expected, &field.name) else {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                                expected: display_type_id(expected),
+                                expected: display_type_id(
+                                    self.declarations.definitions(),
+                                    expected,
+                                ),
                                 found: format!("unknown field `{}`", field.name),
                             })
                             .with_span(self.lowered.source_map.pattern_span(field.pattern)),

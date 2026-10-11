@@ -23,7 +23,8 @@ use crate::{
         TypedParameterBuffer, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
-            constants::validate_const_initializers, native_defaults::NativeDefaultCheck,
+            constants::{ConstValidationInputs, validate_const_initializers},
+            native_defaults::NativeDefaultCheck,
             trait_surface::validate_trait_surface,
         },
         completion,
@@ -123,10 +124,7 @@ pub(crate) fn check_signatures(
         if cancel.check().is_err() {
             break;
         }
-        let id = declarations
-            .definition(target)
-            .expect("type declaration")
-            .clone();
+        let id = *declarations.definition(target).expect("type declaration");
         type_bounds.insert(
             id,
             constraints::parameter_bounds(params, declarations, &type_table),
@@ -349,7 +347,7 @@ pub(crate) fn check_signatures(
             if function.is_async && param_type.contains_host_value() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
-                        type_name: display_type_id(&param_type),
+                        type_name: display_type_id(declarations.definitions(), &param_type),
                     })
                     .with_span(lowered.source_map.type_span(param.ty)),
                 );
@@ -606,11 +604,14 @@ pub(crate) fn check_bodies_controlled(
 
         let mut const_budget = ConstBudget::new(const_limits);
         validate_const_initializers(
-            lowered,
-            names,
-            &top_level_index,
-            &type_table,
-            cancel,
+            ConstValidationInputs {
+                definitions: declarations.definitions(),
+                lowered,
+                names,
+                top_level_index: &top_level_index,
+                type_table: &type_table,
+                cancel,
+            },
             &mut diagnostics,
             &mut const_budget,
         );
@@ -681,9 +682,9 @@ pub(crate) fn check_bodies_controlled(
                     .and_then(|item| declarations.definition(ResolvedName::Trait(item.id)))
                     .and_then(|id| aggregates.trait_(id))
                 {
-                    let receiver = TypeId::SelfType(contract.id.clone());
+                    let receiver = TypeId::SelfType(contract.id);
                     let applied = NominalType {
-                        declaration: contract.id.clone(),
+                        declaration: contract.id,
                         arguments: contract
                             .generic_params
                             .iter()
@@ -741,8 +742,8 @@ pub(crate) fn check_bodies_controlled(
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                             function_name: typed_function.name.clone(),
-                            expected: display_type_id(&body_output),
-                            found: display_type_id(&body_ty),
+                            expected: display_type_id(declarations.definitions(), &body_output),
+                            found: display_type_id(declarations.definitions(), &body_ty),
                         })
                         .with_span(lowered.source_map.function_span(function.id)),
                     );
@@ -955,7 +956,7 @@ pub(super) fn validate_standard_constraint_type(
 
     diagnostics.push(
         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-            type_name: display_type_id(ty),
+            type_name: display_type_id(definitions, ty),
             constraint: standard_surface::standard_constraint_name(constraint).to_owned(),
             reason: constraints::standard_constraint_reason(constraint).to_owned(),
         })
@@ -1093,7 +1094,7 @@ pub(super) fn compare_method_contract(
                 .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
         )
         .collect();
-    substitution.insert_receiver(comparison.trait_owner.clone(), comparison.receiver.clone());
+    substitution.insert_receiver(*comparison.trait_owner, comparison.receiver.clone());
     let normalize = |ty: TypeId| {
         comparison
             .catalog
@@ -1150,8 +1151,8 @@ pub(super) fn compare_method_contract(
         if expected_ty != normalize(actual_param.ty.clone()) {
             diagnostics.push(mismatch(format!(
                 "parameter `{name}` expected `{}`, found `{}`",
-                display_type_id(&expected_ty),
-                display_type_id(&actual_param.ty)
+                display_type_id(comparison.definitions, &expected_ty),
+                display_type_id(comparison.definitions, &actual_param.ty)
             )));
         }
     }
@@ -1197,8 +1198,8 @@ pub(super) fn compare_method_contract(
     if expected_return != normalize(actual.return_type.clone()) {
         diagnostics.push(mismatch(format!(
             "return type expected `{}`, found `{}`",
-            display_type_id(&expected_return),
-            display_type_id(&actual.return_type)
+            display_type_id(comparison.definitions, &expected_return),
+            display_type_id(comparison.definitions, &actual.return_type)
         )));
     }
 }

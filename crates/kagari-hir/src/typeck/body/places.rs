@@ -16,7 +16,7 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     collection::CollectionAccess,
@@ -54,7 +54,7 @@ impl<'a> BodyChecker<'a> {
                     return Some(base_ty);
                 }
                 let field = self.resolve_field(&base_ty, name)?;
-                let id = field.id.clone();
+                let id = field.id;
                 let ty = field.ty.clone();
                 let writable = field.writeability.is_var();
                 self.type_table.insert_place_field(place_id, id);
@@ -68,7 +68,12 @@ impl<'a> BodyChecker<'a> {
                 let context = self
                     .trait_bounds_for(&base_ty, env)
                     .into_iter()
-                    .find(|bound| Protocol::from_id(&bound.declaration) == Some(Protocol::Index))
+                    .find(|bound| {
+                        Protocol::from_reference(
+                            &bound.declaration,
+                            Some(self.declarations.definitions()),
+                        ) == Some(Protocol::Index)
+                    })
                     .and_then(|bound| bound.arguments.into_iter().next());
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
                 if base_ty.is_never() {
@@ -168,7 +173,7 @@ impl<'a> BodyChecker<'a> {
                     return Some(base_ty);
                 }
                 let field = self.resolve_field(&base_ty, name)?;
-                let (id, ty) = (field.id.clone(), field.ty.clone());
+                let (id, ty) = (field.id, field.ty.clone());
                 self.type_table.insert_place_field(place_id, id);
                 Some(ty)
             }
@@ -179,7 +184,12 @@ impl<'a> BodyChecker<'a> {
                 let context = self
                     .trait_bounds_for(&base_ty, env)
                     .into_iter()
-                    .find(|bound| Protocol::from_id(&bound.declaration) == Some(Protocol::Index))
+                    .find(|bound| {
+                        Protocol::from_reference(
+                            &bound.declaration,
+                            Some(self.declarations.definitions()),
+                        ) == Some(Protocol::Index)
+                    })
                     .and_then(|bound| bound.arguments.into_iter().next());
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
                 if !matches!(base_ty, TypeId::Array(_) | TypeId::Tuple(_))
@@ -297,7 +307,7 @@ impl<'a> BodyChecker<'a> {
         write: bool,
     ) -> TypeId {
         if let Some(field) = self.resolve_field(receiver, name) {
-            self.type_table.insert_expr_field(site, field.id.clone());
+            self.type_table.insert_expr_field(site, field.id);
             if write && !field.writeability.is_var() {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget {
@@ -362,9 +372,14 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .find(|field| {
                 field.name == field_name
-                    && field
-                        .visibility
-                        .allows(&field.owner.module, self.lowered.source.module_identity())
+                    && field.visibility.allows(
+                        self.declarations
+                            .definitions()
+                            .resolve(field.owner)
+                            .expect("scoped member owner")
+                            .module(),
+                        self.lowered.source.module_identity(),
+                    )
             })?
             .clone();
         field.ty = self.aggregates.normalize_type(
@@ -374,7 +389,7 @@ impl<'a> BodyChecker<'a> {
         Some(field)
     }
 
-    pub(super) fn resolve_struct_id(&self, path: &str) -> Option<DefinitionPath> {
+    pub(super) fn resolve_struct_id(&self, path: &str) -> Option<DefinitionId> {
         let resolved = self.declarations.resolve_name(path, NameNamespace::Type)?;
         if matches!(resolved, ResolvedName::Struct(_)) {
             return self.declarations.definition(resolved).cloned();
@@ -382,10 +397,10 @@ impl<'a> BodyChecker<'a> {
         let TypeId::Struct(id) = &self.declarations.imported_types().resolved(resolved)?.ty else {
             return None;
         };
-        Some(id.declaration.clone())
+        Some(id.declaration)
     }
 
-    pub(super) fn resolve_enum_id(&self, path: &str) -> Option<DefinitionPath> {
+    pub(super) fn resolve_enum_id(&self, path: &str) -> Option<DefinitionId> {
         let resolved = self.declarations.resolve_name(path, NameNamespace::Type)?;
         if matches!(resolved, ResolvedName::Enum(_)) {
             return self.declarations.definition(resolved).cloned();
@@ -393,7 +408,7 @@ impl<'a> BodyChecker<'a> {
         let TypeId::Enum(id) = &self.declarations.imported_types().resolved(resolved)?.ty else {
             return None;
         };
-        Some(id.declaration.clone())
+        Some(id.declaration)
     }
 
     pub(super) fn checked_index_type(
@@ -410,7 +425,7 @@ impl<'a> BodyChecker<'a> {
         {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidIndexTarget {
-                    type_name: display_type_id(receiver),
+                    type_name: display_type_id(self.declarations.definitions(), receiver),
                 })
                 .with_span(self.lowered.source_map.expr_span(site)),
             );

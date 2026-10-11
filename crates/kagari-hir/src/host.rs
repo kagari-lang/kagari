@@ -125,7 +125,7 @@ impl HostDeclarations {
         implementation: &HostTraitImplementationDeclaration<DefinitionId>,
     ) -> NominalType {
         NominalType {
-            declaration: implementation.trait_id.clone(),
+            declaration: implementation.trait_id,
             arguments: implementation
                 .trait_arguments
                 .iter()
@@ -134,7 +134,7 @@ impl HostDeclarations {
             associated_types: implementation
                 .associated_types
                 .iter()
-                .map(|output| (output.declaration.clone(), signature_type(&output.ty)))
+                .map(|output| (output.declaration, signature_type(&output.ty)))
                 .collect(),
         }
     }
@@ -290,7 +290,7 @@ impl HostDeclarations {
                     .cloned()
                     .zip(implementation.trait_arguments.iter().map(signature_type))
                     .collect();
-                let receiver = TypeId::Host(host.id.clone());
+                let receiver = TypeId::Host(host.id);
                 for (member, constraints) in &trait_signature.associated_types {
                     let actual = &interface.associated_types[member];
                     for constraint in constraints {
@@ -308,7 +308,7 @@ impl HostDeclarations {
                                 let TypeId::Trait(required) = TypeId::Trait(required.clone())
                                     .with_associated_types(
                                         &interface,
-                                        &TypeId::SelfType(interface.declaration.clone()),
+                                        &TypeId::SelfType(interface.declaration),
                                     )
                                     .with_self(&trait_signature.id, &receiver)
                                     .instantiate(&substitution)
@@ -354,7 +354,7 @@ impl HostDeclarations {
                                 let TypeId::Trait(required) = TypeId::Trait(required.clone())
                                     .with_associated_types(
                                         &interface,
-                                        &TypeId::SelfType(interface.declaration.clone()),
+                                        &TypeId::SelfType(interface.declaration),
                                     )
                                     .with_self(&trait_signature.id, &receiver)
                                     .instantiate(&substitution)
@@ -369,7 +369,7 @@ impl HostDeclarations {
                         if !satisfied {
                             report(format!(
                                 "trait type argument `{}` does not satisfy its bound",
-                                actual.display_name()
+                                actual.display_name(definitions)
                             ));
                         }
                     }
@@ -396,7 +396,7 @@ impl HostDeclarations {
                         ));
                         continue;
                     }
-                    let receiver = TypeId::Host(host.id.clone());
+                    let receiver = TypeId::Host(host.id);
                     let expected = method
                         .params
                         .iter()
@@ -405,7 +405,7 @@ impl HostDeclarations {
                                 .ty
                                 .with_associated_types(
                                     &interface,
-                                    &TypeId::SelfType(interface.declaration.clone()),
+                                    &TypeId::SelfType(interface.declaration),
                                 )
                                 .with_self(&trait_signature.id, &receiver)
                                 .instantiate(&substitution)
@@ -428,17 +428,14 @@ impl HostDeclarations {
                                 "method `{}` parameter {} expected `{}`, found `{}`",
                                 method.name,
                                 index + 1,
-                                expected.display_name(),
-                                signature_type(&actual.ty).display_name()
+                                expected.display_name(definitions),
+                                signature_type(&actual.ty).display_name(definitions)
                             ));
                         }
                     }
                     let expected_return = method
                         .return_type
-                        .with_associated_types(
-                            &interface,
-                            &TypeId::SelfType(interface.declaration.clone()),
-                        )
+                        .with_associated_types(&interface, &TypeId::SelfType(interface.declaration))
                         .with_self(&trait_signature.id, &receiver)
                         .instantiate(&substitution);
                     let actual_return = signature_type(&host_method.return_type);
@@ -446,8 +443,8 @@ impl HostDeclarations {
                         report(format!(
                             "method `{}` return type expected `{}`, found `{}`",
                             method.name,
-                            expected_return.display_name(),
-                            actual_return.display_name()
+                            expected_return.display_name(definitions),
+                            actual_return.display_name(definitions)
                         ));
                     }
                 }
@@ -487,11 +484,11 @@ impl HostDeclarations {
         let mut present = interface
             .functions
             .iter()
-            .map(|f| f.id.clone())
+            .map(|f| f.id)
             .collect::<HashSet<_>>();
         for owner in &interface.types {
             for method in &owner.methods {
-                if present.insert(method.id.clone()) {
+                if present.insert(method.id) {
                     interface
                         .functions
                         .push(owner.method_contract(&method.id, &definitions)?);
@@ -582,7 +579,7 @@ impl HostDeclarations {
             .types
             .iter()
             .enumerate()
-            .map(|(index, declaration)| (declaration.id.clone(), HostTypeId { revision, index }))
+            .map(|(index, declaration)| (declaration.id, HostTypeId { revision, index }))
             .collect();
         for symbol in interface
             .functions
@@ -638,7 +635,7 @@ impl HostDeclarations {
 
     /// Finds a host method by canonical owner identity and unqualified member name.
     pub fn method(&self, owner: &DefinitionId, name: &str) -> Option<HostFunctionId> {
-        self.methods.get(&(owner.clone(), name.to_owned())).copied()
+        self.methods.get(&(*owner, name.to_owned())).copied()
     }
 
     /// Finds a namespace prefix and returns an ID qualified by this revision.
@@ -814,7 +811,7 @@ pub(crate) fn signature_type(ty: &HostValueType<DefinitionId>) -> TypeId {
         HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element))),
         HostValueType::Vec(declaration, item) | HostValueType::List(declaration, item) => {
             let nominal = NominalType {
-                declaration: declaration.clone(),
+                declaration: *declaration,
                 arguments: vec![signature_type(item)],
                 associated_types: Default::default(),
             };
@@ -833,7 +830,7 @@ pub(crate) fn signature_type(ty: &HostValueType<DefinitionId>) -> TypeId {
             TypeId::Set(Box::new(signature_type(element)), *access)
         }
         HostValueType::Option(declaration, element) => TypeId::Enum(NominalType {
-            declaration: declaration.clone(),
+            declaration: *declaration,
             arguments: vec![signature_type(element)],
             associated_types: Default::default(),
         }),
@@ -842,11 +839,11 @@ pub(crate) fn signature_type(ty: &HostValueType<DefinitionId>) -> TypeId {
             ok,
             error,
         } => TypeId::Enum(NominalType {
-            declaration: declaration.clone(),
+            declaration: *declaration,
             arguments: vec![signature_type(ok), signature_type(error)],
             associated_types: Default::default(),
         }),
-        HostValueType::Opaque(id) => TypeId::Host(id.clone()),
+        HostValueType::Opaque(id) => TypeId::Host(*id),
         scalar => TypeId::Builtin(match scalar {
             HostValueType::Unit => BuiltinType::Unit,
             HostValueType::Bool => BuiltinType::Bool,

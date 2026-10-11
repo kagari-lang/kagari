@@ -3,7 +3,7 @@
 use super::applications;
 use crate::{
     DiagnosticBuffer,
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     declarations::Declarations,
     lower::LoweredModule,
     typeck::{
@@ -58,7 +58,7 @@ pub(super) fn validate(
                     ),
                 )
                 .collect();
-            substitution.insert_receiver(contract.id.clone(), implementation.for_type.clone());
+            substitution.insert_receiver(contract.id, implementation.for_type.clone());
             let normalize_bound = |constraint: &ConstraintTarget| match constraint {
                 ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
                 ConstraintTarget::Trait(value) => {
@@ -82,7 +82,7 @@ pub(super) fn validate(
             }) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                        name: member.path.last().expect("member").name.clone(),
+                        name: declarations.definitions().resolve(*member).expect("scoped associated type").last().expect("associated type").name.to_owned(),
                         reason:
                             "generic associated type implementation strengthens the trait input bounds"
                                 .into(),
@@ -103,11 +103,14 @@ pub(super) fn validate(
                 .expanded_bounds(&available, cancel)
                 .unwrap_or(available);
             applications::validate(
-                declarations.definitions(),
+                applications::ApplicationContext {
+                    definitions: declarations.definitions(),
+                    catalog,
+                    hosts: &declarations.hosts,
+                    table: signatures.type_table(),
+                },
                 &family.value,
                 &available,
-                (catalog, &declarations.hosts),
-                signatures.type_table(),
                 lowered.source_map.impl_span(item.id),
                 diagnostics,
                 cancel,
@@ -116,7 +119,14 @@ pub(super) fn validate(
             if output.is_unresolved() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                        name: member.path.last().expect("member").name.clone(),
+                        name: declarations
+                            .definitions()
+                            .resolve(*member)
+                            .expect("scoped associated type")
+                            .last()
+                            .expect("associated type")
+                            .name
+                            .to_owned(),
                         reason: "generic associated type recursively depends on itself".into(),
                     })
                     .with_span(lowered.source_map.impl_span(item.id)),
@@ -127,13 +137,20 @@ pub(super) fn validate(
                     ConstraintTarget::Standard(required) => type_satisfies_standard_constraint(declarations.definitions(), &output, required, &available, Some(catalog)),
                     ConstraintTarget::Trait(required) => {
                         available.get(&output).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(&required))))
-                            || catalog.intrinsic_implementation(declarations.definitions(), &required, &output, &available) || catalog.concrete_interface_implementation(declarations.definitions(), &required, &output, &available, 100_000, 64, cancel).ok().flatten().is_some()
+                            || catalog.intrinsic_implementation(declarations.definitions(), &required, &output, &available) || catalog.concrete_interface_implementation(declarations.definitions(), &required, &output, &available, ImplementationSearchLimits { max_checks: 100_000, max_depth: 64 }, cancel).ok().flatten().is_some()
                     }
                 };
                 if !satisfies {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                            name: member.path.last().expect("member").name.clone(),
+                            name: declarations
+                                .definitions()
+                                .resolve(*member)
+                                .expect("scoped associated type")
+                                .last()
+                                .expect("associated type")
+                                .name
+                                .to_owned(),
                             reason:
                                 "generic associated type output does not satisfy its declared bound"
                                     .into(),

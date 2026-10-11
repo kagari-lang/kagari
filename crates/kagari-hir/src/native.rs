@@ -71,7 +71,7 @@ impl NativeTypeKind {
         let first = || Box::new(arguments[0].clone());
         Some(match self {
             Self::Storage { declaration, .. } => TypeId::NativeObject(NominalType {
-                declaration: declaration.clone(),
+                declaration: *declaration,
                 arguments: arguments.to_vec(),
                 associated_types: Default::default(),
             }),

@@ -74,9 +74,9 @@ pub fn raise_nominal_type(ty: &NominalTy<DefinitionId>) -> NominalType {
         associated_types: ty
             .associated_types
             .iter()
-            .map(|(id, ty)| (id.clone(), raise_type(ty)))
+            .map(|(id, ty)| (*id, raise_type(ty)))
             .collect(),
-        declaration: ty.declaration.clone(),
+        declaration: ty.declaration,
         arguments: ty.arguments.iter().map(raise_type).collect(),
     }
 }
@@ -93,12 +93,12 @@ pub fn raise_type(ty: &Ty<DefinitionId>) -> TypeId {
             arguments: arguments.iter().map(raise_type).collect(),
             receiver: Box::new(raise_type(receiver)),
             interface: Box::new(raise_nominal_type(interface)),
-            member: member.clone(),
+            member: *member,
         },
-        Ty::Host(id) => TypeId::Host(id.clone()),
-        Ty::SelfType(id) => TypeId::SelfType(id.clone()),
+        Ty::Host(id) => TypeId::Host(*id),
+        Ty::SelfType(id) => TypeId::SelfType(*id),
         Ty::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
-            owner: owner.clone(),
+            owner: *owner,
             position: *position,
             name: String::new(),
         }),

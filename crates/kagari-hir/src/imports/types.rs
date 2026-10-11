@@ -107,7 +107,7 @@ impl<'a> TypeCatalog<'a> {
             .resolutions
             .values()
             .filter_map(|item| match &item.ty {
-                TypeId::Trait(ty) => Some(ty.declaration.clone()),
+                TypeId::Trait(ty) => Some(ty.declaration),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -119,11 +119,7 @@ impl<'a> TypeCatalog<'a> {
             let Some(item) = cache.as_ref().and_then(|cache| cache.get(&id)) else {
                 continue;
             };
-            pending.extend(
-                item.supertraits
-                    .iter()
-                    .map(|parent| parent.declaration.clone()),
-            );
+            pending.extend(item.supertraits.iter().map(|parent| parent.declaration));
             result.nominal_types.insert(id, item.clone());
         }
         Ok(result)
@@ -179,7 +175,7 @@ impl<'a> TypeCatalog<'a> {
         };
         let nominal = NominalType {
             associated_types: Default::default(),
-            declaration: identity.clone(),
+            declaration: *identity,
             arguments: module
                 .declarations
                 .parameters_of(identity)
@@ -238,10 +234,9 @@ impl<'a> TypeCatalog<'a> {
                     .filter_map(|method| {
                         Some(ImportedTraitMethod {
                             name: method.name.clone(),
-                            declaration: module
+                            declaration: *module
                                 .declarations
-                                .definition(ResolvedName::Function(method.function))?
-                                .clone(),
+                                .definition(ResolvedName::Function(method.function))?,
                         })
                     })
                     .collect(),
@@ -266,7 +261,7 @@ impl<'a> TypeCatalog<'a> {
                     let TypeId::Trait(ty) = &surface.ty else {
                         unreachable!("trait surface");
                     };
-                    initial.insert(ty.declaration.clone(), surface);
+                    initial.insert(ty.declaration, surface);
                 }
             }
         }

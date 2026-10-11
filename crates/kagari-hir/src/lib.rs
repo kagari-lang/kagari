@@ -307,7 +307,7 @@ impl PreparedAnalysis {
                             .last()
                             .map(|segment| segment.name.to_owned())
                             .unwrap_or_default(),
-                        type_name: implementation.for_type.display_name(),
+                        type_name: implementation.for_type.display_name(definitions),
                         reason: "host and script implementations overlap".into(),
                     })
                     .with_span(Span::default()),
@@ -324,7 +324,7 @@ impl PreparedAnalysis {
                         .last()
                         .map(|segment| segment.name.to_owned())
                         .unwrap_or_default(),
-                    type_name: first.for_type.display_name(),
+                    type_name: first.for_type.display_name(definitions),
                     reason: format!(
                         "overlapping implementations in {} and {}",
                         definitions
