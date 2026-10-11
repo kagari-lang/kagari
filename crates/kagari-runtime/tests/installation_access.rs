@@ -3,20 +3,19 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
-use kagari_contract::{
-    layout::{EnumLayout, EnumVariantLayout},
-    types::{PublicItem, TraitContract},
-};
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_contract::types::{PublicItem, TraitContract};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, error::RuntimeErrorKind, host::HostFunction, module::VerifiedProgram,
     native::builder::ModuleBuilder, session::ExecutionOptions, value::Value,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::{TraitDef, TypeDefKind, module::ModuleDecl},
+    declaration::TraitDef,
     host_interface::{HostFunctionDeclaration, value_type::HostValueType},
-    language::Protocol,
 };
 use std::collections::BTreeSet;
 
@@ -153,69 +152,30 @@ fn storage_capabilities_require_exact_installation_without_native_calls() {
 #[test]
 fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let foundation = StandardDeclarations::default();
-    // Nominal carrier outputs must travel with their declaration owners even
-    // when the program has no calls. Use the registered dependency closure.
+    // Use the normal producer for the complete default/template proof closure;
+    // runtime installation and reload consume only the resulting bytecode.
     let declarations = foundation.declarations();
-    let modules = declarations
-        .iter()
-        .map(|definition| BytecodeModule {
-            identity: definition.identity.clone(),
-            enumerations: definition
-                .types
-                .iter()
-                .filter(|ty| ty.kind == TypeDefKind::Enum)
-                .map(|ty| {
-                    let declaration = definition.definition(DefinitionKind::Enum, &ty.name);
-                    EnumLayout {
-                        declaration: declaration.clone(),
-                        arguments: ty
-                            .generic_params
-                            .iter()
-                            .map(|parameter| parameter.as_type())
-                            .collect(),
-                        variants: ty
-                            .variants
-                            .iter()
-                            .map(|variant| EnumVariantLayout {
-                                declaration: ModuleDecl::variant_id(&declaration, &variant.name),
-                                payload: variant.payload.clone(),
-                                reports_failure: variant.reports_failure,
-                            })
-                            .collect(),
-                    }
-                })
-                .collect(),
-            dependencies: definition
-                .dependencies
-                .iter()
-                .map(|dependency| {
-                    ModuleRef::new(
-                        declarations
-                            .iter()
-                            .position(|owner| &owner.identity == dependency)
-                            .unwrap(),
-                    )
-                })
-                .collect(),
-            public_items: definition
-                .traits
-                .iter()
-                .filter(|trait_| {
-                    Protocol::from_id(&definition.definition(DefinitionKind::Trait, &trait_.name))
-                        .is_some()
-                })
-                .cloned()
-                .map(PublicItem::Trait)
-                .chain(definition.types.iter().cloned().map(PublicItem::Type))
-                .collect(),
-            ..Default::default()
-        })
-        .collect::<Vec<_>>();
-    for (index, definition) in declarations
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("installation.kgr", "fn main() {}".into(), SourceLayer::Base)
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(declarations.to_vec());
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let checked = snapshot.check_program(root, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let modules = lower_program_to_bytecode(&mir).unwrap().modules;
+    for (index, module) in modules
         .iter()
         .enumerate()
         .filter(|(_, module)| namespaces::is_language_module(&module.identity))
     {
+        let definition = declarations
+            .iter()
+            .find(|definition| definition.identity == module.identity)
+            .unwrap();
         let base = modules[index].clone();
         let program = |module| {
             let mut modules = modules.clone();
@@ -262,7 +222,9 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             &mut runtime,
         )
         .unwrap();
-        let active = runtime.load_program("core", program(base.clone())).unwrap();
+        let active = runtime
+            .load_program("core", program(base.clone()))
+            .unwrap_or_else(|error| panic!("{:?}: {error}", definition.identity));
         let mut forged = base.clone();
         let changed = forged
             .public_items
@@ -273,7 +235,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             })
             .unwrap();
         let changed_name = changed.name.clone();
-        changed.methods[0].name = "forged_method".into();
+        changed.methods[0].params[0].name = "forged_argument".into();
         // Portable structural validation accepts the declaration; installation binds
         // reserved identities to the exact checked language registration.
         VerifiedProgram::new(program(forged.clone())).unwrap();
@@ -313,7 +275,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             .find(|trait_| trait_.name == changed_name)
             .unwrap()
             .clone();
-        contract.methods[0].name = "forged_debug".into();
+        contract.methods[0].params[0].name = "forged_argument".into();
         private.trait_contracts.push(TraitContract {
             declaration: definition.definition(DefinitionKind::Trait, &changed_name),
             abi: contract,

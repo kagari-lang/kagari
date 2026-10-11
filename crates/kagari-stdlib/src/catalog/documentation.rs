@@ -14,12 +14,12 @@ fn example(description: &str, code: &str) -> String {
 fn trait_docs(name: &str) -> (&'static str, &'static str) {
     match name {
         "Iterator" => (
-            "A shared cursor. `next` advances once and returns `Some(item)`, or `None` when exhausted. Copies share progress; previously completed effects survive a failure.",
+            "A shared cursor. `next` advances once and returns `Some(item)`, or `None` to stop the current consumption. A custom cursor can resume after None. Copies share progress; previously completed effects survive a failure.",
             "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
         ),
         "Iterable" => (
-            "Produces an iterator whose `Item` matches the sequence's item type. Creating an iterator does not consume an item. Structural mutation of an active built-in iteration source traps.",
-            "fn total(values: Vec<i32>) -> i32 { var sum = 0; for value in values { sum += value; } sum }",
+            "Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Consumer scopes release structural protection on every exit.",
+            "fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }",
         ),
         "PartialEq" => (
             "Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.",
@@ -411,7 +411,7 @@ pub(super) fn complete(module: &mut ModuleDecl) {
             ),
             "MapIterator" | "FilterIterator" | "TakeIterator" | "FilterMapIterator"
             | "SkipIterator" | "EnumerateIterator" | "ZipIterator" | "ChainIterator" => (
-                "A lazy shared cursor. Retains its source, callback and selected next target; aliases share progress and original generations. Recursive next on the same cursor traps.",
+                "A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.",
                 "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1usize).next() }",
             ),
             "Option" => (

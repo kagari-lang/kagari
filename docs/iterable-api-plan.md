@@ -1,9 +1,10 @@
 # Unified Iterable API execution plan
 
-Status: IA01–IA04 are complete; IA05 integration and final acceptance are active. The
+Status: IA01–IA05 are implemented and locally accepted through the user-directed
+target continuation. GitHub CI feature/backend acceptance is unrun. The
 [roadmap](implementation-roadmap.md#unified-iterable-api) owns queue placement.
 This file owns the finite API inventory, phase order, acceptance and progress
-ledger. Examples below describe the target API, not currently implemented calls.
+ledger. Examples below use the implemented API.
 
 ## Outcome and scope
 
@@ -299,7 +300,7 @@ separately. Documentation-only planning needs content/link/diff checks, not buil
 - [x] IA02: Lazy transformation foundation and mapping migration.
 - [x] IA03: Terminal construction and reduction.
 - [x] IA04: Remaining APIs and hash collection construction.
-- [ ] IA05: Integration and final acceptance.
+- [x] IA05: Integration and final acceptance.
 
 Planning baseline: `acdcbd32`. No implementation changes or build claims are made
 by this document. Existing Iterator identity support is evidence to reuse, not
@@ -524,3 +525,119 @@ No carried implementation or integration failure remains at the checkpoint. Extr
 usize count/enumeration overflow is checked at the shared arithmetic operation;
 no infeasible 2^64-pull execution is claimed. Full workspace and source-free final
 acceptance remain IA05 work; CI is unrun.
+
+
+### IA05 integration and final acceptance
+
+The language specification lists the finite seventeen defaults, eight adapter
+results, construction/short-circuit behavior and checked arithmetic. Collection
+construction documents hash bounds and last-value replacement. Native registration
+documentation describes retained selected-call slots and associated cursor
+handoff; generated declaration documentation uses the same API. The custom
+Iterable example now uses generic sum and enumerate/map/collect instead of a
+separate handwritten reduction loop.
+
+The existing source-free feature fixture now exercises short-circuit scope exit
+before mutation and a filter_map/zip/map/enumerate pipeline collected into HashMap.
+It keeps the existing artifact consumer and GC/reload assertions. Workspace
+acceptance refreshes that ignored development artifact at the IA05 checkpoint;
+the no-default-features run consumes it without compiling source. Format/runtime ABI
+identifiers remain unchanged. Removed Vec-only map has no production consumers.
+
+Initial strict Clippy found a replace-box warning in the associated-output test;
+the receiver is now updated in place. Strict Clippy, the CLI iterator example,
+changed-document file links, structural review (1,030 Rust files, zero
+violations/exceptions), formatting and diff checks passed on the final changes.
+Source-free artifact acceptance with no default features passed all 10 tests
+against the refreshed fixture. Final local target continuation completed; GitHub
+CI is unrun.
+
+The first `cargo test --workspace` stopped at native_provider_reset's forged
+signature test: `KbcArtifact::from_program` rejected InvalidInterfaceTable before
+the intended native installation check. The old test rewrote every usize native
+result and script body, including the new count default, while rewriting only
+len declarations. The forgery now targets len imports and len/main bodies by
+their checked declaration identities. It preserves successful portable validation
+and rejection at native installation; this is a test fixture correction, with no
+production validation relaxed. The focused regression and the corrected provider
+group passed, as did strict Clippy, structure, formatting and diff checks.
+
+The second workspace run passed the corrected provider group but stopped at
+standard_traits::imports_supertraits_and_nested_structural_keys with
+`MirLowering: MissingBinding("parent interface implementation")`. IA04's parent
+table retention demanded a nominal Eq implementation for Item even though its
+structural Eq/PartialEq capabilities are intrinsic. The existing checked
+intrinsic proof supplies operation evidence without a nominal table. Parent
+preparation preserves ordinary table precedence and accepts that proof only
+when no ordinary table is selected. It also receives instantiated implementation
+bounds; native result adapters pass their checked import requirements. Concrete
+boxing retains its existing no-assumptions search. This preserves
+selected parent tables and generic contract validation instead of skipping
+parent retention or introducing runtime implementation search. The original
+regression, all 20 standard trait cases and the custom-key hash construction case
+passed after the correction. Strict Clippy, structure, formatting and diff checks
+passed. The subsequent --no-fail-fast workspace attempt was stopped at the
+user's request before repeating the long language contract. Final local acceptance
+now reuses completed workspace targets, the corrected focused regressions and
+only the remaining target inventory. No further whole-workspace rerun is
+authorized. This changes the local verification procedure, not the API scope or
+semantic acceptance. A single uninterrupted workspace pass is not claimed.
+
+Remaining-target continuation exposed the runtime catalog-closure fixture's
+exhaustive storage match: it did not admit the new opaque adapter declarations.
+The fixture now supplies a catalog-only, explicitly provided opaque payload
+descriptor; its dummy bindings are not executed. Exact fresh/reused dependency
+catalog equality assertions remain intact. No production storage or validation
+is changed. Its focused regression passed without restarting the passed suites.
+The other 155 runtime unit cases passed in the
+original remaining-target invocation.
+
+Remaining-target integration follow-ups:
+
+- The reserved-role installation fixture now uses the normal compiler producer
+  to carry complete default/template and implementation contracts, followed by
+  source-free runtime installation/reload. It forges argument metadata without
+  breaking selected method identities, so portable acceptance and exact installed
+  registration rejection are both still asserted. The focused case passed.
+- The import-alias example still referenced collections::map through an alias.
+  It now aliases alloc::vec for construction and calls Iterable.map. The existing
+  source/artifact example contract passed; no old map alias is retained.
+- Hash witness forgery now selects the concrete Set<i32> constructor, rather
+  than the first import with operations (which may be an unused generic default).
+  Missing and forged witness assertions remain unchanged; its focused case passed.
+- A generic native default applied to Holder<T> exposed an overbroad forwarding
+  rule. Generic method preparation now attempts the checked implementation first
+  even when the nominal receiver contains binders. Selected tables retain shared
+  method witnesses; unavailable abstract receivers still forward their bounds.
+  Its focused regression and affected adapter/receiver cases passed. Temporary
+  MIR diagnostics were removed.
+
+Final local acceptance completed with the user-directed procedure:
+
+- The completed workspace targets, only the previously unexecuted targets and
+  corrected focused regressions cover all 113 default-workspace unit/integration/
+  doc targets. The log inventory audit records 1,959 passing cases, two existing
+  ignored manual measurements, no missing targets and no unresolved failures.
+  Failed targets were continued with their corrected cases; passed cases were
+  reused. There is no single uninterrupted `cargo test --workspace` pass.
+- Remaining SDK targets were string_interpolation, string_methods, syntax_examples,
+  trait_inheritance, try_protocols, type_inference and typed_calls. Previously
+  unexecuted packages were lua-benchmark, types, stdlib, runtime, hir, source,
+  syntax, mir and vm. Previously unexecuted doc tests were completed separately.
+  Continuations used `--no-fail-fast`; only failed cases were subsequently rerun.
+- `cargo test -p kagari-embed --no-default-features --test artifact_features`:
+  10 passed against the refreshed development fixture.
+- `cargo clippy --workspace --all-targets -- -D warnings` passed. After final
+  integration corrections, strict all-target Clippy for compiler/runtime/vm
+  passed; unaffected crate results were reused.
+- `uv run --locked scripts/check_structure.py`: 1,030 Rust files, zero violations
+  and zero documented exceptions. Changed handwritten imports, visibility,
+  ownership, effective LOC and re-exports were reviewed. Formatting,
+  changed-document links and `git diff --check` passed.
+- The CLI iterator example and source/artifact syntax example owner passed,
+  including both migrated iterator and import-alias examples with result 42.
+
+No carried implementation or local integration failure remains. API/storage
+migration scope did not expand. No ABI/version bump or performance gain is
+claimed. GitHub CI and its complete feature/backend matrix were not run; local
+acceptance does not establish that matrix.

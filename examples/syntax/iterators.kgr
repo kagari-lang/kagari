@@ -22,12 +22,11 @@ impl Iterable for Range {
     }
 }
 fn sum<C: Iterable<Item = i32>>(values: C) -> i32 {
-    var total = 0;
-    for value in values { total += value; }
-    total
+    values.sum()
 }
 fn main() -> i32 {
     val range = Range { start: 0, end: 7 };
-    val iter = [20, 1].iter();
+    val indexed: Vec<(usize, i32)> = [20, 1].enumerate().collect();
+    val iter = indexed.map(|entry| entry[1]);
     sum(range) + sum(iter)
 }

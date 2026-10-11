@@ -263,7 +263,11 @@ pub fn answer() -> i32 {
             module
                 .native_imports
                 .iter()
-                .position(|import| !import.callables.is_empty())
+                .position(|import| {
+                    matches!(&import.signature.result, Ty::Set(item, _)
+                        if **item == Ty::Builtin(BuiltinType::I32))
+                        && !import.callables.is_empty()
+                })
                 .map(|import| (index, import))
         })
         .unwrap();

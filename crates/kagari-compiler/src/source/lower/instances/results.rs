@@ -75,7 +75,12 @@ impl InstancePlanner<'_> {
             .map_err(|_| invalid())?
             .ok_or_else(invalid)?;
         self.record_interface(&implementation, &arguments, span)?;
-        self.require_parent_interfaces(&receiver, &raise_nominal_type(interface), span)?;
+        self.require_parent_interfaces(
+            &receiver,
+            &raise_nominal_type(interface),
+            &assumptions,
+            span,
+        )?;
         self.record_layout_root(&receiver, &Default::default(), span)?;
         Ok(Some(NativeResultAdapter {
             receiver: lower_type(&receiver),

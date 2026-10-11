@@ -204,8 +204,12 @@ impl FunctionLowerer<'_, '_> {
                     .semantic
                     .registers
                     .insert(value.temp.index(), lower_type(&types[0]));
-                self.planner
-                    .require_parent_interfaces(&types[0], interface, span)?;
+                self.planner.require_parent_interfaces(
+                    &types[0],
+                    interface,
+                    &Default::default(),
+                    span,
+                )?;
                 let (implementation, arguments) = match coercion.implementation {
                     ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
                     ResolvedInterfaceImplementation::Host => {

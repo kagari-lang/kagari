@@ -138,10 +138,10 @@ fn associated_outputs_expand_nested_projections_but_preserve_unrelated_owners() 
     let Ty::Projection { receiver, .. } = &mut other_receiver else {
         unreachable!()
     };
-    *receiver = Box::new(Ty::Parameter {
+    **receiver = Ty::Parameter {
         owner: owner("source"),
         position: 0,
-    });
+    };
     let input = Ty::Tuple(vec![projected, unrelated.clone(), other_receiver.clone()]);
     assert_eq!(
         resolve_associated_outputs(

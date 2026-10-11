@@ -155,7 +155,8 @@ selected iterator into typed working storage; sorting and reversal write through
 set, while retain and dedup remove rejected elements as they proceed. No atomic
 bulk commit or rollback-only storage buffer is required.
 
-MapIterator retains its source cursor and mapper. Constructing it does not call
+Iterable owns the finite transformation and terminal API described in
+[builtins](builtins.md#iteration-protocols). MapIterator retains its source cursor and mapper. Constructing it does not call
 the mapper. Aliases share progress, and next consumes its input before invoking
 the mapper. Managed cursor dependencies participate in scoped iteration guards,
 including through erased Iterator interfaces. See [native declarations](standard-declarations.md).
@@ -182,6 +183,12 @@ Array literals and `[value; count]` construct builtin fixed-length arrays. Repet
 retains its value-only rule, including empty results. Distinct reference objects
 require separate construction; the application-provider factory in the reset
 proof demonstrates how an optional native function supplies that algorithm.
+
+`collect<C>()` delegates to FromIterator. Vec collects items in source order;
+HashSet deduplicates Eq + Hash items; HashMap collects `(K, V)` pairs with Eq +
+Hash keys and preserves the last value for an equal key. Custom destinations
+retain their own consumption rules, including short circuit. Construction keeps
+source items' shared identity and releases native iteration guards on every exit.
 
 ## Compiler, artifacts and host boundaries
 

@@ -178,7 +178,14 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     let mut original = artifact("fn main() -> usize { [1, 2].len() }");
     for module in &mut original.program.modules {
         for import in &mut module.native_imports {
-            if import.signature.result == Ty::Builtin(BuiltinType::USize) {
+            if import
+                .instance
+                .declaration
+                .path
+                .last()
+                .is_some_and(|part| part.name == "len")
+                && import.signature.result == Ty::Builtin(BuiltinType::USize)
+            {
                 import.signature.result = Ty::Builtin(BuiltinType::U64);
             }
         }
@@ -212,6 +219,15 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
             }
         }
         for function in &mut module.functions {
+            if !function.identity.as_ref().is_some_and(|identity| {
+                identity
+                    .declaration
+                    .path
+                    .last()
+                    .is_some_and(|part| matches!(part.name.as_str(), "len" | "main"))
+            }) {
+                continue;
+            }
             let semantic = &mut function.metadata.semantic;
             if semantic.result == Some(Ty::Builtin(BuiltinType::USize)) {
                 semantic.result = Some(Ty::Builtin(BuiltinType::U64));
@@ -223,9 +239,9 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
             }
         }
     }
-    // Alter the len contract and its caller, leaving unrelated Self-returning
-    // constructors and aggregators intact. usize and u64 share a representation:
-    // portable checks accept the forgery, but installation must check the source ABI.
+    // Alter only len and its caller, leaving count and other defaults intact.
+    // usize and u64 share a representation: portable checks accept the forgery,
+    // but installation must check the source ABI.
     let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
     let program =
         PreparedProgram::from_artifact(forged, &Default::default(), &Default::default()).unwrap();

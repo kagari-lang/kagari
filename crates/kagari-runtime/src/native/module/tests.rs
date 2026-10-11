@@ -6,7 +6,7 @@ use crate::{
         catalog::DeclarationCatalog,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
-        storage::NativeStorage,
+        storage::{NativePayload, NativeStorage},
         types::Type,
     },
     value::Value,
@@ -22,6 +22,17 @@ use kagari_types::{
     },
 };
 use std::collections::BTreeMap;
+
+#[derive(Debug)]
+struct CatalogOnlyPayload;
+
+impl NativePayload for CatalogOnlyPayload {
+    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
+
+    fn units(&self) -> usize {
+        0
+    }
+}
 
 fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
     assert_path_catalog_eq(&left.to_paths().unwrap(), &right.to_paths().unwrap());
@@ -66,6 +77,9 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
                         return None;
                     };
                     let storage = match layout {
+                        NativeStorageLayout::Opaque => {
+                            NativeStorage::payload::<CatalogOnlyPayload>()
+                        }
                         NativeStorageLayout::Future => NativeStorage::future(),
                         NativeStorageLayout::Sequence { element } => {
                             NativeStorage::sequence(element)

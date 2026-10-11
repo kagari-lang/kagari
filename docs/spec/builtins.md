@@ -9,7 +9,8 @@ see [native declarations](standard-declarations.md). Generated `.kgr` serves too
 and is not an executable standard library.
 
 The foundation is always installed. List/MutableList own common algorithm methods,
-String owns its inherent methods, and `std::collections` provides lazy map. The
+String owns its inherent methods, and `core::iter::Iterable` owns the finite
+lazy transformation and terminal API. The
 [collection contract](collection-access.md) defines the finite API surface.
 Predecessor APIs outside that inventory, including
 numeric convenience methods, enum combinators, extended iterator algorithms,
@@ -28,13 +29,13 @@ constructors and tooling navigation.
 | `core::hash` | Hash |
 | `core::fmt` | Debug and Display |
 | `core::convert` | From, Into, TryFrom, TryInto and Infallible |
-| `core::iter` | Iterator, Iterable, FromIterator, Sum, Product and CollectionCursor |
+| `core::iter` | Iterator, Iterable, FromIterator, Sum, Product, CollectionCursor and eight lazy adapter types |
 | `core::str` | FromStr |
 | `core::num` | ParseError, TryFromIntError and numeric native implementations |
 | `core::option`, `core::result` | Option and Result |
 | `core::future` | Cold single-drive Future |
 | `alloc::string`, `alloc::vec` | String and Vec |
-| `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap, HashSet and map |
+| `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap and HashSet |
 
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
 `std::iter`, `std::str`, `std::num`, `std::option`, `std::result`, `std::future`, `std::string`
@@ -351,10 +352,12 @@ for narrowing integer cases. Optional helper methods are not required. Numeric
 
 FromIterator<T>, Sum<T> and Product<T> are core contracts. Their static methods
 `from_iter`, `sum` and `product` each take `I: Iterable<Item = T>` and return Self.
-The foundation supplies Vec construction and same-scalar numeric aggregation.
+The foundation supplies Vec, HashSet and HashMap construction and same-scalar
+numeric aggregation. HashSet requires Item: Eq + Hash and deduplicates values.
+HashMap requires pair items `(K, V)` with K: Eq + Hash; later values replace
+earlier values for equal keys.
 Empty sums return zero and empty products return one; integer overflow traps at
-the declared scalar width. Other destinations and convenience pipeline methods
-remain optional library implementations.
+the declared scalar width. Custom destinations can implement these same contracts.
 
 `core::iter::{Iterator, Iterable}` are prelude traits:
 
@@ -368,6 +371,55 @@ trait Iterable {
     type Iter: Iterator<Item = Self::Item>;
     fn iter(self) -> Self::Iter;
 }
+```
+
+Iterable supplies these default methods, with `T = Self::Item`. Iterator keeps
+only next and obtains this same API through identity Iterable. Containers,
+constrained generic receivers, custom Iterable implementations and interface
+values support the same method chains; explicit overrides retain precedence.
+
+| Method | Result |
+| --- | --- |
+| `map<U>(fn(T) -> U)` | `MapIterator<T, U>` |
+| `filter(fn(T) -> bool)` | `FilterIterator<T>` |
+| `filter_map<U>(fn(T) -> Option<U>)` | `FilterMapIterator<T, U>` |
+| `take(usize)` / `skip(usize)` | `TakeIterator<T>` / `SkipIterator<T>` |
+| `enumerate()` | `EnumerateIterator<T>`, Item = `(usize, T)` |
+| `zip<I: Iterable>(I)` | `ZipIterator<T, I::Item>`, Item = `(T, I::Item)` |
+| `chain<I: Iterable<Item = T>>(I)` | `ChainIterator<T>` |
+| `collect<C: FromIterator<T>>()` | C |
+| `fold<A>(A, fn(A, T) -> A)` | A |
+| `sum<S: Sum<T>>()` / `product<P: Product<T>>()` | S / P |
+| `count()` | usize |
+| `find(fn(T) -> bool)` | Option<T> |
+| `any(fn(T) -> bool)` / `all(fn(T) -> bool)` | bool |
+| `for_each(fn(T) -> ())` | () |
+
+The adapter types belong to core::iter and have no public constructor. Calling a
+transformation obtains each selected source cursor once, after left-to-right
+argument evaluation; it does not advance a cursor or invoke a callback. Copies
+share source progress and adapter state. An item stays consumed if its callback
+fails. Filter and filter_map skip rejected items in source order. They do not
+fuse a resumable source after None. Skip discards only its initial allowance;
+take(0) never advances its source and a consumed take allowance remains exhausted.
+Enumerate starts at zero and uses checked usize increment.
+
+Zip obtains and advances left before right. A left None prevents a right pull;
+a right None leaves the already-pulled left item consumed. Zip does not rewind or
+latch exhaustion. Chain switches permanently to its second cursor after the
+first left None; it does not fuse the second cursor.
+
+Terminal methods stop at the first None. Find, any and all short-circuit without
+an extra pull. Empty find returns None, any returns false, all returns true,
+count returns zero, for_each returns unit and fold returns its initial value.
+Count uses checked usize addition. Collect, sum and product call the requested
+destination's existing constructor/reducer with the original source; they do not
+obtain an unused extra cursor. Destination context or explicit method type
+arguments must determine the result type, for example:
+
+```kagari
+val mapped: Vec<i32> = [1, 2, 3].map(|item| item + 1).collect();
+val total: i32 = mapped.filter(|item| item > 2).sum();
 ```
 
 `for pattern in expression` evaluates the expression once, calls `iter`
@@ -394,7 +446,8 @@ A custom iterator owns its state and consistency rules; no automatic clone,
 reset, exact-length or fused-iterator promise is imposed on its implementation.
 
 Native iterators reject structural modification of their source while actively
-iterating. For-loop guards end on exhaustion, break, return or failed execution;
+iterating. For-loop and terminal-consumer guards end on exhaustion, short circuit, break,
+return or failed execution;
 nested loops retain independent guards. Direct iter/next use keeps its guard
 until None or the end of the root execution session. Root-session cleanup also
 runs after trap, cancellation and call-depth failure, independently of GC timing.
@@ -403,7 +456,7 @@ was structurally changed traps; nonstructural replacements are visible when thei
 positions are subsequently visited. Already yielded values remain ordinary values.
 For loops suspend a native iterator on exit, so the same iterator may resume later
 if the source structure is unchanged. Native wrappers declare retained iteration
-resources through `NativePayload::iteration_sources`. Their for scopes retain and
+resources through `NativePayload::iteration_sources`. Their consumer scopes retain and
 release those resources through the same generic guard mechanism, including
 erased Iterator views. A custom iterator without declared resource edges owns its
 own consistency rules.

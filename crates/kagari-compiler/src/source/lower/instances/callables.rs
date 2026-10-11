@@ -85,8 +85,9 @@ impl InstancePlanner<'_> {
         let mut operations = vec![];
         for mut required in requirements {
             required = self.normalize_callable_requirement(required)?;
-            if required.receiver.is_concrete()
-                && required.arguments.is_empty()
+            // A nominal receiver containing binders can still have a selected
+            // implementation. Forward only when that table is unavailable.
+            if required.arguments.is_empty()
                 && self
                     .catalog
                     .trait_method(&required.member)
@@ -100,7 +101,7 @@ impl InstancePlanner<'_> {
             {
                 let invalid =
                     || MirLoweringError::MissingBinding("shared constraint method implementation");
-                let (declaration, arguments) = self
+                let implementation = self
                     .catalog
                     .concrete_interface_implementation(
                         &raise_nominal_type(&required.interface),
@@ -110,8 +111,14 @@ impl InstancePlanner<'_> {
                         64,
                         &self.options.cancel,
                     )
-                    .map_err(|_| invalid())?
-                    .ok_or_else(invalid)?;
+                    .map_err(|_| invalid())?;
+                let Some((declaration, arguments)) = implementation else {
+                    if !required.receiver.is_concrete() {
+                        operations.push(OperationWitness::Forward(Box::new(required)));
+                        continue;
+                    }
+                    return Err(invalid());
+                };
                 self.record_interface(&declaration, &arguments, span)?;
                 operations.push(OperationWitness::SharedMethod(Box::new(
                     SharedMethodWitness {

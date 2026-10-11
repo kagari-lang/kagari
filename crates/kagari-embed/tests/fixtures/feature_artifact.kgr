@@ -23,7 +23,12 @@ fn required_methods() -> i32 {
         || text.find("β") != Some(2usize) || text.trim_start() != "β,a  "
         || text.trim_end() != "  β,a" || "β".replace("", "-") != "-β-" { return 0; }
     val values = Vec::from([20, 22]);
+    if !values.map(|item| item).any(|item| item == 20) { return 0; }
     change(values);
+    val indexed: std::collections::HashMap<usize, i32> = [20, 22]
+        .filter_map(|item| Some(item)).zip([1, 1])
+        .map(|pair| pair[0] * pair[1]).enumerate().collect();
+    if indexed.get(0usize) != Some(20) || indexed.get(1usize) != Some(22) { return 0; }
     val copied=Vec<i32>::from_iter(values);
     val total=i32::sum(copied);
     val parsed=i32::from_str("42");

@@ -68,8 +68,8 @@ rejecting duplicate or foreign bindings. Compiler declarations contain no Rust
 factory, payload or completion endpoint.
 
 List/MutableList declare common algorithms directly. The bundled
-`core::iter` module owns Iterable defaults for lazy map, filter and take and terminal
-collect, fold, sum and product:
+`core::iter` module owns all seventeen Iterable defaults, including lazy
+transformations, paired traversal and terminal consumption:
 
 ```kagari
 use std::collections;
@@ -88,8 +88,9 @@ preserves first occurrences without adding a Hash bound. These are declared trai
 methods with native defaults and optimized Vec overrides. Custom containers
 reuse the defaults through their selected iterator and set/remove operations.
 `Iterable.map<U>` accepts `fn(Self::Item) -> U` and returns
-`core::iter::MapIterator<Self::Item, U>`. Filter and take return element-only
-adapters in the same module. Iterator retains only next; identity Iterable
+`core::iter::MapIterator<Self::Item, U>`. Filter, take, filter_map, skip,
+enumerate, zip and chain return element-only adapters in the same module; the full signatures and consumption rules are in
+[builtins](builtins.md#iteration-protocols). Iterator retains only next; identity Iterable
 adaptation gives cursors the same defaults with shared progress. Containers,
 generic receivers, custom Iterable implementations and interface values reuse
 checked iter/next selections. The former collections map function is removed.
@@ -282,17 +283,25 @@ internal bookkeeping; all original elements survive, but their order can change.
 Length-changing algorithms preserve completed removals. Custom set/remove failures
 can leave earlier writes or removals. Comparison counts are unspecified.
 
-Only genuinely retained computations need state. MapIterator retains a
-source value, a checked stored next selection, a stored mapper and a reentry
-guard. Construction performs no map
-calls. Aliases share progress. Its next consumes one source item before invoking
+Only genuinely retained computations need state. Lazy adapters retain
+source values, checked stored next selections, any callbacks, progress state and
+a reentry guard. Zip and chain retain both selected cursors; concrete cursors
+keep their checked concrete types. Construction performs no next or callback
+calls. Aliases share progress. Map next consumes one source item before invoking
 the mapper; a mapper failure does not cause that item to be processed again.
 The public Option is allocated once for a successful next result.
 
+`allocate_result_payload(payload, slots)` retains the requested selected-call
+metadata on the native object. `call_stored_values` validates and invokes those
+original selections after the construction call ends. Stored selections and
+callbacks are GC metadata edges, preserving supplying generations without host
+root cycles. Generic callers carry the immediate associated cursor operations
+promised by their bounds; runtime consumption does not infer types again.
+
 A payload's `iteration_sources` exposes managed cursor dependencies. Those are also
-GC edges. A `for` scope walks this graph, protects source collection structure and
-releases its guards on break, return, failure or cancellation. Dropping a scope
-permits later mutation while a retained cursor may resume if its source remains
+GC edges. A `for` or native terminal-consumer scope walks this graph, protects source
+collection structure and releases its guards on break, return, failure or
+cancellation. Dropping a scope permits later mutation while a retained cursor may resume if its source remains
 valid. Reentrant next on the same adapter is rejected. The generic execution loop
 does not identify an adapter by its library name.
 

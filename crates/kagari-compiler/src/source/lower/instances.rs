@@ -15,7 +15,10 @@ use kagari_hir::{
     declarations::DeclarationId,
     hir::ids::{ExprId, FunctionId},
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, TypedFunction, scalar::ScalarValue},
+    typeck::{
+        FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue,
+        table::ConstraintTarget,
+    },
     types::{NominalType, TypeId, TypeSubstitution, semantic::lower_type},
 };
 use kagari_mir::{ids::InstanceId, passes::PassOptions};
@@ -575,7 +578,27 @@ impl<'a> InstancePlanner<'a> {
                     .collect();
                 let receiver = contract.for_type.instantiate(&substitution);
                 let interface = contract.trait_type.instantiate(&substitution);
-                self.require_parent_interfaces(&receiver, &interface, span)?;
+                let assumptions = contract
+                    .bounds
+                    .iter()
+                    .map(|(ty, constraints)| {
+                        (
+                            ty.instantiate(&substitution),
+                            constraints
+                                .iter()
+                                .map(|constraint| match constraint {
+                                    ConstraintTarget::Standard(kind) => {
+                                        ConstraintTarget::Standard(*kind)
+                                    }
+                                    ConstraintTarget::Trait(parent) => {
+                                        ConstraintTarget::Trait(parent.instantiate(&substitution))
+                                    }
+                                })
+                                .collect(),
+                        )
+                    })
+                    .collect();
+                self.require_parent_interfaces(&receiver, &interface, &assumptions, span)?;
             }
             if declaration.module == *self.module.lowered.source.module_identity()
                 && let Some(contract) = self.catalog.implementation_signature(declaration)
@@ -592,6 +615,7 @@ impl<'a> InstancePlanner<'a> {
         &mut self,
         receiver: &TypeId,
         interface: &NominalType,
+        assumptions: &GenericBounds,
         span: Span,
     ) -> Result<(), MirLoweringError> {
         let parents = self
@@ -609,20 +633,30 @@ impl<'a> InstancePlanner<'a> {
                 self.host_interface(receiver, &parent, span)?;
                 continue;
             }
-            let (declaration, arguments) = self
+            let selected = self
                 .catalog
                 .concrete_interface_implementation(
                     &parent,
                     receiver,
-                    &Default::default(),
+                    assumptions,
                     100_000,
                     64,
                     &self.options.cancel,
                 )
-                .map_err(|_| MirLoweringError::MissingBinding("parent interface search"))?
-                .ok_or(MirLoweringError::MissingBinding(
+                .map_err(|_| MirLoweringError::MissingBinding("parent interface search"))?;
+            let Some((declaration, arguments)) = selected else {
+                // Intrinsic protocols carry checked operation evidence rather
+                // than a nominal implementation table to retain.
+                if self
+                    .catalog
+                    .intrinsic_implementation(&parent, receiver, assumptions)
+                {
+                    continue;
+                }
+                return Err(MirLoweringError::MissingBinding(
                     "parent interface implementation",
-                ))?;
+                ));
+            };
             self.record_interface(&declaration, &arguments, span)?;
             if declaration.module == *self.module.lowered.source.module_identity() {
                 let signature = self.catalog.implementation_signature(&declaration).ok_or(
