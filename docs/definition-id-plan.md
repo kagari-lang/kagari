@@ -1814,3 +1814,62 @@ identity visitor/remapping audit (notably BindingId body references). SI04 compi
 and MIR integration, downstream Host fixture/example callers, SI05/SI06 representation
 removal and final documentation cleanup remain required. HIR lib-test recovery does
 not establish compiler/runtime integration or overall plan acceptance.
+
+### SI03 independent fresh analysis and deferred aggregate contracts
+
+Completed the previously deferred default/override, trait identity, associated
+constant, associated family and oversized-source selections after HIR lib-test
+recovery. One trait contract invalidation fixture incorrectly passed a function ID
+from the incremental database into an independent database. It now resolves the
+same exact external identity in the fresh declaration snapshot before requesting
+that body. Fresh/incremental fact comparison and retained old-return-type assertions
+remain intact; foreign IDs are still rejected by the production query boundary.
+
+Audited the remaining direct Native lowering-cache copy in the payload reuse
+fixture. Copying adopted lowering into a new database failed with ForeignTable.
+The fixture now independently adopts the provider batch and runs ordinary Native
+import/correspondence validation. It retains identical immutable source/syntax
+inputs (checked URI/text/revision and matched module identity) so navigation and
+source-local parameter identities still compare exactly, while registration records
+retain only the new context's IDs. Arena-qualified enum failure markers are mapped
+by their checked syntax owner/slot to that retained input arena. It does not copy
+old signature/body/query caches or share the definition writer.
+
+The complete fresh aggregate catalog is imported with reference validation into
+the comparison scope before equality. The existing full equality assertion,
+including declaration locations and failure-variant semantics, is preserved.
+An intermediate rebuild exposed distinct syntax arenas in Native parameter facts;
+retaining the immutable syntax then exposed failure markers still targeting the
+new arena. Both fixture ownership mismatches were repaired rather than dropping
+fields from comparison or weakening equality to name/shape checks.
+
+Focused validation, all with `cargo test -p kagari-hir --lib
+--message-format=short`:
+
+- Combined filters `analysis::trait_catalog_tests::`,
+  `analysis::trait_identity_tests::`, `analysis::associated_const_tests::` and
+  `oversized_source_module_identities_are_rejected_without_panicking`: 14 passed,
+  one failed on the foreign fresh-database query. Rerunning only
+  `imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshots`
+  after repair passes, completing all 15 selected cases.
+- Combined filters `analysis::gat_tests::` and
+  `associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot`:
+  all 3 selected cases pass. The projection-bound tests already passed in the
+  previous checkpoint's typeck selection and were not repeated.
+- `body_edits_rebase_payload_references_and_match_fresh_facts`: the initial scoped
+  input failure and subsequent complete-comparison failures were reproduced;
+  the final run passes with full assertions. This completes 19 distinct selected
+  cases at this checkpoint, in addition to the preceding checkpoint's 98.
+- Structure checks 1055 Rust files with zero violations or documented exceptions;
+  formatting and diff checks pass. Reviewed independent definition ownership,
+  source versus semantic metadata, visitor import coverage for aggregate records,
+  syntax arena references and unchanged production validation.
+
+The recorded aggregate/associated/recovery selections are complete. The broader
+SI03/SI06 identity visitor audit, including DeclarationId::Binding's body reference,
+remains open. MIR inspection confirms its old mutable extraction still projects to
+paths and verifies path-shaped records; SI04 must replace this with retained scoped
+unverified metadata and migrate program linking/passes together. This inspection
+made no MIR edits and did not repeat its unchanged known failing build. Downstream
+compiler/runtime integration, representation-generic removal, selected source-free
+and reload verification, documentation cleanup and exhaustive CI remain pending.

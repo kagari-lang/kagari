@@ -1,5 +1,10 @@
 use super::*;
-use crate::{declarations::DeclarationId, hir::ids::HirOwner, tests::test_analysis};
+use crate::{
+    declarations::DeclarationId,
+    hir::ids::HirOwner,
+    native::{adoption, api},
+    tests::{common::import_facts, test_analysis},
+};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
@@ -101,13 +106,43 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
     let new_facts = authoring_new_facts.records().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
-    // Recheck user sources without query caches against the same immutable
-    // installed source universe; its declaration locations must compare exactly.
+    // Rebuild installed facts in the independent context. Retain the identical
+    // immutable source/syntax inputs, including their arena, so source-local
+    // parameter identities and declaration locations still compare exactly.
     let mut fresh_db = test_analysis();
-    fresh_db
+    let cancel = Default::default();
+    let providers =
+        adoption::adopt(&fresh_db.native_modules, &fresh_db.definitions, &cancel).unwrap();
+    let native_files = db
         .native_files
-        .set(db.native_files.get().unwrap().clone())
-        .unwrap();
+        .get()
+        .unwrap()
+        .iter()
+        .map(|(_, previous)| {
+            let provider = providers
+                .iter()
+                .find(|provider| &provider.records().identity == previous.source.module_identity())
+                .unwrap();
+            let (parsed, mut lowered) =
+                api::import(provider, &providers, fresh_db.parse_limits, &cancel).unwrap();
+            assert_eq!(lowered.source.name(), previous.source.name());
+            assert_eq!(lowered.source.text(), previous.source.text());
+            assert_eq!(lowered.source.revision(), previous.source.revision());
+            let rebuilt = Arc::make_mut(&mut lowered);
+            // Failure markers use syntax-member IDs, independently of the
+            // freshly adopted DefinitionIds in Native registration records.
+            rebuilt.registered_enum_failures = rebuilt
+                .registered_enum_failures
+                .iter()
+                .map(|id| previous.module.enums[id.owner().index()].variants[id.slot()].id)
+                .collect();
+            rebuilt.source = previous.source.clone();
+            rebuilt.module = previous.module.clone();
+            rebuilt.source_map = previous.source_map.clone();
+            (parsed, lowered)
+        })
+        .collect();
+    fresh_db.native_files.set(native_files).unwrap();
     let fresh = analyze(&mut fresh_db, &sources);
     let authoring_fresh = fresh
         .file(file)
@@ -122,7 +157,12 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
         new_facts.lowered.module.body.arena(),
         fresh.lowered.module.body.arena(),
     );
-    assert_eq!(new_facts.aggregates, fresh.aggregates);
+    let fresh_aggregates = import_facts(
+        &fresh.aggregates,
+        authoring_fresh.definitions(),
+        &db.definitions,
+    );
+    assert_eq!(&new_facts.aggregates, fresh_aggregates.records());
     assert!(old_facts.aggregates.same_contracts(&new_facts.aggregates));
 }
 

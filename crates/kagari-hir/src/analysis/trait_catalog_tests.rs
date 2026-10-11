@@ -741,8 +741,20 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
             .iter()
             .any(|d| d.kind.code() == "KG_TYPE_RETURN_TYPE_MISMATCH")
     );
-    let fresh = test_analysis()
-        .body(sources.snapshot(), owner, &Default::default())
+    let mut fresh_db = test_analysis();
+    let fresh_declarations = fresh_db
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let query = invalidated.definitions().resolve(*owner).unwrap().to_path();
+    let fresh_owner = fresh_declarations
+        .file(root)
+        .unwrap()
+        .declarations()
+        .definitions()
+        .lookup(&query)
+        .unwrap();
+    let fresh = fresh_db
+        .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
     invalidated.type_table().assert_same_source_facts(
