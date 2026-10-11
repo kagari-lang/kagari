@@ -3534,3 +3534,28 @@ Focused local evidence:
 This resolves the carried VM library-test build and execution selection. VM integration
 and embed consumers, remaining lint acceptance, lasting documentation transfer and
 plan retirement remain required. Full-workspace validation remains CI scope.
+
+### SI06 VM collection and measurement consumers
+
+Collection integration producers retain lowered metadata through program loading.
+Standard provider construction and typed registration now propagate fallible results;
+interface calls resolve method IDs directly in the runtime's retained table. The
+manual measurement fixture uses the loaded trait ID without a path round trip.
+Generated declaration navigation resolves a single exact external query from the
+provider's site table into the independent analysis snapshot; it does not compare
+foreign IDs or project semantic records.
+
+- `cargo clippy -p kagari-vm --test library_measurements --test
+  library_collections --test native_allocations --message-format=short --
+  -D warnings` passes. This resolves these three targets' carried compile/lint
+  failures; the manual ignored performance sample was compiled, not executed.
+- Four selected library_collections cases pass: generated_library_declarations,
+  native_iterator_completion, retained_zip and callback_failure_consumes_once.
+- native_allocations::warmed_scalar_and_contiguous passes its existing zero-allocation
+  assertions. No new speed claim is made and the script-window sample is unrun.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Review covers query ownership, unchanged behavioral/allocation
+  assertions and no extra production surface.
+
+Native boundary integration consumers still own the package lint build failure;
+remaining embed consumers and documentation cleanup remain required SI06 work.

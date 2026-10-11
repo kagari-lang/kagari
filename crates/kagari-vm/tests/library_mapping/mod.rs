@@ -2,7 +2,7 @@ use super::{Probe, program, run};
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{declaration::module::ModuleDecl, language, language::Protocol};
+use kagari_types::{declaration::module::ModuleDecl, language::Protocol};
 use kagari_vm::vm::Vm;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -133,7 +133,13 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(iterator).unwrap();
-    let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
+    let definitions = vm.runtime().host().definitions();
+    let next = ModuleDecl::method_id(
+        Protocol::Iterator.definition(&definitions).unwrap(),
+        "next",
+        &definitions,
+    )
+    .unwrap();
     assert!(vm.invoke_interface_method(&iterator, &next, &[]).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
     let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
@@ -181,7 +187,13 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let root = vm.runtime().root_value(iterator).unwrap();
-    let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
+    let definitions = vm.runtime().host().definitions();
+    let next = ModuleDecl::method_id(
+        Protocol::Iterator.definition(&definitions).unwrap(),
+        "next",
+        &definitions,
+    )
+    .unwrap();
     let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
 
     let Value::Enum(id) = result else {
@@ -291,7 +303,13 @@ fn make()->Iterator<Item=(i32,i32)> {
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
-    let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
+    let definitions = vm.runtime().host().definitions();
+    let next = ModuleDecl::method_id(
+        Protocol::Iterator.definition(&definitions).unwrap(),
+        "next",
+        &definitions,
+    )
+    .unwrap();
     let Value::Enum(id) = vm.invoke_interface_method(&iterator, &next, &[]).unwrap() else {
         panic!("Option");
     };
@@ -335,8 +353,8 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         })
         .unwrap();
     let generated = declaration_source(
-        &library.to_declaration().unwrap(),
-        &foundation_catalog::shared(),
+        &library.to_declaration(),
+        &foundation_catalog::shared().unwrap(),
     )
     .unwrap();
     let text = " fn main() { val cursor = Vec::from([1]).map(|x| x); cursor. }";
@@ -347,9 +365,10 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         foundation_catalog::shared()
+            .unwrap()
             .into_iter()
-            .filter(|installed| installed.identity != library.declaration().identity)
-            .chain([Arc::new(library.to_declaration().unwrap())])
+            .filter(|installed| installed.records().identity != library.declaration().identity)
+            .chain([Arc::new(library.to_declaration())])
             .collect(),
     );
     let snapshot = analysis

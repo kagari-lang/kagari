@@ -2,7 +2,7 @@
 //! Run with --ignored --nocapture --test-threads=1. This is not a JIT benchmark.
 use kagari_stdlib::catalog as foundation_catalog;
 mod native_allocations_counter;
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{Runtime, RuntimeConfig, module::LoadedModule, value::Value};
@@ -12,7 +12,7 @@ use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
 use std::{hint::black_box, time::Instant};
 
-fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
+fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -51,16 +51,7 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionPath>) {
         "script",
         "view",
     ]
-    .map(|name| {
-        ModuleDecl::method_id(
-            &loaded
-                .definitions()
-                .resolve(contract.declaration)
-                .unwrap()
-                .to_path(),
-            name,
-        )
-    })
+    .map(|name| ModuleDecl::method_id(contract.declaration, name, loaded.definitions()).unwrap())
     .to_vec();
     let vm = Vm::new(runtime);
     let runner = vm
@@ -201,6 +192,6 @@ fn compare_rust_native_and_script_stable_sorting() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().unwrap());
     database
 }

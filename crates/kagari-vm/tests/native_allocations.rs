@@ -33,7 +33,8 @@ fn module() -> NativeModule {
     let mut module = ModuleBuilder::new(
         "measure::native",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let add = module
         .define_function(
             FunctionDecl::new("add")
@@ -61,7 +62,7 @@ fn module() -> NativeModule {
     let sum = module
         .define_function(
             FunctionDecl::new("sum")
-                .parameter("values", language.vec(Type::i32()))
+                .parameter("values", language.vec(Type::i32()).unwrap())
                 .returns(Type::i32()),
         )
         .unwrap();
@@ -100,8 +101,9 @@ fn load() -> (Runtime, LoadedModule) {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         foundation_catalog::shared()
+            .unwrap()
             .into_iter()
-            .chain([Arc::new(module.to_declaration().unwrap())])
+            .chain([Arc::new(module.to_declaration())])
             .collect(),
     );
     let snapshot = analysis
@@ -111,11 +113,7 @@ fn load() -> (Runtime, LoadedModule) {
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let program = lower_program_to_bytecode(&mir).unwrap();
     let mut runtime = Runtime::default();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("allocation", program).unwrap();
     (runtime, loaded)

@@ -1,4 +1,5 @@
 use kagari_bytecode::program::BytecodeProgram;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{
     analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
@@ -27,7 +28,7 @@ use {
 mod library_mapping;
 mod list_failures;
 
-fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
+fn program(text: &str, modules: &[&NativeModule]) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("main.kgr", text.into(), SourceLayer::Base)
@@ -43,7 +44,7 @@ fn program(text: &str, modules: &[&NativeModule]) -> BytecodeProgram {
                     .all(|module| module.declaration().identity != installed.declaration().identity)
             })
             .chain(modules.iter().copied())
-            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
     let snapshot = analysis
@@ -65,11 +66,7 @@ fn run(text: &str) -> Value {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let loaded = runtime
         .load_program("sort", program(text, &[&library]))
         .unwrap();
@@ -135,14 +132,15 @@ impl Probe {
             &StandardDeclarations::default()
                 .catalog()
                 .expect("explicit standard providers"),
-        );
+        )
+        .unwrap();
         let retained = Arc::new(Mutex::new(None));
         let calls = Arc::new(AtomicUsize::new(0));
         let keep = module.define_function(FunctionDecl::new("keep")).unwrap();
         module
             .function(&keep, |function| {
                 let item = function.type_parameter("T")?;
-                function.parameter("value", item.ty());
+                function.parameter("value", item.ty())?;
                 Ok(())
             })
             .unwrap();
@@ -199,11 +197,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("sort", program(source, &[&library, &probe.module]))
@@ -282,11 +276,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         "#
         );
         let mut runtime = Runtime::default();
-        kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
-            &mut runtime,
-        )
-        .unwrap();
+        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         probe.module.install(&mut runtime).unwrap();
         let loaded = runtime
             .load_program("sort", program(&source, &[&library, &probe.module]))
@@ -361,9 +351,10 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         foundation_catalog::shared()
+            .unwrap()
             .into_iter()
-            .filter(|installed| installed.identity != library.declaration().identity)
-            .chain([Arc::new(library.to_declaration().unwrap())])
+            .filter(|installed| installed.records().identity != library.declaration().identity)
+            .chain([Arc::new(library.to_declaration())])
             .collect(),
     );
     let snapshot = analysis
@@ -385,8 +376,8 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         })
         .unwrap();
     let generated = declaration_source(
-        &library.to_declaration().unwrap(),
-        &foundation_catalog::shared(),
+        &library.to_declaration(),
+        &foundation_catalog::shared().unwrap(),
     )
     .unwrap();
     let text = " fn main() { val values = Vec::from([2,1]).map(|value| value); }";
@@ -397,9 +388,10 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         foundation_catalog::shared()
+            .unwrap()
             .into_iter()
-            .filter(|installed| installed.identity != library.declaration().identity)
-            .chain([Arc::new(library.to_declaration().unwrap())])
+            .filter(|installed| installed.records().identity != library.declaration().identity)
+            .chain([Arc::new(library.to_declaration())])
             .collect(),
     );
     let snapshot = analysis
@@ -422,10 +414,20 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         let (id, site) = generated
             .sites
             .iter()
-            .find(|(id, _)| id.path.last().is_some_and(|part| part.name == name))
+            .find(|(id, _)| {
+                generated
+                    .definitions
+                    .resolve(**id)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.name == name)
+            })
             .unwrap();
+        // Generated sites and analysis snapshots have independent identity scopes.
+        let query = generated.definitions.resolve(*id).unwrap().to_path();
+        let scoped = snapshot.definitions().lookup(&query).unwrap();
         let declaration = snapshot
-            .declaration(&DeclarationId::Definition(id.clone()))
+            .declaration(&DeclarationId::Definition(scoped))
             .unwrap();
         assert_eq!(declaration.name, name);
         assert_eq!(declaration.location.range, site.name_span);
