@@ -17,7 +17,7 @@ use crate::{
     },
     types::{NominalType, TypeId},
 };
-use kagari_common::{cancellation::CancellationToken, identity};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_types::{declaration::names::NameNamespace, language::Protocol, scalar::BuiltinType};
 
 /// Borrowed declaration environment for resolving one written type.
@@ -324,15 +324,25 @@ pub(super) fn resolve_type_in(
                             && (!nominal.arguments.is_empty() || !bindings.is_empty())
                             && !*positional_after_binding
                             && (!*callable_syntax
-                                || Protocol::from_id(&nominal.declaration)
-                                    == Some(Protocol::Fn)) =>
+                                || Protocol::from_reference(
+                                    &nominal.declaration,
+                                    context.declarations.definitions(),
+                                ) == Some(Protocol::Fn)) =>
                     {
                         nominal.arguments = args;
                         let members =
                             associated::members(module, context.declarations, &nominal.declaration);
                         let mut valid = true;
                         for (name, value) in resolved_bindings {
-                            let id = identity::associated_type_id(&nominal.declaration, &name);
+                            let Some(id) = context.declarations.definitions().lookup_child(
+                                nominal.declaration,
+                                DefinitionKind::AssociatedType,
+                                &name,
+                                0,
+                            ) else {
+                                valid = false;
+                                continue;
+                            };
                             valid &= members.contains(&name)
                                 && associated::member_arity(
                                     module,
@@ -365,9 +375,12 @@ pub(super) fn resolve_type_in(
                 .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
                 .collect();
             let member_id = match &interface {
-                TypeId::Trait(interface) => {
-                    Some(identity::associated_type_id(&interface.declaration, member))
-                }
+                TypeId::Trait(interface) => context.declarations.definitions().lookup_child(
+                    interface.declaration,
+                    DefinitionKind::AssociatedType,
+                    member,
+                    0,
+                ),
                 _ => None,
             };
             let resolved = associated::qualified_projection(

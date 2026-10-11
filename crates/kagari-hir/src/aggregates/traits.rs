@@ -12,18 +12,18 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity,
     identity::{
-        DefinitionPath, ModuleIdentity, reference::DefinitionReference, table::DefinitionId,
+        ModuleIdentity,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_source::identity::FileSpan;
 use kagari_types::{
     callable::MethodPolicy, collection::CollectionAccess,
     declaration::conversion::ConversionAdapter,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -271,7 +271,11 @@ impl AggregateCatalog {
                         .iter()
                         .filter(|member| !member.generic_params.is_empty())
                         .filter_map(|member| {
-                            let id = identity::associated_type_id(id, &member.name);
+                            let DeclarationId::Definition(id) =
+                                declarations.associated_type(member.name_ref)?.id
+                            else {
+                                return None;
+                            };
                             Some((
                                 id.clone(),
                                 signatures
@@ -285,19 +289,16 @@ impl AggregateCatalog {
                         .associated_consts
                         .iter()
                         .map(|member| {
-                            let identity = identity::associated_const_id(id, &member.name);
+                            let declaration = declarations
+                                .associated_const(member.name_ref)
+                                .expect("collected associated constant");
+                            let DeclarationId::Definition(identity) = declaration.id else {
+                                unreachable!("associated constant definition");
+                            };
                             (
-                                identity.clone(),
+                                identity,
                                 AssociatedConstSignature {
-                                    declaration: Declaration {
-                                        id: DeclarationId::Definition(identity.clone()),
-                                        name: member.name.clone(),
-                                        location: FileSpan {
-                                            file: lowered.source.id(),
-                                            revision: lowered.source.revision(),
-                                            range: lowered.source_map.type_span(member.name_ref),
-                                        },
-                                    },
+                                    declaration: declaration.clone(),
                                     ty: signatures
                                         .type_table()
                                         .type_ref(member.ty)
@@ -321,7 +322,13 @@ impl AggregateCatalog {
                         .associated_types
                         .iter()
                         .map(|member| {
-                            let member = identity::associated_type_id(id, &member.name);
+                            let DeclarationId::Definition(member) = declarations
+                                .associated_type(member.name_ref)
+                                .expect("collected associated type")
+                                .id
+                            else {
+                                unreachable!("associated type definition");
+                            };
                             let bounds = signatures
                                 .type_table()
                                 .associated_bounds
@@ -345,26 +352,25 @@ impl AggregateCatalog {
     pub(super) fn include_traits(
         &self,
         result: &mut Self,
-        module: &ModuleIdentity,
+        reachable: &BTreeSet<ModuleIdentity>,
+        definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
-        let start = DefinitionPath {
-            module: module.clone(),
-            path: Vec::new(),
-        };
-        for (id, item) in self
-            .traits
-            .range(start..)
-            .take_while(|(id, _)| &id.module == module)
-        {
+        for (id, item) in &self.traits {
             cancel.check()?;
+            if !reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped trait identity")
+                    .module(),
+            ) {
+                continue;
+            }
             for (index, method) in item.methods.iter().enumerate() {
                 cancel.check()?;
-                result
-                    .methods
-                    .insert(method.id.clone(), (id.clone(), index));
+                result.methods.insert(method.id, (*id, index));
             }
-            result.traits.insert(id.clone(), item.clone());
+            result.traits.insert(*id, item.clone());
         }
         Ok(())
     }
@@ -406,11 +412,11 @@ pub fn trait_inheritance_closure(
     interface: &NominalType,
     receiver: &TypeId,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionPath) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
+    lookup: &impl Fn(&DefinitionId) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
 ) -> Result<Vec<NominalType>, ImplementationSearchError> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
-    let mut pending = vec![(interface.clone(), Vec::<DefinitionPath>::new())];
+    let mut pending = vec![(interface.clone(), Vec::<DefinitionId>::new())];
     while let Some((applied, mut path)) = pending.pop() {
         cancel
             .check()

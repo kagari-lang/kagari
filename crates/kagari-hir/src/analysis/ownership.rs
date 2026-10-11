@@ -63,7 +63,7 @@ pub(crate) fn recover_invalid_identity(
         &definitions,
         &cancel,
     )?;
-    let prepared = declared.check_signatures(Default::default(), None, &cancel);
+    let prepared = declared.check_signatures(Default::default(), None, &cancel)?;
     let mut aggregates = AggregateCatalog::default();
     aggregates
         .add_module(

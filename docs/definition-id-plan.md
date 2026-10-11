@@ -1240,3 +1240,66 @@ were reviewed. Structure passes 1050 Rust files without violations/exceptions; f
 and diff checks pass. This is an explicitly broken intermediate architecture checkpoint,
 not SI02/SI03 acceptance. Continue the fixed-ID HIR consumers, then specialization and
 codec integration, representation-generic deletion and final documentation cleanup.
+
+### SI03 scoped aggregate members and associated projections
+
+Declaration collection now registers every associated constant header, including
+required constants with no initializer. A header and its optional initializer share
+one identity; reverse lookup retains the initializer's executable HIR handle. Header
+navigation uses the collected source-origin metadata. Associated type parameters,
+bounds and implementation families likewise consume collected member identities,
+preserving occurrence disambiguation instead of reconstructing member paths.
+
+Associated projection resolution and normalization use IDs. Named projections look
+up an existing child in the enclosing declaration table after checking the actual
+trait surface and arity; an undeclared member remains an error, not a newly interned
+definition. Imported parent-surface refinement and signature preparation refresh their
+working declaration prefix after all source declarations have been collected, so a
+forward/imported member can resolve without mutating retained earlier snapshots.
+
+Omitted default methods required a separate registration point: previously aggregate
+selection fabricated an impl-owned path from the trait method's final segment. After
+signature checking resolves the implemented trait, `definition_registration` reserves
+its declared method identities under that implementation, retaining kind/name/occurrence.
+Both local and imported trait surfaces participate. This only assigns identity; default
+selection still checks the actual method contract and explicit overrides. Cancellation
+or registration exhaustion prevents publication; prepared signatures retain the new
+prefix. Reused signatures follow the same idempotent registration step. Aggregate
+method selection consumes these registered IDs through an explicit table; it never
+interns a method during selection or silently drops a valid default on missing identity.
+
+Aggregate module filtering now consults the supplied table's module ownership and
+scans each owning map once, replacing path ranges that do not work on numeric IDs.
+No parallel module interner, per-type table or representation-dependent optional scope
+was introduced. Associated families use table parent/child queries to relate impl
+outputs to declared trait outputs. Trait closure and concrete implementation results
+carry IDs. Overlap diagnostics sort by the table's exact identity comparison before
+selecting the first conflict, preserving canonical conflict order independently of
+allocation order. The broader audit of catalog traversal, diagnostic/display ordering
+and specialization/artifact order remains required under SI03/SI04/SI06.
+
+Intermediate validation and remaining scope:
+
+- `cargo check -p kagari-hir --lib --message-format=short` was attempted at the changed
+  boundaries. The final check still fails with 236 errors and no warnings, down from
+  the previous checkpoint's 325. The new registration stage, declaration collection,
+  associated projection module, imported surface cache and aggregate trait collection
+  have no compiler diagnostics. This is not a successful HIR build.
+- Remaining errors include path-shaped Host inputs, language protocol constructors and
+  identity classification, type display, aggregate normalization and affected body
+  checking. These remain owned by SI03. Explicit table arguments to aggregate default
+  queries also require the planned compiler/specialization and fixture migration;
+  no compiler or SDK acceptance is claimed. The carried MIR boundary remains SI04.
+- Once HIR builds, select existing `trait_catalog_tests`, `trait_identity_tests`,
+  `associated_const_tests`, associated-family/projection contracts and oversized-source
+  recovery coverage. They own defaults/override identity, cross-module isolation,
+  navigation/rebasing and recovery. Normal HIR behavioral tests and Clippy remain
+  unrun while the library fails to compile. No duplicate smoke tests or workspace
+  sweep were added; prior tests of unchanged Native/runtime owners were not rerun.
+
+Structural review covers new imports, the explicit registration owner, fallible
+publication and table-prefix use. Structure passes 1051 Rust files without violations or documented exceptions;
+formatting and diff checks pass. This remains an
+explicitly broken intermediate migration checkpoint, not phase acceptance. Continue
+Host/protocol/display consumers, then the remaining specialization/codecs and removal
+of identity representation parameters before retiring the plan.

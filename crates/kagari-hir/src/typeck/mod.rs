@@ -51,6 +51,7 @@ pub(crate) mod check;
 mod completion;
 pub mod const_budget;
 mod const_eval;
+pub(crate) mod definition_registration;
 mod families;
 pub(crate) mod supertraits;
 

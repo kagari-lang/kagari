@@ -3,7 +3,9 @@
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
-        self, DefinitionPath, ModuleIdentity, reference::DefinitionReference, table::DefinitionId,
+        DefinitionKind, ModuleIdentity,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 
@@ -355,10 +357,12 @@ impl AggregateCatalog {
                 .filter_map(|member| {
                     let initializer = member.initializer?;
                     Some((
-                        identity::associated_const_id(
-                            &contract.trait_type.declaration,
+                        declarations.definitions().lookup_child(
+                            contract.trait_type.declaration,
+                            DefinitionKind::Const,
                             &member.name,
-                        ),
+                            0,
+                        )?,
                         declarations
                             .definition(ResolvedName::Const(initializer))?
                             .clone(),
@@ -440,6 +444,7 @@ impl AggregateCatalog {
         &self,
         root: &ModuleIdentity,
         graph: &ModuleGraph,
+        definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let mut reachable = BTreeSet::new();
@@ -457,70 +462,77 @@ impl AggregateCatalog {
             language_items: self.language_items.clone(),
             ..Self::default()
         };
-        for module in reachable {
+        self.include_traits(&mut result, &reachable, definitions, cancel)?;
+        for (id, implementation) in &self.implementations {
             cancel.check()?;
-            self.include_traits(&mut result, &module, cancel)?;
-            let start = DefinitionPath {
-                module: module.clone(),
-                path: Vec::new(),
-            };
-            for (id, implementation) in self
-                .implementations
-                .range(start.clone()..)
-                .take_while(|(id, _)| id.module == module)
-            {
-                cancel.check()?;
+            if !reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped implementation identity")
+                    .module(),
+            ) {
+                continue;
+            }
+            result.implementations.insert(*id, implementation.clone());
+            if let Some(constants) = self.implementation_constants.get(id) {
                 result
-                    .implementations
-                    .insert(id.clone(), implementation.clone());
-                if let Some(constants) = self.implementation_constants.get(id) {
-                    result
-                        .implementation_constants
-                        .insert(id.clone(), constants.clone());
-                }
+                    .implementation_constants
+                    .insert(*id, constants.clone());
             }
-            for (id, method) in self
-                .inherent_methods
-                .range(start.clone()..)
-                .take_while(|(id, _)| id.module == module)
-            {
+        }
+        for (id, method) in &self.inherent_methods {
+            cancel.check()?;
+            if reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped method identity")
+                    .module(),
+            ) {
+                result.inherent_methods.insert(*id, method.clone());
+            }
+        }
+        for (id, native_type) in &self.native_types {
+            cancel.check()?;
+            if reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped type identity")
+                    .module(),
+            ) {
+                result.native_types.insert(*id, native_type.clone());
+            }
+        }
+        for (id, structure) in &self.structures {
+            cancel.check()?;
+            if !reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped struct identity")
+                    .module(),
+            ) {
+                continue;
+            }
+            for (index, field) in structure.fields.iter().enumerate() {
                 cancel.check()?;
-                result.inherent_methods.insert(id.clone(), method.clone());
+                result.fields.insert(field.id, (*id, index));
             }
-            for (id, native_type) in self
-                .native_types
-                .range(start.clone()..)
-                .take_while(|(id, _)| id.module == module)
-            {
+            result.structures.insert(*id, structure.clone());
+        }
+        for (id, enumeration) in &self.enumerations {
+            cancel.check()?;
+            if !reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped enum identity")
+                    .module(),
+            ) {
+                continue;
+            }
+            for (index, variant) in enumeration.variants.iter().enumerate() {
                 cancel.check()?;
-                result.native_types.insert(id.clone(), native_type.clone());
+                result.variants.insert(variant.id, (*id, index));
             }
-            for (id, structure) in self
-                .structures
-                .range(start.clone()..)
-                .take_while(|(id, _)| id.module == module)
-            {
-                cancel.check()?;
-                for (index, field) in structure.fields.iter().enumerate() {
-                    cancel.check()?;
-                    result.fields.insert(field.id.clone(), (id.clone(), index));
-                }
-                result.structures.insert(id.clone(), structure.clone());
-            }
-            for (id, enumeration) in self
-                .enumerations
-                .range(start..)
-                .take_while(|(id, _)| id.module == module)
-            {
-                cancel.check()?;
-                for (index, variant) in enumeration.variants.iter().enumerate() {
-                    cancel.check()?;
-                    result
-                        .variants
-                        .insert(variant.id.clone(), (id.clone(), index));
-                }
-                result.enumerations.insert(id.clone(), enumeration.clone());
-            }
+            result.enumerations.insert(*id, enumeration.clone());
         }
         result.host_implementations = self
             .host_implementations

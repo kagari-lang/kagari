@@ -21,7 +21,11 @@ use crate::{
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity,
-    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
+    identity::{
+        DefinitionKind,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
     declaration::conversion::ConversionAdapter, language as standard_traits, language::Protocol,
@@ -458,11 +462,17 @@ impl AggregateCatalog {
 
     pub(crate) fn overlapping_implementations(
         &self,
+        definitions: &DefinitionTable,
     ) -> Vec<(&ImplementationSignature, &ImplementationSignature)> {
-        let mut by_trait: BTreeMap<&DefinitionPath, Vec<&ImplementationSignature>> =
-            BTreeMap::new();
+        let mut by_trait: BTreeMap<&DefinitionId, Vec<&ImplementationSignature>> = BTreeMap::new();
         let mut overlaps = Vec::new();
-        for implementation in self.implementations.values() {
+        let mut implementations = self.implementations.values().collect::<Vec<_>>();
+        implementations.sort_by(|left, right| {
+            definitions
+                .compare(left.id, right.id)
+                .expect("scoped implementation identities")
+        });
+        for implementation in implementations {
             let previous = by_trait
                 .entry(&implementation.trait_type.declaration)
                 .or_default();
@@ -516,16 +526,18 @@ impl AggregateCatalog {
                         .associated_type_families
                         .iter()
                         .filter_map(|(member, family)| {
-                            let mut parent = member.clone();
-                            parent.path.pop();
-                            if parent != *id {
+                            let definitions = declarations.definitions();
+                            if definitions.parent(*member).ok()? != Some(*id) {
                                 return None;
                             }
+                            let name = definitions.resolve(*member).ok()?.last()?.name;
                             Some((
-                                identity::associated_type_id(
-                                    &trait_type.declaration,
-                                    &member.path.last()?.name,
-                                ),
+                                definitions.lookup_child(
+                                    trait_type.declaration,
+                                    DefinitionKind::AssociatedType,
+                                    name,
+                                    0,
+                                )?,
                                 family.clone(),
                             ))
                         })
@@ -543,12 +555,14 @@ impl AggregateCatalog {
     }
 
     /// Finds a matching method identity and implementation arguments, including applicable defaults.
+    /// `definitions` must retain the catalog's scope and its registered implementation members.
     pub fn implementation_method(
         &self,
-        method: &DefinitionPath,
+        definitions: &DefinitionTable,
+        method: &DefinitionId,
         trait_type: &NominalType,
         receiver: &TypeId,
-    ) -> Option<(DefinitionPath, Vec<TypeId>)> {
+    ) -> Option<(DefinitionId, Vec<TypeId>)> {
         let cancel = CancellationToken::default();
         let mut budget = SearchBudget {
             checks_left: usize::MAX,
@@ -576,13 +590,7 @@ impl AggregateCatalog {
             let target = implementation.methods.get(method).cloned().or_else(|| {
                 self.trait_method(method)
                     .filter(|method| method.default == Some(MethodDefault::Script))
-                    .map(|_| {
-                        let mut target = implementation.id.clone();
-                        target
-                            .path
-                            .push(method.path.last().expect("method identity").clone());
-                        target
-                    })
+                    .map(|_| implementation_member(definitions, implementation.id, *method))
             })?;
             Some((target, arguments))
         });
@@ -592,18 +600,26 @@ impl AggregateCatalog {
 
     /// An omitted method has the same impl-owned identity as an explicit method;
     /// its script body or symbolic native application remains owned by the trait module.
+    /// Foreign or absent targets in `definitions` do not select a default.
     pub fn default_method(
         &self,
-        target: &DefinitionPath,
+        definitions: &DefinitionTable,
+        target: &DefinitionId,
     ) -> Option<(&ImplementationSignature, &MethodSignature)> {
-        let mut owner = target.clone();
-        let name = owner.path.pop()?;
+        let owner = definitions.parent(*target).ok()??;
+        let name = definitions.resolve(*target).ok()?.last()?;
         let implementation = self.implementation_signature(&owner)?;
         let method = self
             .trait_(&implementation.trait_type.declaration)?
             .methods
             .iter()
-            .find(|method| method.id.path.last() == Some(&name))?;
+            .find(|method| {
+                definitions
+                    .resolve(method.id)
+                    .ok()
+                    .and_then(|view| view.last())
+                    == Some(name)
+            })?;
         (matches!(
             method.default,
             Some(MethodDefault::Script | MethodDefault::Native(NativeBinding::Default(_)))
@@ -612,10 +628,12 @@ impl AggregateCatalog {
     }
 
     /// Collects selected implementation/default method identities for a recorded implementation.
+    /// `definitions` must retain the catalog's scope and its registered implementation members.
     pub fn implementation_methods(
         &self,
+        definitions: &DefinitionTable,
         implementation: &ImplementationSignature,
-    ) -> Vec<DefinitionPath> {
+    ) -> Vec<DefinitionId> {
         self.trait_(&implementation.trait_type.declaration)
             .into_iter()
             .flat_map(|contract| &contract.methods)
@@ -628,13 +646,7 @@ impl AggregateCatalog {
                                 | MethodDefault::Native(NativeBinding::Default(_))
                         )
                     ))
-                    .then(|| {
-                        let mut target = implementation.id.clone();
-                        target
-                            .path
-                            .push(method.id.path.last().expect("method identity").clone());
-                        target
-                    })
+                    .then(|| implementation_member(definitions, implementation.id, method.id))
                 })
             })
             .collect()
@@ -667,7 +679,7 @@ impl AggregateCatalog {
         max_checks: usize,
         max_depth: usize,
         cancel: &CancellationToken,
-    ) -> Result<Option<(DefinitionPath, Vec<TypeId>)>, ImplementationSearchError> {
+    ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
         let mut budget = SearchBudget {
             checks_left: max_checks,
             depth: 0,
@@ -893,12 +905,33 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
     false
 }
 
+/// Selection only consumes identities reserved during signature preparation.
+fn implementation_member(
+    definitions: &DefinitionTable,
+    implementation: DefinitionId,
+    method: DefinitionId,
+) -> DefinitionId {
+    let segment = definitions
+        .resolve(method)
+        .expect("scoped trait method")
+        .last()
+        .expect("method segment");
+    definitions
+        .lookup_child(
+            implementation,
+            segment.kind,
+            segment.name,
+            segment.occurrence,
+        )
+        .expect("implementation member registered before aggregate publication")
+}
+
 #[cfg(test)]
 mod search_tests {
     use super::*;
     use crate::{typeck::table::ConstraintTarget, types::TypeId};
     use kagari_common::identity::{
-        DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
     };
     use kagari_types::scalar::BuiltinType;
 

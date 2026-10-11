@@ -144,6 +144,7 @@ impl SignatureSnapshot {
             let aggregates = aggregates.for_module(
                 file.source().module_identity(),
                 self.module_graph(),
+                &self.definitions,
                 cancel,
             )?;
             let mut imported_functions = catalog.bindings(&file.prepared.names.facts, cancel)?;
@@ -260,7 +261,7 @@ impl AnalysisDatabase {
                 let prepared = declaration
                     .declared
                     .clone()
-                    .check_signatures(imported, previous, cancel);
+                    .check_signatures(imported, previous, cancel)?;
                 let mut diagnostics = declaration
                     .diagnostics()
                     .iter()
@@ -301,6 +302,7 @@ impl AnalysisDatabase {
             let visible = aggregates.for_module(
                 file.source().module_identity(),
                 &declarations.graph,
+                &self.definitions.snapshot(),
                 cancel,
             )?;
             let prepared = &file.prepared;

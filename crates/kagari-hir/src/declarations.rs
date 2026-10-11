@@ -6,7 +6,7 @@ use kagari_types::{
 use crate::{
     hir::{
         ids::{BodyOwner, FieldId, GenericParamId, ImplId, OpaqueTypeId, TypeRefId, VariantId},
-        item::{Item, behavior::GenericParam, function::FunctionKind, storage::ConstOwner},
+        item::{Item, behavior::GenericParam, function::FunctionKind},
     },
     host::HostDeclarations,
     imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog, types::ImportedTypes},
@@ -138,6 +138,7 @@ enum DeclarationKey {
     Variant(VariantId),
     GenericParameter(GenericParamId),
     AssociatedType(TypeRefId),
+    AssociatedConst(TypeRefId),
 }
 
 impl From<ResolvedName> for DeclarationKey {
@@ -374,23 +375,45 @@ impl Declarations {
                 builder.generic_params(&method_owner, &function.generic_params, map);
             }
         }
-        for item in &module.consts {
-            let owner = match item.owner {
-                Some(ConstOwner::Trait(id)) => {
-                    builder.result.definition(ResolvedName::Trait(id)).copied()
+        for (members, owner) in module
+            .traits
+            .iter()
+            .filter_map(|item| {
+                builder
+                    .result
+                    .definition(ResolvedName::Trait(item.id))
+                    .copied()
+                    .map(|owner| (&item.associated_consts, owner))
+            })
+            .chain(module.impls.iter().filter_map(|item| {
+                builder
+                    .result
+                    .impl_identity(item.id)
+                    .copied()
+                    .map(|owner| (&item.associated_consts, owner))
+            }))
+            .collect::<Vec<_>>()
+        {
+            for member in members {
+                let id = builder.identity(owner, DefinitionKind::Const, &member.name)?;
+                builder.insert(
+                    DeclarationKey::AssociatedConst(member.name_ref),
+                    DeclarationId::Definition(id),
+                    &member.name,
+                    map.type_span(member.name_ref),
+                    !member.name.is_empty(),
+                );
+                if let Some(initializer) = member.initializer {
+                    // Header and initializer share identity; reverse lookup retains the
+                    // executable initializer's local handle rather than its header alias.
+                    builder.insert(
+                        ResolvedName::Const(initializer),
+                        DeclarationId::Definition(id),
+                        &member.name,
+                        map.item_declaration_span(Item::Const(initializer)),
+                        !member.name.is_empty(),
+                    );
                 }
-                Some(ConstOwner::Impl(id)) => builder.result.impl_identity(id).copied(),
-                None => continue,
-            };
-            if let Some(owner) = owner {
-                builder.definition(
-                    ResolvedName::Const(item.id),
-                    owner,
-                    DefinitionKind::Const,
-                    &item.name,
-                    map.item_declaration_span(Item::Const(item.id)),
-                    !item.name.is_empty(),
-                )?;
             }
         }
         for (members, owner) in module
@@ -647,6 +670,16 @@ impl<I: DefinitionReference> Declarations<I> {
         self.imported_types.variant(name)
     }
 
+    /// Borrow an associated type header by its retained source type-name handle.
+    pub(crate) fn associated_type(&self, name: TypeRefId) -> Option<&Declaration<I>> {
+        self.targets.get(&DeclarationKey::AssociatedType(name))
+    }
+
+    /// Borrow an associated constant header, including a required member without an initializer.
+    pub(crate) fn associated_const(&self, name: TypeRefId) -> Option<&Declaration<I>> {
+        self.targets.get(&DeclarationKey::AssociatedConst(name))
+    }
+
     /// Finds a local enum variant declaration by its arena/owner/slot ID.
     pub fn variant(&self, id: VariantId) -> Option<&Declaration<I>> {
         self.targets.get(&DeclarationKey::Variant(id))
@@ -663,6 +696,7 @@ impl<I: DefinitionReference> Declarations<I> {
                     DeclarationKey::Field(_)
                         | DeclarationKey::Variant(_)
                         | DeclarationKey::AssociatedType(_)
+                        | DeclarationKey::AssociatedConst(_)
                 )
             })
             .find_map(|(key, declaration)| {

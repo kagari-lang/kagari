@@ -2,7 +2,7 @@
 
 use crate::{
     aggregates::traits::trait_inheritance_closure,
-    declarations::Declarations,
+    declarations::{DeclarationId, Declarations},
     hir::item::{Module, behavior::AssociatedType},
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
@@ -15,7 +15,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, associated_type_id},
+    identity::{DefinitionKind, table::DefinitionId},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
@@ -36,11 +36,15 @@ pub(super) fn prepare(
         .with_span(lowered.source_map.type_span(item.name_ref))
     };
     for item in &lowered.module.traits {
-        let Some(owner) = declarations.definition(ResolvedName::Trait(item.id)) else {
-            continue;
-        };
         let mut names = HashSet::new();
         for member in &item.associated_types {
+            let DeclarationId::Definition(member_id) = declarations
+                .associated_type(member.name_ref)
+                .expect("collected associated type")
+                .id
+            else {
+                unreachable!("associated type is a named definition");
+            };
             if !names.insert(&member.name) {
                 diagnostics.push(error(member, "duplicate declaration"));
             }
@@ -73,10 +77,9 @@ pub(super) fn prepare(
                 cancel,
             );
             if !member.generic_params.is_empty() {
-                table.associated_type_parameters.insert(
-                    associated_type_id(owner, &member.name),
-                    family_inputs(member, declarations, table),
-                );
+                table
+                    .associated_type_parameters
+                    .insert(member_id, family_inputs(member, declarations, table));
             } else if !member.parameter_bounds.is_empty() {
                 diagnostics.push(error(
                     member,
@@ -100,7 +103,7 @@ pub(super) fn prepare(
                 );
             }
             table.associated_bounds.insert(
-                associated_type_id(owner, &member.name),
+                member_id,
                 member
                     .bounds
                     .iter()
@@ -137,6 +140,13 @@ pub(super) fn prepare(
         }
         let mut names = HashSet::new();
         for member in &item.associated_types {
+            let DeclarationId::Definition(member_id) = declarations
+                .associated_type(member.name_ref)
+                .expect("collected associated type")
+                .id
+            else {
+                unreachable!("associated type is a named definition");
+            };
             if !names.insert(&member.name) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
@@ -211,14 +221,17 @@ pub(super) fn prepare(
                     );
                 }
                 if member.generic_params.is_empty() {
-                    interface.associated_types.insert(
-                        associated_type_id(&interface.declaration, &member.name),
-                        value,
-                    );
+                    if let Some(target) = declarations.definitions().lookup_child(
+                        interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        &member.name,
+                        0,
+                    ) {
+                        interface.associated_types.insert(target, value);
+                    }
                 } else {
-                    let owner = declarations.impl_identity(item.id).expect("impl identity");
                     table.associated_type_families.insert(
-                        associated_type_id(owner, &member.name),
+                        member_id,
                         AssociatedTypeFamily {
                             inputs: family_inputs(member, declarations, table),
                             value,
@@ -271,7 +284,7 @@ fn family_inputs(
 pub(super) fn member_arity(
     module: &Module,
     declarations: &Declarations,
-    owner: &DefinitionPath,
+    owner: &DefinitionId,
     name: &str,
 ) -> Option<usize> {
     if let Some(item) = module
@@ -296,7 +309,7 @@ pub(super) fn member_arity(
 pub(super) fn members(
     module: &Module,
     declarations: &Declarations,
-    owner: &DefinitionPath,
+    owner: &DefinitionId,
 ) -> Vec<String> {
     if let Some(item) = module
         .traits
@@ -378,7 +391,17 @@ pub(super) fn resolve_projection_name(
             };
         }
         let owner = owners.remove(0);
-        let id = associated_type_id(&owner.declaration, member);
+        let Some(id) = context.declarations.definitions().lookup_child(
+            owner.declaration,
+            DefinitionKind::AssociatedType,
+            member,
+            0,
+        ) else {
+            return ResolvedTypeRef {
+                ty: TypeId::Error,
+                target: None,
+            };
+        };
         let ty = qualified_projection(
             module,
             receiver,
@@ -478,7 +501,17 @@ pub(super) fn resolve_projection_name(
         };
     }
     let owner = candidates.remove(0);
-    let id = associated_type_id(&owner.declaration, member);
+    let Some(id) = context.declarations.definitions().lookup_child(
+        owner.declaration,
+        DefinitionKind::AssociatedType,
+        member,
+        0,
+    ) else {
+        return ResolvedTypeRef {
+            ty: TypeId::Error,
+            target: None,
+        };
+    };
     let ty = qualified_projection(
         module,
         receiver,
@@ -491,7 +524,7 @@ pub(super) fn resolve_projection_name(
     projection_reference(ty, id)
 }
 
-fn projection_reference(ty: TypeId, member: DefinitionPath) -> ResolvedTypeRef {
+fn projection_reference(ty: TypeId, member: DefinitionId) -> ResolvedTypeRef {
     let target = (ty != TypeId::Error).then_some(TypeTarget::AssociatedType(member));
     ResolvedTypeRef { ty, target }
 }
@@ -514,7 +547,14 @@ pub(super) fn qualified_projection(
     {
         return TypeId::Error;
     }
-    let id = associated_type_id(&interface.declaration, member);
+    let Some(id) = context.declarations.definitions().lookup_child(
+        interface.declaration,
+        DefinitionKind::AssociatedType,
+        member,
+        0,
+    ) else {
+        return TypeId::Error;
+    };
     if let TypeId::Generic(parameter) = &receiver {
         // A qualified projection must be justified by a bound on its receiver.
         let references = context
@@ -748,14 +788,14 @@ fn inherited_traits(
 /// projections stop at an explicit budget rather than recursing indefinitely.
 pub(crate) fn normalize(
     ty: &TypeId,
-    lookup: &impl Fn(&NominalType, &TypeId, &DefinitionPath, &[TypeId]) -> Option<TypeId>,
+    lookup: &impl Fn(&NominalType, &TypeId, &DefinitionId, &[TypeId]) -> Option<TypeId>,
 ) -> TypeId {
     if !ty.contains_projection() {
         return ty.clone();
     }
     fn walk(
         ty: &TypeId,
-        lookup: &impl Fn(&NominalType, &TypeId, &DefinitionPath, &[TypeId]) -> Option<TypeId>,
+        lookup: &impl Fn(&NominalType, &TypeId, &DefinitionId, &[TypeId]) -> Option<TypeId>,
         depth: usize,
         remaining: &mut usize,
     ) -> TypeId {
@@ -836,7 +876,10 @@ mod tests {
             .declarations
             .definition(ResolvedName::Trait(declared.lowered.module.traits[0].id))
             .unwrap();
-        assert_eq!(declaration, &identity);
+        assert_eq!(
+            declared.declarations.definitions().lookup(&identity),
+            Some(*declaration)
+        );
         assert_eq!(
             declared
                 .declarations

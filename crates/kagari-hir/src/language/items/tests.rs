@@ -82,11 +82,14 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let prepared = declared
         .iter()
         .map(|declared| {
-            declared.clone().check_signatures(
-                types.bindings(&declared.names.facts, &cancel).unwrap(),
-                None,
-                &cancel,
-            )
+            declared
+                .clone()
+                .check_signatures(
+                    types.bindings(&declared.names.facts, &cancel).unwrap(),
+                    None,
+                    &cancel,
+                )
+                .unwrap()
         })
         .collect::<Vec<_>>();
     let mut aggregates = AggregateCatalog::default();

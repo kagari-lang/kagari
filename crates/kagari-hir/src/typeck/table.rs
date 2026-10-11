@@ -424,7 +424,7 @@ impl TypeTable {
         ty: TypeId,
         parameters: Vec<GenericParameterType>,
         bounds: super::GenericBounds,
-        methods: HashMap<FunctionId>,
+        methods: HashMap<DefinitionId, FunctionId>,
     ) {
         self.implementations
             .entry((trait_type, ty))
@@ -445,7 +445,7 @@ impl TypeTable {
             &TypeId,
             &[GenericParameterType],
             &super::GenericBounds,
-            &HashMap<FunctionId>,
+            &HashMap<DefinitionId, FunctionId>,
         ),
     > {
         self.implementations

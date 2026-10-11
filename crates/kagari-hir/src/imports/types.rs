@@ -64,7 +64,7 @@ pub struct ImportedTypes<I: DefinitionReference = DefinitionId> {
 /// Borrowed declaration-stage modules and a lazily prepared shared nominal surface cache.
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
-    surfaces: RefCell<Option<HashMap<ImportedType>>>,
+    surfaces: RefCell<Option<HashMap<DefinitionId, ImportedType>>>,
 }
 
 impl<'a> TypeCatalog<'a> {
@@ -280,6 +280,7 @@ impl<'a> TypeCatalog<'a> {
                 cancel.check()?;
                 let mut declarations = module.declarations.clone();
                 declarations.imported_types = self.bindings(module.names.facts(), cancel)?;
+                declarations.publish_definitions(declarations.context().snapshot());
                 for item in &module.lowered.module.traits {
                     let Some(id) = declarations.definition(ResolvedName::Trait(item.id)) else {
                         continue;

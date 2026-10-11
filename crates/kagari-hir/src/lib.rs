@@ -43,6 +43,7 @@ use crate::{
         applications::validate_signatures,
         check::{check_bodies_controlled, check_signatures},
         const_budget::ConstLimits,
+        definition_registration,
         reuse::BodyReuse,
         signature_reuse::reuse_signatures,
         supertraits::validate,
@@ -312,7 +313,7 @@ impl PreparedAnalysis {
                 );
             }
         }
-        for (first, second) in aggregates.overlapping_implementations() {
+        for (first, second) in aggregates.overlapping_implementations(definitions) {
             cancel.check()?;
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
@@ -368,8 +369,10 @@ impl DeclaredAnalysis {
         imported_types: ImportedTypes,
         previous_analysis: Option<&PreparedAnalysis>,
         cancel: &CancellationToken,
-    ) -> PreparedAnalysis {
+    ) -> Result<PreparedAnalysis, DefinitionMappingError> {
         self.declarations.imported_types = imported_types;
+        self.declarations
+            .publish_definitions(self.declarations.context().snapshot());
         let previous = previous_analysis.and_then(|old| {
             if !(old.names.facts.hosts.revision() == self.names.facts.hosts.revision()
                 && old
@@ -411,7 +414,14 @@ impl DeclaredAnalysis {
         let signatures = previous.unwrap_or_else(|| {
             Arc::new(check_signatures(&self.lowered, &self.declarations, cancel))
         });
-        PreparedAnalysis {
+        let definitions = definition_registration::implementation_members(
+            &self.lowered,
+            &self.declarations,
+            signatures.facts(),
+            cancel,
+        )?;
+        self.declarations.publish_definitions(definitions);
+        Ok(PreparedAnalysis {
             signatures_reused,
             local_signature_diagnostics: reused_local_diagnostics
                 .unwrap_or(signatures.diagnostics().len()),
@@ -419,7 +429,7 @@ impl DeclaredAnalysis {
             names: self.names,
             declarations: self.declarations,
             signatures,
-        }
+        })
     }
 }
 
