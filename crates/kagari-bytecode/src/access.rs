@@ -605,7 +605,7 @@ pub(super) fn verify(
                             PublicItem::InterfaceTable(table)
                                 if table.declaration == linked.declaration =>
                             {
-                                table.instantiate_in(
+                                table.instantiate_scoped(
                                     arguments,
                                     function
                                         .metadata
@@ -613,6 +613,7 @@ pub(super) fn verify(
                                         .generic
                                         .as_ref()
                                         .map_or(&[][..], |body| body.parameters.as_slice()),
+                                    Some(definitions),
                                 )
                             }
                             _ => None,

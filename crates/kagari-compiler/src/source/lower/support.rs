@@ -1,6 +1,6 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::operations::{BinaryOp, UnaryOp};
 use kagari_hir::{
     hir::{
@@ -20,7 +20,6 @@ use kagari_mir::{
     instruction::{AggregateFieldRef, Constant, Instruction, MirValue, ValueBuffer},
 };
 use kagari_types::{
-    language as standard_traits,
     language::Protocol,
     scalar::IntegerType,
     ty::{NominalTy, Ty},
@@ -53,12 +52,16 @@ impl FunctionLowerer<'_, '_> {
         &self,
         protocol: Protocol,
         slot: usize,
-    ) -> Result<DefinitionPath, MirLoweringError> {
+    ) -> Result<DefinitionId, MirLoweringError> {
         self.planner
             .catalog
-            .trait_(&standard_traits::identity(protocol))
+            .trait_(
+                &protocol
+                    .definition(&self.planner.definitions())
+                    .ok_or(MirLoweringError::MissingBinding("protocol identity"))?,
+            )
             .and_then(|contract| contract.methods.get(slot))
-            .map(|method| method.id.clone())
+            .map(|method| method.id)
             .ok_or(MirLoweringError::MissingBinding("checked protocol method"))
     }
 
@@ -165,7 +168,10 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    pub(crate) fn array_element_type(&self, expr_id: ExprId) -> Result<Ty, MirLoweringError> {
+    pub(crate) fn array_element_type(
+        &self,
+        expr_id: ExprId,
+    ) -> Result<Ty<DefinitionId>, MirLoweringError> {
         let ty = self
             .analyzed
             .typed
@@ -204,7 +210,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn aggregate_field_ref(
         &self,
-        field: &DefinitionPath,
+        field: &DefinitionId,
         receiver: &TypeId,
     ) -> Result<AggregateFieldRef, MirLoweringError> {
         let field = self
@@ -222,7 +228,10 @@ impl FunctionLowerer<'_, '_> {
         })
     }
 
-    pub(crate) fn nominal_instance(&self, ty: &TypeId) -> Result<NominalTy, MirLoweringError> {
+    pub(crate) fn nominal_instance(
+        &self,
+        ty: &TypeId,
+    ) -> Result<NominalTy<DefinitionId>, MirLoweringError> {
         let types = self.planner.arguments(
             slice::from_ref(ty),
             &self.instance.substitution,
@@ -231,7 +240,11 @@ impl FunctionLowerer<'_, '_> {
         let ty = &types[0];
         if !ty.is_concrete()
             && !self.function.semantic.generic.as_ref().is_some_and(|body| {
-                body.types_valid([&lower_type(ty)], &self.planner.options.cancel)
+                body.types_valid(
+                    [&lower_type(ty)],
+                    &self.planner.options.cancel,
+                    &self.planner.definitions(),
+                )
             })
         {
             return Err(MirLoweringError::MissingBinding(
@@ -246,7 +259,10 @@ impl FunctionLowerer<'_, '_> {
         Ok(lower_nominal_type(ty))
     }
 
-    pub(crate) fn expr_nominal_instance(&self, id: ExprId) -> Result<NominalTy, MirLoweringError> {
+    pub(crate) fn expr_nominal_instance(
+        &self,
+        id: ExprId,
+    ) -> Result<NominalTy<DefinitionId>, MirLoweringError> {
         let ty = self
             .analyzed
             .typed

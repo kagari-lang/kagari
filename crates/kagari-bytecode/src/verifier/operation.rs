@@ -453,7 +453,7 @@ pub(super) fn verify_instruction(
                         {
                             return None;
                         }
-                        table.instantiate_in(arguments, scope)
+                        table.instantiate_scoped(arguments, scope, Some(definitions))
                     }
                     _ => None,
                 })

@@ -590,13 +590,14 @@ pub(super) fn verify(
                 return Err(context.error(Error::InvalidInterfaceTable));
             };
             let table = table
-                .instantiate_in(
+                .instantiate_scoped(
                     arguments,
                     function
                         .semantic
                         .generic
                         .as_ref()
                         .map_or(&[], |body| &body.parameters),
+                    Some(context.definitions),
                 )
                 .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
             context.expect(

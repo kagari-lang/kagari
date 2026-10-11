@@ -4,7 +4,7 @@ use crate::source::lower::{
     state::FunctionLowerer,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_common::identity::{DefinitionKind, mapping::DefinitionMappingError};
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_hir::{
     AnalyzedModule,
@@ -23,9 +23,7 @@ use kagari_mir::{
     instruction::{Instruction, Terminator},
 };
 use kagari_types::{
-    declaration::requirement::NativeCallableRequirement,
-    language::{Protocol, identity},
-    scalar::BuiltinType,
+    declaration::requirement::NativeCallableRequirement, language::Protocol, scalar::BuiltinType,
 };
 use std::iter;
 
@@ -47,7 +45,9 @@ pub(crate) fn lower_callable<'a>(
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
     let body = instance.callable.clone().expect("callable adapter");
-    let Some(TypeId::Function { params, result }) = callable_signature(&body.interface) else {
+    let Some(TypeId::Function { params, result }) =
+        callable_signature(&planner.definitions(), &body.interface)
+    else {
         return Err(MirLoweringError::MissingBinding(
             "callable adapter signature",
         ));
@@ -140,7 +140,9 @@ pub(crate) fn lower_protocol<'a>(
     );
     let interface = match instance.key.arguments.get(1) {
         Some(TypeId::Trait(interface)) => interface.clone(),
-        _ => protocol.nominal(),
+        _ => protocol
+            .nominal(&planner.definitions())
+            .expect("registered protocol identity"),
     };
     let iteration_result = if protocol.iteration() || protocol == Protocol::Fn {
         let method = planner
@@ -152,6 +154,7 @@ pub(crate) fn lower_protocol<'a>(
             ))?;
         Some(
             planner.catalog.normalize_type(
+                &planner.definitions(),
                 &method
                     .return_type
                     .with_self(&method.owner, &receiver)
@@ -173,8 +176,8 @@ pub(crate) fn lower_protocol<'a>(
                 iteration_result.expect("protocol result")
             }
             Protocol::From => receiver.clone(),
-            Protocol::PartialOrd => ordering_type(true),
-            Protocol::Ord => ordering_type(false),
+            Protocol::PartialOrd => ordering_type(&planner.definitions(), true),
+            Protocol::Ord => ordering_type(&planner.definitions(), false),
             _ => TypeId::Builtin(match protocol {
                 Protocol::PartialEq => BuiltinType::Bool,
                 Protocol::Hash => BuiltinType::I64,
@@ -185,25 +188,27 @@ pub(crate) fn lower_protocol<'a>(
     };
 
     let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
-    let mut member = identity(protocol);
-    member.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: match protocol {
-            Protocol::Iterable => "iter",
-            Protocol::Iterator => "next",
-            Protocol::PartialEq => "eq",
-            Protocol::Ord => "cmp",
-            Protocol::PartialOrd => "partial_cmp",
-            Protocol::Fn => "call",
-            Protocol::From => "from",
-            Protocol::Hash => "hash",
-            Protocol::Debug => "debug",
-            Protocol::Display => "display",
-            _ => unreachable!("checked adapter kind"),
-        }
-        .into(),
-        occurrence: 0,
-    });
+    let member_name = match protocol {
+        Protocol::Iterable => "iter",
+        Protocol::Iterator => "next",
+        Protocol::PartialEq => "eq",
+        Protocol::Ord => "cmp",
+        Protocol::PartialOrd => "partial_cmp",
+        Protocol::Fn => "call",
+        Protocol::From => "from",
+        Protocol::Hash => "hash",
+        Protocol::Debug => "debug",
+        Protocol::Display => "display",
+        _ => unreachable!("checked adapter kind"),
+    };
+    let protocol_owner = protocol
+        .definition(&lowerer.planner.definitions())
+        .expect("registered protocol");
+    let member = lowerer
+        .planner
+        .context
+        .intern_child(protocol_owner, DefinitionKind::Method, member_name, 0)
+        .map_err(DefinitionMappingError::from)?;
     let required = NativeCallableRequirement {
         receiver: lower_type(&receiver),
         interface: lower_nominal_type(&interface),
@@ -216,6 +221,7 @@ pub(crate) fn lower_protocol<'a>(
         .planner
         .catalog
         .implicit_protocol_application(
+            &lowerer.planner.definitions(),
             &required,
             &receiver,
             &interface,

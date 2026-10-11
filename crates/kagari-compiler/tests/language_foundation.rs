@@ -9,14 +9,14 @@ fn compile(text: &str) {
         .set("foundation.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(foundation_catalog::shared().into_iter().chain([]).collect());
+    analysis.set_native_modules(foundation_catalog::shared().expect("foundation declarations"));
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let bytecode = lower_program_to_bytecode(&mir).unwrap();
-    kagari_bytecode::program::verify_program(&bytecode).unwrap();
+    kagari_bytecode::program::verify_program(bytecode.records(), bytecode.definitions()).unwrap();
 }
 
 #[test]

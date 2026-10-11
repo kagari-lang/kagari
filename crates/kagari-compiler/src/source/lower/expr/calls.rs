@@ -136,7 +136,7 @@ impl FunctionLowerer<'_, '_> {
             );
         }
         if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
-            && Protocol::from_id(&interface.declaration)
+            && Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
                 .is_some_and(|kind| kind.operator() || kind.iteration())
         {
             let receiver = call
@@ -151,7 +151,8 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
             };
-            if Protocol::from_id(&interface.declaration) == Some(Protocol::Fn)
+            if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+                == Some(Protocol::Fn)
                 && matches!(&self.analyzed.lowered.module.expr(expr).kind, ExprKind::Call { callee, .. } if *callee == receiver)
             {
                 let receiver_type = self
@@ -187,7 +188,8 @@ impl FunctionLowerer<'_, '_> {
             ref interface,
             ref method,
         } = call.target
-            && let Some(protocol) = Protocol::from_id(&interface.declaration)
+            && let Some(protocol) =
+                Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
             && protocol.equality_protocol()
         {
             let receiver = call
@@ -215,7 +217,7 @@ impl FunctionLowerer<'_, '_> {
             if self
                 .planner
                 .catalog
-                .implementation_method(method, interface, &ty)
+                .implementation_method(&self.planner.definitions(), method, interface, &ty)
                 .is_some()
             {
                 return self.lower_applied_method(
@@ -285,7 +287,7 @@ impl FunctionLowerer<'_, '_> {
                             &self.instance.substitution,
                             span,
                         )?;
-                        Ok((id.clone(), types.pop().expect("associated type")))
+                        Ok((*id, types.pop().expect("associated type")))
                     })
                     .collect::<Result<_, MirLoweringError>>()?,
                 declaration: interface.declaration,
@@ -350,7 +352,7 @@ impl FunctionLowerer<'_, '_> {
                 .analyzed
                 .typed
                 .type_table
-                .implementation_method(&method, &interface, &ty)
+                .implementation_method(&self.planner.definitions(), &method, &interface, &ty)
             {
                 (
                     TypeckCallTarget::Function(implementation),
@@ -360,10 +362,14 @@ impl FunctionLowerer<'_, '_> {
             } else if self
                 .planner
                 .catalog
-                .implementation_method(&method, &interface, &ty)
+                .implementation_method(&self.planner.definitions(), &method, &interface, &ty)
                 .is_none()
-                && let Some(protocol) = Protocol::from_id(&interface.declaration)
+                && let Some(protocol) = Protocol::from_reference(
+                    &interface.declaration,
+                    Some(&self.planner.definitions()),
+                )
                 && traits::intrinsic_holds(
+                    &self.planner.definitions(),
                     protocol,
                     &ty,
                     Some(self.planner.catalog),
@@ -389,7 +395,7 @@ impl FunctionLowerer<'_, '_> {
                 let (implementation, impl_arguments) = self
                     .planner
                     .catalog
-                    .implementation_method(&method, &interface, &ty)
+                    .implementation_method(&self.planner.definitions(), &method, &interface, &ty)
                     .ok_or(MirLoweringError::UnsupportedExpr(
                         "interface dispatch requires linked implementation tables",
                     ))?;
@@ -454,6 +460,7 @@ impl FunctionLowerer<'_, '_> {
                     let normalize = |parameter: &TypeId| {
                         lower_type(
                             &self.planner.catalog.normalize_type(
+                                &self.planner.definitions(),
                                 &parameter
                                     .with_self(&method_contract.owner, &ty)
                                     .instantiate(&substitution),
@@ -515,7 +522,7 @@ impl FunctionLowerer<'_, '_> {
                     .into_iter()
                     .chain(method_arguments)
                     .collect::<Vec<_>>();
-                let linked = if implementation.module
+                let linked = if self.planner.module_identity(implementation)
                     == *self.planner.owner().lowered.source.module_identity()
                 {
                     CallTarget::Function(self.planner.enqueue_declaration(
@@ -525,7 +532,7 @@ impl FunctionLowerer<'_, '_> {
                     )?)
                 } else {
                     CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                        declaration: implementation.clone(),
+                        declaration: implementation,
                         arguments: arguments.iter().map(lower_type).collect(),
                         params,
                         return_type,
@@ -669,7 +676,7 @@ impl FunctionLowerer<'_, '_> {
                             let DeclarationId::Definition(declaration) = &declaration.id else {
                                 return Err(MirLoweringError::MissingBinding("call identity"));
                             };
-                            if declaration.module
+                            if self.planner.module_identity(*declaration)
                                 == *self.planner.owner().lowered.source.module_identity()
                             {
                                 CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
@@ -684,7 +691,7 @@ impl FunctionLowerer<'_, '_> {
                                     .collect::<Result<_, _>>()?;
                                 let return_type = self.value_type(&signature.return_type)?;
                                 CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                                    declaration: declaration.clone(),
+                                    declaration: *declaration,
                                     arguments: arguments.iter().map(lower_type).collect(),
                                     params,
                                     return_type,
@@ -717,7 +724,7 @@ impl FunctionLowerer<'_, '_> {
                                 .collect::<Result<_, _>>()?;
                             let return_type = self.value_type(&signature.return_type)?;
                             CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                                declaration: imported.declaration.clone(),
+                                declaration: imported.declaration,
                                 arguments: arguments.iter().map(lower_type).collect(),
                                 params,
                                 return_type,
@@ -783,7 +790,9 @@ impl FunctionLowerer<'_, '_> {
             ),
             (BuiltinFunction::Print, [message]) => (
                 CallTarget::Native(Box::new(NativeImport::from_host(
-                    &host_interface::standard_log(),
+                    host_interface::standard_log()?
+                        .import_into(self.planner.context, &self.planner.options.cancel)?
+                        .records(),
                 ))),
                 smallvec::smallvec![*message],
             ),

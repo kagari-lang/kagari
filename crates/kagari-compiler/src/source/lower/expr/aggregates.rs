@@ -151,7 +151,7 @@ impl FunctionLowerer<'_, '_> {
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         let fingerprint = checked
             .contract
-            .fingerprint()
+            .fingerprint(&self.planner.definitions())
             .map_err(|_| MirLoweringError::MissingBinding("checked host path contract"))?;
         self.emit(Instruction::ReadPath {
             dst,

@@ -1,23 +1,23 @@
 //! Select native concrete-result interface construction while source proofs exist.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_common::span::Span;
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{
     native_import::{NativeImport, result::NativeResultAdapter},
     types::ConcreteFunctionIdentity,
 };
-use kagari_hir::types::semantic::{raise_nominal_type, raise_type};
 use kagari_hir::{
+    aggregates::implementations::ImplementationSearchLimits,
     typeck::{GenericBounds, table::ConstraintTarget},
-    types::semantic::lower_type,
+    types::semantic::{lower_type, raise_nominal_type, raise_type},
 };
 use kagari_types::ty::{Constraint, Ty, substitution::TypeSubstitution};
 
 impl InstancePlanner<'_> {
     pub(crate) fn native_result_adapter(
         &mut self,
-        import: &NativeImport,
+        import: &NativeImport<DefinitionId>,
         span: Span,
-    ) -> Result<Option<NativeResultAdapter>, MirLoweringError> {
+    ) -> Result<Option<NativeResultAdapter<DefinitionId>>, MirLoweringError> {
         let Some(declaration) = self.registered_native_declaration(&import.instance.declaration)
         else {
             return Ok(None);
@@ -38,11 +38,14 @@ impl InstancePlanner<'_> {
         {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
-        let receiver = self.catalog.normalize_type(&raise_type(
-            &substitution
-                .apply(receiver, &self.options.cancel)
-                .map_err(|_| invalid())?,
-        ));
+        let receiver = self.catalog.normalize_type(
+            &self.definitions(),
+            &raise_type(
+                &substitution
+                    .apply(receiver, &self.options.cancel)
+                    .map_err(|_| invalid())?,
+            ),
+        );
         let assumptions: GenericBounds = import
             .requirements
             .iter()
@@ -65,11 +68,14 @@ impl InstancePlanner<'_> {
         let (implementation, arguments) = self
             .catalog
             .concrete_interface_implementation(
+                &self.definitions(),
                 &raise_nominal_type(interface),
                 &receiver,
                 &assumptions,
-                100_000,
-                64,
+                ImplementationSearchLimits {
+                    max_checks: 100_000,
+                    max_depth: 64,
+                },
                 &self.options.cancel,
             )
             .map_err(|_| invalid())?

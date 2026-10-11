@@ -2,7 +2,12 @@ use crate::source::lower::MirLoweringError;
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
+    identity::{
+        DefinitionKind, ModuleIdentity,
+        map::DefinitionContext,
+        mapping::DefinitionMappingError,
+        table::{DefinitionId, DefinitionTable},
+    },
     span::Span,
 };
 use kagari_contract::{
@@ -11,7 +16,9 @@ use kagari_contract::{
 };
 use kagari_hir::{
     AnalyzedModule,
-    aggregates::{AggregateCatalog, traits::MethodDefault},
+    aggregates::{
+        AggregateCatalog, implementations::ImplementationSearchLimits, traits::MethodDefault,
+    },
     declarations::DeclarationId,
     hir::ids::{ExprId, FunctionId},
     resolver::resolved::ResolvedName,
@@ -65,7 +72,7 @@ impl Default for MirLoweringOptions {
 /// converted only when a concrete MIR identity is emitted.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct InstanceKey {
-    pub declaration: DefinitionPath,
+    pub declaration: DefinitionId,
     pub arguments: Vec<TypeId>,
 }
 
@@ -73,24 +80,25 @@ impl InstanceKey {
     pub(super) fn lower(
         &self,
         options: &MirLoweringOptions,
+        definitions: &DefinitionTable,
         span: Span,
-    ) -> Result<ConcreteFunctionIdentity, MirLoweringError> {
+    ) -> Result<ConcreteFunctionIdentity<DefinitionId>, MirLoweringError> {
         let mut remaining = options.max_type_nodes;
         let arguments = self
             .arguments
             .iter()
             .filter(|argument| !matches!(argument, TypeId::Generic(parameter)
-                if parameter.owner.module == self.declaration.module && self.declaration.path.starts_with(&parameter.owner.path)))
+                if definitions.contains(parameter.owner, self.declaration).expect("checked instance owner")))
             .map(|argument| {
                 let argument = instantiate(argument, None, options, &mut remaining, 0, span)?;
                 if !argument.is_concrete() {
-                    return Err(unresolved_type(&argument, span));
+                    return Err(unresolved_type(&argument, definitions, span));
                 }
                 Ok(lower_type(&argument))
             })
             .collect::<Result<_, _>>()?;
         Ok(ConcreteFunctionIdentity {
-            declaration: self.declaration.clone(),
+            declaration: self.declaration,
             arguments,
         })
     }
@@ -118,23 +126,36 @@ pub(super) struct CallableInstance {
 
 pub(super) struct InstancePlanner<'a> {
     module: &'a AnalyzedModule,
+    pub context: &'a DefinitionContext,
     pub catalog: &'a AggregateCatalog,
     modules: HashMap<ModuleIdentity, &'a AnalyzedModule>,
     pub options: &'a MirLoweringOptions,
     pub instances: Vec<Instance>,
     pub layout_roots: Vec<(TypeId, Span)>,
-    pub host_types: BTreeSet<DefinitionPath>,
-    pub host_interfaces: Vec<(DefinitionPath, TypeId, NominalType, Span)>,
-    pub native_targets: Vec<NativeImport>,
-    pub interface_instances: Vec<ConcreteFunctionIdentity>,
+    pub host_types: BTreeSet<DefinitionId>,
+    pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
+    pub native_targets: Vec<NativeImport<DefinitionId>>,
+    pub interface_instances: Vec<ConcreteFunctionIdentity<DefinitionId>>,
     keys: HashMap<InstanceKey, InstanceId>,
     generic_count: usize,
-    interfaces: HashSet<(DefinitionPath, Vec<TypeId>)>,
+    interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
     instruction_count: usize,
     failure: Option<Diagnostic>,
 }
 
 impl<'a> InstancePlanner<'a> {
+    pub fn definitions(&self) -> DefinitionTable {
+        self.context.snapshot()
+    }
+
+    pub fn module_identity(&self, id: DefinitionId) -> ModuleIdentity {
+        self.definitions()
+            .resolve(id)
+            .expect("checked compilation definition")
+            .module()
+            .clone()
+    }
+
     pub fn enqueue_resume(
         &mut self,
         parent: &Instance,
@@ -142,11 +163,10 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
         let mut key = parent.key.clone();
-        key.declaration.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Function,
-            name: "$resume".into(),
-            occurrence: 0,
-        });
+        key.declaration = self
+            .context
+            .intern_child(key.declaration, DefinitionKind::Function, "$resume", 0)
+            .map_err(DefinitionMappingError::from)?;
         if let Some(id) = self.keys.get(&key) {
             return Ok(*id);
         }
@@ -180,12 +200,15 @@ impl<'a> InstancePlanner<'a> {
             unreachable!()
         };
         body.interface = interface;
-        let mut declaration = parent.key.declaration.clone();
-        declaration.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Function,
-            name: "$callable".into(),
-            occurrence: body.span.start as u32,
-        });
+        let declaration = self
+            .context
+            .intern_child(
+                parent.key.declaration,
+                DefinitionKind::Function,
+                "$callable",
+                body.span.start as u32,
+            )
+            .map_err(DefinitionMappingError::from)?;
         let key = InstanceKey {
             declaration,
             arguments: vec![body.receiver.clone(), TypeId::Trait(body.interface.clone())],
@@ -216,8 +239,10 @@ impl<'a> InstancePlanner<'a> {
         options: &'a MirLoweringOptions,
         modules: &'a [AnalyzedModule],
         catalog: &'a AggregateCatalog,
+        context: &'a DefinitionContext,
     ) -> Self {
         Self {
+            context,
             catalog,
             modules: modules
                 .iter()
@@ -243,9 +268,9 @@ impl<'a> InstancePlanner<'a> {
         self.modules[&instance.origin]
     }
 
-    pub fn aggregate_catalog(&self, declaration: &DefinitionPath) -> &'a AggregateCatalog {
+    pub fn aggregate_catalog(&self, declaration: &DefinitionId) -> &'a AggregateCatalog {
         self.modules
-            .get(&declaration.module)
+            .get(&self.module_identity(*declaration))
             .map(|module| &module.aggregates)
             .unwrap_or(self.catalog)
     }
@@ -308,14 +333,19 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
         let (origin, function, substitution) = context;
-        let declaration = DefinitionPath {
-            module: self.module.lowered.source.module_identity().clone(),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Function,
-                name: format!("$derived_{}", protocol.name()),
-                occurrence: 0,
-            }],
-        };
+        let root = self
+            .context
+            .intern_root(self.module.lowered.source.module_identity())
+            .map_err(DefinitionMappingError::from)?;
+        let declaration = self
+            .context
+            .intern_child(
+                root,
+                DefinitionKind::Function,
+                &format!("$derived_{}", protocol.name()),
+                0,
+            )
+            .map_err(DefinitionMappingError::from)?;
         let key = InstanceKey {
             declaration,
             arguments: [Some(ty.clone()), interface.cloned().map(TypeId::Trait)]
@@ -351,8 +381,8 @@ impl<'a> InstancePlanner<'a> {
         Ok(id)
     }
 
-    pub fn native_function(&self, declaration: &DefinitionPath) -> Option<&TypedFunction> {
-        let module = self.modules.get(&declaration.module)?;
+    pub fn native_function(&self, declaration: &DefinitionId) -> Option<&TypedFunction> {
+        let module = self.modules.get(&self.module_identity(*declaration))?;
         let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {
             return None;
         };
@@ -362,8 +392,8 @@ impl<'a> InstancePlanner<'a> {
         })
     }
 
-    pub fn constant(&self, declaration: &DefinitionPath) -> Option<ScalarValue> {
-        let module = self.modules.get(&declaration.module)?;
+    pub fn constant(&self, declaration: &DefinitionId) -> Option<ScalarValue> {
+        let module = self.modules.get(&self.module_identity(*declaration))?;
         let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {
             return None;
         };
@@ -372,7 +402,7 @@ impl<'a> InstancePlanner<'a> {
 
     pub fn enqueue_declaration(
         &mut self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: Vec<TypeId>,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
@@ -381,12 +411,12 @@ impl<'a> InstancePlanner<'a> {
         {
             return self.enqueue(function, arguments, span);
         }
-        let (implementation, method) =
-            self.catalog
-                .default_method(declaration)
-                .ok_or(MirLoweringError::MissingBinding(
-                    "default method declaration",
-                ))?;
+        let (implementation, method) = self
+            .catalog
+            .default_method(&self.definitions(), declaration)
+            .ok_or(MirLoweringError::MissingBinding(
+                "default method declaration",
+            ))?;
         if method.default != Some(MethodDefault::Script) {
             return Err(MirLoweringError::MissingBinding(
                 "native default requires template selection",
@@ -407,7 +437,7 @@ impl<'a> InstancePlanner<'a> {
             return Err(MirLoweringError::MissingBinding("default method arguments"));
         }
         let key = InstanceKey {
-            declaration: declaration.clone(),
+            declaration: *declaration,
             arguments,
         };
         if let Some(id) = self.keys.get(&key) {
@@ -433,13 +463,10 @@ impl<'a> InstancePlanner<'a> {
                     .zip(key.arguments[count..].iter().cloned()),
             )
             .collect();
-        substitution.insert_receiver(contract.id.clone(), receiver);
-        let origin =
-            self.modules
-                .get(&method.id.module)
-                .ok_or(MirLoweringError::MissingBinding(
-                    "default body source module",
-                ))?;
+        substitution.insert_receiver(contract.id, receiver);
+        let origin = self.modules.get(&self.module_identity(method.id)).ok_or(
+            MirLoweringError::MissingBinding("default body source module"),
+        )?;
         let Some(ResolvedName::Function(function)) =
             origin.declarations.definition_target(&method.id)
         else {
@@ -447,7 +474,7 @@ impl<'a> InstancePlanner<'a> {
                 "default body source function",
             ));
         };
-        let origin = method.id.module.clone();
+        let origin = self.module_identity(method.id);
         if !key.arguments.is_empty() {
             self.charge_layout_instance(span)?;
         }
@@ -483,29 +510,29 @@ impl<'a> InstancePlanner<'a> {
         receiver: &TypeId,
         interface: &NominalType,
         span: Span,
-    ) -> Result<DefinitionPath, MirLoweringError> {
+    ) -> Result<DefinitionId, MirLoweringError> {
         self.check()?;
         if let Some((id, ..)) = self
             .host_interfaces
             .iter()
             .find(|(_, ty, applied, _)| ty == receiver && applied == interface)
         {
-            return Ok(id.clone());
+            return Ok(*id);
         }
 
         let base = self.module.lowered.module.impls.len();
         let occurrence = u32::try_from(base + self.host_interfaces.len())
             .map_err(|_| MirLoweringError::MissingBinding("host interface identity limit"))?;
-        let id = DefinitionPath {
-            module: self.module.lowered.source.module_identity().clone(),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Impl,
-                name: String::new(),
-                occurrence,
-            }],
-        };
+        let root = self
+            .context
+            .intern_root(self.module.lowered.source.module_identity())
+            .map_err(DefinitionMappingError::from)?;
+        let id = self
+            .context
+            .intern_child(root, DefinitionKind::Impl, "", occurrence)
+            .map_err(DefinitionMappingError::from)?;
         self.host_interfaces
-            .push((id.clone(), receiver.clone(), interface.clone(), span));
+            .push((id, receiver.clone(), interface.clone(), span));
         Ok(id)
     }
 
@@ -538,7 +565,7 @@ impl<'a> InstancePlanner<'a> {
 
     pub(super) fn record_interface(
         &mut self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), MirLoweringError> {
@@ -557,15 +584,12 @@ impl<'a> InstancePlanner<'a> {
                 .collect::<Vec<_>>();
             canonical.as_slice()
         };
-        if self
-            .interfaces
-            .insert((declaration.clone(), arguments.to_vec()))
-        {
+        if self.interfaces.insert((*declaration, arguments.to_vec())) {
             if !arguments.is_empty() {
                 self.charge_layout_instance(span)?;
             }
             self.interface_instances.push(ConcreteFunctionIdentity {
-                declaration: declaration.clone(),
+                declaration: *declaration,
                 arguments: arguments.iter().map(lower_type).collect(),
             });
             self.require_iterator_view(declaration, arguments, span)?;
@@ -600,10 +624,13 @@ impl<'a> InstancePlanner<'a> {
                     .collect();
                 self.require_parent_interfaces(&receiver, &interface, &assumptions, span)?;
             }
-            if declaration.module == *self.module.lowered.source.module_identity()
+            if self.module_identity(*declaration) == *self.module.lowered.source.module_identity()
                 && let Some(contract) = self.catalog.implementation_signature(declaration)
             {
-                for method in self.catalog.implementation_methods(contract) {
+                for method in self
+                    .catalog
+                    .implementation_methods(&self.definitions(), contract)
+                {
                     self.enqueue_interface_method(&method, arguments, span)?;
                 }
             }
@@ -636,21 +663,26 @@ impl<'a> InstancePlanner<'a> {
             let selected = self
                 .catalog
                 .concrete_interface_implementation(
+                    &self.definitions(),
                     &parent,
                     receiver,
                     assumptions,
-                    100_000,
-                    64,
+                    ImplementationSearchLimits {
+                        max_checks: 100_000,
+                        max_depth: 64,
+                    },
                     &self.options.cancel,
                 )
                 .map_err(|_| MirLoweringError::MissingBinding("parent interface search"))?;
             let Some((declaration, arguments)) = selected else {
                 // Intrinsic protocols carry checked operation evidence rather
                 // than a nominal implementation table to retain.
-                if self
-                    .catalog
-                    .intrinsic_implementation(&parent, receiver, assumptions)
-                {
+                if self.catalog.intrinsic_implementation(
+                    &self.definitions(),
+                    &parent,
+                    receiver,
+                    assumptions,
+                ) {
                     continue;
                 }
                 return Err(MirLoweringError::MissingBinding(
@@ -658,11 +690,13 @@ impl<'a> InstancePlanner<'a> {
                 ));
             };
             self.record_interface(&declaration, &arguments, span)?;
-            if declaration.module == *self.module.lowered.source.module_identity() {
+            if self.module_identity(declaration) == *self.module.lowered.source.module_identity() {
                 let signature = self.catalog.implementation_signature(&declaration).ok_or(
                     MirLoweringError::MissingBinding("parent interface contract"),
                 )?;
-                let methods = self.catalog.implementation_methods(signature);
+                let methods = self
+                    .catalog
+                    .implementation_methods(&self.definitions(), signature);
                 for method in methods {
                     self.enqueue_interface_method(&method, &arguments, span)?;
                 }
@@ -718,11 +752,11 @@ impl<'a> InstancePlanner<'a> {
             if !argument.is_concrete()
                 && !matches!(argument, TypeId::Generic(parameter) if parameter.owner == *declaration)
             {
-                return Err(unresolved_type(argument, span));
+                return Err(unresolved_type(argument, &self.definitions(), span));
             }
         }
         let key = InstanceKey {
-            declaration: declaration.clone(),
+            declaration: *declaration,
             arguments,
         };
         if let Some(id) = self.keys.get(&key) {
@@ -774,12 +808,15 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
-        let mut declaration = parent.key.declaration.clone();
-        declaration.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Function,
-            name: format!("closure_{}", closure.index()),
-            occurrence: 0,
-        });
+        let declaration = self
+            .context
+            .intern_child(
+                parent.key.declaration,
+                DefinitionKind::Function,
+                &format!("closure_{}", closure.index()),
+                0,
+            )
+            .map_err(DefinitionMappingError::from)?;
         let key = InstanceKey {
             declaration,
             arguments: parent.key.arguments.clone(),
@@ -828,7 +865,7 @@ impl<'a> InstancePlanner<'a> {
                     0,
                     span,
                 )
-                .map(|ty| self.catalog.normalize_type(&ty))
+                .map(|ty| self.catalog.normalize_type(&self.definitions(), &ty))
             })
             .collect()
     }
@@ -849,13 +886,13 @@ impl<'a> InstancePlanner<'a> {
             0,
             span,
         )?;
-        let ty = self.catalog.normalize_type(&ty);
+        let ty = self.catalog.normalize_type(&self.definitions(), &ty);
         if !ty.is_concrete()
             && !substitution
                 .values()
                 .any(|value| matches!(value, TypeId::Generic(_)))
         {
-            return Err(unresolved_type(&ty, span));
+            return Err(unresolved_type(&ty, &self.definitions(), span));
         }
         Ok(semantic_representation(&lower_type(&ty)))
     }
@@ -865,10 +902,10 @@ fn limit_diagnostic(resource: &'static str, limit: usize, span: Span) -> Diagnos
     Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit }).with_span(span)
 }
 
-fn unresolved_type(ty: &TypeId, span: Span) -> MirLoweringError {
+fn unresolved_type(ty: &TypeId, definitions: &DefinitionTable, span: Span) -> MirLoweringError {
     MirLoweringError::diagnostic(
         Diagnostic::error(DiagnosticKind::UnresolvedConcreteType {
-            type_name: ty.display_name(),
+            type_name: ty.display_name(definitions),
         })
         .with_span(span),
     )
@@ -941,9 +978,9 @@ fn instantiate(
                 associated_types: nominal
                     .associated_types
                     .iter()
-                    .map(|(id, ty)| Ok((id.clone(), child(ty)?)))
+                    .map(|(id, ty)| Ok((*id, child(ty)?)))
                     .collect::<Result<_, MirLoweringError>>()?,
-                declaration: nominal.declaration.clone(),
+                declaration: nominal.declaration,
                 arguments: nominal
                     .arguments
                     .iter()
@@ -966,7 +1003,7 @@ fn instantiate(
             arguments: arguments.iter().map(&mut child).collect::<Result<_, _>>()?,
             receiver: Box::new(child(receiver)?),
             interface: Box::new(NominalType {
-                declaration: interface.declaration.clone(),
+                declaration: interface.declaration,
                 arguments: interface
                     .arguments
                     .iter()
@@ -975,10 +1012,10 @@ fn instantiate(
                 associated_types: interface
                     .associated_types
                     .iter()
-                    .map(|(id, ty)| Ok((id.clone(), child(ty)?)))
+                    .map(|(id, ty)| Ok((*id, child(ty)?)))
                     .collect::<Result<_, MirLoweringError>>()?,
             }),
-            member: member.clone(),
+            member: *member,
         },
         _ => ty.clone(),
     })

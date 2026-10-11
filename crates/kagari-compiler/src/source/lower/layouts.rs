@@ -1,5 +1,6 @@
 //! Reachable concrete layouts and declaration-scoped aggregate templates share the function instantiation budget.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::witness::OperationWitness,
     layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
@@ -13,17 +14,22 @@ use kagari_hir::{
 };
 use kagari_mir::function::MirFunction;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{declaration::verify::types_in_scope, ty::GenericParam};
+use kagari_types::{declaration::verify::types_in_scope_in, ty::GenericParam};
 use std::{
     collections::{HashSet, VecDeque},
     mem, slice,
 };
 
+pub(super) struct Layouts {
+    pub structures: Vec<StructLayout<DefinitionId>>,
+    pub enumerations: Vec<EnumLayout<DefinitionId>>,
+}
+
 pub(super) fn collect(
     module: &AnalyzedModule,
     planner: &mut InstancePlanner<'_>,
     functions: &[MirFunction],
-) -> Result<(Vec<StructLayout>, Vec<EnumLayout>), MirLoweringError> {
+) -> Result<Layouts, MirLoweringError> {
     let mut pending = VecDeque::new();
     for structure in module
         .aggregates
@@ -33,7 +39,7 @@ pub(super) fn collect(
         pending.push_back((
             TypeId::Struct(NominalType {
                 associated_types: Default::default(),
-                declaration: structure.id.clone(),
+                declaration: structure.id,
                 arguments: Vec::new(),
             }),
             structure.declaration.location.range,
@@ -47,7 +53,7 @@ pub(super) fn collect(
         pending.push_back((
             TypeId::Enum(NominalType {
                 associated_types: Default::default(),
-                declaration: enumeration.id.clone(),
+                declaration: enumeration.id,
                 arguments: enumeration
                     .generic_params
                     .iter()
@@ -136,18 +142,24 @@ pub(super) fn collect(
                 .generic_params
                 .iter()
                 .map(|parameter| GenericParam {
-                    owner: parameter.owner.clone(),
+                    owner: parameter.owner,
                     position: parameter.position,
                 })
         }));
     }
     while let Some((mut ty, span)) = pending.pop_front() {
         planner.check()?;
-        if !ty.is_concrete() && !types_in_scope([&lower_type(&ty)], &scope, &planner.options.cancel)
+        if !ty.is_concrete()
+            && !types_in_scope_in(
+                [&lower_type(&ty)],
+                &scope,
+                &planner.options.cancel,
+                Some(&planner.definitions()),
+            )
         {
             return Err(MirLoweringError::diagnostic(
                 Diagnostic::error(DiagnosticKind::UnresolvedConcreteType {
-                    type_name: ty.display_name(),
+                    type_name: ty.display_name(&planner.definitions()),
                 })
                 .with_span(span),
             ));
@@ -179,7 +191,7 @@ pub(super) fn collect(
             );
             for parameter in parameters {
                 scope.push(GenericParam {
-                    owner: parameter.owner.clone(),
+                    owner: parameter.owner,
                     position: parameter.position,
                 });
                 nominal.arguments.push(TypeId::Generic(parameter));
@@ -219,7 +231,7 @@ pub(super) fn collect(
                     planner.value_type(&ty, &substitution, span)?;
                     fields.push(StructFieldLayout {
                         visibility: field.visibility,
-                        declaration: field.id.clone(),
+                        declaration: field.id,
                         name: field.name.clone(),
                         ty: lower_type(&ty),
                         mutable: field.writeability.is_var(),
@@ -262,7 +274,7 @@ pub(super) fn collect(
                     let payload = types.iter().map(lower_type).collect();
                     variants.push(EnumVariantLayout {
                         reports_failure: variant.reports_failure,
-                        declaration: variant.id.clone(),
+                        declaration: variant.id,
                         payload,
                     });
                     pending.extend(types.into_iter().map(|ty| (ty, span)));
@@ -294,5 +306,8 @@ pub(super) fn collect(
             _ => {}
         }
     }
-    Ok((structures, enumerations))
+    Ok(Layouts {
+        structures,
+        enumerations,
+    })
 }

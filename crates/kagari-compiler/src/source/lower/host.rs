@@ -1,5 +1,8 @@
 use crate::source::lower::MirLoweringError;
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+};
 use kagari_hir::host::HostDeclarations;
 use kagari_mir::{
     function::MirFunction,
@@ -15,10 +18,11 @@ use std::{
 
 pub(super) fn collect(
     hosts: &HostDeclarations,
-    roots: BTreeSet<DefinitionPath>,
+    roots: BTreeSet<DefinitionId>,
     functions: &[MirFunction],
     cancel: &CancellationToken,
-) -> Result<Vec<HostTypeDeclaration>, MirLoweringError> {
+    definitions: &DefinitionTable,
+) -> Result<Vec<HostTypeDeclaration<DefinitionId>>, MirLoweringError> {
     let mut pending: Vec<_> = roots.into_iter().collect();
     for instruction in functions
         .iter()
@@ -30,12 +34,15 @@ pub(super) fn collect(
             .path_reference()
             .and_then(|path| path.declaration.as_ref())
         {
-            pending.push(declaration.root.clone());
+            pending.push(declaration.root);
             for segment in &declaration.segments {
                 match segment {
                     HostPathSegmentDeclaration::Field(field) => {
-                        let mut owner = field.clone();
-                        owner.path.pop();
+                        let owner = definitions
+                            .parent(*field)
+                            .ok()
+                            .flatten()
+                            .ok_or(MirLoweringError::MissingBinding("host field owner"))?;
                         pending.push(owner);
                     }
                     HostPathSegmentDeclaration::Index(index) => {

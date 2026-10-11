@@ -13,10 +13,8 @@ use kagari_hir::{
         stmt::StmtKind,
     },
     typeck::table::ResolvedIteration,
-    types::{
-        TypeId,
-        semantic::{lower_type, raise_type},
-    },
+    types::NominalType,
+    types::TypeId,
 };
 use kagari_mir::instruction::{Instruction, MirValue, Terminator};
 use kagari_types::language::{Protocol, binding};
@@ -300,7 +298,15 @@ impl FunctionLowerer<'_, '_> {
             &self.protocol_method(Protocol::Iterator, 0)?,
             &[iterator],
         )?;
-        let optional = raise_type(&binding::option(lower_type(&fact.item)));
+        let optional = TypeId::Enum(NominalType {
+            declaration: self
+                .planner
+                .definitions()
+                .lookup(&binding::option_declaration())
+                .ok_or(MirLoweringError::MissingBinding("Option declaration"))?,
+            arguments: vec![fact.item.clone()],
+            associated_types: Default::default(),
+        });
         let some = self.test_enum_variant(&optional, value, 0)?;
         self.set_terminator(Terminator::Branch {
             cond: some,

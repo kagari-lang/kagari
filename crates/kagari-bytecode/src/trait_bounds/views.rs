@@ -50,7 +50,11 @@ pub fn links(
         });
     }
     let table = template
-        .instantiate_in(&linked.arguments, &template.generic_params)
+        .instantiate_scoped(
+            &linked.arguments,
+            &template.generic_params,
+            Some(definitions),
+        )
         .ok_or(invalid)?;
     let Ty::Trait(interface) = &table.trait_type else {
         return Err(invalid);
@@ -208,7 +212,9 @@ fn select(
             if linked.arguments != key {
                 continue;
             }
-            let applied = template.instantiate_in(&arguments, scope).ok_or(invalid)?;
+            let applied = template
+                .instantiate_scoped(&arguments, scope, Some(definitions))
+                .ok_or(invalid)?;
             let Ty::Trait(actual) = &applied.trait_type else {
                 return Err(invalid);
             };

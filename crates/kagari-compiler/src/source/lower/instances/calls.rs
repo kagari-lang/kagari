@@ -1,6 +1,6 @@
 //! Plan ordinary calls into canonical shared entries when caller types are symbolic.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{callable::shared::SharedCall, types::ConcreteFunctionIdentity};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
@@ -11,13 +11,16 @@ use kagari_types::callable::{CallableImplementation, Signature};
 impl InstancePlanner<'_> {
     pub(crate) fn shared_call(
         &mut self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
-        signature: Signature,
+        signature: Signature<DefinitionId>,
         span: Span,
-    ) -> Result<SharedCall, MirLoweringError> {
+    ) -> Result<SharedCall<DefinitionId>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("shared function declaration");
-        let module = self.modules.get(&declaration.module).ok_or_else(invalid)?;
+        let module = self
+            .modules
+            .get(&self.module_identity(*declaration))
+            .ok_or_else(invalid)?;
         let Some(ResolvedName::Function(id)) = module.declarations.definition_target(declaration)
         else {
             return Err(invalid());
@@ -38,7 +41,7 @@ impl InstancePlanner<'_> {
             .enumerate()
             .map(|(position, parameter)| {
                 TypeId::Generic(GenericParameterType {
-                    owner: declaration.clone(),
+                    owner: *declaration,
                     position,
                     name: parameter.name.clone(),
                 })
@@ -59,12 +62,14 @@ impl InstancePlanner<'_> {
                     CallableImplementation::Native(import.binding),
                 )
             } else {
-                if declaration.module == *self.module.lowered.source.module_identity() {
+                if self.module_identity(*declaration)
+                    == *self.module.lowered.source.module_identity()
+                {
                     self.enqueue_declaration(declaration, canonical, span)?;
                 }
                 (
                     ConcreteFunctionIdentity {
-                        declaration: declaration.clone(),
+                        declaration: *declaration,
                         arguments: vec![],
                     },
                     CallableImplementation::Script,

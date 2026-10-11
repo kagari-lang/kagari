@@ -4,7 +4,10 @@ use crate::source::lower::{
     abi::checked_bounds,
     instances::{Instance, InstancePlanner},
 };
-use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_common::{
+    identity::table::{DefinitionId, DefinitionTable},
+    span::Span,
+};
 use kagari_contract::callable::{
     generic::GenericBody, interface::TypeNormalization, witness::OperationWitness,
 };
@@ -23,11 +26,11 @@ impl InstancePlanner<'_> {
     /// checked signature. Executable verification rechecks these equalities.
     pub(crate) fn method_normalizations(
         &self,
-        method: &DefinitionPath,
+        method: &DefinitionId,
         interface: &NominalType,
         receiver: &TypeId,
         arguments: &[TypeId],
-    ) -> Result<Vec<TypeNormalization>, MirLoweringError> {
+    ) -> Result<Vec<TypeNormalization<DefinitionId>>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("interface signature normalization");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
         if signature.generic_params.len() != interface.arguments.len() + arguments.len() {
@@ -39,7 +42,7 @@ impl InstancePlanner<'_> {
             .cloned()
             .zip(interface.arguments.iter().chain(arguments).cloned())
             .collect();
-        substitution.insert_receiver(interface.declaration.clone(), receiver.clone());
+        substitution.insert_receiver(interface.declaration, receiver.clone());
         let mut facts = Vec::new();
         for ty in signature
             .params
@@ -51,12 +54,12 @@ impl InstancePlanner<'_> {
             let source = ty
                 .instantiate(&substitution)
                 .with_associated_types(interface, receiver);
-            let result = lower_type(&self.catalog.normalize_type(&source));
+            let result = lower_type(&self.catalog.normalize_type(&self.definitions(), &source));
             let source = lower_type(&source);
             if source != result
                 && !facts
                     .iter()
-                    .any(|fact: &TypeNormalization| fact.source == source)
+                    .any(|fact: &TypeNormalization<DefinitionId>| fact.source == source)
             {
                 facts.push(TypeNormalization { source, result });
             }
@@ -69,12 +72,12 @@ impl InstancePlanner<'_> {
     /// bounds rather than inspecting one selected default body.
     pub(crate) fn method_operations(
         &mut self,
-        method: &DefinitionPath,
+        method: &DefinitionId,
         interface: &NominalType,
         receiver: &TypeId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("generic method operation environment");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
         let trait_ = self
@@ -87,7 +90,7 @@ impl InstancePlanner<'_> {
             .cloned()
             .zip(interface.arguments.iter().chain(arguments).cloned())
             .collect();
-        substitution.insert_receiver(trait_.id.clone(), receiver.clone());
+        substitution.insert_receiver(trait_.id, receiver.clone());
         let mut bounds = trait_.bounds.clone();
         for (ty, constraints) in &signature.bounds {
             bounds
@@ -99,10 +102,7 @@ impl InstancePlanner<'_> {
             .into_iter()
             .map(|(ty, targets)| {
                 (
-                    ty.with_associated_types(
-                        interface,
-                        &TypeId::SelfType(interface.declaration.clone()),
-                    ),
+                    ty.with_associated_types(interface, &TypeId::SelfType(interface.declaration)),
                     targets
                         .into_iter()
                         .map(|target| match target {
@@ -110,7 +110,7 @@ impl InstancePlanner<'_> {
                                 let TypeId::Trait(required) = TypeId::Trait(required)
                                     .with_associated_types(
                                         interface,
-                                        &TypeId::SelfType(interface.declaration.clone()),
+                                        &TypeId::SelfType(interface.declaration),
                                     )
                                 else {
                                     unreachable!()
@@ -131,7 +131,7 @@ impl InstancePlanner<'_> {
         bounds: &GenericBounds,
         substitution: &TypeSubstitution,
         span: Span,
-    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("generic bound operation environment");
         let mut requirements = vec![];
         for (receiver, constraints) in bounds {
@@ -152,7 +152,7 @@ impl InstancePlanner<'_> {
                         .ok_or_else(invalid)?;
                     let mut sources = vec![(receiver.clone(), interface.clone())];
                     let mut applied = TypeSubstitution::default();
-                    applied.insert_receiver(interface.declaration.clone(), receiver.clone());
+                    applied.insert_receiver(interface.declaration, receiver.clone());
                     for (parameter, argument) in
                         contract.generic_params.iter().zip(&interface.arguments)
                     {
@@ -169,7 +169,7 @@ impl InstancePlanner<'_> {
                         let projected = TypeId::Projection {
                             receiver: Box::new(receiver.clone()),
                             interface: Box::new(interface.clone()),
-                            member: member.clone(),
+                            member: *member,
                             arguments: vec![],
                         }
                         .with_associated_types(&interface, &receiver);
@@ -203,7 +203,7 @@ impl InstancePlanner<'_> {
                             let required = NativeCallableRequirement {
                                 receiver: lower_type(&receiver),
                                 interface: lower_nominal_type(&interface),
-                                member: operation.id.clone(),
+                                member: operation.id,
                                 arguments: vec![],
                             };
                             if !requirements.contains(&required) {
@@ -235,17 +235,21 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn enqueue_interface_method(
         &mut self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), MirLoweringError> {
-        let mut owner = declaration.clone();
-        owner.path.pop();
+        let owner = self
+            .definitions()
+            .parent(*declaration)
+            .ok()
+            .flatten()
+            .ok_or(MirLoweringError::MissingBinding("shared method owner"))?;
         let conditional = self
             .registered_native_declaration(declaration)
             .zip(self.catalog.implementation_signature(&owner))
             .is_some_and(|(native, implementation)| {
-                let outer = checked_bounds(&implementation.bounds);
+                let outer = checked_bounds(&self.definitions(), &implementation.bounds);
                 native.function.bounds.iter().any(|bound| {
                     bound.constraints.iter().any(|constraint| {
                         !outer.iter().any(|assumed| {
@@ -262,7 +266,7 @@ impl InstancePlanner<'_> {
             .map(|(position, argument)| {
                 if shared_receiver {
                     TypeId::Generic(GenericParameterType {
-                        owner: declaration.clone(),
+                        owner: *declaration,
                         position,
                         name: format!("T{position}"),
                     })
@@ -288,73 +292,75 @@ impl InstancePlanner<'_> {
         if self.prepare_native_target(declaration, arguments, span)? {
             return Ok(());
         }
-        let parameters =
-            if let Some((implementation, method)) = self.catalog.default_method(declaration) {
-                let contract = self
-                    .catalog
-                    .trait_(&method.owner)
-                    .ok_or(MirLoweringError::MissingBinding("shared default trait"))?;
-                if method
+        let parameters = if let Some((implementation, method)) = self
+            .catalog
+            .default_method(&self.definitions(), declaration)
+        {
+            let contract = self
+                .catalog
+                .trait_(&method.owner)
+                .ok_or(MirLoweringError::MissingBinding("shared default trait"))?;
+            if method
+                .params
+                .first()
+                .is_none_or(|parameter| parameter.name != "self")
+                && arguments.len()
+                    < implementation.generic_params.len() + method.generic_params.len()
+                        - contract.generic_params.len()
+            {
+                return Ok(());
+            }
+            let supplied = arguments
+                .len()
+                .checked_sub(implementation.generic_params.len())
+                .ok_or(MirLoweringError::MissingBinding(
+                    "shared default receiver arguments",
+                ))?;
+            method
+                .generic_params
+                .get(contract.generic_params.len() + supplied..)
+                .ok_or(MirLoweringError::MissingBinding(
+                    "shared default method arguments",
+                ))?
+                .to_vec()
+        } else if let Some(function) = self.native_function(declaration) {
+            function.generic_params[arguments.len()..].to_vec()
+        } else {
+            let Some(ResolvedName::Function(function)) =
+                self.module.declarations.definition_target(declaration)
+            else {
+                return Err(MirLoweringError::MissingBinding(
+                    "shared method declaration",
+                ));
+            };
+            let typed = self
+                .module
+                .typed
+                .functions
+                .iter()
+                .find(|typed| typed.id == function)
+                .ok_or(MirLoweringError::MissingTypedFunction(function))?;
+            if typed.generic_params.len() > arguments.len()
+                && typed
                     .params
                     .first()
                     .is_none_or(|parameter| parameter.name != "self")
-                    && arguments.len()
-                        < implementation.generic_params.len() + method.generic_params.len()
-                            - contract.generic_params.len()
-                {
-                    return Ok(());
-                }
-                let supplied = arguments
-                    .len()
-                    .checked_sub(implementation.generic_params.len())
-                    .ok_or(MirLoweringError::MissingBinding(
-                        "shared default receiver arguments",
-                    ))?;
-                method
-                    .generic_params
-                    .get(contract.generic_params.len() + supplied..)
-                    .ok_or(MirLoweringError::MissingBinding(
-                        "shared default method arguments",
-                    ))?
-                    .to_vec()
-            } else if let Some(function) = self.native_function(declaration) {
-                function.generic_params[arguments.len()..].to_vec()
-            } else {
-                let Some(ResolvedName::Function(function)) =
-                    self.module.declarations.definition_target(declaration)
-                else {
-                    return Err(MirLoweringError::MissingBinding(
-                        "shared method declaration",
-                    ));
-                };
-                let typed = self
-                    .module
-                    .typed
-                    .functions
-                    .iter()
-                    .find(|typed| typed.id == function)
-                    .ok_or(MirLoweringError::MissingTypedFunction(function))?;
-                if typed.generic_params.len() > arguments.len()
-                    && typed
-                        .params
-                        .first()
-                        .is_none_or(|parameter| parameter.name != "self")
-                {
-                    return Ok(());
-                }
-                typed
-                    .generic_params
-                    .get(arguments.len()..)
-                    .ok_or(MirLoweringError::MissingBinding(
-                        "shared receiver arguments",
-                    ))?
-                    .to_vec()
-            };
+            {
+                return Ok(());
+            }
+            typed
+                .generic_params
+                .get(arguments.len()..)
+                .ok_or(MirLoweringError::MissingBinding(
+                    "shared receiver arguments",
+                ))?
+                .to_vec()
+        };
         let mut applied = arguments.to_vec();
         let offset = if shared_receiver { arguments.len() } else { 0 };
         applied.extend(parameters.iter().enumerate().map(|(position, parameter)| {
             TypeId::Generic(GenericParameterType {
-                owner: declaration.clone(),
+                owner: *declaration,
                 position: position + offset,
                 name: parameter.name.clone(),
             })
@@ -367,7 +373,11 @@ impl InstancePlanner<'_> {
 }
 
 impl Instance {
-    pub(crate) fn shared_body(&self, typed: &TypedFunction) -> Option<GenericBody> {
+    pub(crate) fn shared_body(
+        &self,
+        typed: &TypedFunction,
+        definitions: &DefinitionTable,
+    ) -> Option<GenericBody<DefinitionId>> {
         let parameters: Vec<_> = self
             .key
             .arguments
@@ -377,7 +387,7 @@ impl Instance {
                     return None;
                 };
                 Some(GenericParam {
-                    owner: parameter.owner.clone(),
+                    owner: parameter.owner,
                     position: parameter.position,
                 })
             })
@@ -405,7 +415,7 @@ impl Instance {
             .collect();
         Some(GenericBody {
             parameters,
-            bounds: checked_bounds(&bounds),
+            bounds: checked_bounds(definitions, &bounds),
         })
     }
 }

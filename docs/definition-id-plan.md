@@ -2039,3 +2039,79 @@ suite, complete backend matrix or performance measurement ran. Source specializa
 remaining registration/test consumers, the HIR BindingId visitor audit, codec/private
 wire and representation-generic removal, selected source-free/reload integration and
 final documentation cleanup remain pending under SI02-SI06.
+
+### SI04 source specialization and canonical scoped contracts
+
+Source lowering now carries DefinitionId through instance keys, generic arguments,
+ABI contracts, Native imports, callable/result adapters, Host bridges, layouts and
+cross-module specialization demands. Module ownership, containment, associated
+members and protocol/default selection query the retained table. Diagnostic exports
+alone reconstruct owned paths. The existing semantic and implementation-search
+budgets remain in force; no format or runtime ABI identifier changed.
+
+CheckedAnalysis exposes its shared append-only DefinitionContext for compiler-owned
+generated identities. Lowering retains the checked IDs and allocates closure,
+resume, callable, derived-protocol and Host-bridge occurrences through that writer.
+For example, compiling a captured closure preserves its enclosing function ID and
+adds the closure function ID; the original checked snapshot cannot resolve that new
+ID. The generated MIR receives a new prefix and ordinary verification before it
+can carry evidence. A cloned writer cannot allocate conflicting meanings, and
+writer access neither expands earlier snapshots nor grants a verification seal.
+This avoids reconstructing a second allocation scope from owned paths. It does not
+complete the outstanding generic HIR mapper/BindingId audit: whole-HIR adoption into
+another context must still repair those visitors and their retained internal tables.
+
+Two integration failures exposed assumptions hidden by path ordering:
+
+- Source ABI bounds and substituted Native requirements were ordered by numeric
+  DefinitionId while validators require canonical semantic order. ABI emission and
+  Native substitution/comparison now use the existing scoped GenericBound/Constraint
+  normalization owner, preserving exact requirement equality. The obsolete generic
+  substitution sorting remains an SI06 removal target; there is no second semantic
+  normalization implementation.
+- MIR and bytecode interface instantiation still used the legacy no-table entrypoint.
+  Valid generic collection interfaces therefore failed their retained-scope checks.
+  The affected verification, access and trait-bound callers now pass their actual
+  DefinitionTable to scoped instantiation. Scope/binder checks were not bypassed.
+
+Derived enum Hash tags encode the reachable canonical identity table, nominal type
+and variant file reference. They never serialize process-local IDs. This explicit
+portable boundary preserves nominal/variant identity across independent allocations
+and variant slot reordering, including enums containing custom Hash payloads.
+
+Focused validation:
+
+- `cargo check -p kagari-compiler --lib --message-format=short` and
+  `cargo clippy -p kagari-compiler --lib --message-format=short -- -D warnings` pass.
+  This resolves the previously carried 430 production source compiler diagnostics.
+- `cargo test -p kagari-compiler --test language_foundation --message-format=short
+  --no-fail-fast` passes all four existing cases. They cover scalar lowering, Native
+  defaults, collection interface iteration and foundational generic/associated
+  contracts. Initial failures identified the canonical-bound and missing-table
+  defects above; the same assertions pass after those repairs.
+- A temporary public-API adaptation of existing source/codec scenarios checks a
+  captured closure's retained scope and frozen input prefix, drops source/analysis
+  owners before independent MIR decoding, compares canonical re-encoded MIR and
+  portable bytecode, and verifies bytecode. A custom-Hash enum produces identical
+  identity tags in independent analyses and after reversing variant slots. All
+  assertions pass. These diagnostics do not replace the retained semantic owners.
+- The preceding source-free MIR/bytecode probe passes again with the affected
+  libraries: retained IDs, old-prefix/foreign-table rejection, independent codec
+  correspondence, explicit adoption, changed Native-input mismatch and cancellation.
+- `cargo test -p kagari-compiler --lib
+  tests::codec::portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering
+  --message-format=short --no-fail-fast` remains blocked at test-target compilation
+  by 439 errors. Representative remaining fixtures access metadata as bare records,
+  mutate old owned identity paths, construct default path-shaped types and use old
+  verification signatures. No selected lib test executed. SI04 owns the affected
+  compiler fixture migration; this is distinct from the passing production library
+  and integration target. Do not rerun the unchanged failure before those repairs.
+
+Structural review covers grouped explicit imports, generated-name ownership,
+scope-aware normalization/instantiation, retained prefixes, diagnostic-only paths,
+portable Hash encoding and unchanged search budgets. No re-export, compatibility
+entrypoint, lint allowance or structural exception was added. Structure, formatting
+and diff checks pass. No full workspace/backend suite or performance measurement
+ran. Remaining registration/backend/test adoption, HIR visitors, private wire and
+representation-generic removal, selected reload/source-free integration and final
+documentation cleanup remain open; SI02-SI06 acceptance is not claimed.

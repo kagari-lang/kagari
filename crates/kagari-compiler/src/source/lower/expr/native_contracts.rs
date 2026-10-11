@@ -1,6 +1,6 @@
 //! Encode a selected callable application without reconstructing its declaration.
 use crate::source::lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer};
-use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{native_import::NativeImport, types::ConcreteFunctionIdentity};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
@@ -15,6 +15,7 @@ use kagari_hir::{
     },
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
+use kagari_types::ty::GenericBound;
 use kagari_types::{callable::Signature, ty::substitution::TypeSubstitution};
 use std::slice;
 
@@ -31,7 +32,7 @@ impl FunctionLowerer<'_, '_> {
         application: &AppliedCallSignature,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<NativeImport, MirLoweringError> {
+    ) -> Result<NativeImport<DefinitionId>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked engine native contract");
         let (declaration, function) = match target {
             CallTarget::Function(id) => {
@@ -45,7 +46,7 @@ impl FunctionLowerer<'_, '_> {
                     return Err(invalid());
                 };
                 (
-                    declaration.clone(),
+                    *declaration,
                     self.analyzed
                         .typed
                         .functions
@@ -60,7 +61,7 @@ impl FunctionLowerer<'_, '_> {
                     .imported_functions
                     .target(id)
                     .ok_or_else(invalid)?;
-                (imported.declaration.clone(), &imported.signature)
+                (imported.declaration, &imported.signature)
             }
             _ => return Err(invalid()),
         };
@@ -69,7 +70,7 @@ impl FunctionLowerer<'_, '_> {
         else {
             return Err(invalid());
         };
-        let binding = binding.clone();
+        let binding = *binding;
         let function = function.clone();
         let arguments = self
             .planner
@@ -86,9 +87,16 @@ impl FunctionLowerer<'_, '_> {
             .planner
             .registered_native_declaration(&declaration)
             .map(|registered| registered.function.bounds.clone())
-            .unwrap_or_else(|| checked_bounds(&function.bounds));
+            .unwrap_or_else(|| checked_bounds(&self.planner.definitions(), &function.bounds));
         let requirements = substitution
             .apply_bounds(&bounds, &self.planner.options.cancel)
+            .and_then(|bounds| {
+                GenericBound::normalize(
+                    bounds,
+                    &self.planner.definitions(),
+                    &self.planner.options.cancel,
+                )
+            })
             .map_err(|_| invalid())?;
         let params =
             self.planner
@@ -115,7 +123,7 @@ impl FunctionLowerer<'_, '_> {
             requirements,
         };
         import.callables = self.planner.native_callables(&mut import, span)?;
-        if !import.structurally_valid() {
+        if !import.structurally_valid(&self.planner.definitions()) {
             return Err(invalid());
         }
         Ok(import)
@@ -123,7 +131,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn emit_native_application(
         &mut self,
-        mut import: NativeImport,
+        mut import: NativeImport<DefinitionId>,
         result: &TypeId,
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
@@ -145,7 +153,7 @@ impl FunctionLowerer<'_, '_> {
             import.callables = self
                 .planner
                 .native_callables(&mut import, self.function.debug.source_span)?;
-            if !import.structurally_valid() {
+            if !import.structurally_valid(&self.planner.definitions()) {
                 return Err(MirLoweringError::MissingBinding(
                     "concrete native entry application",
                 ));
@@ -167,7 +175,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_native_implementation(
         &mut self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
         receiver: &TypeId,
         result: &TypeId,
@@ -197,9 +205,10 @@ impl FunctionLowerer<'_, '_> {
             .params
             .iter()
             .map(|p| {
-                self.planner
-                    .catalog
-                    .normalize_type(&p.ty.instantiate(&substitution))
+                self.planner.catalog.normalize_type(
+                    &self.planner.definitions(),
+                    &p.ty.instantiate(&substitution),
+                )
             })
             .collect::<Vec<_>>();
         if function
@@ -219,9 +228,16 @@ impl FunctionLowerer<'_, '_> {
             .planner
             .registered_native_declaration(declaration)
             .map(|registered| registered.function.bounds.clone())
-            .unwrap_or_else(|| checked_bounds(&function.bounds));
+            .unwrap_or_else(|| checked_bounds(&self.planner.definitions(), &function.bounds));
         let requirements = bindings
             .apply_bounds(&bounds, &self.planner.options.cancel)
+            .and_then(|bounds| {
+                GenericBound::normalize(
+                    bounds,
+                    &self.planner.definitions(),
+                    &self.planner.options.cancel,
+                )
+            })
             .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
         self.emit_native_application(
             NativeImport {
@@ -229,10 +245,10 @@ impl FunctionLowerer<'_, '_> {
                 generic: None,
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {
-                    declaration: declaration.clone(),
+                    declaration: *declaration,
                     arguments: applied_arguments,
                 },
-                binding: binding.clone(),
+                binding: *binding,
                 host: None,
                 signature: Signature {
                     params: params.iter().map(lower_type).collect(),
@@ -249,7 +265,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         receiver: &TypeId,
         interface: &NominalType,
-        method: &DefinitionPath,
+        method: &DefinitionId,
         arguments: &[TypeId],
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
@@ -272,10 +288,10 @@ impl FunctionLowerer<'_, '_> {
                 arguments,
                 self.function.debug.source_span,
             )?;
-            let result = self
-                .planner
-                .catalog
-                .normalize_type(&raise_type(&import.signature.result));
+            let result = self.planner.catalog.normalize_type(
+                &self.planner.definitions(),
+                &raise_type(&import.signature.result),
+            );
             return self.emit_native_application(import, &result, values);
         }
         let Some(MethodDefault::Native(NativeBinding::Entry(binding))) = &signature.default else {
@@ -295,9 +311,10 @@ impl FunctionLowerer<'_, '_> {
             .cloned()
             .zip(arguments.iter().cloned())
             .collect();
-        substitution.insert_receiver(signature.owner.clone(), receiver.clone());
+        substitution.insert_receiver(signature.owner, receiver.clone());
         let instantiate = |ty: &TypeId| {
             self.planner.catalog.normalize_type(
+                &self.planner.definitions(),
                 &ty.instantiate(&substitution)
                     .with_associated_types(interface, receiver),
             )
@@ -314,10 +331,10 @@ impl FunctionLowerer<'_, '_> {
                 generic: None,
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {
-                    declaration: method.clone(),
+                    declaration: *method,
                     arguments: arguments.iter().map(lower_type).collect(),
                 },
-                binding: binding.clone(),
+                binding: *binding,
                 host: None,
                 signature: Signature {
                     params: params.iter().map(lower_type).collect(),

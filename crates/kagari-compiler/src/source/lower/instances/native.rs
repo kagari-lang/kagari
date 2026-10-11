@@ -1,6 +1,6 @@
 //! Materialize native method contracts while the checked source catalog is available.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{
     callable::generic::GenericBody, native_import::NativeImport, types::ConcreteFunctionIdentity,
 };
@@ -8,6 +8,7 @@ use kagari_hir::types::{
     TypeId,
     semantic::{lower_type, raise_type},
 };
+use kagari_types::ty::GenericBound;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     ty::{GenericParam, substitution::TypeSubstitution},
@@ -16,7 +17,7 @@ use kagari_types::{
 impl InstancePlanner<'_> {
     pub(crate) fn prepare_native_target(
         &mut self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<bool, MirLoweringError> {
@@ -31,8 +32,12 @@ impl InstancePlanner<'_> {
         }
         let mut import = self.native_target_import(declaration, arguments, span)?;
         let instance = import.instance.clone();
-        let mut parent = declaration.clone();
-        parent.path.pop();
+        let parent = self
+            .definitions()
+            .parent(*declaration)
+            .ok()
+            .flatten()
+            .ok_or_else(invalid)?;
         if let Some(implementation) = self.catalog.implementation_signature(&parent) {
             let count = implementation.generic_params.len();
             if arguments.len() < count {
@@ -51,7 +56,7 @@ impl InstancePlanner<'_> {
             self.charge_layout_instance(span)?;
         }
         import.callables = self.native_callables(&mut import, span)?;
-        if !import.structurally_valid() {
+        if !import.structurally_valid(&self.definitions()) {
             return Err(invalid());
         }
         self.native_targets.push(import);
@@ -60,10 +65,10 @@ impl InstancePlanner<'_> {
 
     pub(super) fn native_target_import(
         &self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<NativeImport, MirLoweringError> {
+    ) -> Result<NativeImport<DefinitionId>, MirLoweringError> {
         let declared = self.registered_native_declaration(declaration).ok_or(
             MirLoweringError::MissingBinding("registered native template"),
         )?;
@@ -78,7 +83,7 @@ impl InstancePlanner<'_> {
         };
         let arguments = self.arguments(arguments, &Default::default(), span)?;
         let instance = ConcreteFunctionIdentity {
-            declaration: declaration.clone(),
+            declaration: *declaration,
             arguments: arguments.iter().map(lower_type).collect(),
         };
         let parameters: Vec<_> = arguments
@@ -88,7 +93,7 @@ impl InstancePlanner<'_> {
                     return None;
                 };
                 Some(GenericParam {
-                    owner: parameter.owner.clone(),
+                    owner: parameter.owner,
                     position: parameter.position,
                 })
             })
@@ -106,10 +111,17 @@ impl InstancePlanner<'_> {
             let ty = substitution
                 .apply(ty, &self.options.cancel)
                 .map_err(|_| invalid())?;
-            Ok(lower_type(&self.catalog.normalize_type(&raise_type(&ty))))
+            Ok(lower_type(
+                &self
+                    .catalog
+                    .normalize_type(&self.definitions(), &raise_type(&ty)),
+            ))
         };
         let requirements = substitution
             .apply_bounds(&declared.function.bounds, &self.options.cancel)
+            .and_then(|bounds| {
+                GenericBound::normalize(bounds, &self.definitions(), &self.options.cancel)
+            })
             .map_err(|_| invalid())?;
         let import = NativeImport {
             result_adapter: None,
@@ -128,7 +140,7 @@ impl InstancePlanner<'_> {
             },
             requirements,
             instance,
-            binding: binding.clone(),
+            binding: *binding,
             host: None,
             callables: vec![],
         };

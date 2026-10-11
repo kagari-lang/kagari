@@ -10,6 +10,7 @@ use kagari_contract::{
     standard::RuntimePrimitive,
 };
 use kagari_hir::{
+    aggregates::implementations::ImplementationSearchLimits,
     hir::{
         expr::{Condition, ExprKind, ops::BinaryOp as HirBinaryOp},
         ids::{BlockId, ExprId},
@@ -264,7 +265,7 @@ impl FunctionLowerer<'_, '_> {
                 .analyzed
                 .typed
                 .type_table
-                .coerced_expr_type(expr_id)
+                .coerced_expr_type(&self.planner.definitions(), expr_id)
                 .ok_or(MirLoweringError::MissingExprType(expr_id))?;
             if ty != TypeId::Unknown && ty != TypeId::Error {
                 let span = self.analyzed.lowered.source_map.expr_span(expr_id);
@@ -309,11 +310,14 @@ impl FunctionLowerer<'_, '_> {
                 .planner
                 .catalog
                 .concrete_interface_implementation(
+                    &self.planner.definitions(),
                     interface,
                     &types[0],
                     &Default::default(),
-                    100_000,
-                    64,
+                    ImplementationSearchLimits {
+                        max_checks: 100_000,
+                        max_depth: 64,
+                    },
                     &self.planner.options.cancel,
                 )
                 .ok()

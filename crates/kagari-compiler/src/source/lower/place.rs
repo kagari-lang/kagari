@@ -1,6 +1,6 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity;
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_contract::{
     callable::interface::InterfaceCallContract, numeric::NumericOperation, operations::BinaryOp,
 };
@@ -52,8 +52,8 @@ enum ProjectionKind {
     },
     InterfaceIndex {
         index: MirValue,
-        read: NominalTy,
-        write: Option<NominalTy>,
+        read: NominalTy<DefinitionId>,
+        write: Option<NominalTy<DefinitionId>>,
     },
 }
 
@@ -94,7 +94,7 @@ impl FunctionLowerer<'_, '_> {
                 declaration: Some(checked.declaration),
                 contract_fingerprint: checked
                     .contract
-                    .fingerprint()
+                    .fingerprint(&self.planner.definitions())
                     .map_err(|_| MirLoweringError::MissingBinding("checked host write contract"))?,
                 root_ty: value.ty,
                 result_ty: self.place_type(id)?,
@@ -216,10 +216,20 @@ impl FunctionLowerer<'_, '_> {
                     .remove(0);
                 if let Some(item) = array_bridge::list_item(&receiver, &self.analyzed.declarations)
                 {
-                    let mut read = Protocol::Index.nominal();
+                    let mut read = Protocol::Index
+                        .nominal(&self.planner.definitions())
+                        .expect("registered protocol identity");
                     read.arguments.push(TypeId::Builtin(BuiltinType::USize));
                     read.associated_types.insert(
-                        identity::associated_type_id(&read.declaration, "Output"),
+                        self.planner
+                            .definitions()
+                            .lookup_child(
+                                read.declaration,
+                                DefinitionKind::AssociatedType,
+                                "Output",
+                                0,
+                            )
+                            .expect("registered associated member"),
                         item.clone(),
                     );
                     let write =
@@ -452,8 +462,7 @@ impl FunctionLowerer<'_, '_> {
                             contract.methods.iter().find(|method| method.name == "set")
                         })
                         .ok_or(MirLoweringError::MissingBinding("checked list setter"))?
-                        .id
-                        .clone();
+                        .id;
                     self.lower_applied_operator(write, receiver, &method, &[base, index, result])?;
                 }
                 ProjectionKind::InterfaceIndex { index, write, .. } => {

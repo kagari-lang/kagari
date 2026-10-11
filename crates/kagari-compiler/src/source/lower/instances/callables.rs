@@ -1,7 +1,7 @@
 //! Specialize declared native trait dependencies using the checked source catalog.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{
-    identity::{DefinitionPath, associated_type_id},
+    identity::{DefinitionKind, table::DefinitionId},
     span::Span,
 };
 use kagari_contract::{
@@ -13,14 +13,13 @@ use kagari_contract::{
     },
     types::ConcreteFunctionIdentity,
 };
-use kagari_hir::types::semantic::{raise_nominal_type, raise_type};
 use kagari_hir::{
-    aggregates::traits::MethodDefault,
+    aggregates::{implementations::ImplementationSearchLimits, traits::MethodDefault},
     native::NativeBinding,
     typeck::FunctionImplementation,
     types::{
         TypeId, TypeSubstitution as HirSubstitution,
-        semantic::{lower_nominal_type, lower_type},
+        semantic::{lower_nominal_type, lower_type, raise_nominal_type, raise_type},
     },
 };
 use kagari_types::{
@@ -33,10 +32,10 @@ use kagari_types::{
 impl InstancePlanner<'_> {
     pub(crate) fn registered_native_declaration(
         &self,
-        declaration: &DefinitionPath,
-    ) -> Option<&NativeDeclaration> {
+        declaration: &DefinitionId,
+    ) -> Option<&NativeDeclaration<DefinitionId>> {
         self.modules
-            .get(&declaration.module)?
+            .get(&self.module_identity(*declaration))?
             .lowered
             .registered_native_declarations()
             .iter()
@@ -45,9 +44,9 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn native_callables(
         &mut self,
-        import: &mut NativeImport,
+        import: &mut NativeImport<DefinitionId>,
         span: Span,
-    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
         import.result_adapter = self.native_result_adapter(import, span)?;
         let Some(declaration) = self
             .registered_native_declaration(&import.instance.declaration)
@@ -79,9 +78,9 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn bind_operations(
         &mut self,
-        requirements: Vec<NativeCallableRequirement>,
+        requirements: Vec<NativeCallableRequirement<DefinitionId>>,
         span: Span,
-    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
         let mut operations = vec![];
         for mut required in requirements {
             required = self.normalize_callable_requirement(required)?;
@@ -104,11 +103,14 @@ impl InstancePlanner<'_> {
                 let implementation = self
                     .catalog
                     .concrete_interface_implementation(
+                        &self.definitions(),
                         &raise_nominal_type(&required.interface),
                         &raise_type(&required.receiver),
                         &Default::default(),
-                        100_000,
-                        64,
+                        ImplementationSearchLimits {
+                            max_checks: 100_000,
+                            max_depth: 64,
+                        },
                         &self.options.cancel,
                     )
                     .map_err(|_| invalid())?;
@@ -156,34 +158,49 @@ impl InstancePlanner<'_> {
 
     fn normalize_callable_requirement(
         &self,
-        mut required: NativeCallableRequirement,
-    ) -> Result<NativeCallableRequirement, MirLoweringError> {
-        let receiver = self.catalog.normalize_type(&raise_type(&required.receiver));
-        let TypeId::Trait(mut interface) = self
+        mut required: NativeCallableRequirement<DefinitionId>,
+    ) -> Result<NativeCallableRequirement<DefinitionId>, MirLoweringError> {
+        let receiver = self
             .catalog
-            .normalize_type(&TypeId::Trait(raise_nominal_type(&required.interface)))
-        else {
+            .normalize_type(&self.definitions(), &raise_type(&required.receiver));
+        let TypeId::Trait(mut interface) = self.catalog.normalize_type(
+            &self.definitions(),
+            &TypeId::Trait(raise_nominal_type(&required.interface)),
+        ) else {
             return Err(MirLoweringError::MissingBinding(
                 "normalized callable interface",
             ));
         };
         if matches!(receiver, TypeId::Trait(_))
-            && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
+            && Protocol::from_reference(&interface.declaration, Some(&self.definitions()))
+                .is_some_and(Protocol::iteration)
         {
             for name in ["Item", "Iter"] {
                 if name == "Iter"
-                    && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+                    && Protocol::from_reference(&interface.declaration, Some(&self.definitions()))
+                        != Some(Protocol::Iterable)
                 {
                     continue;
                 }
-                let member = associated_type_id(&interface.declaration, name);
+                let member = self
+                    .definitions()
+                    .lookup_child(
+                        interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        name,
+                        0,
+                    )
+                    .expect("registered associated member");
                 if !interface.associated_types.contains_key(&member) {
-                    let output = self.catalog.normalize_type(&TypeId::Projection {
-                        receiver: Box::new(receiver.clone()),
-                        interface: Box::new(interface.clone()),
-                        member: member.clone(),
-                        arguments: vec![],
-                    });
+                    let output = self.catalog.normalize_type(
+                        &self.definitions(),
+                        &TypeId::Projection {
+                            receiver: Box::new(receiver.clone()),
+                            interface: Box::new(interface.clone()),
+                            member,
+                            arguments: vec![],
+                        },
+                    );
                     interface.associated_types.insert(member, output);
                 }
             }
@@ -193,16 +210,22 @@ impl InstancePlanner<'_> {
         required.arguments = required
             .arguments
             .iter()
-            .map(|ty| lower_type(&self.catalog.normalize_type(&raise_type(ty))))
+            .map(|ty| {
+                lower_type(
+                    &self
+                        .catalog
+                        .normalize_type(&self.definitions(), &raise_type(ty)),
+                )
+            })
             .collect();
         Ok(required)
     }
 
     pub(crate) fn select_callables(
         &mut self,
-        requirements: Vec<NativeCallableRequirement>,
+        requirements: Vec<NativeCallableRequirement<DefinitionId>>,
         span: Span,
-    ) -> Result<Vec<NativeCallableApplication>, MirLoweringError> {
+    ) -> Result<Vec<NativeCallableApplication<DefinitionId>>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked callable requirement");
         let mut selected = vec![];
         for mut required in requirements {
@@ -212,11 +235,14 @@ impl InstancePlanner<'_> {
             let implementation = self
                 .catalog
                 .concrete_interface_implementation(
+                    &self.definitions(),
                     &interface,
                     &receiver,
                     &Default::default(),
-                    100_000,
-                    64,
+                    ImplementationSearchLimits {
+                        max_checks: 100_000,
+                        max_depth: 64,
+                    },
                     &self.options.cancel,
                 )
                 .map_err(|_| invalid())?;
@@ -260,6 +286,7 @@ impl InstancePlanner<'_> {
                 let application = self
                     .catalog
                     .implicit_protocol_application(
+                        &self.definitions(),
                         &required,
                         &receiver,
                         &interface,
@@ -269,7 +296,11 @@ impl InstancePlanner<'_> {
                     .ok_or_else(invalid)?;
                 let id =
                     self.enqueue_selected_protocol(application.kind, &receiver, &interface, span)?;
-                let instance = self.instances[id.index()].key.lower(self.options, span)?;
+                let instance = self.instances[id.index()].key.lower(
+                    self.options,
+                    &self.definitions(),
+                    span,
+                )?;
                 selected.push(NativeCallableApplication {
                     origin: NativeCallableOrigin::ProtocolAdapter,
                     requirement: application.requirement,
@@ -317,19 +348,19 @@ impl InstancePlanner<'_> {
                 .methods
                 .get(&required.member)
                 .cloned()
+                .or_else(|| default.as_ref().map(|import| import.instance.declaration))
                 .or_else(|| {
-                    default
-                        .as_ref()
-                        .map(|import| import.instance.declaration.clone())
-                })
-                .or_else(|| {
-                    (signature.default == Some(MethodDefault::Script)).then(|| {
-                        let mut target = implementation.clone();
-                        target
-                            .path
-                            .push(required.member.path.last().unwrap().clone());
-                        target
-                    })
+                    if signature.default != Some(MethodDefault::Script) {
+                        return None;
+                    }
+                    let definitions = self.definitions();
+                    let member = definitions.resolve(required.member).ok()?.last()?;
+                    definitions.lookup_child(
+                        implementation,
+                        member.kind,
+                        member.name,
+                        member.occurrence,
+                    )
                 })
                 .ok_or_else(invalid)?;
             let own = &signature.generic_params[trait_.generic_params.len()..];
@@ -347,10 +378,11 @@ impl InstancePlanner<'_> {
                         .zip(required.arguments.iter().map(raise_type)),
                 )
                 .collect();
-            substitution.insert_receiver(interface.declaration.clone(), receiver.clone());
+            substitution.insert_receiver(interface.declaration, receiver.clone());
             let normalize = |ty: &TypeId| {
                 lower_type(
                     &self.catalog.normalize_type(
+                        &self.definitions(),
                         &ty.instantiate(&substitution)
                             .with_associated_types(&interface, &receiver),
                     ),
@@ -370,7 +402,7 @@ impl InstancePlanner<'_> {
                 else {
                     return Err(invalid());
                 };
-                CallableImplementation::Native(binding.clone())
+                CallableImplementation::Native(*binding)
             } else {
                 CallableImplementation::Script
             };
@@ -394,7 +426,7 @@ impl InstancePlanner<'_> {
             self.record_interface(&implementation, &arguments, span)?;
             self.record_layout_root(&receiver, &Default::default(), span)?;
             if kind == CallableImplementation::Script
-                && target.module == *self.module.lowered.source.module_identity()
+                && self.module_identity(target) == *self.module.lowered.source.module_identity()
             {
                 self.enqueue_declaration(&target, instance_arguments.clone(), span)?;
             }

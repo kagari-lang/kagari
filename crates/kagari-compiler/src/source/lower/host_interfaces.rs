@@ -1,7 +1,9 @@
 //! Compile checked host mappings into ordinary verified interface call bridges.
 
 use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_common::identity::{
+    DefinitionKind, mapping::DefinitionMappingError, table::DefinitionId,
+};
 use kagari_contract::{
     native_import::NativeImport,
     representation::semantic_representation,
@@ -30,7 +32,7 @@ use kagari_types::{
 pub(super) fn collect(
     planner: &mut InstancePlanner<'_>,
     module: &AnalyzedModule,
-    abi: &mut ModuleContract,
+    abi: &mut ModuleContract<DefinitionId>,
     functions: &mut Vec<MirFunction>,
 ) -> Result<(), MirLoweringError> {
     for (declaration, receiver, interface, span) in planner.host_interfaces.clone() {
@@ -67,7 +69,7 @@ pub(super) fn collect(
                 .find(|binding| binding.trait_method == method.id)
                 .ok_or(MirLoweringError::MissingBinding("host interface method"))?;
             let host_call = host
-                .method_contract(&binding.host_method)
+                .method_contract(&binding.host_method, &planner.definitions())
                 .map_err(|_| MirLoweringError::MissingBinding("host method contract"))?;
             let params: Vec<_> = host_call
                 .params
@@ -88,12 +90,10 @@ pub(super) fn collect(
                 params: params.clone(),
                 return_type: result_type.clone(),
             });
-            let mut method_id = declaration.clone();
-            method_id.path.push(DefinitionPathSegment {
-                kind: DefinitionKind::Method,
-                name: method.name.clone(),
-                occurrence: 0,
-            });
+            let method_id = planner
+                .context
+                .intern_child(declaration, DefinitionKind::Method, &method.name, 0)
+                .map_err(DefinitionMappingError::from)?;
             let mut instructions = Vec::new();
             let mut temps = Vec::new();
             let mut arguments = Vec::new();
@@ -154,7 +154,14 @@ pub(super) fn collect(
                 },
                 name: format!(
                     "$host-interface#{}::{}",
-                    declaration.path[0].occurrence, method.name
+                    planner
+                        .definitions()
+                        .resolve(declaration)
+                        .expect("host bridge identity")
+                        .last()
+                        .expect("host bridge member")
+                        .occurrence,
+                    method.name
                 ),
                 params: params
                     .iter()
@@ -222,7 +229,13 @@ pub(super) fn collect(
                 name: format!(
                     "{} as {}",
                     host.symbol,
-                    interface.declaration.path.last().unwrap().name
+                    planner
+                        .definitions()
+                        .resolve(interface.declaration)
+                        .expect("interface identity")
+                        .last()
+                        .expect("interface member")
+                        .name
                 ),
                 generic_params: Vec::new(),
                 bounds: Vec::new(),

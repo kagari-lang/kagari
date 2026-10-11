@@ -1,6 +1,6 @@
 //! Apply registered default templates using the already checked trait selection.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::native_import::NativeImport;
 use kagari_hir::{
     aggregates::traits::MethodDefault,
@@ -19,16 +19,19 @@ impl InstancePlanner<'_> {
         &self,
         receiver: &TypeId,
         interface: &NominalType,
-        method: &DefinitionPath,
+        method: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<NativeImport, MirLoweringError> {
+    ) -> Result<NativeImport<DefinitionId>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked native default application");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
         let Some(MethodDefault::Native(NativeBinding::Default(_))) = &signature.default else {
             return Err(invalid());
         };
-        let module = self.modules.get(&method.module).ok_or_else(invalid)?;
+        let module = self
+            .modules
+            .get(&self.module_identity(*method))
+            .ok_or_else(invalid)?;
         let Some(ResolvedName::Function(function)) = module.declarations.definition_target(method)
         else {
             return Err(invalid());
@@ -62,9 +65,10 @@ impl InstancePlanner<'_> {
             .cloned()
             .zip(parameters)
             .collect();
-        substitution.insert_receiver(signature.owner.clone(), receiver.clone());
+        substitution.insert_receiver(signature.owner, receiver.clone());
         let normalize = |ty: &TypeId| {
             self.catalog.normalize_type(
+                &self.definitions(),
                 &ty.instantiate(&substitution)
                     .with_associated_types(interface, receiver),
             )
@@ -90,11 +94,14 @@ impl InstancePlanner<'_> {
 
     pub(super) fn prepare_default_target(
         &mut self,
-        declaration: &DefinitionPath,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<bool, MirLoweringError> {
-        let Some((implementation, method)) = self.catalog.default_method(declaration) else {
+        let Some((implementation, method)) = self
+            .catalog
+            .default_method(&self.definitions(), declaration)
+        else {
             return Ok(false);
         };
         if !matches!(
@@ -131,7 +138,7 @@ impl InstancePlanner<'_> {
             &arguments[count..],
             span,
         )?;
-        let owner = implementation.id.clone();
+        let owner = implementation.id;
         self.record_interface(&owner, &arguments[..count], span)?;
         // Interface slots share the default template; direct native calls can
         // independently request a concrete specialization of that template.
@@ -144,7 +151,7 @@ impl InstancePlanner<'_> {
             .map(|(position, ty)| {
                 if shared {
                     TypeId::Generic(GenericParameterType {
-                        owner: import.instance.declaration.clone(),
+                        owner: import.instance.declaration,
                         position,
                         name: format!("T{position}"),
                     })

@@ -113,9 +113,10 @@ pub(super) fn validate(
                         PublicItem::InterfaceTable(table)
                             if table.declaration == *implementation =>
                         {
-                            table.instantiate_in(
+                            table.instantiate_scoped(
                                 arguments,
                                 body.map_or(&[], |body| body.parameters.as_slice()),
+                                Some(definitions),
                             )
                         }
                         _ => None,
@@ -306,8 +307,11 @@ fn native_slots_valid(
         {
             continue;
         }
-        let Some(table) = template.instantiate_in(&instance.arguments, &template.generic_params)
-        else {
+        let Some(table) = template.instantiate_scoped(
+            &instance.arguments,
+            &template.generic_params,
+            Some(definitions),
+        ) else {
             return Ok(false);
         };
         for method in &table.methods {

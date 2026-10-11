@@ -1,9 +1,12 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use bincode::{DefaultOptions, Options};
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::mapping::{
+    DefinitionMapper, DefinitionMappingError, DefinitionRecord,
+};
 use kagari_contract::{operations::BinaryOp, standard::RuntimePrimitive};
 use kagari_hir::{
-    aggregates::implementations::ImplementationSearchError,
+    aggregates::implementations::{ImplementationSearchError, ImplementationSearchLimits},
     language::semantics::ProtocolSemantics,
     types::{
         TypeId,
@@ -39,11 +42,16 @@ impl FunctionLowerer<'_, '_> {
                         .planner
                         .catalog
                         .concrete_interface_implementation(
-                            &Protocol::PartialEq.nominal(),
+                            &self.planner.definitions(),
+                            &Protocol::PartialEq
+                                .nominal(&self.planner.definitions())
+                                .expect("registered protocol identity"),
                             &ty,
                             &Default::default(),
-                            self.planner.options.max_type_nodes,
-                            self.planner.options.max_type_depth,
+                            ImplementationSearchLimits {
+                                max_checks: self.planner.options.max_type_nodes,
+                                max_depth: self.planner.options.max_type_depth,
+                            },
                             &self.planner.options.cancel,
                         )
                         .map_err(|error| match error {
@@ -108,7 +116,14 @@ impl FunctionLowerer<'_, '_> {
             && self
                 .planner
                 .catalog
-                .implementation_method(&self.protocol_method(protocol, 0)?, &protocol.nominal(), ty)
+                .implementation_method(
+                    &self.planner.definitions(),
+                    &self.protocol_method(protocol, 0)?,
+                    &protocol
+                        .nominal(&self.planner.definitions())
+                        .expect("registered protocol identity"),
+                    ty,
+                )
                 .is_none()
         {
             let function = self.planner.enqueue_protocol(
@@ -165,26 +180,30 @@ impl FunctionLowerer<'_, '_> {
             return Ok(self.emit_intrinsic(RuntimePrimitive::ValueHash, args, result_ty));
         }
         let method = &self.protocol_method(protocol, 0)?;
-        if let Some((declaration, arguments)) =
-            self.planner
-                .catalog
-                .implementation_method(method, &protocol.nominal(), ty)
-        {
-            let callee =
-                if declaration.module == *self.planner.owner().lowered.source.module_identity() {
-                    CallTarget::Function(self.planner.enqueue_declaration(
-                        &declaration,
-                        arguments,
-                        self.function.debug.source_span,
-                    )?)
-                } else {
-                    CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                        declaration,
-                        arguments: arguments.iter().map(lower_type).collect(),
-                        params: args.iter().map(|arg| arg.ty).collect(),
-                        return_type: result_ty,
-                    }))
-                };
+        if let Some((declaration, arguments)) = self.planner.catalog.implementation_method(
+            &self.planner.definitions(),
+            method,
+            &protocol
+                .nominal(&self.planner.definitions())
+                .expect("registered protocol identity"),
+            ty,
+        ) {
+            let callee = if self.planner.module_identity(declaration)
+                == *self.planner.owner().lowered.source.module_identity()
+            {
+                CallTarget::Function(self.planner.enqueue_declaration(
+                    &declaration,
+                    arguments,
+                    self.function.debug.source_span,
+                )?)
+            } else {
+                CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                    declaration,
+                    arguments: arguments.iter().map(lower_type).collect(),
+                    params: args.iter().map(|arg| arg.ty).collect(),
+                    return_type: result_ty,
+                }))
+            };
             let dst = self.alloc_temp(result_ty);
             self.emit(Instruction::Call {
                 dst: Some(dst),
@@ -366,10 +385,37 @@ impl FunctionLowerer<'_, '_> {
                     .ok_or(MirLoweringError::MissingBinding("enum hash identity"))?
                     .variants[*variant]
                     .id;
+                // Hash tags encode reachable symbolic identities canonically; process-local
+                // table/index values and declaration insertion order never affect the tag.
+                let nominal = lower_nominal_type(nominal);
+                let definitions = self.planner.definitions();
+                let cancel = &self.planner.options.cancel;
+                let mut references = HashSet::from([*declaration]);
+                nominal.visit_definitions(
+                    &mut |id| {
+                        references.insert(*id);
+                        Ok(())
+                    },
+                    cancel,
+                )?;
+                let encoding = definitions
+                    .encode(references)
+                    .map_err(DefinitionMappingError::from)?;
+                let nominal = nominal.map_identities(&mut DefinitionMapper::new(
+                    &mut |id| {
+                        encoding
+                            .reference(*id)
+                            .map_err(DefinitionMappingError::from)
+                    },
+                    cancel,
+                ))?;
+                let variant = encoding
+                    .reference(*declaration)
+                    .map_err(DefinitionMappingError::from)?;
                 let bytes = DefaultOptions::new()
                     .with_fixint_encoding()
                     .with_little_endian()
-                    .serialize(&(lower_nominal_type(nominal), declaration))
+                    .serialize(&(encoding.table, nominal, variant))
                     .expect("validated enum identity");
                 let mut encoded = String::new();
                 for byte in bytes {

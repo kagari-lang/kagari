@@ -32,15 +32,15 @@ impl FunctionLowerer<'_, '_> {
                 else {
                     return Err(invalid());
                 };
-                declaration.clone()
+                *declaration
             }
-            CheckedCallTarget::SourceFunction(id) => self
-                .analyzed
-                .imported_functions
-                .target(id)
-                .ok_or_else(invalid)?
-                .declaration
-                .clone(),
+            CheckedCallTarget::SourceFunction(id) => {
+                self.analyzed
+                    .imported_functions
+                    .target(id)
+                    .ok_or_else(invalid)?
+                    .declaration
+            }
             _ => return Err(invalid()),
         };
         let params =

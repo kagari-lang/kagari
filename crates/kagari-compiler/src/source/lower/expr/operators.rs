@@ -3,7 +3,7 @@ use crate::source::{
     types,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::interface::InterfaceCallContract,
     numeric::{NumericConversion, NumericOperation},
@@ -94,7 +94,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         interface: NominalType,
         receiver: TypeId,
-        method: &DefinitionPath,
+        method: &DefinitionId,
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
         self.lower_applied_method(interface, receiver, method, &[], args)
@@ -104,7 +104,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         interface: NominalType,
         receiver: TypeId,
-        method: &DefinitionPath,
+        method: &DefinitionId,
         method_arguments: &[TypeId],
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
@@ -142,7 +142,7 @@ impl FunctionLowerer<'_, '_> {
                 .trait_(&interface.declaration)
                 .and_then(|contract| contract.conversion_adapter.as_ref())
                 .and_then(|adapter| match adapter {
-                    ConversionAdapter::Reverse { method, .. } => Some(method.clone()),
+                    ConversionAdapter::Reverse { method, .. } => Some(*method),
                     _ => None,
                 })
                 .ok_or(MirLoweringError::MissingBinding(
@@ -151,7 +151,8 @@ impl FunctionLowerer<'_, '_> {
             return self.lower_applied_method(required, target, &method, &method_arguments, args);
         }
 
-        if Protocol::from_id(&interface.declaration) == Some(Protocol::Fn)
+        if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+            == Some(Protocol::Fn)
             && let TypeId::Function { params, result } = &ty
         {
             let mut values = ValueBuffer::new();
@@ -185,7 +186,12 @@ impl FunctionLowerer<'_, '_> {
         let interface = if let TypeId::Trait(child) = &ty {
             self.planner
                 .catalog
-                .interface_closure(child, &ty, &self.planner.options.cancel)
+                .interface_closure(
+                    &self.planner.definitions(),
+                    child,
+                    &ty,
+                    &self.planner.options.cancel,
+                )
                 .ok()
                 .and_then(|parents| {
                     parents
@@ -211,7 +217,7 @@ impl FunctionLowerer<'_, '_> {
             && self
                 .planner
                 .catalog
-                .interface_closure(child, &ty, &self.planner.options.cancel)
+                .interface_closure(&self.planner.definitions(), child, &ty, &self.planner.options.cancel)
                 .is_ok_and(|parents| parents.contains(&interface))))
         {
             let contract = self
@@ -240,8 +246,9 @@ impl FunctionLowerer<'_, '_> {
                         .zip(method_arguments.iter().cloned()),
                 )
                 .collect();
-            substitution.insert_receiver(contract.id.clone(), ty.clone());
+            substitution.insert_receiver(contract.id, ty.clone());
             let result = self.planner.catalog.normalize_type(
+                &self.planner.definitions(),
                 &signature
                     .return_type
                     .instantiate(&substitution)
@@ -277,7 +284,10 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
         if let TypeId::Builtin(input) = &ty {
-            let op = match Protocol::from_id(&interface.declaration) {
+            let op = match Protocol::from_reference(
+                &interface.declaration,
+                Some(&self.planner.definitions()),
+            ) {
                 Some(Protocol::BitAnd) => Some(IntegerOp::BitAnd),
                 Some(Protocol::BitOr) => Some(IntegerOp::BitOr),
                 Some(Protocol::BitXor) => Some(IntegerOp::BitXor),
@@ -297,10 +307,10 @@ impl FunctionLowerer<'_, '_> {
                     input: *input,
                     rhs,
                 };
-                let (_, _, result) = operation
+                let contract = operation
                     .contract()
                     .ok_or(MirLoweringError::MissingBinding("numeric contract"))?;
-                let dst = self.alloc_temp(semantic_representation(&result));
+                let dst = self.alloc_temp(semantic_representation(&contract.output));
                 self.emit(Instruction::Numeric {
                     dst,
                     operation,
@@ -315,20 +325,23 @@ impl FunctionLowerer<'_, '_> {
             && self
                 .planner
                 .catalog
-                .implementation_method(method, &interface, &ty)
+                .implementation_method(&self.planner.definitions(), method, &interface, &ty)
                 .is_none()
         {
             return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
         }
-        if Protocol::from_id(&interface.declaration) == Some(Protocol::From)
+        if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+            == Some(Protocol::From)
             && interface.arguments.as_slice() == [ty.clone()]
         {
             return Ok(args[0]);
         }
         if let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
             (&ty, interface.arguments.as_slice())
-            && Protocol::from_id(&interface.declaration) == Some(Protocol::From)
+            && Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+                == Some(Protocol::From)
             && traits::intrinsic_applies(
+                &self.planner.definitions(),
                 &interface,
                 &ty,
                 Some(self.planner.catalog),
@@ -369,7 +382,7 @@ impl FunctionLowerer<'_, '_> {
             .cloned()
             .zip(interface.arguments.iter().cloned())
             .collect();
-        substitution.insert_receiver(contract.id.clone(), ty.clone());
+        substitution.insert_receiver(contract.id, ty.clone());
         substitution.extend(
             signature
                 .generic_params
@@ -379,6 +392,7 @@ impl FunctionLowerer<'_, '_> {
                 .zip(method_arguments.iter().cloned()),
         );
         let result = self.planner.catalog.normalize_type(
+            &self.planner.definitions(),
             &signature
                 .return_type
                 .with_self(&contract.id, &ty)
@@ -389,7 +403,7 @@ impl FunctionLowerer<'_, '_> {
         let callee = if let Some((declaration, mut arguments)) = self
             .planner
             .catalog
-            .implementation_method(method, &interface, &ty)
+            .implementation_method(&self.planner.definitions(), method, &interface, &ty)
         {
             arguments.extend(method_arguments);
             if self.planner.native_function(&declaration).is_some() {
@@ -401,7 +415,9 @@ impl FunctionLowerer<'_, '_> {
                     args,
                 );
             }
-            if declaration.module == *self.planner.owner().lowered.source.module_identity() {
+            if self.planner.module_identity(declaration)
+                == *self.planner.owner().lowered.source.module_identity()
+            {
                 CallTarget::Function(self.planner.enqueue_declaration(
                     &declaration,
                     arguments,
@@ -416,20 +432,24 @@ impl FunctionLowerer<'_, '_> {
                 }))
             }
         } else {
-            if Protocol::from_id(&interface.declaration) == Some(Protocol::Iterable)
+            if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+                == Some(Protocol::Iterable)
                 && result == ty
-                && traits::iterator_requirement(&interface, &ty).is_some_and(|required| {
-                    traits::intrinsic_applies(
-                        &required,
-                        &ty,
-                        Some(self.planner.catalog),
-                        &Default::default(),
-                    )
-                })
+                && traits::iterator_requirement(&self.planner.definitions(), &interface, &ty)
+                    .is_some_and(|required| {
+                        traits::intrinsic_applies(
+                            &self.planner.definitions(),
+                            &required,
+                            &ty,
+                            Some(self.planner.catalog),
+                            &Default::default(),
+                        )
+                    })
             {
                 return Ok(args[0]);
             }
-            if let Some(protocol) = Protocol::from_id(&interface.declaration)
+            if let Some(protocol) =
+                Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
                 && protocol.binary_operator()
             {
                 let op = match protocol {
@@ -476,7 +496,8 @@ impl FunctionLowerer<'_, '_> {
                 }
                 return Ok(dst);
             }
-            if let Some(protocol) = Protocol::from_id(&interface.declaration)
+            if let Some(protocol) =
+                Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
                 && matches!(protocol, Protocol::Neg | Protocol::Not)
             {
                 let dst = self.alloc_temp(result_ty);
@@ -512,7 +533,9 @@ impl FunctionLowerer<'_, '_> {
                 self.check_integer_range(dst, &result);
                 return Ok(dst);
             }
-            if Protocol::from_id(&interface.declaration) == Some(Protocol::Index) {
+            if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+                == Some(Protocol::Index)
+            {
                 let dst = self.alloc_temp(result_ty);
                 self.emit(Instruction::ReadAggregateIndex {
                     dst,
@@ -521,7 +544,10 @@ impl FunctionLowerer<'_, '_> {
                 });
                 return Ok(dst);
             }
-            let intrinsic = match Protocol::from_id(&interface.declaration) {
+            let intrinsic = match Protocol::from_reference(
+                &interface.declaration,
+                Some(&self.planner.definitions()),
+            ) {
                 Some(Protocol::PartialOrd) => RuntimePrimitive::ValuePartialCmp,
                 Some(Protocol::Ord) => RuntimePrimitive::ValueCmp,
                 _ => return Err(MirLoweringError::MissingBinding("builtin operator")),
@@ -565,8 +591,8 @@ impl FunctionLowerer<'_, '_> {
         }
 
         let value = self.lower_selected_operator(site, args)?;
-        let optional = traits::ordering_type(true);
-        let ordering = traits::ordering_type(false);
+        let optional = traits::ordering_type(&self.planner.definitions(), true);
+        let ordering = traits::ordering_type(&self.planner.definitions(), false);
         let some = self.test_enum_variant(&optional, value, 0)?;
         let body = self.new_block();
         let absent = self.new_block();

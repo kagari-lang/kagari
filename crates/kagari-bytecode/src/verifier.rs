@@ -410,7 +410,7 @@ fn verify_interface_tables(
         };
         if !table.arguments.is_empty()
             && abi
-                .instantiate_in(&table.arguments, &abi.generic_params)
+                .instantiate_scoped(&table.arguments, &abi.generic_params, Some(definitions))
                 .is_none()
         {
             return Err(BytecodeVerificationError::InvalidInterfaceTable);

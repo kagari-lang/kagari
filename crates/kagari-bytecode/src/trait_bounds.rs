@@ -320,9 +320,10 @@ fn linked_bounds_match(
                     PublicItem::InterfaceTable(table)
                         if table.declaration == linked.declaration =>
                     {
-                        table.instantiate_in(
+                        table.instantiate_scoped(
                             arguments,
                             body.map_or(&[], |body| body.parameters.as_slice()),
+                            Some(definitions),
                         )
                     }
                     _ => None,
@@ -513,9 +514,8 @@ fn linked_bounds_match(
             continue;
         }
         let Some(table) = module.public_items.iter().find_map(|item| match item {
-            PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                table.instantiate_in(&linked.arguments, &table.generic_params)
-            }
+            PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => table
+                .instantiate_scoped(&linked.arguments, &table.generic_params, Some(definitions)),
             _ => None,
         }) else {
             return Ok(false);
@@ -599,7 +599,7 @@ fn instruction_contracts_match(
             };
             let Some(table) = target.public_items.iter().find_map(|item| match item {
                 PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                    table.instantiate_in(
+                    table.instantiate_scoped(
                         arguments,
                         function
                             .metadata
@@ -607,6 +607,7 @@ fn instruction_contracts_match(
                             .generic
                             .as_ref()
                             .map_or(&[][..], |body| body.parameters.as_slice()),
+                        Some(definitions),
                     )
                 }
                 _ => None,

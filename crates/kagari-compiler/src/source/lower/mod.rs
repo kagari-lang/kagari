@@ -1,9 +1,15 @@
 use crate::source::lower::instances::MirLoweringOptions;
 use instances::InstancePlanner;
-use kagari_common::{cancellation::CancellationToken, identity::mapping::DefinitionMappingError};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        map::DefinitionContext, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
+        table::DefinitionId,
+    },
+};
 use kagari_contract::{
     host as module_host,
-    types::{ConcreteFunctionIdentity, ModuleContract},
+    types::{ConcreteFunctionIdentity, ModuleContract, identity},
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
@@ -75,34 +81,46 @@ impl From<DefinitionMappingError> for MirLoweringError {
 pub fn module_contract(
     module: &CheckedAnalysis,
     cancel: &CancellationToken,
-) -> Result<ModuleContract, DefinitionMappingError> {
-    Ok(abi::collect_module_abi(&module.to_unverified(cancel)?))
+) -> Result<DefinitionMetadata<ModuleContract<DefinitionId>>, DefinitionMappingError> {
+    cancel
+        .check()
+        .map_err(|_| DefinitionMappingError::Cancelled)?;
+    DefinitionMetadata::checked(
+        module.definitions().clone(),
+        abi::collect_module_abi(module),
+        cancel,
+    )
 }
 
 pub fn lower_to_mir(
     module: &CheckedAnalysis,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
+    let context = module.definition_context();
     let module = module
         .to_unverified(&options.cancel)
-        .map_err(MirLoweringError::from)?;
+        .map_err(MirLoweringError::from)?
+        .into_records();
     lower_to_mir_with_requests(
         &module,
         options,
         &[],
         slice::from_ref(&module),
         &module.aggregates,
+        &context,
     )
 }
 
 pub(crate) fn lower_to_mir_with_requests<'a>(
     module: &'a AnalyzedModule,
     options: &'a MirLoweringOptions,
-    requests: &[ConcreteFunctionIdentity],
+    requests: &[ConcreteFunctionIdentity<DefinitionId>],
     modules: &'a [AnalyzedModule],
     catalog: &'a AggregateCatalog,
+    context: &'a DefinitionContext,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
-    let mut planner = InstancePlanner::new(module, options, modules, catalog);
+    identity::collect_language(context, &options.cancel)?;
+    let mut planner = InstancePlanner::new(module, options, modules, catalog, context);
     planner.check()?;
     for function in &module.typed.functions {
         if matches!(
@@ -149,14 +167,21 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
             )?;
         }
     }
+    let input_definitions = context.snapshot();
     for implementation in module.aggregates.implementations().filter(|item| {
-        item.id.module == *module.lowered.source.module_identity() && item.generic_params.is_empty()
+        input_definitions
+            .resolve(item.id)
+            .expect("checked implementation")
+            .module()
+            == module.lowered.source.module_identity()
+            && item.generic_params.is_empty()
     }) {
         planner.record_interface(&implementation.id, &[], Default::default())?;
     }
     for request in requests {
         planner.check()?;
-        if request.declaration.module != *module.lowered.source.module_identity() {
+        if planner.module_identity(request.declaration) != *module.lowered.source.module_identity()
+        {
             return Err(MirLoweringError::MissingBinding("requested instance owner"));
         }
         if request.arguments.iter().all(Ty::is_concrete)
@@ -196,7 +221,10 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         });
     }
 
-    let (structures, enumerations) = layouts::collect(module, &mut planner, &functions)?;
+    let layouts::Layouts {
+        structures,
+        enumerations,
+    } = layouts::collect(module, &mut planner, &functions)?;
     let mut abi = abi::collect_module_abi(module);
     host_interfaces::collect(&mut planner, module, &mut abi, &mut functions)?;
     planner.host_types.extend(
@@ -213,34 +241,42 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         planner.host_types,
         &functions,
         &options.cancel,
+        &context.snapshot(),
     )?;
 
-    verify_mir(
-        MirModule {
-            native_targets: planner.native_targets,
-            interface_instances: planner.interface_instances,
-            host_types,
-            dependencies: module.names.imports.dependencies.clone(),
-            structures,
-            enumerations,
-            identity: module.lowered.source.module_identity().clone(),
-            source_name: module.lowered.source.name().to_owned(),
-            module_slots: Vec::new(),
-            abi,
-            functions,
-        },
+    let mir = MirModule {
+        native_targets: planner.native_targets,
+        interface_instances: planner.interface_instances,
+        host_types,
+        dependencies: module.names.imports.dependencies.clone(),
+        structures,
+        enumerations,
+        identity: module.lowered.source.module_identity().clone(),
+        source_name: module.lowered.source.name().to_owned(),
+        module_slots: Vec::new(),
+        abi,
+        functions,
+    };
+    identity::collect(
+        &mir.identity,
+        &mir.abi.public_items,
+        &mir.abi.trait_contracts,
+        &mir.host_types,
+        context,
         &options.cancel,
-    )
-    .and_then(|module| match &options.optimization {
-        Some(passes) => optimize(module, passes, &options.cancel).map(|result| result.module),
-        None => Ok(module),
-    })
-    .map_err(|error| match error.kind {
-        MirVerificationErrorKind::Cancelled => MirLoweringError::Cancelled,
-        MirVerificationErrorKind::Limit { resource, limit } => MirLoweringError::diagnostic(
-            Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit })
-                .with_span(error.span.unwrap_or_default()),
-        ),
-        _ => MirLoweringError::Verification(error),
-    })
+    )?;
+    let metadata = DefinitionMetadata::checked(context.snapshot(), mir, &options.cancel)?;
+    verify_mir(metadata, &options.cancel)
+        .and_then(|module| match &options.optimization {
+            Some(passes) => optimize(module, passes, &options.cancel).map(|result| result.module),
+            None => Ok(module),
+        })
+        .map_err(|error| match error.kind {
+            MirVerificationErrorKind::Cancelled => MirLoweringError::Cancelled,
+            MirVerificationErrorKind::Limit { resource, limit } => MirLoweringError::diagnostic(
+                Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit })
+                    .with_span(error.span.unwrap_or_default()),
+            ),
+            _ => MirLoweringError::Verification(error),
+        })
 }

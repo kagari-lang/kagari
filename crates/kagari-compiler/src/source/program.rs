@@ -5,6 +5,7 @@ use crate::source::{
 use kagari_common::identity::{
     ModuleIdentity,
     mapping::{DefinitionMappingError, DefinitionRecord},
+    table::DefinitionId,
 };
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_hir::{
@@ -38,6 +39,7 @@ pub fn lower_program_to_mir(
     program: &CheckedProgram,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
+    let context = program.root().definition_context();
     let root = program.root().lowered.source.module_identity().clone();
     // The root catalog already owns checked facts for the entire dependency
     // closure, including caller-private generic arguments. Per-module catalogs
@@ -48,6 +50,7 @@ pub fn lower_program_to_mir(
         .map(|module| {
             module
                 .to_unverified(&options.cancel)
+                .map(|metadata| metadata.into_records())
                 .map_err(|error| SourceProgramError::Lowering {
                     module: Box::new(root.clone()),
                     error: error.into(),
@@ -59,7 +62,8 @@ pub fn lower_program_to_mir(
         .find(|module| *module.lowered.source.module_identity() == root)
         .expect("checked root module")
         .aggregates;
-    let mut requests: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>> = HashMap::new();
+    let mut requests: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity<DefinitionId>>> =
+        HashMap::new();
     let mut seen = HashSet::new();
     loop {
         options.cancel.check().map_err(|_| ProgramError {
@@ -80,6 +84,7 @@ pub fn lower_program_to_mir(
                 demanded,
                 &authoring_modules,
                 catalog,
+                &context,
             )
             .map_err(|mut error| {
                 if let MirLoweringError::Diagnostic(diagnostic) = &mut error
@@ -129,8 +134,15 @@ pub fn lower_program_to_mir(
                 .flat_map(|f| &f.blocks)
                 .map(|b| b.instructions.len() + usize::from(b.terminator.is_some()))
                 .sum::<usize>();
-            modules.push(lowered.into_unverified());
+            modules.push(lowered.into_unverified().into_records());
         }
+        let definitions = context.snapshot();
+        let owner_of = |id| {
+            definitions
+                .resolve(id)
+                .expect("lowered definition identity")
+                .module()
+        };
         let mut changed = false;
         let source_owners: HashSet<_> = modules
             .iter()
@@ -144,10 +156,10 @@ pub fn lower_program_to_mir(
             module
                 .visit_definitions(
                     &mut |definition| {
-                        if definition.module != module.identity
-                            && source_owners.contains(&definition.module)
+                        if owner_of(*definition) != &module.identity
+                            && source_owners.contains(owner_of(*definition))
                         {
-                            dependencies.insert(definition.module.clone());
+                            dependencies.insert(owner_of(*definition).clone());
                         }
                         Ok(())
                     },
@@ -177,7 +189,7 @@ pub fn lower_program_to_mir(
                             .filter(|target| {
                                 // A foreign target retained for a local interface slot
                                 // does not publish the callback target in its owner.
-                                target.instance.declaration.module == module.identity
+                                owner_of(target.instance.declaration) == &module.identity
                             })
                             .map(|target| &target.instance),
                     )
@@ -190,7 +202,7 @@ pub fn lower_program_to_mir(
             })?;
             if !materialized.contains(&instance) && seen.insert(instance.clone()) {
                 requests
-                    .entry(instance.declaration.module.clone())
+                    .entry(owner_of(instance.declaration).clone())
                     .or_default()
                     .push(instance);
                 changed = true;
@@ -210,7 +222,7 @@ pub fn lower_program_to_mir(
                     } => Some((
                         &module.identity,
                         ConcreteFunctionIdentity {
-                            declaration: implementation.clone(),
+                            declaration: *implementation,
                             arguments: arguments.clone(),
                         },
                     )),
@@ -227,7 +239,7 @@ pub fn lower_program_to_mir(
         for (caller, instance) in allocations.chain(demands) {
             let implementation = &instance.declaration;
             let arguments = &instance.arguments;
-            if arguments.is_empty() || implementation.module == *caller {
+            if arguments.is_empty() || owner_of(*implementation) == caller {
                 continue;
             }
             options.cancel.check().map_err(|_| ProgramError {
@@ -236,19 +248,32 @@ pub fn lower_program_to_mir(
             })?;
             let owner = authoring_modules
                 .iter()
-                .find(|module| *module.lowered.source.module_identity() == implementation.module)
+                .find(|module| module.lowered.source.module_identity() == owner_of(*implementation))
                 .ok_or_else(|| ProgramError {
                     module: Box::new(root.clone()),
-                    kind: ProgramErrorKind::InterfaceContract(implementation.clone()),
+                    kind: ProgramErrorKind::InterfaceContract(
+                        definitions
+                            .resolve(*implementation)
+                            .expect("checked implementation")
+                            .to_path(),
+                    ),
                 })?;
             let signature = owner
                 .aggregates
                 .implementation_signature(implementation)
                 .ok_or_else(|| ProgramError {
                     module: Box::new(root.clone()),
-                    kind: ProgramErrorKind::InterfaceContract(implementation.clone()),
+                    kind: ProgramErrorKind::InterfaceContract(
+                        definitions
+                            .resolve(*implementation)
+                            .expect("checked implementation")
+                            .to_path(),
+                    ),
                 })?;
-            for method in owner.aggregates.implementation_methods(signature) {
+            for method in owner
+                .aggregates
+                .implementation_methods(&definitions, signature)
+            {
                 if let Some(ResolvedName::Function(function)) =
                     owner.declarations.definition_target(&method)
                     && owner.typed.functions.iter().any(|typed| {
@@ -269,7 +294,11 @@ pub fn lower_program_to_mir(
                     .trait_(&signature.trait_type.declaration)
                     .is_some_and(|contract| {
                         contract.methods.iter().any(|required| {
-                            required.id.path.last() == method.path.last()
+                            definitions
+                                .resolve(required.id)
+                                .expect("checked method")
+                                .last()
+                                == definitions.resolve(method).expect("checked method").last()
                                 && required.generic_params.len() > contract.generic_params.len()
                                 && required
                                     .params
@@ -305,14 +334,14 @@ pub fn lower_program_to_mir(
                             })
                     });
                 let instance = ConcreteFunctionIdentity {
-                    declaration: method.clone(),
+                    declaration: method,
                     arguments: if conditional {
                         arguments
                             .iter()
                             .enumerate()
                             .map(|(position, _)| {
                                 GenericParam {
-                                    owner: method.clone(),
+                                    owner: method,
                                     position,
                                 }
                                 .as_type()
@@ -324,7 +353,7 @@ pub fn lower_program_to_mir(
                 };
                 if seen.insert(instance.clone()) {
                     requests
-                        .entry(instance.declaration.module.clone())
+                        .entry(owner_of(instance.declaration).clone())
                         .or_default()
                         .push(instance);
                     changed = true;
@@ -332,13 +361,15 @@ pub fn lower_program_to_mir(
             }
         }
         if !changed {
-            return verify_program(root, modules, &options.cancel)
+            return verify_program(root, modules, &context, &options.cancel)
                 .map_err(SourceProgramError::Verification);
         }
     }
 }
 
-fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {
+fn callable_demands(
+    module: &MirModule,
+) -> impl Iterator<Item = ConcreteFunctionIdentity<DefinitionId>> + '_ {
     let script = module
         .functions
         .iter()
@@ -349,12 +380,12 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
                 callee: CallTarget::Shared(contract),
                 ..
             } => vec![ConcreteFunctionIdentity {
-                declaration: contract.instance.declaration.clone(),
+                declaration: contract.instance.declaration,
                 arguments: if matches!(contract.implementation, CallableImplementation::Script) {
                     (0..contract.arguments.len())
                         .map(|position| {
                             GenericParam {
-                                owner: contract.instance.declaration.clone(),
+                                owner: contract.instance.declaration,
                                 position,
                             }
                             .as_type()
@@ -368,7 +399,7 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
                 callee: CallTarget::SourceFunction(contract),
                 ..
             } => vec![ConcreteFunctionIdentity {
-                declaration: contract.declaration.clone(),
+                declaration: contract.declaration,
                 arguments: contract.arguments.clone(),
             }],
             _ => vec![],

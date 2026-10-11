@@ -4,7 +4,7 @@ use crate::source::lower::{
     instances::{Instance, InstancePlanner},
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::span::Span;
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::effects::EffectSet;
 use kagari_hir::{
     AnalyzedModule,
@@ -68,7 +68,9 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         let mut function = MirFunction {
             semantic: Default::default(),
             id: instance.id,
-            instance: instance.key.lower(planner.options, span)?,
+            instance: instance
+                .key
+                .lower(planner.options, &planner.definitions(), span)?,
             name: if instance.key.arguments.is_empty() {
                 hir_function.name.clone()
             } else {
@@ -174,7 +176,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         } else {
             typed_function
         };
-        function.semantic.generic = instance.shared_body(scope);
+        function.semantic.generic = instance.shared_body(scope, &planner.definitions());
         for (index, param) in typed_function.params.iter().enumerate() {
             function.semantic.params.insert(index, concrete(&param.ty)?);
             function.semantic.locals.insert(index, concrete(&param.ty)?);
@@ -196,7 +198,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         })
     }
 
-    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<Ty, MirLoweringError> {
+    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<Ty<DefinitionId>, MirLoweringError> {
         let concrete = self
             .planner
             .arguments(

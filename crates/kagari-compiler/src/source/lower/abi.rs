@@ -1,5 +1,8 @@
 use crate::source::types::lower_native_kind;
-use kagari_common::identity;
+use kagari_common::identity::{
+    DefinitionKind,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_contract::types::{
     InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
 };
@@ -39,7 +42,7 @@ use kagari_types::{
 mod tests;
 
 // Versioned scalar encoding; float bits and UTF-8 byte length are explicit.
-fn const_abi_value(value: &ScalarValue) -> String {
+fn const_abi_value(value: &ScalarValue, definitions: &DefinitionTable) -> String {
     match value {
         ScalarValue::Unit => "const-v1:unit".to_owned(),
         ScalarValue::Bool(value) => format!("const-v1:bool:{}", u8::from(*value)),
@@ -50,7 +53,7 @@ fn const_abi_value(value: &ScalarValue) -> String {
         ScalarValue::Integer { value, ty } => {
             format!(
                 "const-v2:{}:{value}",
-                TypeId::Builtin(ty.builtin_type()).display_name()
+                TypeId::Builtin(ty.builtin_type()).display_name(definitions)
             )
         }
         ScalarValue::F32(value) => format!("const-v1:f32:{:08x}", value.to_bits()),
@@ -59,7 +62,7 @@ fn const_abi_value(value: &ScalarValue) -> String {
     }
 }
 
-pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
+pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract<DefinitionId> {
     let hir_module = &module.lowered.module;
     let mut public_items = Vec::new();
     let mut trait_contracts = Vec::new();
@@ -94,7 +97,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     .typed
                     .const_values
                     .get(&id)
-                    .map(const_abi_value)
+                    .map(|value| const_abi_value(value, module.declarations.definitions()))
                     .expect("checked const fact must exist");
                 public_items.push(PublicItem::Const(ConstDef {
                     name: const_item.name.clone(),
@@ -220,18 +223,11 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                         .associated_consts
                         .iter()
                         .map(|member| AssociatedConstDef {
-                            declaration: identity::associated_const_id(
-                                match &module
-                                    .declarations
-                                    .target(ResolvedName::Trait(id))
-                                    .expect("trait declaration")
-                                    .id
-                                {
-                                    DeclarationId::Definition(owner) => owner,
-                                    _ => unreachable!("nominal trait"),
-                                },
-                                &member.name,
-                            ),
+                            declaration: module
+                                .declarations
+                                .definitions()
+                                .lookup_child(*owner, DefinitionKind::Const, &member.name, 0)
+                                .expect("registered associated member"),
                             ty: lower_type(
                                 &module
                                     .typed
@@ -243,7 +239,9 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                             default_value: member
                                 .initializer
                                 .and_then(|id| module.typed.const_values.get(&id))
-                                .map(const_abi_value),
+                                .map(|value| {
+                                    const_abi_value(value, module.declarations.definitions())
+                                }),
                         })
                         .collect(),
                     supertraits: trait_item
@@ -275,15 +273,37 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                                 parameter_bounds: module
                                     .typed
                                     .type_table
-                                    .associated_type_parameters(&identity::associated_type_id(
-                                        owner,
-                                        &member.name,
-                                    ))
-                                    .map(|inputs| checked_bounds(&inputs.bounds))
+                                    .associated_type_parameters(
+                                        &module
+                                            .declarations
+                                            .definitions()
+                                            .lookup_child(
+                                                *owner,
+                                                DefinitionKind::AssociatedType,
+                                                &member.name,
+                                                0,
+                                            )
+                                            .expect("registered associated member"),
+                                    )
+                                    .map(|inputs| {
+                                        checked_bounds(
+                                            module.declarations.definitions(),
+                                            &inputs.bounds,
+                                        )
+                                    })
                                     .unwrap_or_default(),
-                                declaration: identity::associated_type_id(owner, &member.name),
+                                declaration: module
+                                    .declarations
+                                    .definitions()
+                                    .lookup_child(
+                                        *owner,
+                                        DefinitionKind::AssociatedType,
+                                        &member.name,
+                                        0,
+                                    )
+                                    .expect("registered associated member"),
                                 bounds: {
-                                    let mut bounds = member
+                                    let bounds = member
                                         .bounds
                                         .iter()
                                         .filter_map(|bound| {
@@ -291,9 +311,12 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                                         })
                                         .map(constraint_abi)
                                         .collect::<Vec<_>>();
-                                    bounds.sort();
-                                    bounds.dedup();
-                                    bounds
+                                    Constraint::normalize(
+                                        bounds,
+                                        module.declarations.definitions(),
+                                        &Default::default(),
+                                    )
+                                    .expect("checked associated constraint identities")
                                 },
                             }
                         })
@@ -325,7 +348,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                             .expect("checked trait declaration identity")
                             .id
                         {
-                            DeclarationId::Definition(id) => id.clone(),
+                            DeclarationId::Definition(id) => *id,
                             _ => unreachable!("nominal trait declaration"),
                         },
                         abi,
@@ -392,10 +415,10 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     });
                 }
                 public_items.push(PublicItem::InherentTable(Box::new(InherentTable {
-                    declaration: declaration.clone(),
-                    name: for_type.display_name(),
+                    declaration: *declaration,
+                    name: for_type.display_name(module.declarations.definitions()),
                     generic_params: generic_param_abi(module, &impl_block.generic_params),
-                    bounds: canonical_bounds(bounds),
+                    bounds: canonical_bounds(module.declarations.definitions(), bounds),
                     for_type: abi_type(module, for_type),
                     methods,
                 })));
@@ -418,8 +441,8 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
             .ty;
         let name = format!(
             "{} as {}",
-            for_type.display_name(),
-            trait_type.display_name()
+            for_type.display_name(module.declarations.definitions()),
+            trait_type.display_name(module.declarations.definitions())
         );
         public_items.push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
             associated_type_families: module
@@ -434,17 +457,20 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                 .associated_type_families
                 .iter()
                 .map(|(id, family)| AssociatedTypeFamily {
-                    declaration: id.clone(),
+                    declaration: *id,
                     generic_params: family
                         .inputs
                         .parameters
                         .iter()
                         .map(|param| GenericParam {
-                            owner: param.owner.clone(),
+                            owner: param.owner,
                             position: param.position,
                         })
                         .collect(),
-                    bounds: checked_bounds(&family.inputs.bounds),
+                    bounds: checked_bounds(
+                        module.declarations.definitions(),
+                        &family.inputs.bounds,
+                    ),
                     value: abi_type(module, &family.value),
                 })
                 .collect(),
@@ -467,18 +493,19 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                             .const_values
                             .get(&member.initializer.expect("impl initializer"))
                             .expect("checked constant"),
+                        module.declarations.definitions(),
                     ),
                 })
                 .collect(),
             host_bridge: false,
-            declaration: module
+            declaration: *module
                 .declarations
                 .impl_identity(impl_block.id)
-                .expect("checked impl declaration identity")
-                .clone(),
+                .expect("checked impl declaration identity"),
             name,
             generic_params: generic_param_abi(module, &impl_block.generic_params),
             bounds: checked_bounds(
+                module.declarations.definitions(),
                 &module
                     .aggregates
                     .implementation_signature(
@@ -537,14 +564,14 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                 .generic_params
                 .iter()
                 .map(|parameter| GenericParam {
-                    owner: parameter.owner.clone(),
+                    owner: parameter.owner,
                     position: parameter.position,
                 })
                 .collect();
             Some(NativeDeclaration {
                 concrete_result: None,
                 callable_requirements: vec![],
-                declaration: declaration.clone(),
+                declaration: *declaration,
                 function: abi,
             })
         })
@@ -556,7 +583,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
     }
 }
 
-fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDecl> {
+fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDecl<DefinitionId>> {
     let mut result = item
         .methods
         .iter()
@@ -581,12 +608,12 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
         .expect("impl signature");
     let defaults = module
         .aggregates
-        .implementation_methods(implementation)
+        .implementation_methods(module.declarations.definitions(), implementation)
         .into_iter()
         .filter_map(|target| {
             module
                 .aggregates
-                .default_method(&target)
+                .default_method(module.declarations.definitions(), &target)
                 .map(|(implementation, method)| (target, implementation, method))
         })
         .collect::<Vec<_>>();
@@ -600,7 +627,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
             (
                 param.clone(),
                 TypeId::Generic(GenericParameterType {
-                    owner: target.clone(),
+                    owner: target,
                     position,
                     name: param.name.clone(),
                 }),
@@ -618,7 +645,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
                 module,
                 &ty.with_associated_types(
                     &implementation.trait_type,
-                    &TypeId::SelfType(method.owner.clone()),
+                    &TypeId::SelfType(method.owner),
                 )
                 .with_self(&method.owner, &implementation.for_type)
                 .instantiate(&substitution),
@@ -670,11 +697,11 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
                 .iter()
                 .enumerate()
                 .map(|(position, _)| GenericParam {
-                    owner: target.clone(),
+                    owner: target,
                     position,
                 })
                 .collect(),
-            bounds: canonical_bounds(bounds),
+            bounds: canonical_bounds(module.declarations.definitions(), bounds),
             params: method
                 .params
                 .iter()
@@ -690,7 +717,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
     result
 }
 
-fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> {
+fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl<DefinitionId>> {
     let typed = module
         .typed
         .functions
@@ -717,7 +744,7 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
                         let DeclarationId::Definition(id) = &target.id else {
                             return None;
                         };
-                        id.clone()
+                        *id
                     }
                     CallTarget::SourceFunction(id) => id,
                     _ => return None,
@@ -734,7 +761,7 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
             FunctionImplementation::Native(binding) => native_implementation_abi(module, binding),
         },
         generic_params: generic_param_abi(module, &function.generic_params),
-        bounds: checked_bounds(&typed.bounds),
+        bounds: checked_bounds(module.declarations.definitions(), &typed.bounds),
         params: typed
             .params
             .iter()
@@ -751,32 +778,37 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
 fn native_implementation_abi(
     module: &AnalyzedModule,
     binding: NativeBinding,
-) -> CallableImplementation {
+) -> CallableImplementation<DefinitionId> {
     let binding = match binding {
         NativeBinding::Default(_) => {
             unreachable!("native defaults require forwarding-call emission")
         }
         NativeBinding::Entry(binding) => binding,
-        NativeBinding::Host(id) => module
-            .names
-            .hosts
-            .function(id)
-            .expect("checked host callable")
-            .id
-            .clone(),
+        NativeBinding::Host(id) => {
+            module
+                .names
+                .hosts
+                .function(id)
+                .expect("checked host callable")
+                .id
+        }
     };
     CallableImplementation::Native(binding)
 }
 
-fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> Ty {
-    lower_type(&module.aggregates.normalize_type(ty))
+fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> Ty<DefinitionId> {
+    lower_type(
+        &module
+            .aggregates
+            .normalize_type(module.declarations.definitions(), ty),
+    )
 }
 
 fn inherent_method_abi(
     module: &AnalyzedModule,
     function: &Function,
     outer: &[HirGenericParam],
-) -> Option<FnDecl> {
+) -> Option<FnDecl<DefinitionId>> {
     let identity = &module
         .declarations
         .target(ResolvedName::Function(function.id))?
@@ -804,7 +836,7 @@ fn method_abi(
     module: &AnalyzedModule,
     function: &Function,
     outer: &[HirGenericParam],
-) -> Option<FnDecl> {
+) -> Option<FnDecl<DefinitionId>> {
     let mut method = function_abi(module, function)?;
     let inherited = generic_param_abi(module, outer);
     method
@@ -817,7 +849,10 @@ fn method_abi(
             .implementations()
             .find(|item| &item.id == owner)
     {
-        guaranteed.extend(checked_bounds(&implementation.bounds));
+        guaranteed.extend(checked_bounds(
+            module.declarations.definitions(),
+            &implementation.bounds,
+        ));
     }
     for bound in &mut method.bounds {
         bound.constraints.retain(|constraint| {
@@ -830,7 +865,10 @@ fn method_abi(
     Some(method)
 }
 
-fn generic_param_abi(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<GenericParam> {
+fn generic_param_abi(
+    module: &AnalyzedModule,
+    params: &[HirGenericParam],
+) -> Vec<GenericParam<DefinitionId>> {
     params
         .iter()
         .map(|param| {
@@ -843,21 +881,24 @@ fn generic_param_abi(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec
                 unreachable!("generic declaration identity")
             };
             GenericParam {
-                owner: owner.clone(),
+                owner: *owner,
                 position: *position,
             }
         })
         .collect()
 }
 
-fn constraint_abi(target: ConstraintTarget) -> Constraint {
+fn constraint_abi(target: ConstraintTarget) -> Constraint<DefinitionId> {
     match target {
         ConstraintTarget::Standard(constraint) => Constraint::Standard(constraint),
         ConstraintTarget::Trait(ty) => Constraint::Trait(lower_nominal_type(&ty)),
     }
 }
 
-fn parameter_bounds(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<GenericBound> {
+fn parameter_bounds(
+    module: &AnalyzedModule,
+    params: &[HirGenericParam],
+) -> Vec<GenericBound<DefinitionId>> {
     let identities = generic_param_abi(module, params);
     let bounds = params
         .iter()
@@ -882,11 +923,15 @@ fn parameter_bounds(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<
                 .collect(),
         })
         .collect();
-    canonical_bounds(bounds)
+    canonical_bounds(module.declarations.definitions(), bounds)
 }
 
-pub(super) fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBound> {
+pub(super) fn checked_bounds(
+    definitions: &DefinitionTable,
+    bounds: &GenericBounds,
+) -> Vec<GenericBound<DefinitionId>> {
     canonical_bounds(
+        definitions,
         bounds
             .iter()
             .map(|(param, targets)| GenericBound {
@@ -897,24 +942,13 @@ pub(super) fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBound> {
     )
 }
 
-fn canonical_bounds(mut bounds: Vec<GenericBound>) -> Vec<GenericBound> {
-    bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
-    let mut merged: Vec<GenericBound> = Vec::new();
-    for bound in bounds {
-        if let Some(previous) = merged.last_mut()
-            && previous.ty == bound.ty
-        {
-            previous.constraints.extend(bound.constraints);
-        } else {
-            merged.push(bound);
-        }
-    }
-    let mut bounds = merged;
-    for bound in &mut bounds {
-        bound.constraints.sort();
-        bound.constraints.dedup();
-    }
-    bounds.retain(|bound| !bound.constraints.is_empty());
-    bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
-    bounds
+fn canonical_bounds(
+    definitions: &DefinitionTable,
+    bounds: Vec<GenericBound<DefinitionId>>,
+) -> Vec<GenericBound<DefinitionId>> {
+    GenericBound::normalize(bounds, definitions, &Default::default())
+        .expect("checked ABI bound identities and type limits")
+        .into_iter()
+        .filter(|bound| !bound.constraints.is_empty())
+        .collect()
 }

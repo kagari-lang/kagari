@@ -194,6 +194,16 @@ impl CheckedAnalysis {
         self.0.definitions()
     }
 
+    /// Share the append-only identity allocator for generated compilation definitions.
+    ///
+    /// Clones use one writer, so independent compilations cannot assign conflicting
+    /// meanings to an ID. Appending names does not extend this checked result's
+    /// retained prefix or grant declaration/execution evidence. Generated records
+    /// must retain a new snapshot and pass their ordinary semantic verifier.
+    pub fn definition_context(&self) -> DefinitionContext {
+        self.declarations.context().clone()
+    }
+
     /// Extract editable scoped facts for specialization, dropping executable evidence.
     /// The result retains its identity prefix and must be verified again after mutation.
     pub fn to_unverified(

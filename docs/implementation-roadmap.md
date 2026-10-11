@@ -20,9 +20,9 @@ These capabilities are foundations to reuse, not migrations to replay.
 ## Semantic definition IDs
 
 [SI01-SI06](definition-id-plan.md) implement the agreed SA19 design and are active.
-SI01 is complete. Source/HIR, MIR verification and frontend-free bytecode assembly
-now use scoped IDs; SI02-SI04 continue through remaining registration consumers and
-source specialization. This migration precedes native collections.
+SI01 is complete. Source/HIR, source specialization, MIR verification and bytecode
+assembly now use scoped IDs; SI02-SI04 continue through remaining registration,
+backend and test consumers. This migration precedes native collections.
 Use DefinitionId throughout semantic processing; keep authoring/display paths and
 file-local references at explicit boundaries. Reuse the current definition context,
 immutable snapshots and cross-context imports while removing identity-representation
