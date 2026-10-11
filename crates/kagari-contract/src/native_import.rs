@@ -154,3 +154,6 @@ impl NativeImport<DefinitionId> {
 }
 
 mod mapping;
+
+#[doc(hidden)]
+pub mod wire;

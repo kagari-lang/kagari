@@ -851,6 +851,16 @@ or executable evidence. Artifact and reload owners retain their verification and
 publication checks. The fingerprint API accepts specific program, module, artifact
 or public-item inputs rather than arbitrary representation-rebindable records.
 
+MIR's codec owns fixed module/function/block/instruction records and composes the
+shared layout, Native callable, semantic-slot, module-ABI and Host records at their
+contract owners. It never serializes a semantic MIR model instantiated with file
+references. Encoding reads the verified owner's retained scope and validates the
+bounded wire shape before publishing bytes. Decoding resolves the canonical table
+into scoped unverified facts, explicitly imports them into the verifier context,
+and rebuilds all executable analyses. Shared Host wire conversions accept the
+caller's cancellation token, including member and value-node traversal. Reference
+conversion, record shape checks and executable verification remain separate steps.
+
 Runtime preparation normalizes independent verified inputs into its own context
 while retaining original immutable version identity and dependency versions.
 Host registration shares that context with the Native catalog. Function and type

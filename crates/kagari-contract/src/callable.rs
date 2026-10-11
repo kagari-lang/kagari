@@ -3,3 +3,6 @@ pub mod generic;
 pub mod interface;
 pub mod shared;
 pub mod witness;
+
+#[doc(hidden)]
+pub mod wire;

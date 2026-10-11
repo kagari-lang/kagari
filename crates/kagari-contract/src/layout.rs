@@ -453,3 +453,6 @@ impl From<DeclarationValidationError> for LayoutValidationError {
         }
     }
 }
+
+#[doc(hidden)]
+pub mod wire;

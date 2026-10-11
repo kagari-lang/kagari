@@ -5,10 +5,10 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, map_sequence},
-        metadata::{DefinitionMetadata, PortableMetadata},
-        reference::DefinitionReference,
-        table::{DefinitionId, wire::PortableDefinitionRef},
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel as check_mapping_cancel},
+        metadata::DefinitionMetadata,
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -20,9 +20,12 @@ use {
 };
 
 use crate::{
+    codec::wire::ProgramRecord,
     function::MirModule,
     program::{ProgramError, VerifiedMirProgram, verify_program},
 };
+
+mod wire;
 
 pub const MIR_MAGIC: [u8; 4] = *b"KMIR";
 pub const MIR_FORMAT_VERSION: u16 = 14;
@@ -72,40 +75,40 @@ impl Header {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + Serialize",
-    deserialize = "I: DefinitionReference + Deserialize<'de>"
-))]
-struct RawProgram<I = DefinitionId> {
+#[derive(Debug, Clone)]
+struct RawProgram {
     root: ModuleIdentity,
-    #[serde(deserialize_with = "decode_limits::modules")]
-    modules: Vec<MirModule<I>>,
+    modules: Vec<MirModule>,
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for RawProgram<I> {
-    type Rebind<J: DefinitionReference> = RawProgram<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl DefinitionReferences for RawProgram {
+    fn visit_definition_ids(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<RawProgram<J>, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(RawProgram {
-            root: self.root.clone(),
-            modules: map_sequence(&self.modules, |module| module.map_identities(mapper))?,
-        })
-    }
-
-    fn visit_definitions(
-        &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
+        check_mapping_cancel(cancel)?;
         for module in &self.modules {
-            module.visit_definitions(visit, cancel)?;
+            module.visit_definition_ids(visit, cancel)?;
         }
         Ok(())
+    }
+}
+
+impl RemapDefinitions for RawProgram {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
+        mapper.check()?;
+        Ok(Self {
+            root: self.root.clone(),
+            modules: self
+                .modules
+                .iter()
+                .map(|module| module.remap_definitions(mapper))
+                .collect::<Result<_, _>>()?,
+        })
     }
 }
 
@@ -144,18 +147,8 @@ pub fn encode_program(
     options()
         .serialize_into(&mut writer, &Header::current())
         .map_err(|error| encoding(error, cancel))?;
-    let raw_program = RawProgram {
-        root: program.root().clone(),
-        modules: program
-            .modules()
-            .iter()
-            .map(|module| (**module).clone())
-            .collect(),
-    };
     let wire_program =
-        DefinitionMetadata::checked(program.definitions().clone(), raw_program, cancel)
-            .and_then(|metadata| metadata.to_portable(cancel))
-            .map_err(|error| encoding(error, cancel))?;
+        ProgramRecord::encode(program, cancel).map_err(|error| encoding(error, cancel))?;
     options()
         .serialize_into(&mut writer, &wire_program)
         .map_err(|error| encoding(error, cancel))?;
@@ -203,7 +196,7 @@ fn read_raw(
         .deserialize_from(&mut reader)
         .map_err(|error| encoding(error, cancel))?;
     header.validate()?;
-    let portable: PortableMetadata<RawProgram<PortableDefinitionRef>> = options()
+    let portable: ProgramRecord = options()
         .deserialize_from(&mut reader)
         .map_err(|error| encoding(error, cancel))?;
     if !reader.bytes.is_empty() {
@@ -216,8 +209,8 @@ fn read_raw(
     Ok(raw)
 }
 
-fn check_counts<'a, I: DefinitionReference + 'a>(
-    modules: impl Iterator<Item = &'a MirModule<I>>,
+fn check_counts<'a>(
+    modules: impl Iterator<Item = &'a MirModule>,
     cancel: &CancellationToken,
 ) -> Result<(), MirCodecError> {
     let mut functions = 0usize;

@@ -7,16 +7,19 @@ use crate::host_interface::{
     },
     type_declaration::PathAccess,
     value_type::codec::WireHostValueType,
-    wire::{Encode, identity_error},
+    wire::{Encode, check_cancel, identity_error},
 };
-use kagari_common::identity::table::{
-    DefinitionId,
-    wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{
+        DefinitionId,
+        wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
+    },
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub(in crate::host_interface) struct WireHostPathDeclaration {
+pub struct WireHostPathDeclaration {
     root: PortableDefinitionRef,
     #[serde(deserialize_with = "decode_limits::members")]
     segments: Vec<WireHostPathSegmentDeclaration>,
@@ -27,13 +30,18 @@ pub(in crate::host_interface) struct WireHostPathDeclaration {
 impl Encode for HostPathDeclaration<DefinitionId> {
     type Wire = WireHostPathDeclaration;
 
-    fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError> {
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(WireHostPathDeclaration {
             root: encoding.reference(self.root).map_err(identity_error)?,
             segments: self
                 .segments
                 .iter()
-                .map(|value| value.encode(encoding))
+                .map(|value| value.encode(encoding, cancel))
                 .collect::<Result<_, _>>()?,
             access: self.access,
             schema_epoch: self.schema_epoch,
@@ -42,16 +50,29 @@ impl Encode for HostPathDeclaration<DefinitionId> {
 }
 
 impl WireHostPathDeclaration {
-    pub(super) fn decode(
+    /// Encode scoped facts with the enclosing file table and cancellation token.
+    /// Returns reference, bounded shape or cancellation errors without granting
+    /// Host validation or execution evidence.
+    pub fn encode(
+        value: &HostPathDeclaration<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, HostInterfaceError> {
+        value.encode(encoding, cancel)
+    }
+
+    pub fn decode(
         self,
         decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
     ) -> Result<HostPathDeclaration<DefinitionId>, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(HostPathDeclaration {
             root: decoding.resolve(self.root).map_err(identity_error)?,
             segments: self
                 .segments
                 .into_iter()
-                .map(|value| value.decode(decoding))
+                .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
             access: self.access,
             schema_epoch: self.schema_epoch,
@@ -71,12 +92,17 @@ pub(in crate::host_interface) struct WireHostIndexSegmentDeclaration {
 impl Encode for HostIndexSegmentDeclaration<DefinitionId> {
     type Wire = WireHostIndexSegmentDeclaration;
 
-    fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError> {
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(WireHostIndexSegmentDeclaration {
             slot: self.slot,
-            collection: self.collection.encode(encoding)?,
-            index: self.index.encode(encoding)?,
-            result: self.result.encode(encoding)?,
+            collection: self.collection.encode(encoding, cancel)?,
+            index: self.index.encode(encoding, cancel)?,
+            result: self.result.encode(encoding, cancel)?,
             access: self.access,
         })
     }
@@ -86,12 +112,14 @@ impl WireHostIndexSegmentDeclaration {
     pub(super) fn decode(
         self,
         decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
     ) -> Result<HostIndexSegmentDeclaration<DefinitionId>, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(HostIndexSegmentDeclaration {
             slot: self.slot,
-            collection: self.collection.decode(decoding)?,
-            index: self.index.decode(decoding)?,
-            result: self.result.decode(decoding)?,
+            collection: self.collection.decode(decoding, cancel)?,
+            index: self.index.decode(decoding, cancel)?,
+            result: self.result.decode(decoding, cancel)?,
             access: self.access,
         })
     }
@@ -107,10 +135,15 @@ pub(in crate::host_interface) struct WireHostVirtualSegmentDeclaration {
 impl Encode for HostVirtualSegmentDeclaration<DefinitionId> {
     type Wire = WireHostVirtualSegmentDeclaration;
 
-    fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError> {
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(WireHostVirtualSegmentDeclaration {
             name: self.name.clone(),
-            result: self.result.encode(encoding)?,
+            result: self.result.encode(encoding, cancel)?,
             access: self.access,
         })
     }
@@ -120,10 +153,12 @@ impl WireHostVirtualSegmentDeclaration {
     pub(super) fn decode(
         self,
         decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
     ) -> Result<HostVirtualSegmentDeclaration<DefinitionId>, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(HostVirtualSegmentDeclaration {
             name: self.name,
-            result: self.result.decode(decoding)?,
+            result: self.result.decode(decoding, cancel)?,
             access: self.access,
         })
     }
@@ -139,16 +174,21 @@ pub(in crate::host_interface) enum WireHostPathSegmentDeclaration {
 impl Encode for HostPathSegmentDeclaration<DefinitionId> {
     type Wire = WireHostPathSegmentDeclaration;
 
-    fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError> {
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(match self {
             Self::Field(id) => WireHostPathSegmentDeclaration::Field(
                 encoding.reference(*id).map_err(identity_error)?,
             ),
             Self::Index(segment) => {
-                WireHostPathSegmentDeclaration::Index(segment.encode(encoding)?)
+                WireHostPathSegmentDeclaration::Index(segment.encode(encoding, cancel)?)
             }
             Self::Virtual(segment) => {
-                WireHostPathSegmentDeclaration::Virtual(segment.encode(encoding)?)
+                WireHostPathSegmentDeclaration::Virtual(segment.encode(encoding, cancel)?)
             }
         })
     }
@@ -158,14 +198,18 @@ impl WireHostPathSegmentDeclaration {
     fn decode(
         self,
         decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
     ) -> Result<HostPathSegmentDeclaration<DefinitionId>, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(match self {
             Self::Field(id) => {
                 HostPathSegmentDeclaration::Field(decoding.resolve(id).map_err(identity_error)?)
             }
-            Self::Index(segment) => HostPathSegmentDeclaration::Index(segment.decode(decoding)?),
+            Self::Index(segment) => {
+                HostPathSegmentDeclaration::Index(segment.decode(decoding, cancel)?)
+            }
             Self::Virtual(segment) => {
-                HostPathSegmentDeclaration::Virtual(segment.decode(decoding)?)
+                HostPathSegmentDeclaration::Virtual(segment.decode(decoding, cancel)?)
             }
         })
     }

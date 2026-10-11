@@ -145,3 +145,6 @@ impl<I> Default for SemanticSlots<I> {
 }
 
 mod mapping;
+
+#[doc(hidden)]
+pub mod wire;

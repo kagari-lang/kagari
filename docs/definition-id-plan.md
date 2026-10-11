@@ -2570,3 +2570,82 @@ exceptions; formatting and diff checks pass. No full workspace/backend matrix,
 artifact regeneration or performance measurement ran. The prior compiler lib-test
 fixture failure, newly observed runtime lib-test fixture failure and remaining
 aggregate/model migration are all open; final SI integration is not complete.
+
+
+### SI05 complete MIR wire aggregate
+
+MIR encoding/decoding now uses codec-owned fixed ProgramRecord, module, function,
+block, instruction and call/path/field records. The aggregate composes opaque
+records at the existing owners: Native declarations/signatures at types; layouts,
+module ABI, semantic slots and generic/interface/Native callable facts at contract;
+Host declarations/paths at types. Nested implementation-only records remain private
+or crate-visible. No forwarding facade, re-export, generated include or second
+semantic validator was added.
+
+The codec no longer clones a complete semantic program just to rebind it to file
+references. RawProgram has fixed IDs and only explicit reference visiting and
+ID-to-ID remapping for adoption. ProgramRecord collects the referenced closure from
+the verified owner's retained snapshot, encodes through DefinitionEncoding and
+writes the same root/modules/table field order. Decoding validates the table,
+resolves records through DefinitionDecoding and retains it with checked metadata;
+the public decoder still imports into a fresh verification context and rebuilds
+all analyses. Bounded readback before encoding publication, count/byte limits,
+header/ABI checks, trailing-byte rejection and executable verification remain.
+
+Native/type/callable wire records retain field/tag order and bounded readers.
+Numeric semantic-slot map keys are unchanged, so one focused pair of map helpers
+handles their type values; duplicate keys remain rejected by the bounded reader.
+Nominal associated-output wire ordering still moves each key with its paired type.
+Shared Host record conversion now accepts the enclosing cancellation token and
+polls records and flat value nodes. HostInterfaceError gains Cancelled, and its
+conversion to DefinitionMappingError preserves cancellation/limit errors. KBC's
+required-Host fingerprint uses that shared error conversion. This hidden codec
+signature and exhaustive public error matching are Rust API changes; unpublished
+format/ABI identifiers remain unchanged.
+
+Focused local validation and selection:
+
+- `cargo build -p kagari-compiler -p kagari-stdlib --lib --message-format=short`
+  passes for the source-to-MIR and Native declaration producers used by the selected
+  codec scenarios. No compiler library-test target was rerun: its recorded fixture
+  migration failures are unchanged.
+- A temporary source-free public-API probe reconstructs the existing scoped MIR
+  scenario: create an explicit context and I32 function returning 42, verify it,
+  round-trip its encoding, lower both versions to bytecode and compare portable
+  facts. It confirms retained snapshots reject later/foreign IDs, explicit adoption
+  works, editing a terminator loses verification, Native input correspondence rejects
+  a different returned constant, and cancellation is preserved. All checks pass.
+- A second temporary probe reuses the existing compiler codec/source-identity
+  scenarios: checked scalar branch, u64, negative-zero, loop, captured closure and
+  enum Hash with user PartialEq/Eq/Hash implementations. Encode before releasing
+  source snapshots, decode in an independent scope and compare canonical MIR and
+  lowered bytecode. Compare the complete new envelope against a temporary encoding
+  of the prior portable semantic records, including every field/tag/table byte.
+  For the closure program, also reject truncated/trailing data, an impossible
+  module count, a u32::MAX file reference and an out-of-range jump; the latter must
+  reach and fail executable verification. All pass. These probes provide local
+  behavioral evidence while the retained compiler test owner is being migrated;
+  they do not replace that owner or justify keeping the old representation APIs.
+- `cargo test -p kagari-contract --test public_abi_wire --message-format=short
+  --no-fail-fast`: both shared declaration wire cases pass.
+- `cargo test -p kagari-types --lib host_interface:: --message-format=short
+  --no-fail-fast`: all 17 selected Host contract/wire cases pass. After extending
+  the existing forged-reference case to check cancellation through the exposed
+  Host type record encode/decode API, its `host_interface::wire::` filter also passes.
+- `cargo test -p kagari-bytecode --test identity
+  required_host_fingerprint_is_derived_and_independent_of_docs_and_order
+  --message-format=short --no-fail-fast`: the directly affected fingerprint case passes.
+- `cargo clippy -p kagari-types -p kagari-contract -p kagari-mir
+  -p kagari-bytecode --lib --message-format=short -- -D warnings` passes.
+
+Initial compilation found two non-Copy enum fields in newly authored conversion
+records and an unnecessarily exposed nested callable variant; these were repaired
+with ordinary cloning and an opaque enum wrapper. Numeric map helper/import cleanup
+resolved the remaining local lint findings. No production validation was disabled.
+Manual review covers imports, visibility, all serialized fields/tags, paired binding
+ordering, bounded readers, retained snapshot ownership and cancellation/error flow.
+Structure checks 1079 Rust files with zero violations/exceptions; formatting and
+diff checks pass. No full workspace/backend matrix or performance measurement ran.
+KBC aggregate wire conversion, shared semantic representation-parameter removal,
+obsolete rebinding/path APIs and the recorded compiler/runtime fixture repairs
+remain SI05/SI06 work. This checkpoint does not complete SI integration.

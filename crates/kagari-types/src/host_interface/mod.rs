@@ -392,11 +392,22 @@ impl HostInterface<DefinitionId> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("host interface: {self:?}")]
 pub enum HostInterfaceError {
+    Cancelled,
     InvalidDeclaration,
     DuplicateDeclaration,
     Version,
     TooLarge,
     Encoding,
+}
+
+impl From<HostInterfaceError> for DefinitionMappingError {
+    fn from(error: HostInterfaceError) -> Self {
+        match error {
+            HostInterfaceError::Cancelled => Self::Cancelled,
+            HostInterfaceError::TooLarge => Self::LimitExceeded,
+            _ => Self::InvalidContract,
+        }
+    }
 }
 
 fn codec() -> impl Options {

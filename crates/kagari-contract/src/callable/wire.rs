@@ -1,0 +1,376 @@
+//! File-local shared/interface calls and their generic operation witnesses.
+use crate::{
+    callable::{
+        generic::GenericBody,
+        interface::{InterfaceCallContract, TypeNormalization},
+        shared::SharedCall,
+        witness::{OperationWitness, SharedMethodWitness},
+    },
+    native_import::wire::NativeCallableApplicationRecord,
+    types::wire::module::ConcreteFunctionIdentityRecord,
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        mapping::{DefinitionMappingError, check_cancel},
+        table::{
+            DefinitionId,
+            wire::{DefinitionDecoding, DefinitionEncoding},
+        },
+    },
+};
+use kagari_types::{
+    declaration::wire::{
+        leaf::{CallableImplementationRecord, NominalTyRecord},
+        native::{NativeCallableRequirementRecord, SignatureRecord},
+        signature::{GenericBoundRecord, GenericParamRecord},
+    },
+    ty::wire::WireType,
+};
+use serde::{Deserialize, Serialize};
+
+/// File-local GenericBody facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct GenericBodyRecord {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    parameters: Vec<GenericParamRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    bounds: Vec<GenericBoundRecord>,
+}
+
+impl GenericBodyRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(crate) fn encode(
+        value: &GenericBody<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            parameters: value
+                .parameters
+                .iter()
+                .map(|value| GenericParamRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            bounds: value
+                .bounds
+                .iter()
+                .map(|value| GenericBoundRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(crate) fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<GenericBody<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(GenericBody {
+            parameters: self
+                .parameters
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            bounds: self
+                .bounds
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+/// File-local SharedMethodWitness facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct SharedMethodWitnessRecord {
+    requirement: NativeCallableRequirementRecord,
+    implementation: ConcreteFunctionIdentityRecord,
+}
+
+impl SharedMethodWitnessRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(crate) fn encode(
+        value: &SharedMethodWitness<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            requirement: NativeCallableRequirementRecord::encode(
+                &value.requirement,
+                encoding,
+                cancel,
+            )?,
+            implementation: ConcreteFunctionIdentityRecord::encode(
+                &value.implementation,
+                encoding,
+                cancel,
+            )?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(crate) fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<SharedMethodWitness<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(SharedMethodWitness {
+            requirement: self.requirement.decode(decoding, cancel)?,
+            implementation: self.implementation.decode(decoding, cancel)?,
+        })
+    }
+}
+
+/// File-local OperationWitness facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+pub(crate) enum OperationWitnessRecord {
+    Selected(Box<NativeCallableApplicationRecord>),
+    SharedMethod(Box<SharedMethodWitnessRecord>),
+    Forward(Box<NativeCallableRequirementRecord>),
+}
+
+impl OperationWitnessRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(crate) fn encode(
+        value: &OperationWitness<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(match value {
+            OperationWitness::Selected(field0) => Self::Selected(Box::new(
+                NativeCallableApplicationRecord::encode(field0.as_ref(), encoding, cancel)?,
+            )),
+            OperationWitness::SharedMethod(field0) => Self::SharedMethod(Box::new(
+                SharedMethodWitnessRecord::encode(field0.as_ref(), encoding, cancel)?,
+            )),
+            OperationWitness::Forward(field0) => Self::Forward(Box::new(
+                NativeCallableRequirementRecord::encode(field0.as_ref(), encoding, cancel)?,
+            )),
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub(crate) fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<OperationWitness<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(match self {
+            Self::Selected(field0) => {
+                OperationWitness::Selected(Box::new((*field0).decode(decoding, cancel)?))
+            }
+            Self::SharedMethod(field0) => {
+                OperationWitness::SharedMethod(Box::new((*field0).decode(decoding, cancel)?))
+            }
+            Self::Forward(field0) => {
+                OperationWitness::Forward(Box::new((*field0).decode(decoding, cancel)?))
+            }
+        })
+    }
+}
+
+/// File-local SharedCall facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+pub struct SharedCallRecord {
+    instance: ConcreteFunctionIdentityRecord,
+    implementation: CallableImplementationRecord,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    arguments: Vec<WireType>,
+    signature: SignatureRecord,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    operations: Vec<OperationWitnessRecord>,
+}
+
+impl SharedCallRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub fn encode(
+        value: &SharedCall<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            instance: ConcreteFunctionIdentityRecord::encode(&value.instance, encoding, cancel)?,
+            implementation: CallableImplementationRecord::encode(
+                &value.implementation,
+                encoding,
+                cancel,
+            )?,
+            arguments: value
+                .arguments
+                .iter()
+                .map(|value| {
+                    Ok::<_, DefinitionMappingError>(WireType::encode(value, encoding, cancel)?)
+                })
+                .collect::<Result<_, _>>()?,
+            signature: SignatureRecord::encode(&value.signature, encoding, cancel)?,
+            operations: value
+                .operations
+                .iter()
+                .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<SharedCall<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(SharedCall {
+            instance: self.instance.decode(decoding, cancel)?,
+            implementation: self.implementation.decode(decoding, cancel)?,
+            arguments: self
+                .arguments
+                .into_iter()
+                .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
+                .collect::<Result<_, _>>()?,
+            signature: self.signature.decode(decoding, cancel)?,
+            operations: self
+                .operations
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+/// File-local InterfaceCallContract facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+pub struct InterfaceCallContractRecord {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    normalizations: Vec<TypeNormalizationRecord>,
+    receiver: Option<WireType>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    operations: Vec<OperationWitnessRecord>,
+    interface: NominalTyRecord,
+    method_slot: u32,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    arguments: Vec<WireType>,
+}
+
+impl InterfaceCallContractRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub fn encode(
+        value: &InterfaceCallContract<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            normalizations: value
+                .normalizations
+                .iter()
+                .map(|value| TypeNormalizationRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            receiver: value
+                .receiver
+                .as_ref()
+                .map(|value| {
+                    Ok::<_, DefinitionMappingError>(WireType::encode(value, encoding, cancel)?)
+                })
+                .transpose()?,
+            operations: value
+                .operations
+                .iter()
+                .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            interface: NominalTyRecord::encode(&value.interface, encoding, cancel)?,
+            method_slot: value.method_slot,
+            arguments: value
+                .arguments
+                .iter()
+                .map(|value| {
+                    Ok::<_, DefinitionMappingError>(WireType::encode(value, encoding, cancel)?)
+                })
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<InterfaceCallContract<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(InterfaceCallContract {
+            normalizations: self
+                .normalizations
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            receiver: self
+                .receiver
+                .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
+                .transpose()?,
+            operations: self
+                .operations
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            interface: self.interface.decode(decoding, cancel)?,
+            method_slot: self.method_slot,
+            arguments: self
+                .arguments
+                .into_iter()
+                .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+/// File-local TypeNormalization facts; no verification evidence is serialized.
+#[derive(Serialize, Deserialize)]
+struct TypeNormalizationRecord {
+    source: WireType,
+    result: WireType,
+}
+
+impl TypeNormalizationRecord {
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    fn encode(
+        value: &TypeNormalization<DefinitionId>,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            source: WireType::encode(&value.source, encoding, cancel)?,
+            result: WireType::encode(&value.result, encoding, cancel)?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<TypeNormalization<DefinitionId>, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(TypeNormalization {
+            source: self.source.decode(decoding, cancel)?,
+            result: self.result.decode(decoding, cancel)?,
+        })
+    }
+}

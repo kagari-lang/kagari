@@ -277,3 +277,6 @@ impl InherentTableRecord {
         })
     }
 }
+
+#[doc(hidden)]
+pub mod module;

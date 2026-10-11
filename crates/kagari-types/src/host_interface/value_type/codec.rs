@@ -2,11 +2,14 @@
 use crate::host_interface::{
     HostInterfaceError,
     value_type::{HostValueType, Node, build, read_nodes},
-    wire::{Encode, identity_error},
+    wire::{Encode, check_cancel, identity_error},
 };
-use kagari_common::identity::table::{
-    DefinitionId,
-    wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{
+        DefinitionId,
+        wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
+    },
 };
 use serde::{Deserialize, Serialize, de::value::Error as DecodeError};
 
@@ -20,11 +23,17 @@ pub(in crate::host_interface) struct WireHostValueType {
 impl Encode for HostValueType<DefinitionId> {
     type Wire = WireHostValueType;
 
-    fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError> {
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError> {
+        check_cancel(cancel)?;
         let nodes = self
             .nodes()?
             .into_iter()
             .map(|node| {
+                check_cancel(cancel)?;
                 node.map_reference(&mut |id| encoding.reference(id).map_err(identity_error))
             })
             .collect::<Result<_, _>>()?;
@@ -36,11 +45,16 @@ impl WireHostValueType {
     pub(in crate::host_interface) fn decode(
         self,
         decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
     ) -> Result<HostValueType<DefinitionId>, HostInterfaceError> {
+        check_cancel(cancel)?;
         let nodes = self
             .nodes
             .into_iter()
-            .map(|node| node.map_reference(&mut |id| decoding.resolve(id).map_err(identity_error)))
+            .map(|node| {
+                check_cancel(cancel)?;
+                node.map_reference(&mut |id| decoding.resolve(id).map_err(identity_error))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let mut nodes = nodes.into_iter();
         let ty = build::<DefinitionId, DecodeError>(&mut nodes, 1)
@@ -107,29 +121,31 @@ mod tests {
             let bytes = bincode::serialize(&nodes).unwrap();
             let result = bincode::deserialize::<WireHostValueType>(&bytes)
                 .map_err(|_| HostInterfaceError::Encoding)
-                .and_then(|wire| wire.decode(&decoding));
+                .and_then(|wire| wire.decode(&decoding, &CancellationToken::default()));
             assert!(result.is_err());
         }
         let mut ty = HostValueType::<DefinitionId>::I32;
         for _ in 1..MAX_DEPTH {
             ty = HostValueType::Array(Box::new(ty));
         }
-        let bytes = bincode::serialize(&ty.encode(&encoding).unwrap()).unwrap();
+        let bytes =
+            bincode::serialize(&ty.encode(&encoding, &CancellationToken::default()).unwrap())
+                .unwrap();
         assert_eq!(
             bincode::deserialize::<WireHostValueType>(&bytes)
                 .unwrap()
-                .decode(&decoding)
+                .decode(&decoding, &CancellationToken::default())
                 .unwrap(),
             ty
         );
         assert!(
             HostValueType::Array(Box::new(ty))
-                .encode(&encoding)
+                .encode(&encoding, &CancellationToken::default())
                 .is_err()
         );
         assert!(
             HostValueType::Tuple(vec![HostValueType::<DefinitionId>::I32; MAX_NODES])
-                .encode(&encoding)
+                .encode(&encoding, &CancellationToken::default())
                 .is_err()
         );
     }

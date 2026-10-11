@@ -22,15 +22,23 @@ use kagari_common::{
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::HashSet};
 
-mod declarations;
-mod path;
+pub mod declarations;
+pub mod path;
 
 /// This trait only selects an owner's private serialized record; it cannot rebind
 /// semantic records to arbitrary identity representations.
 pub(super) trait Encode {
     type Wire: Serialize;
 
-    fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError>;
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError>;
+}
+
+pub(super) fn check_cancel(cancel: &CancellationToken) -> Result<(), HostInterfaceError> {
+    cancel.check().map_err(|_| HostInterfaceError::Cancelled)
 }
 
 pub(super) fn identity_error(error: DefinitionTableError) -> HostInterfaceError {
@@ -63,7 +71,7 @@ where
         .map_err(adoption_error)?;
     let encoding = definitions.encode(references).map_err(identity_error)?;
     let portable = Envelope {
-        records: record.encode(&encoding)?,
+        records: record.encode(&encoding, &cancel)?,
         definitions: encoding.table,
     };
     codec()
@@ -140,8 +148,9 @@ pub(super) fn decode(
     let portable: Envelope<HostInterfaceRecord> = codec()
         .deserialize(&bytes[6..])
         .map_err(|_| HostInterfaceError::Encoding)?;
+    let cancel = CancellationToken::default();
     let decoding = portable.definitions.decode().map_err(identity_error)?;
-    let records = portable.records.decode(&decoding)?;
+    let records = portable.records.decode(&decoding, &cancel)?;
     records.validate(&decoding.table)?;
     DefinitionMetadata::checked(decoding.table, records, &CancellationToken::default())
         .map_err(adoption_error)
@@ -167,22 +176,27 @@ pub struct HostInterfaceRecord {
 impl Encode for HostInterface<DefinitionId> {
     type Wire = HostInterfaceRecord;
 
-    fn encode(&self, encoding: &DefinitionEncoding) -> Result<Self::Wire, HostInterfaceError> {
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(HostInterfaceRecord {
             paths: self
                 .paths
                 .iter()
-                .map(|value| value.encode(encoding))
+                .map(|value| value.encode(encoding, cancel))
                 .collect::<Result<_, _>>()?,
             types: self
                 .types
                 .iter()
-                .map(|value| value.encode(encoding))
+                .map(|value| value.encode(encoding, cancel))
                 .collect::<Result<_, _>>()?,
             functions: self
                 .functions
                 .iter()
-                .map(|value| value.encode(encoding))
+                .map(|value| value.encode(encoding, cancel))
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -200,8 +214,10 @@ impl HostInterfaceRecord {
     pub fn encode(
         interface: &HostInterface<DefinitionId>,
         encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
     ) -> Result<Self, HostInterfaceError> {
-        interface.encode(encoding)
+        check_cancel(cancel)?;
+        interface.encode(encoding, cancel)
     }
 
     /// Resolve file references directly into the supplied decoded identity scope.
@@ -217,22 +233,24 @@ impl HostInterfaceRecord {
     pub(super) fn decode(
         self,
         decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
     ) -> Result<HostInterface<DefinitionId>, HostInterfaceError> {
+        check_cancel(cancel)?;
         Ok(HostInterface {
             paths: self
                 .paths
                 .into_iter()
-                .map(|value| value.decode(decoding))
+                .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
             types: self
                 .types
                 .into_iter()
-                .map(|value| value.decode(decoding))
+                .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
             functions: self
                 .functions
                 .into_iter()
-                .map(|value| value.decode(decoding))
+                .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
         })
     }

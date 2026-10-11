@@ -36,7 +36,7 @@ use kagari_contract::{
     slots::SemanticSlots,
     types::{PublicItem, wire::PublicItemRecord},
 };
-use kagari_types::host_interface::{HostInterface, HostInterfaceError, wire::HostInterfaceRecord};
+use kagari_types::host_interface::{HostInterface, wire::HostInterfaceRecord};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, io, io::Write};
 
@@ -525,11 +525,7 @@ impl ArtifactFingerprint {
             &cancel,
         )?;
         let encoding = definitions.encode(references)?;
-        let records =
-            HostInterfaceRecord::encode(&interface, &encoding).map_err(|error| match error {
-                HostInterfaceError::TooLarge => DefinitionMappingError::LimitExceeded,
-                _ => DefinitionMappingError::InvalidContract,
-            })?;
+        let records = HostInterfaceRecord::encode(&interface, &encoding, &cancel)?;
         Ok(Self::of_serialized(&(
             "kagari-required-host-interface-v3",
             (records, encoding.table),

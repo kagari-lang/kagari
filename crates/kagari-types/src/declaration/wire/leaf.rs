@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct NominalTyRecord {
+pub struct NominalTyRecord {
     declaration: PortableDefinitionRef,
     #[serde(deserialize_with = "decode_limits::nested")]
     arguments: Vec<WireType>,
@@ -29,7 +29,7 @@ pub(super) struct NominalTyRecord {
 }
 
 impl NominalTyRecord {
-    pub(super) fn encode(
+    pub fn encode(
         value: &NominalTy<DefinitionId>,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
@@ -54,7 +54,7 @@ impl NominalTyRecord {
         })
     }
 
-    pub(super) fn decode(
+    pub fn decode(
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
@@ -115,7 +115,10 @@ impl ConstraintRecord {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) enum CallableImplementationRecord {
+pub struct CallableImplementationRecord(CallableImplementationKind);
+
+#[derive(Serialize, Deserialize)]
+enum CallableImplementationKind {
     Required,
     Script,
     Native(PortableDefinitionRef),
@@ -123,33 +126,39 @@ pub(super) enum CallableImplementationRecord {
 }
 
 impl CallableImplementationRecord {
-    pub(super) fn encode(
+    pub fn encode(
         value: &CallableImplementation<DefinitionId>,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
-        Ok(match value {
-            CallableImplementation::Required => Self::Required,
-            CallableImplementation::Script => Self::Script,
-            CallableImplementation::Native(id) => Self::Native(encoding.reference(*id)?),
-            CallableImplementation::NativeDefault(value) => Self::NativeDefault(
-                NativeDefaultApplicationRecord::encode(value, encoding, cancel)?,
-            ),
-        })
+        Ok(Self(match value {
+            CallableImplementation::Required => CallableImplementationKind::Required,
+            CallableImplementation::Script => CallableImplementationKind::Script,
+            CallableImplementation::Native(id) => {
+                CallableImplementationKind::Native(encoding.reference(*id)?)
+            }
+            CallableImplementation::NativeDefault(value) => {
+                CallableImplementationKind::NativeDefault(NativeDefaultApplicationRecord::encode(
+                    value, encoding, cancel,
+                )?)
+            }
+        }))
     }
 
-    pub(super) fn decode(
+    pub fn decode(
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
     ) -> Result<CallableImplementation<DefinitionId>, DefinitionMappingError> {
         check_cancel(cancel)?;
-        Ok(match self {
-            Self::Required => CallableImplementation::Required,
-            Self::Script => CallableImplementation::Script,
-            Self::Native(id) => CallableImplementation::Native(decoding.resolve(id)?),
-            Self::NativeDefault(value) => {
+        Ok(match self.0 {
+            CallableImplementationKind::Required => CallableImplementation::Required,
+            CallableImplementationKind::Script => CallableImplementation::Script,
+            CallableImplementationKind::Native(id) => {
+                CallableImplementation::Native(decoding.resolve(id)?)
+            }
+            CallableImplementationKind::NativeDefault(value) => {
                 CallableImplementation::NativeDefault(value.decode(decoding, cancel)?)
             }
         })
