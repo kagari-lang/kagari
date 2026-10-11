@@ -6,42 +6,60 @@ use crate::{
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     declaration::names::NameNamespace,
-    host_interface::{HostParameter, HostPassingStyle},
+    host_interface::{
+        HostParameter, HostPassingStyle,
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+    },
 };
 
 #[test]
 fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
-    use kagari_types::host_interface::type_declaration::{
-        HostFieldDeclaration, HostTypeDeclaration,
-    };
-    let mut declaration = HostTypeDeclaration::new("model.Player");
-    declaration.fields.push(HostFieldDeclaration::new(
-        &declaration.id,
-        "score",
-        HostValueType::I32,
-    ));
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = HostTypeDeclaration::new(&context, "model.Player").unwrap();
+    declaration.fields.push(
+        HostFieldDeclaration::new(&context, declaration.id, "score", HostValueType::I32).unwrap(),
+    );
     declaration.fields[0].documentation = "Current score".into();
-    let interface = HostInterface {
-        paths: vec![],
-        types: vec![declaration.clone()],
-        functions: vec![],
-    };
-    let old =
-        HostDeclarations::new(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
-            .unwrap();
+    let interface = metadata(
+        &context,
+        HostInterface {
+            paths: vec![],
+            types: vec![declaration.clone()],
+            functions: vec![],
+        },
+    );
+    let old = HostDeclarations::new(
+        HostInterface::from_bytes(
+            &interface
+                .records()
+                .to_bytes(interface.definitions())
+                .unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let id = old.resolve_type("model::Player").unwrap();
-    assert_eq!(old.nominal_type(&declaration.id), Some(id));
+    let query = context
+        .snapshot()
+        .resolve(declaration.id)
+        .unwrap()
+        .to_path();
+    let decoded_id = old.definitions().lookup(&query).unwrap();
+    assert_eq!(old.nominal_type(&decoded_id), Some(id));
     assert_eq!(
         old.type_declaration(id).unwrap().fields[0].documentation,
         "Current score"
     );
     assert!(old.module("model").is_some());
     declaration.fields[0].ty = HostValueType::I64;
-    let new = HostDeclarations::new(HostInterface {
-        paths: vec![],
-        types: vec![declaration],
-        functions: vec![],
-    })
+    let new = HostDeclarations::new(metadata(
+        &context,
+        HostInterface {
+            paths: vec![],
+            types: vec![declaration],
+            functions: vec![],
+        },
+    ))
     .unwrap();
     assert!(new.type_declaration(id).is_none());
     assert_eq!(
@@ -57,8 +75,9 @@ fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
     );
 }
 
-pub(super) fn declaration() -> HostFunctionDeclaration {
+pub(super) fn declaration(context: &DefinitionContext) -> HostFunctionDeclaration<DefinitionId> {
     let mut declaration = HostFunctionDeclaration::new(
+        context,
         "demo.echo",
         vec![HostParameter {
             name: "value".into(),
@@ -66,23 +85,28 @@ pub(super) fn declaration() -> HostFunctionDeclaration {
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     declaration.documentation = "Echo an integer".into();
     declaration
 }
 
 #[test]
 fn checked_host_callables_retain_provider_contracts_and_reject_other_inputs() {
-    let mut declaration = declaration();
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = declaration(&context);
     declaration.params[0].ty = HostValueType::String;
     declaration.params[0].passing = HostPassingStyle::SharedBorrow;
 
     declaration.effects.may_call_host_services = true;
     declaration.effects.may_trap = true;
-    let interface = HostInterface {
-        functions: vec![declaration.clone()],
-        ..Default::default()
-    };
+    let interface = metadata(
+        &context,
+        HostInterface {
+            functions: vec![declaration.clone()],
+            ..Default::default()
+        },
+    );
     let original = HostDeclarations::new(interface.clone()).unwrap();
     let other = HostDeclarations::new(interface).unwrap();
     let id = original.resolve("demo::echo").unwrap();
@@ -109,6 +133,7 @@ fn checked_host_callables_retain_provider_contracts_and_reject_other_inputs() {
 
 #[test]
 fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
+    let context = DefinitionContext::new().unwrap();
     let mut sources = SourceDatabase::default();
     let text =
         "use demo::{echo}; use demo as api; fn good() -> i32 { echo(api::echo(demo::echo(7))) }";
@@ -116,11 +141,14 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
         .set("host.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut database = test_analysis();
-    let original = HostDeclarations::new(HostInterface {
-        paths: vec![],
-        types: Vec::new(),
-        functions: vec![declaration()],
-    })
+    let original = HostDeclarations::new(metadata(
+        &context,
+        HostInterface {
+            paths: vec![],
+            types: Vec::new(),
+            functions: vec![declaration(&context)],
+        },
+    ))
     .unwrap();
     let old_id = original.resolve("demo::echo").unwrap();
     database.set_host_declarations(original.clone());
@@ -139,20 +167,32 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
             .host_function_at(text.rfind("demo::echo").unwrap() + "demo::".len())
             .unwrap()
             .id,
-        declaration().id
+        first_file
+            .definitions()
+            .lookup(
+                &context
+                    .snapshot()
+                    .resolve(original.function(old_id).unwrap().id)
+                    .unwrap()
+                    .to_path()
+            )
+            .unwrap()
     );
     let cached = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(Arc::ptr_eq(first_file, cached.file(file).unwrap()));
-    let mut changed = declaration();
+    let mut changed = declaration(&context);
     changed.return_type = HostValueType::String;
     changed.documentation = "Now returns text".into();
-    let updated = HostDeclarations::new(HostInterface {
-        paths: vec![],
-        types: Vec::new(),
-        functions: vec![changed],
-    })
+    let updated = HostDeclarations::new(metadata(
+        &context,
+        HostInterface {
+            paths: vec![],
+            types: Vec::new(),
+            functions: vec![changed],
+        },
+    ))
     .unwrap();
     assert!(updated.function(old_id).is_none());
     database.set_host_declarations(updated);
@@ -189,6 +229,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
 
 #[test]
 fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
+    let context = DefinitionContext::new().unwrap();
     let cases = [
         (
             "use missing::echo; fn good() -> i32 { 42 }",
@@ -214,11 +255,14 @@ fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
             .unwrap();
         let mut database = test_analysis();
         database.set_host_declarations(
-            HostDeclarations::new(HostInterface {
-                paths: vec![],
-                types: Vec::new(),
-                functions: vec![declaration()],
-            })
+            HostDeclarations::new(metadata(
+                &context,
+                HostInterface {
+                    paths: vec![],
+                    types: Vec::new(),
+                    functions: vec![declaration(&context)],
+                },
+            ))
             .unwrap(),
         );
         let snapshot = database
@@ -244,28 +288,40 @@ fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
 
 #[test]
 fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
+    let context = DefinitionContext::new().unwrap();
     for name in ["std.echo", "demo::echo", "demo.2bad"] {
         assert!(
-            HostDeclarations::new(HostInterface {
-                paths: vec![],
-                types: Vec::new(),
-                functions: vec![HostFunctionDeclaration::new(
-                    name,
-                    vec![],
-                    HostValueType::Unit
-                )]
-            })
+            HostDeclarations::new(metadata(
+                &context,
+                HostInterface {
+                    paths: vec![],
+                    types: Vec::new(),
+                    functions: vec![
+                        HostFunctionDeclaration::new(&context, name, vec![], HostValueType::Unit)
+                            .unwrap()
+                    ]
+                }
+            ))
             .is_err()
         );
     }
-    let interface = HostInterface {
-        paths: vec![],
-        types: vec![],
-        functions: vec![
-            declaration(),
-            HostFunctionDeclaration::new("demo.echo.child", vec![], HostValueType::Unit),
-        ],
-    };
+    let interface = metadata(
+        &context,
+        HostInterface {
+            paths: vec![],
+            types: vec![],
+            functions: vec![
+                declaration(&context),
+                HostFunctionDeclaration::new(
+                    &context,
+                    "demo.echo.child",
+                    vec![],
+                    HostValueType::Unit,
+                )
+                .unwrap(),
+            ],
+        },
+    );
     let declarations = HostDeclarations::new(interface).unwrap();
     assert!(matches!(
         declarations.resolve_name("demo::echo", NameNamespace::Value),
@@ -277,11 +333,23 @@ fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
     ));
     // ABI symbols retain their independent uniqueness rule.
     assert!(
-        HostDeclarations::new(HostInterface {
-            paths: vec![],
-            types: vec![],
-            functions: vec![declaration(), declaration()]
-        })
+        HostDeclarations::new(metadata(
+            &context,
+            HostInterface {
+                paths: vec![],
+                types: vec![],
+                functions: vec![declaration(&context), declaration(&context)]
+            }
+        ))
         .is_err()
     );
+}
+
+/// Retains the identity table for an editable Host test input. Semantic validation
+/// remains with HostDeclarations, including fixtures intentionally made invalid.
+pub(super) fn metadata(
+    context: &DefinitionContext,
+    interface: HostInterface<DefinitionId>,
+) -> DefinitionMetadata<HostInterface<DefinitionId>> {
+    DefinitionMetadata::checked(context.snapshot(), interface, &Default::default()).unwrap()
 }

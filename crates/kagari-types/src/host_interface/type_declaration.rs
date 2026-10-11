@@ -1,13 +1,14 @@
 //! Portable member contracts. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
 use crate::host_interface::{
-    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, host_type_identity,
-    validate_host_type_identity_in, value_type::HostValueType, wire,
+    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle,
+    register_host_definition, validate_host_type_identity_in, value_type::HostValueType, wire,
 };
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment,
+    DefinitionKind, DefinitionPath,
+    map::DefinitionContext,
     reference::DefinitionReference,
-    table::{DefinitionId, DefinitionTable},
+    table::{DefinitionId, DefinitionTable, DefinitionTableError},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, iter};
@@ -55,11 +56,21 @@ pub struct HostFieldDeclaration<I = DefinitionPath> {
     pub documentation: String,
 }
 
-impl HostFieldDeclaration {
-    pub fn new(owner: &DefinitionPath, name: impl Into<String>, ty: HostValueType) -> Self {
+impl HostFieldDeclaration<DefinitionId> {
+    /// Registers a field under an owner in the same context.
+    /// Validation of access and value-type contracts occurs when the interface is published.
+    ///
+    /// # Errors
+    /// Returns foreign-owner, identity allocation or path-limit failures.
+    pub fn new(
+        context: &DefinitionContext,
+        owner: DefinitionId,
+        name: impl Into<String>,
+        ty: HostValueType<DefinitionId>,
+    ) -> Result<Self, DefinitionTableError> {
         let name = name.into();
-        Self {
-            id: member_id(owner, DefinitionKind::Field, &name),
+        Ok(Self {
+            id: context.intern_child(owner, DefinitionKind::Field, &name, 0)?,
             name,
             ty,
             readable: true,
@@ -67,7 +78,7 @@ impl HostFieldDeclaration {
             visibility: Visibility::Public,
             path_access: PathAccess::None,
             documentation: String::new(),
-        }
+        })
     }
 }
 
@@ -133,11 +144,13 @@ pub struct HostTraitImplementationDeclaration<I = DefinitionPath> {
     pub documentation: String,
 }
 
-impl HostTraitImplementationDeclaration {
+impl HostTraitImplementationDeclaration<DefinitionId> {
+    /// Assembles an implementation from identities in its publication context.
+    /// The enclosing Host interface validates member ownership and reference scope.
     pub fn new(
-        trait_id: DefinitionPath,
-        trait_arguments: Vec<HostValueType>,
-        methods: Vec<HostTraitMethodBinding>,
+        trait_id: DefinitionId,
+        trait_arguments: Vec<HostValueType<DefinitionId>>,
+        methods: Vec<HostTraitMethodBinding<DefinitionId>>,
     ) -> Self {
         Self {
             trait_id,
@@ -149,16 +162,22 @@ impl HostTraitImplementationDeclaration {
     }
 }
 
-impl HostMethodDeclaration {
+impl HostMethodDeclaration<DefinitionId> {
+    /// Registers a method under an owner in the same context.
+    /// Signature IDs retain their context; publication validates the complete contract.
+    ///
+    /// # Errors
+    /// Returns foreign-owner, identity allocation or path-limit failures.
     pub fn new(
-        owner: &DefinitionPath,
+        context: &DefinitionContext,
+        owner: DefinitionId,
         name: impl Into<String>,
-        params: Vec<HostParameter>,
-        return_type: HostValueType,
-    ) -> Self {
+        params: Vec<HostParameter<DefinitionId>>,
+        return_type: HostValueType<DefinitionId>,
+    ) -> Result<Self, DefinitionTableError> {
         let name = name.into();
-        Self {
-            id: member_id(owner, DefinitionKind::Method, &name),
+        Ok(Self {
+            id: context.intern_child(owner, DefinitionKind::Method, &name, 0)?,
             name,
             receiver: HostPassingStyle::SharedBorrow,
             params,
@@ -166,7 +185,7 @@ impl HostMethodDeclaration {
 
             effects: Default::default(),
             documentation: String::new(),
-        }
+        })
     }
 }
 
@@ -199,11 +218,19 @@ pub struct HostTypeDeclaration<I = DefinitionPath> {
     pub documentation: String,
 }
 
-impl HostTypeDeclaration {
-    pub fn new(symbol: impl Into<String>) -> Self {
+impl HostTypeDeclaration<DefinitionId> {
+    /// Registers a type in the explicit context's application Host namespace.
+    /// Fields, methods and interfaces are added using IDs from the same context.
+    ///
+    /// # Errors
+    /// Returns identity allocation or path-limit failures.
+    pub fn new(
+        context: &DefinitionContext,
+        symbol: impl Into<String>,
+    ) -> Result<Self, DefinitionTableError> {
         let symbol = symbol.into();
-        Self {
-            id: host_type_identity(&symbol),
+        Ok(Self {
+            id: register_host_definition(context, &symbol, DefinitionKind::Struct)?,
             symbol,
             ownership: HostTypeOwnership::Opaque,
             fields: Vec::new(),
@@ -212,7 +239,7 @@ impl HostTypeDeclaration {
             path_access: PathAccess::None,
             reflection: HostReflectionPolicy::Hidden,
             documentation: String::new(),
-        }
+        })
     }
 }
 
@@ -440,16 +467,6 @@ impl<I: DefinitionReference> HostTypeDeclaration<I> {
     }
 }
 
-fn member_id(owner: &DefinitionPath, kind: DefinitionKind, name: &str) -> DefinitionPath {
-    let mut id = owner.clone();
-    id.path.push(DefinitionPathSegment {
-        kind,
-        name: name.into(),
-        occurrence: 0,
-    });
-    id
-}
-
 fn validate_member(
     owner: &DefinitionId,
     id: &DefinitionId,
@@ -472,9 +489,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::host_interface::HostInterface;
+    use crate::host_interface::{HostInterface, host_type_identity};
     use kagari_common::identity::{
-        ModuleIdentity, PackageId, map::DefinitionContext, metadata::scope_record,
+        DefinitionPathSegment, ModuleIdentity, PackageId, map::DefinitionContext,
+        metadata::scope_record,
     };
 
     fn script_trait(name: &str) -> DefinitionPath {

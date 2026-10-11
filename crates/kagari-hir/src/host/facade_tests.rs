@@ -1,5 +1,5 @@
 use super::*;
-use crate::tests::test_analysis;
+use crate::{host::tests::metadata, tests::test_analysis};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
     identity::FileId,
@@ -22,6 +22,7 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 
 #[test]
 fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation() {
+    let context = DefinitionContext::new().unwrap();
     let mut sources = SourceDatabase::default();
     insert(
         &mut sources,
@@ -36,13 +37,16 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     let text = "use pkg::relay::call as invoke; use pkg::relay::service as api; use pkg::relay; fn main() -> i32 { invoke(api::echo(relay::call(relay::service::echo(1)))) }";
     let root = insert(&mut sources, "root", text);
     let mut db = test_analysis();
-    let declaration = super::tests::declaration();
+    let declaration = super::tests::declaration(&context);
     db.set_host_declarations(
-        HostDeclarations::new(HostInterface {
-            paths: vec![],
-            types: Vec::new(),
-            functions: vec![declaration.clone()],
-        })
+        HostDeclarations::new(metadata(
+            &context,
+            HostInterface {
+                paths: vec![],
+                types: Vec::new(),
+                functions: vec![declaration.clone()],
+            },
+        ))
         .unwrap(),
     );
 
@@ -69,7 +73,15 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
             )
             .unwrap()
             .id,
-            declaration.id
+            file.definitions()
+                .lookup(
+                    &context
+                        .snapshot()
+                        .resolve(declaration.id)
+                        .unwrap()
+                        .to_path()
+                )
+                .unwrap()
         );
     }
     let again = db
@@ -79,11 +91,14 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
     let mut changed = declaration;
     changed.return_type = HostValueType::String;
     db.set_host_declarations(
-        HostDeclarations::new(HostInterface {
-            paths: vec![],
-            types: Vec::new(),
-            functions: vec![changed],
-        })
+        HostDeclarations::new(metadata(
+            &context,
+            HostInterface {
+                paths: vec![],
+                types: Vec::new(),
+                functions: vec![changed],
+            },
+        ))
         .unwrap(),
     );
     let current = db
@@ -105,6 +120,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
 
 #[test]
 fn host_facades_do_not_override_local_shadowing_or_duplicate_export_errors() {
+    let context = DefinitionContext::new().unwrap();
     for facade in [
         "pub use demo::echo as invoke;",
         "pub use demo::echo as invoke; pub use demo::echo as invoke;",
@@ -115,11 +131,14 @@ fn host_facades_do_not_override_local_shadowing_or_duplicate_export_errors() {
         let root = insert(&mut sources, "root", text);
         let mut db = test_analysis();
         db.set_host_declarations(
-            HostDeclarations::new(HostInterface {
-                paths: vec![],
-                types: Vec::new(),
-                functions: vec![super::tests::declaration()],
-            })
+            HostDeclarations::new(metadata(
+                &context,
+                HostInterface {
+                    paths: vec![],
+                    types: Vec::new(),
+                    functions: vec![super::tests::declaration(&context)],
+                },
+            ))
             .unwrap(),
         );
         let snapshot = db

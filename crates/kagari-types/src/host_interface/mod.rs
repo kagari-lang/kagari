@@ -26,21 +26,40 @@ pub mod value_type;
 
 pub mod type_declaration;
 
-impl HostValueType {
-    pub fn opaque(symbol: &str) -> Self {
-        Self::Opaque(host_type_identity(symbol))
+/// Exact external query for a type in the application Host namespace.
+/// This creates no declaration; semantic consumers resolve it in their own table.
+pub fn host_type_identity(symbol: &str) -> DefinitionPath {
+    let (module, name) = host_namespace(symbol);
+    DefinitionPath {
+        module,
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Struct,
+            name,
+            occurrence: 0,
+        }],
     }
 }
 
-/// Default identity for a type in the application host namespace. Providers may
-/// supply their own package/module identity independently of the export label.
-pub fn host_type_identity(symbol: &str) -> DefinitionPath {
-    let mut id = HostFunctionDeclaration::new(symbol, Vec::new(), HostValueType::Unit).id;
-    id.path
-        .last_mut()
-        .expect("constructor creates declaration")
-        .kind = DefinitionKind::Struct;
-    id
+fn host_namespace(symbol: &str) -> (ModuleIdentity, String) {
+    let mut path = symbol.split('.').map(str::to_owned).collect::<Vec<_>>();
+    let name = path.pop().unwrap_or_default();
+    (
+        ModuleIdentity {
+            package: PackageId("host".into()),
+            path,
+        },
+        name,
+    )
+}
+
+fn register_host_definition(
+    context: &DefinitionContext,
+    symbol: &str,
+    kind: DefinitionKind,
+) -> Result<DefinitionId, DefinitionTableError> {
+    let (module, name) = host_namespace(symbol);
+    let root = context.intern_root(&module)?;
+    context.intern_child(root, kind, &name, 0)
 }
 
 pub fn validate_host_type_identity(id: &DefinitionPath) -> Result<(), HostInterfaceError> {
@@ -116,36 +135,31 @@ pub struct HostFunctionDeclaration<I = DefinitionPath> {
     pub documentation: String,
 }
 
-impl HostFunctionDeclaration {
-    /// The application host namespace is a logical package. Providers can replace
-    /// `id` with their own package/module declaration before publishing the interface.
+impl HostFunctionDeclaration<DefinitionId> {
+    /// Registers a function in the explicit context's application Host namespace.
+    ///
+    /// Parameter/result IDs must belong to this context before publishing the
+    /// interface. Construction allocates identity only; `validate` checks the
+    /// contract, and metadata sealing checks its reference scope. Providers may
+    /// replace `id` with another identity registered in the same context.
+    ///
+    /// # Errors
+    /// Returns identity allocation or path-limit failures.
     pub fn new(
+        context: &DefinitionContext,
         symbol: impl Into<String>,
-        params: Vec<HostParameter>,
-        return_type: HostValueType,
-    ) -> Self {
+        params: Vec<HostParameter<DefinitionId>>,
+        return_type: HostValueType<DefinitionId>,
+    ) -> Result<Self, DefinitionTableError> {
         let symbol = symbol.into();
-        let mut path = symbol.split('.').map(str::to_owned).collect::<Vec<_>>();
-        let name = path.pop().unwrap_or_default();
-        Self {
-            id: DefinitionPath {
-                module: ModuleIdentity {
-                    package: PackageId("host".into()),
-                    path,
-                },
-                path: vec![DefinitionPathSegment {
-                    kind: DefinitionKind::Function,
-                    name,
-                    occurrence: 0,
-                }],
-            },
+        Ok(Self {
+            id: register_host_definition(context, &symbol, DefinitionKind::Function)?,
             symbol,
             params,
             return_type,
-
             effects: Default::default(),
             documentation: String::new(),
-        }
+        })
     }
 }
 
@@ -406,27 +420,23 @@ pub fn standard_log()
     > = OnceLock::new();
     LOG.get_or_init(|| {
         let context = DefinitionContext::new()?;
-        let root = context.intern_root(&ModuleIdentity {
-            package: PackageId("host".into()),
-            path: vec!["host".into()],
-        })?;
-        let declaration = HostFunctionDeclaration {
-            id: context.intern_child(root, DefinitionKind::Function, "log", 0)?,
-            symbol: "host.log".into(),
-            params: vec![HostParameter {
+        let mut declaration = HostFunctionDeclaration::new(
+            &context,
+            "host.log",
+            vec![HostParameter {
                 name: "message".into(),
                 ty: HostValueType::String,
                 passing: HostPassingStyle::SharedBorrow,
             }],
-            return_type: HostValueType::Unit,
-            effects: HostFunctionEffects {
-                may_trap: true,
-                may_call_host_services: true,
-                may_mutate_host_state: true,
-                ..Default::default()
-            },
-            documentation: "Write a message to the host log.".into(),
+            HostValueType::Unit,
+        )?;
+        declaration.effects = HostFunctionEffects {
+            may_trap: true,
+            may_call_host_services: true,
+            may_mutate_host_state: true,
+            ..Default::default()
         };
+        declaration.documentation = "Write a message to the host log.".into();
         DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
     })
     .clone()

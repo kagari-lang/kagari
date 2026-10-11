@@ -1,11 +1,15 @@
 use super::*;
 use crate::{
     callable::CallableSignature,
-    host::{HostDeclarations, tests::declaration},
+    host::{
+        HostDeclarations,
+        tests::{declaration, metadata},
+    },
     native::NativeBinding,
     tests::test_analysis,
     typeck::FunctionImplementation,
 };
+use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::host_interface::{
     type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
@@ -18,6 +22,7 @@ fn location(uri: &str) -> HostSourceLocation {
 
 #[test]
 fn origins_are_optional_and_lexically_checked_without_opening_documents() {
+    let context = DefinitionContext::new().unwrap();
     for (uri, range) in [
         ("", Span::new(0, 1)),
         ("relative.rs", Span::new(0, 1)),
@@ -41,11 +46,14 @@ fn origins_are_optional_and_lexically_checked_without_opening_documents() {
     assert_eq!(origin.rust, Some(rust));
     assert_eq!(declaration_location.range(), Span::new(3, 7));
 
-    let declaration = declaration();
-    let hosts = HostDeclarations::new(HostInterface {
-        functions: vec![declaration.clone()],
-        ..Default::default()
-    })
+    let declaration = declaration(&context);
+    let hosts = HostDeclarations::new(metadata(
+        &context,
+        HostInterface {
+            functions: vec![declaration.clone()],
+            ..Default::default()
+        },
+    ))
     .unwrap();
     assert!(hosts.origin(&declaration.id).is_none());
     assert!(
@@ -59,26 +67,25 @@ fn origins_are_optional_and_lexically_checked_without_opening_documents() {
 
 #[test]
 fn installation_checks_origin_identities_including_expanded_methods() {
-    let mut owner = HostTypeDeclaration::new("demo.Counter");
-    owner.fields.push(HostFieldDeclaration::new(
-        &owner.id,
-        "value",
-        HostValueType::I32,
-    ));
-    owner.methods.push(HostMethodDeclaration::new(
-        &owner.id,
-        "read",
-        vec![],
-        HostValueType::I32,
-    ));
+    let context = DefinitionContext::new().unwrap();
+    let mut owner = HostTypeDeclaration::new(&context, "demo.Counter").unwrap();
+    owner
+        .fields
+        .push(HostFieldDeclaration::new(&context, owner.id, "value", HostValueType::I32).unwrap());
+    owner.methods.push(
+        HostMethodDeclaration::new(&context, owner.id, "read", vec![], HostValueType::I32).unwrap(),
+    );
     let origin = HostDeclarationOrigin {
         declaration: Some(location("kagari-host://declarations/counter.kgr")),
         rust: None,
     };
-    let mut input = HostInput::from(HostInterface {
-        types: vec![owner.clone()],
-        ..Default::default()
-    });
+    let mut input = HostInput::from(metadata(
+        &context,
+        HostInterface {
+            types: vec![owner.clone()],
+            ..Default::default()
+        },
+    ));
     for id in [&owner.id, &owner.fields[0].id, &owner.methods[0].id] {
         input.origins.insert(id.clone(), origin.clone());
     }
@@ -92,13 +99,16 @@ fn installation_checks_origin_identities_including_expanded_methods() {
     assert_eq!(method.origin(), Some(&origin));
     assert_eq!(method.contract().id, owner.methods[0].id);
 
-    input.origins.insert(declaration().id, origin);
+    input.origins.insert(declaration(&context).id, origin);
     assert!(HostDeclarations::new(input).is_err());
     let input = HostInput {
-        interface: HostInterface {
-            types: vec![owner.clone()],
-            ..Default::default()
-        },
+        interface: metadata(
+            &context,
+            HostInterface {
+                types: vec![owner.clone()],
+                ..Default::default()
+            },
+        ),
         origins: HashMap::from([(owner.id, HostDeclarationOrigin::default())]),
     };
     assert!(HostDeclarations::new(input).is_err());
@@ -106,16 +116,20 @@ fn installation_checks_origin_identities_including_expanded_methods() {
 
 #[test]
 fn origin_changes_are_snapshot_owned_and_never_change_native_authority() {
-    let declaration = declaration();
+    let context = DefinitionContext::new().unwrap();
+    let declaration = declaration(&context);
     let origin = HostDeclarationOrigin {
         declaration: Some(location("kagari://std/math.kgr")),
         rust: Some(location("file:///provider.rs")),
     };
     let mut input = HostInput {
-        interface: HostInterface {
-            functions: vec![declaration.clone()],
-            ..Default::default()
-        },
+        interface: metadata(
+            &context,
+            HostInterface {
+                functions: vec![declaration.clone()],
+                ..Default::default()
+            },
+        ),
         origins: HashMap::from([(declaration.id.clone(), origin.clone())]),
     };
     let old = HostDeclarations::new(input.clone()).unwrap();

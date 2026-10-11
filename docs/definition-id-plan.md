@@ -1632,3 +1632,71 @@ Host construction at its shared owner, the common type-checking helper's retaine
 scope/registration lifecycle, BindingId visitor/remapping, remaining snapshot audits,
 SI04 integration and SI05/SI06 representation removal/documentation cleanup remain
 required. The reduced diagnostic count is not behavioral acceptance.
+
+### SI02/SI03 explicit Host construction context
+
+Replaced the shared Host function/type/field/method constructors at their actual
+owner with fixed-ID constructors accepting an explicit DefinitionContext. Function
+and type roots use one Host namespace splitter and register children directly;
+fields and methods register under the supplied owner ID, rejecting a foreign owner
+through the ordinary table writer. Allocation/path failures are returned. Trait
+implementation assembly now accepts scoped IDs and scoped signature records.
+Removed the path-producing `HostValueType::opaque(symbol)` shortcut and the private
+path-valued member factory. Callers construct `Opaque` from their registered type
+ID. `host_type_identity` remains an exact external query builder, not a declaration
+constructor. `standard_log` now uses the same scoped function constructor while
+retaining its immutable metadata scope, signature, effects and canonical identity.
+No compatibility overload or global context was introduced.
+
+Construction still allocates identity rather than granting validation evidence.
+Signature IDs are checked by metadata sealing; complete Host contracts, symbol
+validity, member ownership/access and codec validation remain with their existing
+owners. The focused construction case verifies foreign-parent rejection, immutable
+prefixes, method self ownership, invalid-symbol validation and rejection of foreign
+signature references. Host metadata integration fixtures now retain scoped inputs,
+compare imported/decoded records in a common explicit context and validate decoded
+contracts directly, eliminating their path-record projections. Canonical portable
+bytes, cancellation, foreign references, out-of-range wire references and retained
+ownership assertions remain covered.
+
+Migrated the HIR Host input, origin and facade test owners to the shared constructors
+and table-retaining metadata. Their source-navigation assertions resolve Host IDs in
+the analysis snapshot after adoption; revision-qualified callable/type slots and
+old-snapshot assertions are unchanged. The test-only metadata helper only seals IDs;
+it deliberately leaves semantic validation to HostDeclarations so malformed input
+fixtures still exercise their original rejection boundary.
+
+Validation and carried migration errors:
+
+- `cargo check -p kagari-hir --lib --message-format=short` passes after replacing the
+  shared constructors. Production Types/HIR remain buildable.
+- `cargo test -p kagari-types --test host_identity --test host_metadata --no-fail-fast`:
+  six cases pass. After consolidating standard_log construction, its exact
+  `standard_log_retains_scoped_contract_and_canonical_binding_after_adoption` case
+  passes again. Other unaffected cases were not rerun for a new transcript.
+- `cargo clippy -p kagari-types --lib --test host_identity --test host_metadata --
+  -D warnings` passes; the final production-only Clippy also passes after the
+  standard_log consolidation.
+- `cargo test -p kagari-hir --lib
+  host::tests::snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change
+  --message-format=short -- --exact` cannot build the lib-test target: 141 errors,
+  no warnings. Its selected test has not executed. The changed Host input/origin/
+  facade modules have no reported compiler errors. The remaining Host type,
+  callable/import and common source fixtures still contain old constructor/input
+  APIs, alongside the previously recorded SI03 failures.
+- `cargo test -p kagari-types --lib
+  scoped_host_signatures_reject_foreign_and_wrong_constructor_identities
+  --message-format=short` cannot build the lib-test target: 162 errors, no warnings.
+  Its selected case has not executed. The shared Host path/member/value fixtures
+  and scoped_tests still use removed path constructors, raw path-shaped expected
+  records and the test_support projection helpers. Migrate these at the same Host
+  contract owners; do not restore compatibility constructors or duplicate semantic
+  factories. SI03 owns fixture recovery, coupled with SI06 removal of the remaining
+  representation-generic mapping/test helpers. Downstream compiler/runtime/embedding
+  fixture and example callers must also migrate in their existing owning phases.
+
+Structure passes 1055 Rust files with zero violations or documented exceptions;
+formatting and diff checks pass. Reviewed production imports, constructor ownership,
+fallible allocation, metadata/semantic validation separation and preserved contract
+checks. No ABI identifier bump, workspace test sweep or backend matrix was run.
+The remaining unit-target failures and SI04-SI06 work prevent plan acceptance.

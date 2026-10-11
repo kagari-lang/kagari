@@ -4,35 +4,40 @@ use kagari_common::{
     identity::{
         map::DefinitionContext,
         mapping::DefinitionMappingError,
-        metadata::{DefinitionMetadata, PortableMetadata, scope_record},
+        metadata::{DefinitionMetadata, PortableMetadata},
         table::{
-            DefinitionTableError,
+            DefinitionId, DefinitionTableError,
             wire::{PortableDefinitionRef, PortableDefinitionTable},
         },
     },
 };
 use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-    value_type::HostValueType,
+    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter, HostPassingStyle,
+    type_declaration::HostTypeDeclaration, value_type::HostValueType,
 };
 use serde::Serialize;
 
-fn interface() -> HostInterface {
-    HostInterface {
-        functions: vec![HostFunctionDeclaration::new(
-            "game.exchange",
-            vec![HostParameter {
-                name: "player".into(),
-                ty: HostValueType::opaque("game.Player"),
-                passing: HostPassingStyle::Owned,
-            }],
-            HostValueType::Tuple(vec![
-                HostValueType::opaque("game.Player"),
-                HostValueType::I32,
-            ]),
-        )],
+fn interface() -> DefinitionMetadata<HostInterface<DefinitionId>> {
+    let context = DefinitionContext::new().unwrap();
+    let player = HostTypeDeclaration::new(&context, "game.Player").unwrap();
+    let function = HostFunctionDeclaration::new(
+        &context,
+        "game.exchange",
+        vec![HostParameter {
+            name: "player".into(),
+            ty: HostValueType::Opaque(player.id),
+            passing: HostPassingStyle::Owned,
+        }],
+        HostValueType::Tuple(vec![HostValueType::Opaque(player.id), HostValueType::I32]),
+    )
+    .unwrap();
+    let interface = HostInterface {
+        types: vec![player],
+        functions: vec![function],
         ..Default::default()
-    }
+    };
+    interface.validate(&context.snapshot()).unwrap();
+    DefinitionMetadata::checked(context.snapshot(), interface, &Default::default()).unwrap()
 }
 
 fn bytes<T: Serialize>(value: &T) -> Vec<u8> {
@@ -46,14 +51,11 @@ fn bytes<T: Serialize>(value: &T) -> Vec<u8> {
 #[test]
 fn record_roundtrip_preserves_contracts_and_imports_without_cross_scope_capture() {
     let cancel = CancellationToken::default();
-    let authoring = interface();
-    let scoped = scope_record(&authoring, &cancel).unwrap();
+    let scoped = interface();
     let original_id = scoped.records().functions[0].id;
-    assert_eq!(scoped.to_paths(&cancel).unwrap(), authoring);
 
     let context = DefinitionContext::new().unwrap();
-    let unrelated = HostFunctionDeclaration::new("other.first", vec![], HostValueType::Unit).id;
-    context.intern(&unrelated).unwrap();
+    HostFunctionDeclaration::new(&context, "other.first", vec![], HostValueType::Unit).unwrap();
     let imported = scoped.import_into(&context, &cancel).unwrap();
     assert_ne!(original_id, imported.records().functions[0].id);
     assert!(matches!(
@@ -62,7 +64,7 @@ fn record_roundtrip_preserves_contracts_and_imports_without_cross_scope_capture(
             .resolve(imported.records().functions[0].id),
         Err(DefinitionTableError::ForeignTable)
     ));
-    assert_eq!(imported.to_paths(&cancel).unwrap(), authoring);
+    imported.records().validate(imported.definitions()).unwrap();
     assert_eq!(
         imported.records(),
         scoped.import_into(&context, &cancel).unwrap().records()
@@ -81,16 +83,19 @@ fn record_roundtrip_preserves_contracts_and_imports_without_cross_scope_capture(
         .unwrap();
     let decoded = portable.decode(&cancel).unwrap();
     assert_ne!(original_id, decoded.records().functions[0].id);
-    assert_eq!(decoded.to_paths(&cancel).unwrap(), authoring);
+    assert_eq!(
+        decoded.import_into(&context, &cancel).unwrap().records(),
+        imported.records()
+    );
     drop(context);
-    assert_eq!(imported.to_paths(&cancel).unwrap(), authoring);
+    imported.records().validate(imported.definitions()).unwrap();
 }
 
 #[test]
 fn foreign_records_and_out_of_range_portable_references_are_rejected() {
     let cancel = CancellationToken::default();
-    let scoped = scope_record(&interface(), &cancel).unwrap();
-    let other = scope_record(&interface(), &cancel).unwrap();
+    let scoped = interface();
+    let other = interface();
     assert!(matches!(
         DefinitionMetadata::checked(scoped.definitions().clone(), other.into_records(), &cancel),
         Err(DefinitionMappingError::Identity(
@@ -114,20 +119,20 @@ fn foreign_records_and_out_of_range_portable_references_are_rejected() {
 #[test]
 fn resolved_host_types_still_validate_identity_kind_and_mapping_observes_cancellation() {
     let cancel = CancellationToken::default();
-    let scoped = scope_record(&interface(), &cancel).unwrap();
+    let scoped = interface();
     let portable = scoped.to_portable(&cancel).unwrap();
     let portable = mutate_records(&portable, |records| {
         records.functions[0].return_type = HostValueType::Opaque(records.functions[0].id);
     });
     let decoded = portable.decode(&cancel).unwrap();
     assert!(matches!(
-        decoded.to_paths(&cancel),
-        Err(DefinitionMappingError::InvalidContract)
+        decoded.records().validate(decoded.definitions()),
+        Err(HostInterfaceError::InvalidDeclaration)
     ));
 
     cancel.cancel();
     assert!(matches!(
-        scope_record(&interface(), &cancel),
+        scoped.import_into(&DefinitionContext::new().unwrap(), &cancel),
         Err(DefinitionMappingError::Cancelled)
     ));
     assert!(matches!(

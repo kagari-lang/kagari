@@ -5,10 +5,92 @@ use kagari_common::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
         map::{DefinitionContext, DefinitionMap},
         mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTableError},
     },
 };
-use kagari_types::host_interface::{HostPassingStyle, standard_log, value_type::HostValueType};
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostPassingStyle,
+    host_type_identity, standard_log,
+    type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
+    value_type::HostValueType,
+};
+
+#[test]
+fn host_construction_owns_members_and_preserves_publication_validation() {
+    let context = DefinitionContext::new().unwrap();
+    let mut owner = HostTypeDeclaration::new(&context, "game.Player").unwrap();
+    let old_prefix = context.snapshot();
+    let field = HostFieldDeclaration::new(&context, owner.id, "score", HostValueType::I32).unwrap();
+    let method =
+        HostMethodDeclaration::new(&context, owner.id, "read", vec![], HostValueType::I32).unwrap();
+    assert!(old_prefix.resolve(field.id).is_err());
+    assert_eq!(context.snapshot().parent(field.id).unwrap(), Some(owner.id));
+    assert_eq!(
+        context.lookup(&host_type_identity("game.Player")),
+        Some(owner.id)
+    );
+    let foreign = DefinitionContext::new().unwrap();
+    assert_eq!(
+        HostFieldDeclaration::new(&foreign, owner.id, "score", HostValueType::I32),
+        Err(DefinitionTableError::ForeignTable)
+    );
+    assert_eq!(
+        HostMethodDeclaration::new(&foreign, owner.id, "read", vec![], HostValueType::I32),
+        Err(DefinitionTableError::ForeignTable)
+    );
+    owner.fields.push(field);
+    owner.methods.push(method);
+    let make = HostFunctionDeclaration::new(
+        &context,
+        "game.make",
+        vec![],
+        HostValueType::Opaque(owner.id),
+    )
+    .unwrap();
+    let interface = HostInterface {
+        types: vec![owner],
+        functions: vec![make],
+        ..Default::default()
+    };
+    let metadata =
+        DefinitionMetadata::checked(context.snapshot(), interface, &Default::default()).unwrap();
+    metadata.records().validate(metadata.definitions()).unwrap();
+    let callable = metadata.records().types[0]
+        .method_contract(
+            &metadata.records().types[0].methods[0].id,
+            metadata.definitions(),
+        )
+        .unwrap();
+    callable.validate(metadata.definitions()).unwrap();
+    assert_eq!(
+        callable.params[0].ty,
+        HostValueType::Opaque(metadata.records().types[0].id)
+    );
+
+    // Identity construction does not turn invalid symbols or foreign signature
+    // references into verified Host contracts.
+    let invalid =
+        HostFunctionDeclaration::new(&context, "game..bad", vec![], HostValueType::Unit).unwrap();
+    assert_eq!(
+        invalid.validate(&context.snapshot()),
+        Err(HostInterfaceError::InvalidDeclaration)
+    );
+    let foreign_owner = HostTypeDeclaration::new(&foreign, "game.Player").unwrap();
+    let invalid = HostFunctionDeclaration::new(
+        &context,
+        "game.foreign",
+        vec![],
+        HostValueType::Opaque(foreign_owner.id),
+    )
+    .unwrap();
+    assert!(matches!(
+        DefinitionMetadata::checked(context.snapshot(), invalid, &Default::default()),
+        Err(DefinitionMappingError::Identity(
+            DefinitionTableError::ForeignTable
+        ))
+    ));
+}
 
 #[test]
 fn standard_log_retains_scoped_contract_and_canonical_binding_after_adoption() {
