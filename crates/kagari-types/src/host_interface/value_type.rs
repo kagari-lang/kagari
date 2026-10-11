@@ -1,7 +1,6 @@
 //! Composite declarations use bounded, flat preorder encoding on the wire.
 use super::HostInterfaceError;
-use crate::{collection::CollectionAccess, language::binding};
-use bincode::Options;
+use crate::{collection::CollectionAccess, host_interface::wire, language::binding};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath,
     reference::DefinitionReference,
@@ -375,19 +374,21 @@ impl HostValueType {
             error: Box::new(error),
         }
     }
+}
 
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        let bytes = super::codec()
-            .serialize(self)
-            .map_err(|_| HostInterfaceError::Encoding)?;
-        Ok(super::hash(
-            b"kagari-host-value-v1\0".iter().copied().chain(bytes),
-        ))
+impl HostValueType<DefinitionId> {
+    pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
+        self.validate_in(definitions)?;
+        wire::fingerprint(b"kagari-host-value-v1\0", self, definitions)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::host_interface::test_support::{
+        FingerprintFixture, InterfaceFixture, ValidateFixture, decode_fixture,
+    };
+
     use super::*;
     use crate::host_interface::{HostFunctionDeclaration, HostInterface};
 
@@ -440,23 +441,23 @@ mod tests {
         ] {
             let before = HostFunctionDeclaration::new("host.read", vec![], writable.clone());
             let after = HostFunctionDeclaration::new("host.read", vec![], readable.clone());
-            assert_ne!(before.fingerprint().unwrap(), after.fingerprint().unwrap());
+            assert_ne!(
+                before.fingerprint_fixture().unwrap(),
+                after.fingerprint_fixture().unwrap()
+            );
             assert!(!before.matches_binding(&after));
             assert_ne!(
-                writable.fingerprint().unwrap(),
-                readable.fingerprint().unwrap()
+                writable.fingerprint_fixture().unwrap(),
+                readable.fingerprint_fixture().unwrap()
             );
             for ty in [writable, readable] {
                 let bytes = bincode::serialize(&ty).unwrap();
                 assert_eq!(bincode::deserialize::<HostValueType>(&bytes).unwrap(), ty);
             }
         }
-        let mut legacy = HostInterface::default().to_bytes().unwrap();
+        let mut legacy = HostInterface::default().encode_fixture().unwrap();
         legacy[4..6].copy_from_slice(&11u16.to_le_bytes());
-        assert_eq!(
-            HostInterface::from_bytes(&legacy),
-            Err(HostInterfaceError::Version)
-        );
+        assert_eq!(decode_fixture(&legacy), Err(HostInterfaceError::Version));
     }
 
     #[test]
@@ -482,15 +483,15 @@ mod tests {
             types: Vec::new(),
             functions: vec![a.clone()],
         };
-        let mut bytes = interface.to_bytes().unwrap();
-        assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), interface);
+        let mut bytes = interface.encode_fixture().unwrap();
+        assert_eq!(decode_fixture(&bytes).unwrap(), interface);
         let b = HostFunctionDeclaration::new("host.make", vec![], HostValueType::I32);
-        assert_ne!(a.fingerprint().unwrap(), b.fingerprint().unwrap());
-        bytes[4..6].copy_from_slice(&1u16.to_le_bytes());
-        assert_eq!(
-            HostInterface::from_bytes(&bytes),
-            Err(HostInterfaceError::Version)
+        assert_ne!(
+            a.fingerprint_fixture().unwrap(),
+            b.fingerprint_fixture().unwrap()
         );
+        bytes[4..6].copy_from_slice(&1u16.to_le_bytes());
+        assert_eq!(decode_fixture(&bytes), Err(HostInterfaceError::Version));
     }
 
     #[test]
@@ -515,10 +516,14 @@ mod tests {
         }
         let bytes = bincode::serialize(&ty).unwrap();
         assert_eq!(bincode::deserialize::<HostValueType>(&bytes).unwrap(), ty);
-        assert!(HostValueType::Array(Box::new(ty)).validate().is_err());
+        assert!(
+            HostValueType::Array(Box::new(ty))
+                .validate_fixture()
+                .is_err()
+        );
         assert!(
             HostValueType::Tuple(vec![HostValueType::<DefinitionPath>::I32; MAX_NODES])
-                .validate()
+                .validate_fixture()
                 .is_err()
         );
     }

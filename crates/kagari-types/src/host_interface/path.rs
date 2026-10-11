@@ -5,10 +5,13 @@ use crate::host_interface::{
     type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     value_type::HostValueType,
 };
-use kagari_common::identity::reference::DefinitionReference;
+use kagari_common::identity::{
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
+};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
@@ -21,16 +24,17 @@ pub struct HostPathDeclaration<I = DefinitionPath> {
     pub schema_epoch: u64,
 }
 
-impl HostPathDeclaration {
+impl HostPathDeclaration<DefinitionId> {
     pub fn contract(
         &self,
-        interface: &HostInterface,
-    ) -> Result<HostPathContract, HostInterfaceError> {
-        interface.path_contract(self)
+        interface: &HostInterface<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> Result<HostPathContract<DefinitionId>, HostInterfaceError> {
+        interface.path_contract(self, definitions)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
@@ -43,7 +47,7 @@ pub enum HostPathSegmentDeclaration<I = DefinitionPath> {
 
 /// Portable contract for one dynamic index step; runtime type slots are resolved
 /// only when a host binds the declaration.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
@@ -56,8 +60,8 @@ pub struct HostIndexSegmentDeclaration<I = DefinitionPath> {
     pub access: PathAccess,
 }
 
-impl HostIndexSegmentDeclaration {
-    pub fn validate(&self) -> Result<(), HostInterfaceError> {
+impl HostIndexSegmentDeclaration<DefinitionId> {
+    pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
         if self.slot >= 4096
             || self.access == PathAccess::None
             || (matches!(self.access, PathAccess::ReadWrite)
@@ -65,14 +69,14 @@ impl HostIndexSegmentDeclaration {
         {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
-        self.collection.validate()?;
-        self.index.validate()?;
-        self.result.validate()
+        self.collection.validate_in(definitions)?;
+        self.index.validate_in(definitions)?;
+        self.result.validate_in(definitions)
     }
 }
 
 /// Portable contract for a host-defined virtual step.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
@@ -83,12 +87,12 @@ pub struct HostVirtualSegmentDeclaration<I = DefinitionPath> {
     pub access: PathAccess,
 }
 
-impl HostVirtualSegmentDeclaration {
-    pub fn validate(&self) -> Result<(), HostInterfaceError> {
+impl HostVirtualSegmentDeclaration<DefinitionId> {
+    pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
         if self.name.is_empty() || self.name.len() > 4096 || self.access == PathAccess::None {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
-        self.result.validate()
+        self.result.validate_in(definitions)
     }
 }
 
@@ -125,8 +129,8 @@ pub struct HostPathContract<I = DefinitionPath> {
     pub segments: Vec<HostPathSegmentContract<I>>,
 }
 
-impl HostPathContract {
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
+impl HostPathContract<DefinitionId> {
+    pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
         if self.segments.is_empty()
             || self.access == PathAccess::None
             || self
@@ -138,7 +142,7 @@ impl HostPathContract {
         }
         let mut encoded = Fingerprint::new();
         encoded.number(self.root_fingerprint);
-        encoded.number(self.result.fingerprint()?);
+        encoded.number(self.result.fingerprint(definitions)?);
         encoded.number(self.schema_epoch);
         encoded.access(self.access);
 
@@ -150,7 +154,7 @@ impl HostPathContract {
             match &segment.input {
                 HostPathInput::Field { owner } => {
                     encoded.bytes(&[0]);
-                    encoded.number(owner.fingerprint()?);
+                    encoded.number(owner.fingerprint(definitions)?);
                 }
                 HostPathInput::Index {
                     slot,
@@ -164,8 +168,8 @@ impl HostPathContract {
                     }
                     encoded.bytes(&[1]);
                     encoded.number(*slot);
-                    encoded.number(collection.fingerprint()?);
-                    encoded.number(index.fingerprint()?);
+                    encoded.number(collection.fingerprint(definitions)?);
+                    encoded.number(index.fingerprint(definitions)?);
                 }
                 HostPathInput::Virtual { name } => {
                     encoded.bytes(&[2]);
@@ -173,7 +177,7 @@ impl HostPathContract {
                     encoded.bytes(name.as_bytes());
                 }
             }
-            encoded.number(segment.result.fingerprint()?);
+            encoded.number(segment.result.fingerprint(definitions)?);
             encoded.access(segment.access);
             encoded.number(segment.member_fingerprint);
         }
@@ -181,20 +185,22 @@ impl HostPathContract {
     }
 }
 
-impl HostInterface {
+impl HostInterface<DefinitionId> {
     /// Resolve the complete path without invoking runtime bindings.
     pub fn path_contract(
         &self,
-        declaration: &HostPathDeclaration,
-    ) -> Result<HostPathContract, HostInterfaceError> {
-        self.validate()?;
-        self.resolve_path(declaration)
+        declaration: &HostPathDeclaration<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> Result<HostPathContract<DefinitionId>, HostInterfaceError> {
+        self.validate(definitions)?;
+        self.resolve_path(declaration, definitions)
     }
 
     pub(super) fn resolve_path(
         &self,
-        declaration: &HostPathDeclaration,
-    ) -> Result<HostPathContract, HostInterfaceError> {
+        declaration: &HostPathDeclaration<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> Result<HostPathContract<DefinitionId>, HostInterfaceError> {
         if declaration.segments.len() > 256 {
             return Err(HostInterfaceError::TooLarge);
         }
@@ -210,9 +216,9 @@ impl HostInterface {
         {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
-        let mut current = HostValueType::Opaque(root.id.clone());
+        let mut current = HostValueType::Opaque(root.id);
         let mut segments = Vec::with_capacity(declaration.segments.len());
-        let mut dynamic_parameters = BTreeMap::<u32, HostValueType>::new();
+        let mut dynamic_parameters = BTreeMap::<u32, HostValueType<DefinitionId>>::new();
         for step in &declaration.segments {
             let resolved = match step {
                 HostPathSegmentDeclaration::Field(field_id) => {
@@ -240,11 +246,11 @@ impl HostInterface {
                         },
                         result: field.ty.clone(),
                         access: field.path_access,
-                        member_fingerprint: field.fingerprint()?,
+                        member_fingerprint: field.fingerprint(definitions)?,
                     }
                 }
                 HostPathSegmentDeclaration::Index(index) => {
-                    index.validate()?;
+                    index.validate(definitions)?;
                     if dynamic_parameters
                         .insert(index.slot, index.index.clone())
                         .is_some_and(|existing| existing != index.index)
@@ -273,7 +279,7 @@ impl HostInterface {
                     }
                 }
                 HostPathSegmentDeclaration::Virtual(virtual_step) => {
-                    virtual_step.validate()?;
+                    virtual_step.validate(definitions)?;
                     if !allows(virtual_step.access, declaration.access) {
                         return Err(HostInterfaceError::InvalidDeclaration);
                     }
@@ -304,7 +310,7 @@ impl HostInterface {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
         Ok(HostPathContract {
-            root_fingerprint: root.fingerprint()?,
+            root_fingerprint: root.fingerprint(definitions)?,
             result: current,
             schema_epoch: declaration.schema_epoch,
             access: declaration.access,
@@ -353,7 +359,7 @@ impl Fingerprint {
     }
 }
 
-fn read_only_collection(ty: &HostValueType) -> bool {
+fn read_only_collection(ty: &HostValueType<DefinitionId>) -> bool {
     matches!(
         ty,
         HostValueType::List(..)
@@ -367,6 +373,10 @@ fn read_only_collection(ty: &HostValueType) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::host_interface::test_support::{
+        FingerprintFixture, InterfaceFixture, PathFixture, ValidateFixture, decode_fixture,
+    };
+
     use kagari_common::identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     };
@@ -390,12 +400,12 @@ mod tests {
             result: super::HostValueType::I32,
             access: super::PathAccess::ReadWrite,
         };
-        assert!(index.validate().is_err());
+        assert!(index.validate_fixture().is_err());
         index.access = super::PathAccess::ReadOnly;
-        index.validate().unwrap();
+        index.validate_fixture().unwrap();
         index.collection = super::HostValueType::Array(Box::new(super::HostValueType::I32));
         index.access = super::PathAccess::ReadWrite;
-        index.validate().unwrap();
+        index.validate_fixture().unwrap();
     }
 
     use super::*;
@@ -436,25 +446,25 @@ mod tests {
             functions: vec![],
             paths: vec![declaration.clone()],
         };
-        let bytes = interface.to_bytes().unwrap();
-        let decoded = HostInterface::from_bytes(&bytes).unwrap();
+        let bytes = interface.encode_fixture().unwrap();
+        let decoded = decode_fixture(&bytes).unwrap();
         assert_eq!(decoded, interface);
         assert_eq!(
             declaration
-                .contract(&interface)
+                .contract_fixture(&interface)
                 .unwrap()
-                .fingerprint()
+                .fingerprint_fixture()
                 .unwrap(),
             decoded.paths[0]
-                .contract(&decoded)
+                .contract_fixture(&decoded)
                 .unwrap()
-                .fingerprint()
+                .fingerprint_fixture()
                 .unwrap()
         );
         let mut old = bytes.clone();
         old[4..6].copy_from_slice(&6u16.to_le_bytes());
         assert!(matches!(
-            HostInterface::from_bytes(&old),
+            decode_fixture(&old),
             Err(HostInterfaceError::Version)
         ));
 
@@ -465,7 +475,7 @@ mod tests {
             panic!("expected index segment");
         }
         assert_eq!(
-            broken.validate(),
+            broken.validate_fixture(),
             Err(HostInterfaceError::InvalidDeclaration)
         );
         if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
@@ -473,7 +483,7 @@ mod tests {
             index.index = HostValueType::opaque("game.Missing");
         }
         assert_eq!(
-            broken.validate(),
+            broken.validate_fixture(),
             Err(HostInterfaceError::InvalidDeclaration)
         );
         if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
@@ -481,7 +491,7 @@ mod tests {
             index.slot = 1;
         }
         assert_eq!(
-            broken.validate(),
+            broken.validate_fixture(),
             Err(HostInterfaceError::InvalidDeclaration)
         );
     }
@@ -515,40 +525,43 @@ mod tests {
             access: PathAccess::ReadOnly,
             schema_epoch: 7,
         };
-        let contract = declaration.contract(&catalog).unwrap();
+        let contract = declaration.contract_fixture(&catalog).unwrap();
         let mut published = catalog.clone();
         let mut next_schema = declaration.clone();
         next_schema.schema_epoch = 8;
         published.paths = vec![declaration.clone(), next_schema];
-        let encoded = published.to_bytes().unwrap();
+        let encoded = published.encode_fixture().unwrap();
         published.paths.reverse();
-        assert_eq!(encoded, published.to_bytes().unwrap());
-        let decoded_paths = HostInterface::from_bytes(&encoded).unwrap();
+        assert_eq!(encoded, published.encode_fixture().unwrap());
+        let decoded_paths = decode_fixture(&encoded).unwrap();
         assert_eq!(decoded_paths.paths.len(), 2);
         assert!(
             decoded_paths
                 .paths
                 .iter()
-                .all(|path| path.contract(&decoded_paths).is_ok())
+                .all(|path| path.contract_fixture(&decoded_paths).is_ok())
         );
         published.paths.push(declaration.clone());
         assert_eq!(
-            published.validate(),
+            published.validate_fixture(),
             Err(HostInterfaceError::DuplicateDeclaration)
         );
         published.paths = vec![declaration.clone()];
         published.paths[0].segments =
             vec![HostPathSegmentDeclaration::Field(count.id.clone()); 257];
-        assert_eq!(published.validate(), Err(HostInterfaceError::TooLarge));
+        assert_eq!(
+            published.validate_fixture(),
+            Err(HostInterfaceError::TooLarge)
+        );
         assert_eq!(contract.result, HostValueType::I32);
         assert_eq!(contract.segments.len(), 2);
-        let decoded = HostInterface::from_bytes(&catalog.to_bytes().unwrap()).unwrap();
+        let decoded = decode_fixture(&catalog.encode_fixture().unwrap()).unwrap();
         assert_eq!(
-            contract.fingerprint().unwrap(),
+            contract.fingerprint_fixture().unwrap(),
             declaration
-                .contract(&decoded)
+                .contract_fixture(&decoded)
                 .unwrap()
-                .fingerprint()
+                .fingerprint_fixture()
                 .unwrap()
         );
         for invalid in [
@@ -559,7 +572,7 @@ mod tests {
         ] {
             assert!(
                 catalog
-                    .path_contract(&HostPathDeclaration {
+                    .path_fixture(&HostPathDeclaration {
                         segments: invalid
                             .into_iter()
                             .map(HostPathSegmentDeclaration::Field)

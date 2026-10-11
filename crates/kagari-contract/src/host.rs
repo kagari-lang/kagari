@@ -7,7 +7,10 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionKind, DefinitionPath, ModuleIdentity},
+    identity::{
+        DefinitionKind, ModuleIdentity,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
     declaration::{FnDecl, TraitDef},
@@ -27,27 +30,35 @@ use std::{
 /// Check host method tables against the defining module's executable trait
 /// contracts, including declarations absent from its public ABI.
 pub fn trait_bindings_match(
-    interface: &HostInterface,
+    interface: &HostInterface<DefinitionId>,
     module: &ModuleIdentity,
-    items: &[PublicItem],
-    contracts: &[TraitContract],
+    items: &[PublicItem<DefinitionId>],
+    contracts: &[TraitContract<DefinitionId>],
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
     for host in &interface.types {
         cancel.check()?;
         for implementation in &host.trait_implementations {
             cancel.check()?;
             let id = &implementation.trait_id;
-            if Protocol::from_id(id).is_some_and(|kind| !kind.host_implementable()) {
+            if Protocol::from_reference(id, Some(definitions))
+                .is_some_and(|kind| !kind.host_implementable())
+            {
                 return Ok(false);
             }
-            if &id.module != module {
-                continue;
-            }
-            let Some(trait_abi) = abi::trait_contract(module, items, contracts, id) else {
+            let Ok(owner) = definitions.resolve(*id) else {
                 return Ok(false);
             };
-            if !host_trait_matches(implementation, host, trait_abi, cancel)? {
+            if owner.module() != module {
+                continue;
+            }
+            let Some(trait_abi) =
+                abi::trait_contract_in(Some(definitions), module, items, contracts, id)
+            else {
+                return Ok(false);
+            };
+            if !host_trait_matches(implementation, host, trait_abi, cancel, definitions)? {
                 return Ok(false);
             }
         }
@@ -56,10 +67,11 @@ pub fn trait_bindings_match(
 }
 
 fn host_trait_matches(
-    implementation: &HostTraitImplementationDeclaration,
-    host: &HostTypeDeclaration,
-    trait_abi: &TraitDef,
+    implementation: &HostTraitImplementationDeclaration<DefinitionId>,
+    host: &HostTypeDeclaration<DefinitionId>,
+    trait_abi: &TraitDef<DefinitionId>,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
     let args = implementation
         .trait_arguments
@@ -69,7 +81,7 @@ fn host_trait_matches(
     let outputs: BTreeMap<_, _> = implementation
         .associated_types
         .iter()
-        .map(|output| (output.declaration.clone(), Ty::from_host_type(&output.ty)))
+        .map(|output| (output.declaration, Ty::from_host_type(&output.ty)))
         .collect();
     if !trait_abi.associated_consts.is_empty()
         || trait_abi
@@ -126,11 +138,15 @@ fn host_trait_matches(
             return Ok(false);
         }
         let Some(binding) = implementation.methods.iter().find(|binding| {
-            binding.trait_method.path.last().is_some_and(|part| {
-                part.name == method.name
-                    && part.kind == DefinitionKind::Method
-                    && part.occurrence == 0
-            })
+            definitions
+                .resolve(binding.trait_method)
+                .ok()
+                .and_then(|view| view.last())
+                .is_some_and(|part| {
+                    part.name == method.name
+                        && part.kind == DefinitionKind::Method
+                        && part.occurrence == 0
+                })
         }) else {
             return Ok(false);
         };
@@ -141,7 +157,7 @@ fn host_trait_matches(
         else {
             return Ok(false);
         };
-        let receiver = Ty::Host(host.id.clone());
+        let receiver = Ty::Host(host.id);
         if method.params.len() != host_method.params.len() + 1
             || !matches_host_type(
                 &method.params[0].ty,
@@ -185,12 +201,12 @@ fn host_trait_matches(
 }
 
 fn matches_host_type(
-    expected: &Ty,
-    actual: &Ty,
-    owner: &DefinitionPath,
-    arguments: &[Ty],
-    outputs: &BTreeMap<DefinitionPath, Ty>,
-    receiver: &Ty,
+    expected: &Ty<DefinitionId>,
+    actual: &Ty<DefinitionId>,
+    owner: &DefinitionId,
+    arguments: &[Ty<DefinitionId>],
+    outputs: &BTreeMap<DefinitionId, Ty<DefinitionId>>,
+    receiver: &Ty<DefinitionId>,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     let mut pending = vec![(expected, actual)];
@@ -268,15 +284,15 @@ fn matches_host_type(
 }
 
 pub fn references(
-    items: &[PublicItem],
-    structures: &[StructLayout],
-    enums: &[EnumLayout],
+    items: &[PublicItem<DefinitionId>],
+    structures: &[StructLayout<DefinitionId>],
+    enums: &[EnumLayout<DefinitionId>],
     cancel: &CancellationToken,
-) -> Result<BTreeSet<DefinitionPath>, Cancelled> {
+) -> Result<BTreeSet<DefinitionId>, Cancelled> {
     let mut pending = Vec::new();
     for item in items {
         cancel.check()?;
-        let functions: &[FnDecl] = match item {
+        let functions: &[FnDecl<DefinitionId>] = match item {
             PublicItem::Function(function) => slice::from_ref(function),
             PublicItem::Const(value) => {
                 pending.push(&value.ty);
@@ -315,7 +331,7 @@ pub fn references(
         cancel.check()?;
         match ty {
             Ty::Host(id) => {
-                result.insert(id.clone());
+                result.insert(*id);
             }
             Ty::Tuple(types) => pending.extend(types),
             Ty::Function { params, result } => {
@@ -335,17 +351,18 @@ pub fn references(
 }
 
 pub fn validate(
-    interface: &HostInterface,
-    items: &[PublicItem],
-    structures: &[StructLayout],
-    enums: &[EnumLayout],
+    interface: &HostInterface<DefinitionId>,
+    items: &[PublicItem<DefinitionId>],
+    structures: &[StructLayout<DefinitionId>],
+    enums: &[EnumLayout<DefinitionId>],
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {
     cancel
         .check()
         .map_err(|_| LayoutValidationError::Cancelled)?;
     interface
-        .validate()
+        .validate(definitions)
         .map_err(|_| LayoutValidationError::Invalid)?;
     if items.iter().any(|item| {
         matches!(item, PublicItem::InterfaceTable(table)
@@ -366,11 +383,11 @@ pub fn validate(
 }
 
 pub fn host_bridge_implementation<'a>(
-    table: &InterfaceTable,
-    interface: &'a HostInterface,
+    table: &InterfaceTable<DefinitionId>,
+    interface: &'a HostInterface<DefinitionId>,
 ) -> Option<(
-    &'a HostTypeDeclaration,
-    &'a HostTraitImplementationDeclaration,
+    &'a HostTypeDeclaration<DefinitionId>,
+    &'a HostTraitImplementationDeclaration<DefinitionId>,
 )> {
     let Ty::Host(id) = &table.for_type else {
         return None;

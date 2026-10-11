@@ -7,8 +7,8 @@ use crate::{
 /// Intrinsic standard constraints of portable host values. Collections use shared
 /// identity; tuple/Option/Result equality and hashing recurse into their payloads.
 /// Nominal host objects need declared trait implementations, not this fallback.
-pub fn satisfies_standard_constraint(
-    ty: &HostValueType,
+pub fn satisfies_standard_constraint<I>(
+    ty: &HostValueType<I>,
     constraint: StandardTypeConstraint,
 ) -> bool {
     if matches!(
@@ -64,10 +64,11 @@ pub fn satisfies_standard_constraint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kagari_common::identity::DefinitionPath;
 
     #[test]
     fn host_standard_constraints_distinguish_payload_and_collection_identity() {
-        let float = HostValueType::F64;
+        let float: HostValueType = HostValueType::F64;
         assert!(satisfies_standard_constraint(
             &float,
             StandardTypeConstraint::Comparable
@@ -90,11 +91,11 @@ mod tests {
             StandardTypeConstraint::Comparable
         ));
         assert!(!satisfies_standard_constraint(
-            &HostValueType::Bool,
+            &HostValueType::<DefinitionPath>::Bool,
             StandardTypeConstraint::SignedNumber
         ));
         assert!(satisfies_standard_constraint(
-            &HostValueType::F32,
+            &HostValueType::<DefinitionPath>::F32,
             StandardTypeConstraint::SignedNumber
         ));
     }

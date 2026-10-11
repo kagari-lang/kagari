@@ -1,13 +1,13 @@
 //! Portable member contracts. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
 use crate::host_interface::{
-    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, adoption_error,
-    codec, hash, host_type_identity, validate_host_type_identity, value_type::HostValueType,
+    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, host_type_identity,
+    validate_host_type_identity_in, value_type::HostValueType, wire,
 };
-use bincode::Options;
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::scope_record,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment,
     reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, iter};
@@ -26,7 +26,7 @@ pub enum HostReflectionPolicy {
     Metadata,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PathAccess {
     None,
     ReadOnly,
@@ -69,12 +69,14 @@ impl HostFieldDeclaration {
             documentation: String::new(),
         }
     }
+}
 
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        self.ty.validate()?;
+impl HostFieldDeclaration<DefinitionId> {
+    pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
+        self.ty.validate_in(definitions)?;
         let mut abi = self.clone();
         abi.documentation.clear();
-        fingerprint(b"kagari-host-field-v1\0", &abi)
+        wire::fingerprint(b"kagari-host-field-v1\0", &abi, definitions)
     }
 }
 
@@ -166,17 +168,14 @@ impl HostMethodDeclaration {
             documentation: String::new(),
         }
     }
+}
 
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        let scoped = scope_record(self, &Default::default()).map_err(adoption_error)?;
-        super::validate_signature(
-            &scoped.records().params,
-            &scoped.records().return_type,
-            scoped.definitions(),
-        )?;
+impl HostMethodDeclaration<DefinitionId> {
+    pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
+        super::validate_signature(&self.params, &self.return_type, definitions)?;
         let mut abi = self.clone();
         abi.documentation.clear();
-        fingerprint(b"kagari-host-method-v1\0", &abi)
+        wire::fingerprint(b"kagari-host-method-v1\0", &abi, definitions)
     }
 }
 
@@ -201,37 +200,6 @@ pub struct HostTypeDeclaration<I = DefinitionPath> {
 }
 
 impl HostTypeDeclaration {
-    /// Executable contract derived solely from this member declaration.
-    pub fn method_contract(
-        &self,
-        id: &DefinitionPath,
-    ) -> Result<super::HostFunctionDeclaration, HostInterfaceError> {
-        self.validate()?;
-        let method = self
-            .methods
-            .iter()
-            .find(|method| &method.id == id)
-            .ok_or(HostInterfaceError::InvalidDeclaration)?;
-        let mut params = vec![HostParameter {
-            name: "self".into(),
-            ty: HostValueType::Opaque(self.id.clone()),
-            passing: method.receiver,
-        }];
-        params.extend(method.params.iter().cloned());
-        let function = super::HostFunctionDeclaration {
-            id: method.id.clone(),
-            symbol: format!("{}.{}", self.symbol, method.name),
-            params,
-            return_type: method.return_type.clone(),
-
-            effects: method.effects,
-            documentation: method.documentation.clone(),
-        };
-        let scoped = scope_record(&function, &Default::default()).map_err(adoption_error)?;
-        scoped.records().validate(scoped.definitions())?;
-        Ok(function)
-    }
-
     pub fn new(symbol: impl Into<String>) -> Self {
         let symbol = symbol.into();
         Self {
@@ -246,9 +214,42 @@ impl HostTypeDeclaration {
             documentation: String::new(),
         }
     }
+}
 
-    pub fn validate(&self) -> Result<(), HostInterfaceError> {
-        validate_host_type_identity(&self.id)?;
+impl HostTypeDeclaration<DefinitionId> {
+    /// Executable contract derived solely from this member declaration.
+    pub fn method_contract(
+        &self,
+        id: &DefinitionId,
+        definitions: &DefinitionTable,
+    ) -> Result<super::HostFunctionDeclaration<DefinitionId>, HostInterfaceError> {
+        self.validate(definitions)?;
+        let method = self
+            .methods
+            .iter()
+            .find(|method| &method.id == id)
+            .ok_or(HostInterfaceError::InvalidDeclaration)?;
+        let mut params = vec![HostParameter {
+            name: "self".into(),
+            ty: HostValueType::Opaque(self.id),
+            passing: method.receiver,
+        }];
+        params.extend(method.params.iter().cloned());
+        let function = super::HostFunctionDeclaration {
+            id: method.id,
+            symbol: format!("{}.{}", self.symbol, method.name),
+            params,
+            return_type: method.return_type.clone(),
+
+            effects: method.effects,
+            documentation: method.documentation.clone(),
+        };
+        function.validate(definitions)?;
+        Ok(function)
+    }
+
+    pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
+        validate_host_type_identity_in(&self.id, Some(definitions))?;
         if self.fields.len() > decode_limits::MAX_MEMBERS
             || self.methods.len() > decode_limits::MAX_MEMBERS
             || self.trait_implementations.len() > decode_limits::MAX_MEMBERS
@@ -268,11 +269,17 @@ impl HostTypeDeclaration {
         }
         let mut names = HashSet::new();
         for field in &self.fields {
-            validate_member(&self.id, &field.id, &field.name, DefinitionKind::Field)?;
+            validate_member(
+                &self.id,
+                &field.id,
+                &field.name,
+                DefinitionKind::Field,
+                definitions,
+            )?;
             if !names.insert(&field.name) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
-            field.ty.validate()?;
+            field.ty.validate_in(definitions)?;
             if (field.path_access != PathAccess::None && !field.readable)
                 || (field.path_access == PathAccess::ReadWrite && !field.writable)
             {
@@ -280,17 +287,18 @@ impl HostTypeDeclaration {
             }
         }
         for method in &self.methods {
-            validate_member(&self.id, &method.id, &method.name, DefinitionKind::Method)?;
+            validate_member(
+                &self.id,
+                &method.id,
+                &method.name,
+                DefinitionKind::Method,
+                definitions,
+            )?;
             if !names.insert(&method.name) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
             // Parameter and result rules are the same as standalone functions.
-            let scoped = scope_record(method, &Default::default()).map_err(adoption_error)?;
-            super::validate_signature(
-                &scoped.records().params,
-                &scoped.records().return_type,
-                scoped.definitions(),
-            )?;
+            super::validate_signature(&method.params, &method.return_type, definitions)?;
             if method.params.len() >= u16::MAX as usize
                 || method.params.iter().any(|param| param.name == "self")
             {
@@ -302,14 +310,13 @@ impl HostTypeDeclaration {
         let mut trait_arguments = 0usize;
         for implementation in &self.trait_implementations {
             let trait_id = &implementation.trait_id;
-            if !trait_id.within_path_limit() {
-                return Err(HostInterfaceError::TooLarge);
-            }
-            if trait_id.module.package.0.is_empty()
-                || trait_id.module.path.iter().any(String::is_empty)
-                || trait_id.path.iter().any(|segment| segment.name.is_empty())
-                || trait_id
-                    .path
+            let view = definitions
+                .resolve(*trait_id)
+                .map_err(|_| HostInterfaceError::InvalidDeclaration)?;
+            if view.module().package.0.is_empty()
+                || view.module().path.iter().any(String::is_empty)
+                || view.segments().any(|segment| segment.name.is_empty())
+                || view
                     .last()
                     .is_none_or(|segment| segment.kind != DefinitionKind::Trait)
             {
@@ -320,7 +327,7 @@ impl HostTypeDeclaration {
                 return Err(HostInterfaceError::TooLarge);
             }
             for argument in &implementation.trait_arguments {
-                argument.validate()?;
+                argument.validate_in(definitions)?;
             }
             trait_arguments = trait_arguments.saturating_add(implementation.associated_types.len());
             if trait_arguments > decode_limits::MAX_MEMBERS {
@@ -328,20 +335,21 @@ impl HostTypeDeclaration {
             }
             let mut outputs = HashSet::new();
             for output in &implementation.associated_types {
-                if !output.declaration.within_path_limit() {
-                    return Err(HostInterfaceError::TooLarge);
-                }
-                let mut owner = output.declaration.clone();
-                if owner.path.pop().is_none_or(|segment| {
-                    segment.kind != DefinitionKind::AssociatedType
-                        || segment.name.is_empty()
-                        || segment.occurrence != 0
-                }) || owner != *trait_id
+                if definitions
+                    .resolve(output.declaration)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_none_or(|segment| {
+                        segment.kind != DefinitionKind::AssociatedType
+                            || segment.name.is_empty()
+                            || segment.occurrence != 0
+                    })
+                    || definitions.parent(output.declaration) != Ok(Some(*trait_id))
                     || !outputs.insert(&output.declaration)
                 {
                     return Err(HostInterfaceError::InvalidDeclaration);
                 }
-                output.ty.validate()?;
+                output.ty.validate_in(definitions)?;
             }
             if !implemented_traits.insert((trait_id, &implementation.trait_arguments)) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
@@ -352,13 +360,14 @@ impl HostTypeDeclaration {
             }
             let mut bound_methods = HashSet::new();
             for binding in &implementation.methods {
-                if !binding.trait_method.within_path_limit() {
-                    return Err(HostInterfaceError::TooLarge);
-                }
-                let mut trait_owner = binding.trait_method.clone();
-                if trait_owner.path.pop().is_none_or(|segment| {
-                    segment.kind != DefinitionKind::Method || segment.name.is_empty()
-                }) || trait_owner != *trait_id
+                if definitions
+                    .resolve(binding.trait_method)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_none_or(|segment| {
+                        segment.kind != DefinitionKind::Method || segment.name.is_empty()
+                    })
+                    || definitions.parent(binding.trait_method) != Ok(Some(*trait_id))
                     || !bound_methods.insert(&binding.trait_method)
                     || !self
                         .methods
@@ -372,7 +381,16 @@ impl HostTypeDeclaration {
         Ok(())
     }
 
-    pub fn value_types(&self) -> impl Iterator<Item = &HostValueType> {
+    pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
+        self.validate(definitions)?;
+        let mut abi = self.clone();
+        abi.clear_documentation();
+        wire::fingerprint(b"kagari-host-type-v1\0", &abi, definitions)
+    }
+}
+
+impl<I: DefinitionReference> HostTypeDeclaration<I> {
+    pub fn value_types(&self) -> impl Iterator<Item = &HostValueType<I>> {
         self.fields
             .iter()
             .map(|field| &field.ty)
@@ -413,13 +431,6 @@ impl HostTypeDeclaration {
         }
     }
 
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        self.validate()?;
-        let mut abi = self.clone();
-        abi.clear_documentation();
-        fingerprint(b"kagari-host-type-v1\0", &abi)
-    }
-
     pub fn matches_binding(&self, actual: &Self) -> bool {
         let mut required = self.clone();
         let mut actual = actual.clone();
@@ -440,33 +451,31 @@ fn member_id(owner: &DefinitionPath, kind: DefinitionKind, name: &str) -> Defini
 }
 
 fn validate_member(
-    owner: &DefinitionPath,
-    id: &DefinitionPath,
+    owner: &DefinitionId,
+    id: &DefinitionId,
     name: &str,
     kind: DefinitionKind,
+    definitions: &DefinitionTable,
 ) -> Result<(), HostInterfaceError> {
-    if !id.within_path_limit() {
-        return Err(HostInterfaceError::TooLarge);
-    }
-    if name.is_empty() || *id != member_id(owner, kind, name) {
+    if name.is_empty() || definitions.lookup_child(*owner, kind, name, 0) != Some(*id) {
         Err(HostInterfaceError::InvalidDeclaration)
     } else {
         Ok(())
     }
 }
 
-fn fingerprint(domain: &[u8], value: &impl Serialize) -> Result<u64, HostInterfaceError> {
-    let bytes = codec()
-        .serialize(value)
-        .map_err(|_| HostInterfaceError::Encoding)?;
-    Ok(hash(domain.iter().copied().chain(bytes)))
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::host_interface::test_support::{
+        FingerprintFixture, InterfaceFixture, TypeFixture, ValidateFixture, decode_fixture,
+        encode_unchecked_fixture,
+    };
+
     use super::*;
     use crate::host_interface::HostInterface;
-    use kagari_common::identity::{ModuleIdentity, PackageId};
+    use kagari_common::identity::{
+        ModuleIdentity, PackageId, map::DefinitionContext, metadata::scope_record,
+    };
 
     fn script_trait(name: &str) -> DefinitionPath {
         DefinitionPath {
@@ -504,19 +513,19 @@ mod tests {
                     host_method: method.id.clone(),
                 }],
             ));
-        owner.validate().unwrap();
+        owner.validate_fixture().unwrap();
         let interface = HostInterface {
             paths: vec![],
             types: vec![owner.clone()],
             functions: vec![],
         };
         assert_eq!(
-            HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap(),
+            decode_fixture(&interface.encode_fixture().unwrap()).unwrap(),
             interface
         );
-        let fingerprint = owner.fingerprint().unwrap();
+        let fingerprint = owner.fingerprint_fixture().unwrap();
         owner.trait_implementations[0].documentation = "For the editor".into();
-        assert_eq!(owner.fingerprint().unwrap(), fingerprint);
+        assert_eq!(owner.fingerprint_fixture().unwrap(), fingerprint);
         for corruption in 0..5 {
             let mut invalid = owner.clone();
             let implementation = &mut invalid.trait_implementations[0];
@@ -531,27 +540,30 @@ mod tests {
                     .trait_implementations
                     .push(invalid.trait_implementations[0].clone()),
             }
-            assert!(invalid.validate().is_err(), "corruption {corruption}");
+            assert!(
+                invalid.validate_fixture().is_err(),
+                "corruption {corruption}"
+            );
         }
         let mut changed = owner.clone();
         changed.trait_implementations.clear();
-        assert_ne!(changed.fingerprint().unwrap(), fingerprint);
+        assert_ne!(changed.fingerprint_fixture().unwrap(), fingerprint);
 
         let mut applied = owner.clone();
         applied.trait_implementations[0].trait_arguments = vec![HostValueType::I32];
-        assert_ne!(applied.fingerprint().unwrap(), fingerprint);
+        assert_ne!(applied.fingerprint_fixture().unwrap(), fingerprint);
         let mut disjoint = applied.trait_implementations[0].clone();
         disjoint.trait_arguments = vec![HostValueType::Bool];
         applied.trait_implementations.push(disjoint);
-        applied.validate().unwrap();
+        applied.validate_fixture().unwrap();
         assert_eq!(
-            HostInterface::from_bytes(
+            decode_fixture(
                 &HostInterface {
                     paths: vec![],
                     types: vec![applied.clone()],
                     functions: vec![],
                 }
-                .to_bytes()
+                .encode_fixture()
                 .unwrap()
             )
             .unwrap()
@@ -560,7 +572,7 @@ mod tests {
         );
         applied.trait_implementations[1].trait_arguments = vec![HostValueType::I32];
         assert_eq!(
-            applied.validate(),
+            applied.validate_fixture(),
             Err(HostInterfaceError::DuplicateDeclaration)
         );
         applied.trait_implementations[1].trait_arguments =
@@ -571,7 +583,7 @@ mod tests {
                 types: vec![applied],
                 functions: vec![],
             }
-            .validate(),
+            .validate_fixture(),
             Err(HostInterfaceError::InvalidDeclaration)
         );
     }
@@ -598,14 +610,14 @@ mod tests {
             types: vec![owner.clone()],
             ..Default::default()
         };
-        let mut bytes = interface.to_bytes().unwrap();
-        assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), interface);
+        let mut bytes = interface.encode_fixture().unwrap();
+        assert_eq!(decode_fixture(&bytes).unwrap(), interface);
         bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
-        assert!(HostInterface::from_bytes(&bytes).is_err());
-        let fingerprint = owner.fingerprint().unwrap();
+        assert!(decode_fixture(&bytes).is_err());
+        let fingerprint = owner.fingerprint_fixture().unwrap();
         let mut changed = owner.clone();
         changed.trait_implementations[0].associated_types[0].ty = HostValueType::I64;
-        assert_ne!(changed.fingerprint().unwrap(), fingerprint);
+        assert_ne!(changed.fingerprint_fixture().unwrap(), fingerprint);
         for mutation in 0..4 {
             let mut invalid = owner.clone();
             let implementation = &mut invalid.trait_implementations[0];
@@ -627,7 +639,10 @@ mod tests {
                     implementation.associated_types[0].clone(),
                 ),
             }
-            assert!(invalid.validate().is_err(), "accepted mutation {mutation}");
+            assert!(
+                invalid.validate_fixture().is_err(),
+                "accepted mutation {mutation}"
+            );
         }
     }
 
@@ -637,15 +652,19 @@ mod tests {
         let mut method = HostMethodDeclaration::new(&owner.id, "add", vec![], HostValueType::I32);
         method.receiver = HostPassingStyle::UniqueBorrow;
         owner.methods.push(method);
-        let call = owner.method_contract(&owner.methods[0].id).unwrap();
-        assert_eq!(call.method_owner(), Some(owner.id.clone()));
+        let call = owner.method_fixture(&owner.methods[0].id).unwrap();
+        let scope = scope_record(&call, &Default::default()).unwrap();
+        assert_eq!(
+            scope.records().method_owner(scope.definitions()),
+            scope.definitions().lookup(&owner.id)
+        );
         let valid = HostInterface {
             paths: vec![],
             types: vec![owner.clone()],
             functions: vec![call],
         };
         assert_eq!(
-            HostInterface::from_bytes(&valid.to_bytes().unwrap()).unwrap(),
+            decode_fixture(&valid.encode_fixture().unwrap()).unwrap(),
             valid
         );
         for corruption in 0..5 {
@@ -659,14 +678,17 @@ mod tests {
                 }
                 _ => invalid.functions[0].id.path.last_mut().unwrap().name = "missing".into(),
             }
-            assert!(invalid.validate().is_err(), "corruption {corruption}");
+            assert!(
+                invalid.validate_fixture().is_err(),
+                "corruption {corruption}"
+            );
         }
         owner.methods[0].params.push(HostParameter {
             name: "self".into(),
             ty: HostValueType::I32,
             passing: HostPassingStyle::Owned,
         });
-        assert!(owner.validate().is_err());
+        assert!(owner.validate_fixture().is_err());
     }
 
     #[test]
@@ -688,16 +710,40 @@ mod tests {
             types: vec![b, a],
             functions: vec![],
         };
-        let bytes = first.to_bytes().unwrap();
-        assert_eq!(bytes, second.to_bytes().unwrap());
-        assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), first);
+        let bytes = first.encode_fixture().unwrap();
+        assert_eq!(bytes, second.encode_fixture().unwrap());
+        assert_eq!(decode_fixture(&bytes).unwrap(), first);
+        let decoded = HostInterface::<DefinitionId>::from_bytes(&bytes).unwrap();
+        assert_eq!(
+            decoded.records().to_bytes(decoded.definitions()).unwrap(),
+            bytes
+        );
+        let context = DefinitionContext::new().unwrap();
+        context
+            .intern_root(&ModuleIdentity::single_file("unrelated"))
+            .unwrap();
+        let imported = decoded.import_into(&context, &Default::default()).unwrap();
+        assert_ne!(decoded.definitions().id(), imported.definitions().id());
+        assert_eq!(
+            imported.records().to_bytes(imported.definitions()).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            decoded.records().types[0]
+                .fingerprint(decoded.definitions())
+                .unwrap(),
+            imported.records().types[0]
+                .fingerprint(imported.definitions())
+                .unwrap(),
+        );
+        assert_eq!(
+            decoded.records().validate(imported.definitions()),
+            Err(HostInterfaceError::InvalidDeclaration)
+        );
         for version in 1_u16..crate::host_interface::VERSION {
             let mut old = bytes.clone();
             old[4..6].copy_from_slice(&version.to_le_bytes());
-            assert_eq!(
-                HostInterface::from_bytes(&old),
-                Err(HostInterfaceError::Version)
-            );
+            assert_eq!(decode_fixture(&old), Err(HostInterfaceError::Version));
         }
     }
 
@@ -710,14 +756,17 @@ mod tests {
             "value",
             HostValueType::I32,
         ));
-        assert!(a.validate().is_err());
+        assert!(a.validate_fixture().is_err());
         a.fields[0] = HostFieldDeclaration::new(&a.id, "value", HostValueType::I32);
         a.fields[0].path_access = PathAccess::ReadWrite;
-        assert!(a.validate().is_err());
+        assert!(a.validate_fixture().is_err());
         a.fields[0].writable = true;
-        a.validate().unwrap();
+        a.validate_fixture().unwrap();
         a.fields.push(a.fields[0].clone());
-        assert_eq!(a.validate(), Err(HostInterfaceError::DuplicateDeclaration));
+        assert_eq!(
+            a.validate_fixture(),
+            Err(HostInterfaceError::DuplicateDeclaration)
+        );
         a.fields.pop();
         a.methods.push(HostMethodDeclaration::new(
             &a.id,
@@ -729,7 +778,7 @@ mod tests {
             }],
             HostValueType::Unit,
         ));
-        assert!(a.validate().is_err());
+        assert!(a.validate_fixture().is_err());
         a.methods.clear();
         a.fields[0].ty = HostValueType::Opaque(b.id.clone());
         let mut interface = HostInterface {
@@ -737,20 +786,13 @@ mod tests {
             types: vec![a],
             functions: vec![],
         };
-        assert!(interface.validate().is_err());
+        assert!(interface.validate_fixture().is_err());
         interface.types.push(b);
-        interface.validate().unwrap();
+        interface.validate_fixture().unwrap();
         interface.types[0].fields[0].id.module.package.0 = "foreign".into();
         // Bypass to_bytes validation to model malformed untrusted wire input.
-        let bytes = codec()
-            .serialize(&(
-                crate::host_interface::MAGIC,
-                crate::host_interface::VERSION,
-                &interface.types,
-                &interface.functions,
-            ))
-            .unwrap();
-        assert!(HostInterface::from_bytes(&bytes).is_err());
+        let bytes = encode_unchecked_fixture(&interface).unwrap();
+        assert!(decode_fixture(&bytes).is_err());
     }
 }
 

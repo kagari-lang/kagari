@@ -207,17 +207,25 @@ identity/signature/borrow/effect mismatches. Documentation changes
 do not change the call contract. Registration rejects duplicate identities and
 labels, and invalid declarations leave the registry unchanged.
 
-Interface encoding uses the `KHI\0` magic and version 11, fixed-width little-endian
-fields and a 4 MiB limit. Types and functions are sorted by declaration identity. Decoding
-rejects other versions, malformed input, duplicates and trailing data. The decoder
+Interface encoding uses the `KHI\0` magic and version 12, fixed-width little-endian
+fields and a 4 MiB limit. The envelope contains Host records with file-local
+references and a canonical definition table; process-local IDs are never encoded.
+Types and functions are sorted by canonical declaration identity, and paths by
+canonical encoded contract. Decoding creates a fresh identity scope, resolves all
+file references, then validates the Host schema. The result retains its table;
+callers import its IDs explicitly before combining it with another context.
+Decoding rejects other versions, malformed input, unresolved references, duplicates
+and trailing data. The decoder
 checks declaration-list lengths before reading elements (at most 1,000,000 each),
 and member, parameter and path-segment vectors at 4,096 each. In-memory
 validation uses the same limits before encoding or linking. Module and declaration
 identities reject encoded paths longer than 64 segments before reading them.
 Host declaration validation rejects overlong in-memory identity paths before
 portable encoding or runtime binding.
-Function fingerprints use domain-separated FNV-1a-64 over the versioned canonical contract;
-documentation is excluded. Binding checks compare the complete contract rather
+Function and member fingerprints use domain-separated FNV-1a-64 over canonical
+file-local contract records and their referenced definition closure; documentation
+is excluded. Independent scopes, allocation order and unrelated definitions do not
+change these fingerprints. Binding checks compare the complete contract rather
 than treating a matching fingerprint as sufficient evidence. Each value type uses
 a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child
 counts, trailing nodes, excessive depth and invalid Map/Set key types are rejected.

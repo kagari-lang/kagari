@@ -1,3 +1,4 @@
+use crate::host_interface::test_support::FingerprintFixture;
 use crate::{
     host_interface::{
         HostFunctionDeclaration, HostInterfaceError, host_type_identity, value_type::HostValueType,
@@ -54,7 +55,7 @@ fn scoped_host_signatures_reject_foreign_and_wrong_constructor_identities() {
     };
     id.path.last_mut().unwrap().kind = DefinitionKind::Function;
     assert_eq!(
-        wrong_source.fingerprint(),
+        wrong_source.fingerprint_fixture(),
         Err(HostInterfaceError::InvalidDeclaration)
     );
     assert!(matches!(

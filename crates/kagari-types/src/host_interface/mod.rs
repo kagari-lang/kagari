@@ -1,28 +1,17 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        mapping::DefinitionMappingError,
-        metadata::scope_record,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable, DefinitionTableError},
-    },
-};
-
 use crate::host_interface::{
-    path::{HostPathDeclaration, HostPathSegmentDeclaration},
-    type_declaration::HostTypeDeclaration,
-    value_type::HostValueType,
+    path::HostPathDeclaration, type_declaration::HostTypeDeclaration, value_type::HostValueType,
 };
 use bincode::{DefaultOptions, Options};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+    mapping::DefinitionMappingError,
+    metadata::DefinitionMetadata,
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable, DefinitionTableError},
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeSet, HashSet},
-    iter,
-};
+use std::{collections::HashSet, iter};
 
 const MAGIC: [u8; 4] = *b"KHI\0";
 const VERSION: u16 = 12;
@@ -127,23 +116,6 @@ pub struct HostFunctionDeclaration<I = DefinitionPath> {
 }
 
 impl HostFunctionDeclaration {
-    pub fn method_owner(&self) -> Option<DefinitionPath> {
-        if self.id.path.last()?.kind != DefinitionKind::Method {
-            return None;
-        }
-        let mut owner = self.id.clone();
-        owner.path.pop();
-        Some(owner)
-    }
-
-    pub fn matches_binding(&self, actual: &Self) -> bool {
-        self.id == actual.id
-            && self.symbol == actual.symbol
-            && self.params == actual.params
-            && self.return_type == actual.return_type
-            && self.effects == actual.effects
-    }
-
     /// The application host namespace is a logical package. Providers can replace
     /// `id` with their own package/module declaration before publishing the interface.
     pub fn new(
@@ -174,28 +146,35 @@ impl HostFunctionDeclaration {
             documentation: String::new(),
         }
     }
+}
 
-    /// Fixed-width little-endian, declaration-order encoding, domain-separated
-    /// FNV-1a-64. Documentation is carried offline but does not alter the call ABI.
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        let scoped = scope_record(self, &CancellationToken::default()).map_err(adoption_error)?;
-        scoped.records().validate(scoped.definitions())?;
-        let bytes = codec()
-            .serialize(&(
-                &self.id,
-                &self.symbol,
-                &self.params,
-                &self.return_type,
-                self.effects,
-            ))
-            .map_err(|_| HostInterfaceError::Encoding)?;
-        Ok(hash(
-            b"kagari-host-function-v3\0".iter().copied().chain(bytes),
-        ))
+impl<I: DefinitionReference> HostFunctionDeclaration<I> {
+    pub fn matches_binding(&self, actual: &Self) -> bool {
+        self.id == actual.id
+            && self.symbol == actual.symbol
+            && self.params == actual.params
+            && self.return_type == actual.return_type
+            && self.effects == actual.effects
     }
 }
 
 impl HostFunctionDeclaration<DefinitionId> {
+    pub fn method_owner(&self, definitions: &DefinitionTable) -> Option<DefinitionId> {
+        if definitions.resolve(self.id).ok()?.last()?.kind != DefinitionKind::Method {
+            return None;
+        }
+        definitions.parent(self.id).ok().flatten()
+    }
+
+    /// Canonical file-local identity encoding, domain-separated FNV-1a-64.
+    /// Documentation is carried offline but does not alter the call ABI.
+    pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
+        self.validate(definitions)?;
+        let mut abi = self.clone();
+        abi.documentation.clear();
+        wire::fingerprint(b"kagari-host-function-v3\0", &abi, definitions)
+    }
+
     pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
         let identity = definitions
             .resolve(self.id)
@@ -309,55 +288,37 @@ pub struct HostInterface<I = DefinitionPath> {
     pub functions: Vec<HostFunctionDeclaration<I>>,
 }
 
-#[derive(Deserialize)]
-struct HostInterfaceWire {
-    _magic: [u8; 4],
-    _version: u16,
-    #[serde(deserialize_with = "decode_limits::declarations")]
-    types: Vec<HostTypeDeclaration>,
-    #[serde(deserialize_with = "decode_limits::declarations")]
-    functions: Vec<HostFunctionDeclaration>,
-    #[serde(deserialize_with = "decode_limits::declarations")]
-    paths: Vec<HostPathDeclaration>,
-}
-
-impl HostInterface {
-    pub fn validate(&self) -> Result<(), HostInterfaceError> {
+impl HostInterface<DefinitionId> {
+    pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
         if [self.types.len(), self.functions.len(), self.paths.len()]
             .into_iter()
             .any(|count| count > decode_limits::MAX_DECLARATIONS)
-            || self.paths.iter().any(|path| {
-                path.segments.len() > decode_limits::MAX_MEMBERS
-                    || !path.root.within_path_limit()
-                    || path.segments.iter().any(|step| match step {
-                        HostPathSegmentDeclaration::Field(id) => !id.within_path_limit(),
-                        _ => false,
-                    })
-            })
+            || self
+                .paths
+                .iter()
+                .any(|path| path.segments.len() > decode_limits::MAX_MEMBERS)
         {
             return Err(HostInterfaceError::TooLarge);
         }
         let mut ids = HashSet::new();
         let mut symbols = HashSet::new();
         for ty in &self.types {
-            ty.validate()?;
+            ty.validate(definitions)?;
             if !ids.insert(&ty.id) || !symbols.insert(&ty.symbol) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
         }
         let type_ids = self.types.iter().map(|ty| &ty.id).collect::<HashSet<_>>();
         for function in &self.functions {
-            let scoped =
-                scope_record(function, &CancellationToken::default()).map_err(adoption_error)?;
-            scoped.records().validate(scoped.definitions())?;
-            if let Some(owner) = function.method_owner() {
+            function.validate(definitions)?;
+            if let Some(owner) = function.method_owner(definitions) {
                 let declaration = self
                     .types
                     .iter()
                     .find(|ty| ty.id == owner)
                     .ok_or(HostInterfaceError::InvalidDeclaration)?;
                 if !declaration
-                    .method_contract(&function.id)?
+                    .method_contract(&function.id, definitions)?
                     .matches_binding(function)
                 {
                     return Err(HostInterfaceError::InvalidDeclaration);
@@ -392,68 +353,24 @@ impl HostInterface {
                 }
             }
         }
-        let mut paths = BTreeSet::new();
+        let mut paths = HashSet::new();
         for path in &self.paths {
-            self.resolve_path(path)?;
-            if !paths.insert(
-                codec()
-                    .serialize(path)
-                    .map_err(|_| HostInterfaceError::Encoding)?,
-            ) {
+            self.resolve_path(path, definitions)?;
+            if !paths.insert(path) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
         }
         Ok(())
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>, HostInterfaceError> {
-        self.validate()?;
-        // Canonical declaration order is independent of registration order.
-        let mut functions = self.functions.iter().collect::<Vec<_>>();
-        functions.sort_by(|a, b| a.id.cmp(&b.id));
-        let mut types = self.types.iter().collect::<Vec<_>>();
-        types.sort_by(|a, b| a.id.cmp(&b.id));
-        let mut paths = self
-            .paths
-            .iter()
-            .map(|path| {
-                codec()
-                    .serialize(path)
-                    .map(|key| (key, path))
-                    .map_err(|_| HostInterfaceError::Encoding)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        paths.sort_by(|a, b| a.0.cmp(&b.0));
-        let paths = paths.into_iter().map(|(_, path)| path).collect::<Vec<_>>();
-        codec()
-            .serialize(&(MAGIC, VERSION, types, functions, paths))
-            .map_err(|_| HostInterfaceError::Encoding)
+    pub fn to_bytes(&self, definitions: &DefinitionTable) -> Result<Vec<u8>, HostInterfaceError> {
+        self.validate(definitions)?;
+        wire::encode(self, definitions)
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, HostInterfaceError> {
-        if bytes.len() as u64 > MAX_BYTES {
-            return Err(HostInterfaceError::TooLarge);
-        }
-        if bytes.get(..4) != Some(MAGIC.as_slice())
-            || bytes.get(4..6) != Some(VERSION.to_le_bytes().as_slice())
-        {
-            return Err(HostInterfaceError::Version);
-        }
-        let HostInterfaceWire {
-            types,
-            functions,
-            paths,
-            ..
-        } = codec()
-            .deserialize(bytes)
-            .map_err(|_| HostInterfaceError::Encoding)?;
-        let interface = Self {
-            types,
-            functions,
-            paths,
-        };
-        interface.validate()?;
-        Ok(interface)
+    /// Decode file references into a fresh scope, then validate all Host contracts.
+    pub fn from_bytes(bytes: &[u8]) -> Result<DefinitionMetadata<Self>, HostInterfaceError> {
+        wire::decode(bytes)
     }
 }
 
@@ -510,6 +427,10 @@ impl<I> Default for HostInterface<I> {
 }
 
 mod mapping;
+mod wire;
 
 #[cfg(test)]
 mod scoped_tests;
+
+#[cfg(test)]
+mod test_support;

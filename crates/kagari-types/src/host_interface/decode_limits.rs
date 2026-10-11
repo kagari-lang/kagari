@@ -23,14 +23,23 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::host_interface::test_support::{
+        FingerprintFixture, InterfaceFixture, ValidateFixture, decode_fixture,
+        encode_unchecked_fixture,
+    };
+
     use super::*;
     use crate::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostInterfaceError, MAGIC, VERSION,
+        HostFunctionDeclaration, HostInterface, HostInterfaceError, MAGIC, VERSION, codec,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration, PathAccess},
         value_type::HostValueType,
     };
     use bincode::Options;
+    use kagari_common::identity::table::{
+        DefinitionId,
+        wire::{PortableDefinitionRef, PortableDefinitionTable},
+    };
 
     #[derive(Debug, Deserialize)]
     struct Counts {
@@ -54,12 +63,9 @@ mod tests {
 
     #[test]
     fn khi_rejects_forged_declaration_and_path_lengths() {
-        let mut bytes = HostInterface::default().to_bytes().unwrap();
+        let mut bytes = HostInterface::default().encode_fixture().unwrap();
         bytes[6..14].copy_from_slice(&u64::MAX.to_le_bytes());
-        assert_eq!(
-            HostInterface::from_bytes(&bytes),
-            Err(HostInterfaceError::Encoding)
-        );
+        assert_eq!(decode_fixture(&bytes), Err(HostInterfaceError::Encoding));
 
         let owner = HostTypeDeclaration::new("demo.Player");
         let field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
@@ -73,20 +79,33 @@ mod tests {
             paths: vec![path.clone()],
             ..Default::default()
         };
-        assert_eq!(interface.validate(), Err(HostInterfaceError::TooLarge));
-        let bytes = crate::host_interface::codec()
-            .serialize(&(
-                MAGIC,
-                VERSION,
-                Vec::<HostTypeDeclaration>::new(),
-                Vec::<HostFunctionDeclaration>::new(),
-                vec![path],
-            ))
-            .unwrap();
         assert_eq!(
-            HostInterface::from_bytes(&bytes),
-            Err(HostInterfaceError::Encoding)
+            interface.validate_fixture(),
+            Err(HostInterfaceError::TooLarge)
         );
+        let bytes = encode_unchecked_fixture(&interface).unwrap();
+        assert_eq!(decode_fixture(&bytes), Err(HostInterfaceError::Encoding));
+    }
+
+    #[test]
+    fn khi_file_references_must_resolve_before_host_validation() {
+        let interface = HostInterface {
+            types: vec![HostTypeDeclaration::new("demo.Player")],
+            ..Default::default()
+        };
+        let bytes = interface.encode_fixture().unwrap();
+        let (mut records, table): (
+            HostInterface<PortableDefinitionRef>,
+            PortableDefinitionTable,
+        ) = codec().deserialize(&bytes[6..]).unwrap();
+        records.types[0].id = codec().deserialize(&u32::MAX.to_le_bytes()).unwrap();
+        let mut invalid = MAGIC.to_vec();
+        invalid.extend(VERSION.to_le_bytes());
+        invalid.extend(codec().serialize(&(records, table)).unwrap());
+        assert!(matches!(
+            HostInterface::<DefinitionId>::from_bytes(&invalid),
+            Err(HostInterfaceError::InvalidDeclaration)
+        ));
     }
 
     #[test]
@@ -95,11 +114,17 @@ mod tests {
             HostFunctionDeclaration::new("demo.read", Vec::new(), HostValueType::I32);
         function.id.module.path =
             vec!["part".into(); kagari_common::identity::MAX_IDENTITY_PATH_SEGMENTS + 1];
-        assert_eq!(function.fingerprint(), Err(HostInterfaceError::TooLarge));
+        assert_eq!(
+            function.fingerprint_fixture(),
+            Err(HostInterfaceError::TooLarge)
+        );
         let interface = HostInterface {
             functions: vec![function],
             ..Default::default()
         };
-        assert_eq!(interface.to_bytes(), Err(HostInterfaceError::TooLarge));
+        assert_eq!(
+            interface.encode_fixture(),
+            Err(HostInterfaceError::TooLarge)
+        );
     }
 }

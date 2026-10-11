@@ -578,3 +578,62 @@ semantic APIs. The previously recorded two HIR adapter errors remain carried;
 that unchanged check was not repeated. Complete Host interface contract migration
 and executable ownership/adoption next, alongside the remaining SI02 builder
 work. No phase is newly marked complete, and the exhaustive matrix stays in CI.
+
+### SI02 Host contracts and SI05 KHI boundary
+
+Host type/member validation, method-contract construction, interface validation,
+path resolution, linked Host trait matching and dependency queries now consume
+fixed-ID records. Table access is explicit for identity-sensitive operations;
+same-scope binding comparison and intrinsic scalar constraints keep their shared
+identity-independent algorithms. Removed per-function/per-method path adoption
+from Host validation. Method and field parents, nominal kinds, trait outputs,
+borrow modes, effects, reference closure, path access and dynamic index slots are
+still checked by their existing owners. Host path duplicate detection compares
+scoped records directly; it no longer serializes records as a semantic equality
+operation.
+
+Standalone KHI encoding now writes a canonical file-reference record envelope and
+its referenced definition table. Decoding imports references into a fresh scope,
+validates the Host contracts and returns `DefinitionMetadata<HostInterface<DefinitionId>>`.
+It does not project the decoded schema back into authoring paths. Function, field,
+method, type and value fingerprints encode the referenced closure canonically;
+documentation remains excluded from ABI fingerprints. Path resolution uses those
+scoped fingerprints without creating intermediate authoring declarations.
+Declaration order, table allocation order and unrelated definitions do not change
+the output. Byte/node/depth/sequence limits and trailing-data rejection remain in
+the codec. KHI's existing identifier stays at 12 under the unpublished policy;
+old development products are disposable, with no legacy reader or ABI bump.
+The lasting standalone contract is updated in the Host interop specification.
+
+Host record representation parameters and shared Serde implementations remain
+temporary until SI06 introduces the final codec-private models. Path-taking
+constructors remain authoring inputs, while production semantic/fingerprint APIs
+now require adopted IDs. Existing Host fixtures use test-only explicit adoption
+and path export for schema comparisons; direct decode/adoption assertions retain
+and query the actual tables. These fixture helpers are not a production path
+semantic API. SI02 runtime Host registration and SI05 embedded KBC/MIR users must
+now pass their retained scopes rather than restore the removed methods.
+
+Focused validation passed 17 distinct Host tests: all 16 existing Host contract,
+path, fingerprint and decode-limit cases, plus a file-reference rejection case.
+The canonical encoding case additionally checks decode/re-encode, explicit import
+into a context with unrelated definitions, stable fingerprints across contexts,
+and rejection when the decoded records are checked against a foreign table.
+Malformed-envelope fixtures now encode the current file-reference shape before
+corruption, retaining their actual rejection boundary. The path duplicate case
+reran after replacing serialized equality with record equality. Test-only import
+and fixture-method migration errors were repaired before these runs.
+Types/contract library checking and Clippy passed. Structural review resolved a
+qualified path and missing trait-signature spacing without exceptions; the checker
+reports 1041 Rust files. Formatting and diff checks passed. No speed or retained
+memory claim is made.
+
+`cargo check -p kagari-bytecode --lib` reports 159 unmigrated caller errors,
+superseding the previous 151-error diagnostic. Representative Host sites are
+`program.rs:157` and `verifier.rs:275`/`:283`, where scoped Host/public records and
+the definition table are now required. Bytecode record ownership, verification,
+decoding and mutable extraction remain SI04/SI05 work; downstream runtime, MIR,
+compiler and source-free/reload tests have not passed this boundary. The unchanged
+HIR adapter failure remains carried. Continue with the executable program's
+identity owner and callers, then Native/Host registration and HIR; do not treat
+this standalone codec checkpoint as completed SI02 or SI05 acceptance.
