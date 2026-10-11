@@ -15,7 +15,7 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::{
-    mapping::DefinitionRecord,
+    scoped::DefinitionReferences,
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
@@ -188,7 +188,7 @@ impl NativeBinding {
         catalog: &DeclarationCatalog,
     ) -> NativeResult<()> {
         signature
-            .visit_definitions(
+            .visit_definition_ids(
                 &mut |id| Ok(definitions.resolve(*id).map(|_| ())?),
                 &Default::default(),
             )

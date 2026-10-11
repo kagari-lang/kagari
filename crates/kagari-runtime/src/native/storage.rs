@@ -19,7 +19,7 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
@@ -54,7 +54,8 @@ impl<'call> StorageContext<'call> {
         self.runtime.gc()
     }
 
-    pub fn resolve_type<I: DefinitionReference>(&self, ty: &Ty<I>) -> NativeResult<TypeArgument> {
+    /// Prepare a concrete type whose IDs belong to this call's loaded generation.
+    pub fn resolve_type(&self, ty: &Ty<DefinitionId>) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()

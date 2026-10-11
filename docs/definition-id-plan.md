@@ -2256,3 +2256,71 @@ budgets. No production glob, new re-export, compatibility API or structural exce
 was added. Structure checks 1060 Rust files with zero violations or exceptions;
 formatting and diff checks pass. No full workspace suite or performance measurement
 ran; exhaustive feature/backend acceptance remains CI scope.
+
+### SI05/SI06 runtime entrypoints and fixed-ID adoption
+
+Runtime and VM interface invocation now take DefinitionId directly. Lookup validates
+that ID against the receiver snapshot's supplying module before selecting a linked
+method or parent view. Native CallContext/StorageContext type resolution and
+Runtime::resolve_type_arguments accept only scoped types. They visit references
+against the loaded generation's immutable definition prefix before normal type
+argument preparation; replacing the old identity mapper does not admit foreign or
+later runtime IDs. Managed payload field preparation likewise validates borrowed
+fixed-ID types instead of allocating an identity-preserving mapped copy. Vec's
+symbolic authoring identity resolves through explicit table lookup.
+
+Native bindings/catalog validation use DefinitionReferences. Native typed-reference,
+builder, catalog and verified-program adoption use RemapDefinitions; common's
+DefinitionMap::import_records now needs that fixed-ID capability rather than a
+DefinitionRecord/Rebind equality constraint. Imports still include keys, referenced
+values and ancestors, reject invalid scopes, and preserve the original verified
+version/dependency ownership. Runtime and VM source contain no DefinitionReference,
+DefinitionRecord, Rebind, map_identities or whole-record to_paths dependency. The
+common blanket adapters remain solely for shared/executable models pending SI06.
+
+The VM production check exposed two carried reload wrappers still accepting bare
+program/artifact records. They now retain DefinitionMetadata through staging and
+ordinary runtime verification/publication. Existing native_execution fixtures now
+construct explicit scoped records, including malformed artifact inputs whose identity
+scope is valid while their content hash is deliberately invalid. The existing VM
+interface fixture resolves methods by child lookup in its loaded generation and
+reads lowered records through their metadata owner. Assertions and execution/GC
+contracts are retained.
+
+Focused local validation:
+
+- `cargo check -p kagari-vm --lib --message-format=short` and
+  `cargo clippy -p kagari-vm --lib --message-format=short -- -D warnings` pass,
+  including the changed common/runtime dependencies.
+- `cargo test -p kagari-runtime --test native_execution scoped_programs
+  --message-format=short --no-fail-fast` passes the existing independent-context
+  identity import, foreign type rejection, version/epoch distinction, reload and
+  retained type-argument ownership case. It passes again after adoption moves to
+  the fixed-ID remapper.
+- The same target with filter `reload` passes two existing cases: a malformed
+  reload preserves installed code/version, and a Native handle pins the entire
+  dependency program across reload. Filter `shared_verified_program_identity`
+  passes the independent-runtime shared-version case.
+- `cargo test -p kagari-runtime --test native_registration scoped_type_inputs
+  --message-format=short --no-fail-fast` passes the existing retained-prefix,
+  foreign-ID and cross-context registration case after map/catalog adoption changes.
+  This normal Cargo route now builds; the earlier HIR/MIR blockers described in
+  the registration checkpoint no longer apply to this selected target.
+- `cargo test -p kagari-vm --test interface_allocations
+  cached_native_receiver_defaults_release_their_program_and_gc_values
+  --message-format=short --no-fail-fast` passes the existing selected Native default
+  invocation, rooting, collection and generation-retention cleanup case. Allocation
+  measurement cases in that target were filtered out; no measurement claim is made.
+
+The initial native_execution target build reported 18 obsolete bare-record/path and
+verification-signature errors. These are repaired; all six selected runtime/VM cases
+above executed. The VM interface target's old to_declaration().unwrap() fixture call
+is also repaired. Previously passing cases were not rerun solely to refresh a log.
+The preceding compiler lib-test fixture failure and remaining consumer/codecs/tests
+are still open; this is focused integration evidence, not SI02-SI06 completion.
+
+Manual review covers fixed entrypoint ownership, retained-prefix checks, complete
+catalog key/value imports, roots, original verification versions and import grouping.
+No compatibility wrapper, new semantic representation, re-export or structural
+exception was added. Structure checks 1060 Rust files with zero violations or
+exceptions; formatting and diff checks pass. No full workspace/backend matrix ran.

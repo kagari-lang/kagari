@@ -1,7 +1,7 @@
 //! Closed type arguments retain the lexical scope that supplied their layouts.
 use kagari_common::identity::{
-    mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-    reference::DefinitionReference,
+    mapping::DefinitionMappingError,
+    scoped::DefinitionReferences,
     table::{DefinitionId, DefinitionTable},
 };
 #[cfg(test)]
@@ -190,7 +190,7 @@ impl TypeArgument {
         if table.id() != self.data.definitions.id() {
             self.data
                 .ty
-                .visit_definitions(
+                .visit_definition_ids(
                     &mut |id| {
                         self.data.definitions.resolve(*id)?;
                         table.resolve(*id)?;
@@ -284,27 +284,29 @@ impl Runtime {
         }
     }
 
-    /// Prepare concrete host-supplied arguments against a specific loaded generation.
-    pub fn resolve_type_arguments<I: DefinitionReference>(
+    /// Prepare concrete scoped arguments against a specific loaded generation.
+    /// Every identity must belong to the loaded module's retained definition prefix;
+    /// this does not import foreign metadata or admit later definitions retroactively.
+    pub fn resolve_type_arguments(
         &self,
         owner: &LoadedModule,
-        types: &[Ty<I>],
+        types: &[Ty<DefinitionId>],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let cancel = Default::default();
-        let types = types
-            .iter()
-            .map(|ty| {
-                ty.map_identities(&mut DefinitionMapper::new(
-                    &mut |id| {
-                        id.resolve(owner.definitions())
-                            .map_err(DefinitionMappingError::from)
-                    },
-                    &cancel,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()
+        for ty in types {
+            ty.visit_definition_ids(
+                &mut |id| {
+                    owner
+                        .definitions()
+                        .resolve(*id)
+                        .map(|_| ())
+                        .map_err(DefinitionMappingError::from)
+                },
+                &cancel,
+            )
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        self.type_arguments(owner, None, &types)
+        }
+        self.type_arguments(owner, None, types)
     }
 
     pub(crate) fn type_arguments(

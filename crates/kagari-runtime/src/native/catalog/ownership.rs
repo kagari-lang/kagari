@@ -12,8 +12,8 @@ use kagari_common::{
     identity::{
         DefinitionKind, DefinitionPath,
         map::{DefinitionContext, DefinitionMap},
-        mapping::DefinitionRecord,
         metadata::DefinitionMetadata,
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -352,11 +352,11 @@ impl DeclarationCatalog {
 }
 
 fn check_scope(
-    records: &impl DefinitionRecord<DefinitionId>,
+    records: &impl DefinitionReferences,
     definitions: &DefinitionTable,
 ) -> Result<(), RuntimeError> {
     records
-        .visit_definitions(
+        .visit_definition_ids(
             &mut |id| Ok(definitions.resolve(*id).map(|_| ())?),
             &CancellationToken::default(),
         )
@@ -381,9 +381,7 @@ pub(super) fn insert_contract<T: Clone + PartialEq>(
     Ok(())
 }
 
-fn merge_records<
-    T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T> + Clone + PartialEq,
->(
+fn merge_records<T: RemapDefinitions + Clone + PartialEq>(
     target: &mut Arc<DefinitionMap<T>>,
     source: &DefinitionMap<T>,
     message: &str,
@@ -400,7 +398,7 @@ fn merge_records<
     Ok(())
 }
 
-fn subset<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T> + Clone + PartialEq>(
+fn subset<T: RemapDefinitions + Clone + PartialEq>(
     source: &DefinitionMap<T>,
     target: &DefinitionMap<T>,
 ) -> Result<bool, RuntimeError> {

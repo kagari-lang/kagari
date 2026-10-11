@@ -34,7 +34,7 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{slice, sync::Arc};
@@ -352,9 +352,9 @@ impl<'call> CallContext<'call> {
         self.runtime.gc()
     }
 
-    /// Resolve a type in this native function's lexical program. Result parameters
+    /// Resolve a scoped type in this native function's lexical program. Result parameters
     /// must use result_type_parameter() to retain their supplying scopes.
-    pub fn resolve_type<I: DefinitionReference>(&self, ty: &Ty<I>) -> NativeResult<TypeArgument> {
+    pub fn resolve_type(&self, ty: &Ty<DefinitionId>) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()

@@ -8,7 +8,10 @@ use crate::identity::{
 };
 use crate::{
     cancellation::CancellationToken,
-    identity::mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+    identity::{
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::RemapDefinitions,
+    },
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -298,7 +301,7 @@ impl<T> DefinitionMap<T> {
     }
 }
 
-impl<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T> + Clone> DefinitionMap<T> {
+impl<T: RemapDefinitions> DefinitionMap<T> {
     /// Import both keys and every value reference once. Key-only import is not
     /// sufficient for metadata whose binders and nominal members are scoped IDs.
     pub fn import_records(
@@ -312,7 +315,7 @@ impl<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T> + Clone> Defini
         let definitions = self.context.snapshot();
         let mut references = self.ids().collect::<HashSet<_>>();
         for record in self.values() {
-            record.visit_definitions(
+            record.visit_definition_ids(
                 &mut |id| {
                     references.insert(*id);
                     Ok(())
@@ -325,7 +328,7 @@ impl<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T> + Clone> Defini
             .entries
             .iter()
             .map(|(id, value)| {
-                let value = value.map_identities(&mut DefinitionMapper::new(
+                let value = value.remap_definitions(&mut DefinitionMapper::new(
                     &mut |id| remap.map(*id).map_err(Into::into),
                     cancel,
                 ))?;

@@ -45,8 +45,9 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        mapping::{DefinitionMapper, DefinitionMappingError},
         metadata::DefinitionMetadata,
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
 };
@@ -222,7 +223,7 @@ impl VerifiedProgram {
     }
 
     /// Import exact identities once while retaining the immutable source version.
-    /// Mapping changes only identity representation; no verification flag or hash
+    /// Remapping changes only scoped identity references; no verification flag or hash
     /// can create this evidence, and the original sealed records stay immutable.
     pub(crate) fn normalized(&self, context: &DefinitionContext) -> Result<Self, RuntimeError> {
         if self.definitions.id() == context.snapshot().id() {
@@ -232,7 +233,7 @@ impl VerifiedProgram {
         let mut ids = HashSet::new();
         for module in self.modules.iter() {
             module
-                .visit_definitions(
+                .visit_definition_ids(
                     &mut |id| {
                         ids.insert(*id);
                         Ok(())
@@ -251,7 +252,7 @@ impl VerifiedProgram {
                 .iter()
                 .map(|module| {
                     module
-                        .map_identities(&mut DefinitionMapper::new(
+                        .remap_definitions(&mut DefinitionMapper::new(
                             &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
                             &cancel,
                         ))

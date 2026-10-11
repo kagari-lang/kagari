@@ -4,7 +4,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         map::{DefinitionContext, DefinitionMap},
-        mapping::DefinitionRecord,
+        scoped::RemapDefinitions,
         table::DefinitionId,
     },
 };
@@ -53,7 +53,7 @@ impl CatalogImports {
     }
 }
 
-fn imported<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T> + Clone>(
+fn imported<T: RemapDefinitions>(
     source: &Arc<DefinitionMap<T>>,
     context: &DefinitionContext,
     imports: &mut SharedImports<T>,

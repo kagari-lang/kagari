@@ -789,18 +789,19 @@ append without changing existing indices. Independent tables reject each other's
 handles, even when the paths are equal. Import resolves exact paths once and maps
 all referenced ancestors into the destination context.
 
-Semantic records have one identity-parameterized definition rather than parallel
-path and handle models. Ordinary module-owned mapping implementations enumerate
-the identity fields, reject collapsed keys and preserve cancellation and bounds.
-Bytecode verification, linked executable proofs and Host contract validation use
-scoped records directly. Bytecode verification checks the complete input reference
+HIR records and shared semantic algorithms use fixed scoped IDs. Reference visitors
+validate retained fields and keys; ID-to-ID remappers rebuild reusable records in
+another context, rejecting collapsed keys and preserving cancellation and limits.
+Shared serializable type/executable models retain representation parameters during
+the active [Definition ID migration](definition-id-plan.md); the remaining work
+replaces those parameters with explicit codec records. Bytecode verification,
+linked executable proofs and Host contract validation use scoped records directly. Bytecode verification checks the complete input reference
 prefix before collecting implicit public declaration names; interning these names
 is separate from validating their ABI. KBC decoding returns scoped unverified
 records with their table, and editable extraction retains that identity ownership
-while discarding executable evidence. Source checking and editor queries still
-have transient authoring projections during the active
-[Definition ID migration](definition-id-plan.md); they confer no executable seal.
-HIR arenas/body handles and runtime generations/epochs remain separate safeguards.
+while discarding executable evidence. Source checking, editor queries and source
+specialization retain their definition scopes. HIR arenas/body handles and runtime
+generations/epochs remain separate safeguards.
 
 Native `ModuleDecl` validation borrows its supplied identity table. Construction
 collects implicit declaration/member names only after checking the input reference
@@ -833,6 +834,14 @@ separate from identity import. Exported Host interfaces retain a table, and fore
 interfaces validate against their original snapshot before binding comparison.
 Loaded-module Host linking requires the runtime context. Registry replacement is
 not exposed through a mutable runtime accessor.
+
+Runtime/VM interface invocation takes a method ID from the receiver's retained
+execution generation. Explicit Native/storage type resolution likewise takes scoped
+types and checks every reference against the loaded module's immutable prefix before
+preparing type arguments. Later runtime interning cannot enlarge that prefix. External
+path queries resolve through the chosen table at their input boundary; these calls
+never import another scope implicitly. VM reload inputs retain DefinitionMetadata
+through staging and still undergo the runtime's ordinary verification/publication.
 
 Metadata with identity references is copied during contextual normalization;
 reference-free module records can retain their existing Arcs. Implicit public

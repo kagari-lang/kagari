@@ -2,12 +2,12 @@
 mod native_allocations_counter;
 
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+use kagari_common::identity::DefinitionKind;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{Runtime, module::LoadedModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
-use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
 use native_allocations_counter::{measured, verify_counter};
 use std::{hint::black_box, sync::Arc};
@@ -38,7 +38,7 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
         let checked = snapshot.check_program(root, &Default::default()).unwrap();
         let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
         let program = lower_program_to_bytecode(&mir).unwrap();
-        let main = program.modules[program.root.index()]
+        let main = program.records().modules[program.records().root.index()]
             .functions
             .iter()
             .find(|function| function.name == "call")
@@ -63,14 +63,10 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             .iter()
             .find(|contract| contract.abi.name == "Bench")
             .unwrap();
-        let method = ModuleDecl::method_id(
-            &loaded
-                .definitions()
-                .resolve(contract.declaration)
-                .unwrap()
-                .to_path(),
-            "m0",
-        );
+        let method = loaded
+            .definitions()
+            .lookup_child(contract.declaration, DefinitionKind::Method, "m0", 0)
+            .unwrap();
         let vm = Vm::new(runtime);
         let receiver = vm
             .execute(&loaded, "make")
@@ -133,14 +129,15 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
             .iter()
             .find(|contract| contract.abi.name == "Parent")
             .unwrap();
-        let method = ModuleDecl::method_id(
-            &loaded
-                .definitions()
-                .resolve(declaration.declaration)
-                .unwrap()
-                .to_path(),
-            "identity",
-        );
+        let method = loaded
+            .definitions()
+            .lookup_child(
+                declaration.declaration,
+                DefinitionKind::Method,
+                "identity",
+                0,
+            )
+            .unwrap();
         let receiver = vm
             .execute(&loaded, "make")
             .unwrap()
@@ -290,7 +287,7 @@ fn load(source: &str) -> (Vm, LoadedModule) {
         foundation::modules()
             .unwrap()
             .iter()
-            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
     let snapshot = analysis

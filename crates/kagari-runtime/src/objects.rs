@@ -24,9 +24,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::{
-    DefinitionKind, reference::DefinitionReference, table::DefinitionId,
-};
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_contract::{ids::FunctionRef, operations::IterOp, types as abi, types::PublicItem};
 use kagari_types::{
     declaration::native::NativeStorageLayout,
@@ -649,10 +647,13 @@ impl Runtime {
         })
     }
 
-    pub fn resolve_interface_method<I: DefinitionReference>(
+    /// Resolve a method ID in the interface value's retained execution generation.
+    /// Reject foreign identities, IDs beyond that generation's prefix and methods
+    /// absent from its linked interface/parent tables. The result roots the receiver.
+    pub fn resolve_interface_method(
         &self,
         value: &Value,
-        method: &I,
+        method: &DefinitionId,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let Value::Interface(object) = value else {
             return Err(RuntimeError::module_validation("expected interface value"));
@@ -665,8 +666,12 @@ impl Runtime {
             .gc
             .interface_metadata(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
-        let method = method
-            .resolve(snapshot.receiver_table.owner.definitions())
+        let method = *method;
+        snapshot
+            .receiver_table
+            .owner
+            .definitions()
+            .resolve(method)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         let root = self.root_value(*value).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")

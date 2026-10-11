@@ -8,8 +8,9 @@ use kagari_common::{
     identity::{
         DefinitionKind,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionRecord},
+        mapping::DefinitionMapper,
         metadata::DefinitionMetadata,
+        scoped::RemapDefinitions,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -518,7 +519,7 @@ fn conflict(error: impl ToString) -> RuntimeError {
     RuntimeError::metadata_conflict(error.to_string())
 }
 
-fn adopt_reference<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>>(
+fn adopt_reference<T: RemapDefinitions>(
     id: DefinitionId,
     definitions: &DefinitionTable,
     record: &T,
@@ -527,7 +528,7 @@ fn adopt_reference<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>>(
     let cancel = CancellationToken::default();
     let mut ids = HashSet::from([id]);
     record
-        .visit_definitions(
+        .visit_definition_ids(
             &mut |id| {
                 ids.insert(*id);
                 Ok(())
@@ -537,7 +538,7 @@ fn adopt_reference<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>>(
         .map_err(conflict)?;
     let remap = context.import(definitions, ids).map_err(conflict)?;
     let record = record
-        .map_identities(&mut DefinitionMapper::new(
+        .remap_definitions(&mut DefinitionMapper::new(
             &mut |id| remap.map(*id).map_err(Into::into),
             &cancel,
         ))

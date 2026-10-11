@@ -5,7 +5,6 @@ use crate::{
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
-    reference::DefinitionReference,
 };
 use kagari_types::ty::{NominalTy, Ty};
 
@@ -29,9 +28,11 @@ impl Runtime {
         owner: &LoadedModule,
         element: &TypeArgument,
     ) -> NativeResult<TypeArgument> {
-        let id = declaration()
-            .resolve(&self.definition_context().snapshot())
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let id = self
+            .definition_context()
+            .snapshot()
+            .lookup(&declaration())
+            .ok_or_else(|| RuntimeError::module_validation("Vec declaration unavailable"))?;
         element.derive(self, owner, |item| {
             Some(Ty::NativeObject(NominalTy {
                 declaration: id,

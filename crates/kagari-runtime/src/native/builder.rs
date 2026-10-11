@@ -27,8 +27,9 @@ use kagari_common::{
     identity::{
         DefinitionKind, ModuleIdentity, PackageId,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionRecord},
+        mapping::DefinitionMapper,
         metadata::DefinitionMetadata,
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::DefinitionId,
     },
 };
@@ -60,7 +61,7 @@ impl ModuleBuilder {
         let cancel = CancellationToken::default();
         declaration
             .records()
-            .visit_definitions(
+            .visit_definition_ids(
                 &mut |id| {
                     references.insert(*id);
                     Ok(())
@@ -73,7 +74,7 @@ impl ModuleBuilder {
             .map_err(conflict)?;
         let declaration = declaration
             .records()
-            .map_identities(&mut DefinitionMapper::new(
+            .remap_definitions(&mut DefinitionMapper::new(
                 &mut |id| remap.map(*id).map_err(Into::into),
                 &cancel,
             ))

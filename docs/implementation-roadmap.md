@@ -26,6 +26,8 @@ backend and test consumers. This migration precedes native collections.
 HIR's representation generics and whole-analysis rebinding are removed. Shared
 substitution, matching and trait ancestry now use fixed IDs; shared semantic and
 executable model generics and codec-private wire conversion remain in progress.
+Runtime/VM entrypoints and adoption use fixed IDs with retained-prefix checks;
+selected cross-runtime, reload and Native interface/GC boundaries pass locally.
 Use DefinitionId throughout semantic processing; keep authoring/display paths and
 file-local references at explicit boundaries. Reuse the current definition context,
 immutable snapshots and cross-context imports while removing identity-representation

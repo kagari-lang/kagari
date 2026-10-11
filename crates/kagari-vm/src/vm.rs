@@ -7,7 +7,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_common::identity::{metadata::DefinitionMetadata, table::DefinitionId};
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -76,7 +76,7 @@ impl Vm {
         &self,
         active: &LoadedModule,
         name: impl Into<String>,
-        program: BytecodeProgram,
+        program: DefinitionMetadata<BytecodeProgram>,
     ) -> Result<LoadedModule, ReloadError> {
         let candidate = self
             .runtime
@@ -91,7 +91,7 @@ impl Vm {
         &self,
         active: &LoadedModule,
         name: impl Into<String>,
-        artifact: KbcArtifact,
+        artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,
     ) -> Result<LoadedModule, ReloadError> {
         let candidate = self
@@ -161,12 +161,12 @@ impl Vm {
     }
 
     /// Invokes a linked script implementation through a runtime-owned
-    /// interface value. The receiver and arguments remain rooted while module
-    /// the method body executes.
-    pub fn invoke_interface_method<I: DefinitionReference>(
+    /// interface value. The method ID must belong to the value's retained definition
+    /// prefix. The receiver and arguments remain rooted while the method body executes.
+    pub fn invoke_interface_method(
         &self,
         interface: &Value,
-        method: &I,
+        method: &DefinitionId,
         arguments: &[Value],
     ) -> Result<Value, VmError> {
         let resolved = self

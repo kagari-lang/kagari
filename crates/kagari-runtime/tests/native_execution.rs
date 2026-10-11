@@ -9,7 +9,10 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
+    metadata::DefinitionMetadata,
+};
 use kagari_contract::{
     ids::FunctionRef,
     layout::StructLayout,
@@ -57,7 +60,7 @@ fn runtime() -> Runtime {
     })
 }
 
-fn program() -> BytecodeProgram {
+fn program() -> DefinitionMetadata<BytecodeProgram> {
     let function = BytecodeFunction {
         name: "main".into(),
         metadata: FunctionMetadata {
@@ -71,7 +74,7 @@ fn program() -> BytecodeProgram {
         ],
         ..Default::default()
     };
-    BytecodeProgram {
+    let program = BytecodeProgram {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             types: vec![ValueType::Unit],
@@ -86,7 +89,13 @@ fn program() -> BytecodeProgram {
             functions: vec![function],
             ..Default::default()
         }],
-    }
+    };
+    DefinitionMetadata::checked(
+        DefinitionContext::new().unwrap().snapshot(),
+        program,
+        &Default::default(),
+    )
+    .unwrap()
 }
 
 unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i32 {
@@ -334,8 +343,14 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
     let installed =
         unsafe { runtime.install_native_function(&module, product(execute, dropped.clone())) }
             .unwrap();
-    let mut candidate = KbcArtifact::from_program(program(), Default::default()).unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    let mut candidate =
+        KbcArtifact::from_program(program().into_records(), Default::default(), &definitions)
+            .unwrap();
     candidate.header.content_hash.0 ^= 1;
+    let candidate =
+        DefinitionMetadata::checked(definitions.snapshot(), candidate, &Default::default())
+            .unwrap();
     assert!(matches!(
         runtime.stage_reload_artifact(&module, "native", candidate, &Default::default()),
         Err(ReloadValidationError::Artifact(_))
@@ -461,8 +476,7 @@ fn incompatible_native_abis_are_rejected_before_installation() {
 
 #[test]
 fn native_handles_pin_the_entire_dependency_program_across_reload() {
-    use kagari_common::identity::ModuleIdentity;
-    let mut graph = program();
+    let (definitions, mut graph) = program().into_parts();
     graph.modules[0].dependencies.push(ModuleRef::new(0));
     graph.modules.insert(
         0,
@@ -472,6 +486,7 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         },
     );
     graph.root = ModuleRef::new(1);
+    let graph = DefinitionMetadata::checked(definitions, graph, &Default::default()).unwrap();
     let mut runtime = runtime();
     let module = runtime.load_program("native", graph.clone()).unwrap();
     let old_dependency = module.member(ModuleRef::new(0)).unwrap();
@@ -547,8 +562,8 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
 
 #[test]
 fn shared_verified_program_identity_survives_independent_runtime_linking() {
-    let verified = VerifiedProgram::new(program()).unwrap();
-    let separate = VerifiedProgram::new(program()).unwrap();
+    let verified = VerifiedProgram::new(program(), &DefinitionContext::new().unwrap()).unwrap();
+    let separate = VerifiedProgram::new(program(), &DefinitionContext::new().unwrap()).unwrap();
     let mut first = runtime();
     let mut second = runtime();
     let a = first
@@ -573,7 +588,8 @@ fn shared_verified_program_identity_survives_independent_runtime_linking() {
 
 #[test]
 fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs() {
-    let mut raw = program();
+    let context = DefinitionContext::new().unwrap();
+    let mut raw = program().into_records();
     let path = DefinitionPath {
         module: raw.modules[0].identity.clone(),
         path: vec![DefinitionPathSegment {
@@ -583,11 +599,12 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
         }],
     };
     raw.modules[0].structures.push(StructLayout {
-        declaration: path.clone(),
+        declaration: context.intern(&path).unwrap(),
         arguments: vec![],
         fields: vec![],
     });
-    let verified = VerifiedProgram::new(raw.clone()).unwrap();
+    let raw = DefinitionMetadata::checked(context.snapshot(), raw, &Default::default()).unwrap();
+    let verified = VerifiedProgram::new(raw.clone(), &context).unwrap();
     let source_id = verified.modules()[0].structures[0].declaration;
     let mut first = runtime();
     let mut second = runtime();
