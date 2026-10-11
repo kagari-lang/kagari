@@ -12,7 +12,12 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, mapping::DefinitionRecord, metadata::scope_record},
+    identity::{
+        DefinitionKind,
+        mapping::DefinitionRecord,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_source::{
     source::SourceFile,
@@ -35,34 +40,35 @@ use kagari_types::{
 use std::{collections::HashSet, sync::Arc};
 
 /// Renders and imports a registered module through ordinary declaration parsing and lowering.
+/// The provider batch must already share the analysis scope produced by Native adoption.
 pub(crate) fn import(
-    definition: &ModuleDecl,
-    providers: &[Arc<ModuleDecl>],
+    metadata: &DefinitionMetadata<ModuleDecl>,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    let generated = declaration_source(definition, providers)?;
-    import_source(definition, providers, &generated, limits, cancel)
+    let generated = declaration_source(metadata, providers)?;
+    import_source(metadata, providers, &generated, limits, cancel)
 }
 
 /// Validates supplied declaration text against registration, then attaches storage/native/role metadata to ordinary lowering.
+/// Providers use one adopted scope; generated navigation metadata is not registration authority.
 pub(crate) fn import_source(
-    definition: &ModuleDecl,
-    providers: &[Arc<ModuleDecl>],
+    metadata: &DefinitionMetadata<ModuleDecl>,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     generated: &DeclarationSource,
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
+    let definition = metadata.records();
+    let definitions = metadata.definitions();
     let owners = ReceiverOwners::from_types(
         providers
             .iter()
+            .map(|module| module.records())
             .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
     )?;
-    definition.validate(&|receiver| {
-        scope_record(receiver, cancel)
-            .ok()
-            .and_then(|receiver| owners.owner(receiver.records(), receiver.definitions()))
-    })?;
+    definition.validate(&|receiver| owners.owner(receiver, definitions), definitions)?;
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(&generated.uri, definition.identity.clone())
@@ -83,9 +89,10 @@ pub(crate) fn import_source(
             parsed.diagnostics().first()
         )));
     }
-    validate_view(definition, providers, &parsed, limits, cancel)?;
+    validate_view(metadata, providers, &parsed, limits, cancel)?;
     let mut lowered = lower_module_controlled(source, &parsed.syntax(), cancel);
     lowered.registered_native_api = true;
+    lowered.native_definitions = Some(definitions.clone());
     lowered.language_foundation = language::is_language_module(&definition.identity);
     lowered.native_package_alias = definition.package_alias.clone();
     lowered.native_prelude = definition.prelude;
@@ -97,21 +104,24 @@ pub(crate) fn import_source(
         .enumerate()
         .map(|(slot, name)| (slot, name.namespace))
         .collect();
-    lowered.native_array_interfaces = array_interfaces(providers)?;
+    lowered.native_array_interfaces = array_interfaces(
+        providers.iter().map(|provider| provider.records()),
+        definitions,
+    )?;
     lowered.registered_traits = definition
         .traits
         .iter()
         .map(|contract| {
-            (
-                definition.definition(DefinitionKind::Trait, &contract.name),
+            Ok((
+                definition.definition(DefinitionKind::Trait, &contract.name, definitions)?,
                 contract.clone(),
-            )
+            ))
         })
-        .collect();
-    lowered.registered_declarations = definition.native_declarations();
-    attach_types(definition, &mut lowered)?;
+        .collect::<Result<_, DeclarationError>>()?;
+    lowered.registered_declarations = definition.native_declarations(definitions)?;
+    attach_types(definition, definitions, &mut lowered)?;
     attach_functions(definition, &mut lowered)?;
-    attach_dependencies(definition, providers, &mut lowered, cancel)?;
+    attach_dependencies(metadata, providers, &mut lowered, cancel)?;
     Ok((parsed, Arc::new(lowered)))
 }
 
@@ -119,13 +129,13 @@ pub(crate) fn import_source(
 /// changed declaration. Role attributes belong to the parsed owning declarations;
 /// signatures still pass ordinary name and type analysis.
 fn validate_view(
-    definition: &ModuleDecl,
-    providers: &[Arc<ModuleDecl>],
+    metadata: &DefinitionMetadata<ModuleDecl>,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     parsed: &Parse,
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationError> {
-    let expected = declaration_source(definition, providers)?;
+    let expected = declaration_source(metadata, providers)?;
     let expected = parse_declarations(
         &SourceFile::new(&expected.uri, &expected.text),
         limits,
@@ -156,6 +166,7 @@ fn validate_view(
 
 fn attach_types(
     definition: &ModuleDecl,
+    definitions: &DefinitionTable,
     lowered: &mut LoweredModule,
 ) -> Result<(), DeclarationError> {
     for ty in &definition.types {
@@ -183,7 +194,11 @@ fn attach_types(
         }
         let kind = match ty.kind {
             TypeDefKind::NativeStorage(layout) => NativeTypeKind::Storage {
-                declaration: definition.definition(DefinitionKind::AssociatedType, &ty.name),
+                declaration: definition.definition(
+                    DefinitionKind::AssociatedType,
+                    &ty.name,
+                    definitions,
+                )?,
                 arity: ty.generic_params.len(),
                 layout,
             },
@@ -275,12 +290,12 @@ fn attach_functions(
     Ok(())
 }
 
-fn attach_binding(lowered: &mut LoweredModule, id: FunctionId, function: &FnDecl) {
+fn attach_binding(lowered: &mut LoweredModule, id: FunctionId, function: &FnDecl<DefinitionId>) {
     match &function.implementation {
         CallableImplementation::Native(binding) => {
             lowered
                 .native_functions
-                .insert(id, NativeBinding::Entry(binding.clone()));
+                .insert(id, NativeBinding::Entry(*binding));
         }
         CallableImplementation::NativeDefault(application) => {
             lowered
@@ -293,11 +308,13 @@ fn attach_binding(lowered: &mut LoweredModule, id: FunctionId, function: &FnDecl
 }
 
 fn attach_dependencies(
-    definition: &ModuleDecl,
-    providers: &[Arc<ModuleDecl>],
+    metadata: &DefinitionMetadata<ModuleDecl>,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     lowered: &mut LoweredModule,
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationError> {
+    let definition = metadata.records();
+    let definitions = metadata.definitions();
     let mut imports = HashSet::new();
     let referenced: HashSet<_> = lowered
         .module
@@ -311,35 +328,49 @@ fn attach_dependencies(
         .collect();
     for provider in providers
         .iter()
+        .map(|provider| provider.records())
         .filter(|provider| provider.identity != definition.identity)
     {
         for ty in &provider.types {
             let alias = format!(
                 "{}::{}",
-                module_path(&provider.identity, providers),
+                module_path(
+                    &provider.identity,
+                    providers.iter().map(|provider| provider.records())
+                ),
                 ty.name
             );
             if !referenced.contains(alias.as_str()) {
                 continue;
             }
             let kind = ty.kind.definition_kind();
-            imports.insert(provider.definition(kind, &ty.name));
+            let id = provider.definition(kind, &ty.name, definitions)?;
+            imports.insert(
+                definitions
+                    .resolve(id)
+                    .map_err(|error| DeclarationError(error.to_string()))?
+                    .module()
+                    .clone(),
+            );
         }
     }
     definition
         .visit_definitions(
-            &mut |id: &DefinitionPath| {
-                if id.module != definition.identity
-                    && id.path.len() == 1
-                    && matches!(
-                        id.path[0].kind,
-                        DefinitionKind::Trait
-                            | DefinitionKind::AssociatedType
-                            | DefinitionKind::Enum
-                            | DefinitionKind::Struct
-                    )
+            &mut |id: &DefinitionId| {
+                let view = definitions.resolve(*id)?;
+                if view.module() != &definition.identity
+                    && view.segments().count() == 1
+                    && view.last().is_some_and(|part| {
+                        matches!(
+                            part.kind,
+                            DefinitionKind::Trait
+                                | DefinitionKind::AssociatedType
+                                | DefinitionKind::Enum
+                                | DefinitionKind::Struct
+                        )
+                    })
                 {
-                    imports.insert(id.clone());
+                    imports.insert(view.module().clone());
                 }
                 Ok(())
             },
@@ -350,7 +381,7 @@ fn attach_dependencies(
         .dependencies
         .iter()
         .cloned()
-        .chain(imports.into_iter().map(|id| id.module))
+        .chain(imports)
         .collect();
     Ok(())
 }

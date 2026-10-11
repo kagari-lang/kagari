@@ -802,7 +802,7 @@ pub struct AnalysisDatabase {
     hosts: Arc<HostDeclarations>,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
-    native_modules: Vec<Arc<ModuleDecl>>,
+    native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
     /// Parsed/lowered installed declaration sources, initialized once per registration setup.
     native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
@@ -834,7 +834,9 @@ impl Default for AnalysisDatabase {
 
 impl AnalysisDatabase {
     /// Native declarations are explicit snapshot inputs. Existing snapshots keep their owners.
-    pub fn set_native_modules(&mut self, modules: Vec<Arc<ModuleDecl>>) {
+    /// The first declaration query imports the complete batch into this database's context;
+    /// providers may originate in independent identity scopes.
+    pub fn set_native_modules(&mut self, modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>) {
         self.native_modules = modules;
         self.native_sources = None;
         self.native_files.take();
@@ -848,7 +850,7 @@ impl AnalysisDatabase {
     /// Every source is parsed and checked against its authoritative registration.
     pub fn set_native_sources(
         &mut self,
-        modules: Vec<Arc<ModuleDecl>>,
+        modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
         sources: Vec<DeclarationSource>,
     ) -> Result<(), AnalysisError> {
         if modules.len() != sources.len() {

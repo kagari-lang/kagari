@@ -9,6 +9,7 @@ use kagari_types::{
     declaration::native::NativeStorageLayout, range::RangeKind, scalar::BuiltinType,
 };
 
+pub(crate) mod adoption;
 pub(crate) mod api;
 pub(crate) mod paths;
 pub mod render;

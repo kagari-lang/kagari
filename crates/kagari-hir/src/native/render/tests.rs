@@ -17,7 +17,7 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
             .map(|provider| Arc::new(provider.records().clone()))
             .collect::<Vec<_>>();
         let definitions = providers[0].definitions();
-        let interfaces = array_interfaces(&records, definitions).unwrap();
+        let interfaces = array_interfaces(records.iter().map(Arc::as_ref), definitions).unwrap();
         for (access, name) in [
             (CollectionAccess::ReadOnly, "List"),
             (CollectionAccess::Mutable, "MutableList"),
@@ -26,7 +26,7 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
             assert_eq!(definitions.resolve(*id).unwrap().last().unwrap().name, name);
         }
         let foreign = DefinitionContext::new().unwrap().snapshot();
-        assert!(array_interfaces(&records, &foreign).is_err());
+        assert!(array_interfaces(records.iter().map(Arc::as_ref), &foreign).is_err());
     }
     for (left_module, right_module) in left.iter().zip(&right) {
         let left_source = declaration_source(left_module, &left).unwrap();

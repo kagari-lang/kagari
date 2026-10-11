@@ -1120,3 +1120,54 @@ until the owning migration builds; direct harness results do not claim those che
 passed. No full workspace/backend sweep or speed claim was made. Continue with
 Native input adoption into the analysis context, source identity collection and
 fixed-ID HIR consumers; SI02–SI06 remain incomplete.
+
+### SI02 Native inputs adopted into the analysis owner
+
+AnalysisDatabase and the single-source entrypoint now accept explicit scoped provider
+metadata. Before preparing installed sources, the declaration query imports the complete
+provider batch into the database's existing DefinitionContext, collects implicit names,
+and retains one completed prefix for every module. This happens once per native-files
+preparation, not separately for each rendered module. Duplicate logical provider modules
+and cancellation fail without publishing the native-files cache; harmless context appends
+do not establish declaration or executable authority. Replacing inputs still invalidates
+the existing declaration/signature/body/file caches, and database clones still share the
+append-only identity context.
+
+Native import now validates the scoped ModuleDecl directly against receiver owners and
+the adopted table. It preserves exact non-trivia source correspondence before attaching
+registration facts. LoweredModule stores fixed-ID trait contracts, native entries/defaults,
+storage descriptors, array bridges and conversion adapters, with one retained registration
+prefix. Its public declaration accessor exposes IDs and a matching table accessor. Ordinary
+source lowering has no Native registration prefix. Dependency discovery borrows complete
+identity views; removed the per-receiver `scope_record` path conversion. Package spellings
+remain presentation queries. Provider iteration borrows records instead of cloning their
+complete contracts to satisfy the array-interface helper.
+
+Focused evidence and remaining integration:
+
+- `cargo check -p kagari-hir --lib --message-format=short` reports 21 errors, reduced
+  from 37. Native adoption/import/render and the changed database input signatures
+  type-check. The remaining errors are fixed-ID lowered records reaching path-shaped
+  declarations, import bridges, trait adapters, role validation and type checking,
+  plus carried Host/protocol consumers. SI02 source identity collection and SI03 own
+  these coupled repairs; the HIR library still does not build.
+- The two existing renderer tests and one batch-adoption test pass through the same
+  direct tracked-module harness documented above, now including `native/adoption.rs`.
+  Mixed providers from two independently constructed foundation contexts normalize
+  into one analysis scope, preserve rendered text, supply both array contracts, and
+  retain identical referenced IDs on repeated adoption. Duplicate providers, foreign
+  array tables and cancelled empty/nonempty batches reject; retained prefixes reject
+  later additions. The harness also passes direct Clippy with warnings denied.
+- Reviewed unchanged Native source correspondence logic and cache publication/cancellation
+  ordering. Full source correspondence, query reuse/recovery and normal Cargo HIR tests
+  remain unrun because their owners do not yet build. Previous source-free runtime,
+  stdlib and type checks remain evidence for unchanged code; no workspace sweep was run.
+
+Structure passes 1050 Rust files without violations/exceptions; formatting and diff
+checks pass. The next coupled boundary is source declaration collection: its current
+Builder constructs paths, then signature/body checking and cache publication project
+between paths and IDs. Migration must also preserve the existing oversized-module
+recovery test: invalid source identity yields a CompileLimitExceeded diagnostic and
+cannot enter code generation, rather than fabricating a valid definition identity or
+panicking while interning. Source/HIR migration, specialization integration, obsolete
+representation removal and final documentation cleanup remain required.

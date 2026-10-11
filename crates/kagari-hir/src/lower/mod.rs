@@ -16,7 +16,10 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, ModuleIdentity},
+    identity::{
+        ModuleIdentity,
+        table::{DefinitionId, DefinitionTable},
+    },
     span::Span,
 };
 use kagari_source::source::SourceFile;
@@ -79,6 +82,8 @@ pub struct LoweredModule {
     pub attributes: Vec<AttributeFact>,
     /// Whether this unit was imported from an installed native declaration module.
     pub(crate) registered_native_api: bool,
+    /// Retained scope for attached Native registration facts; absent for ordinary source.
+    pub(crate) native_definitions: Option<DefinitionTable>,
     /// Whether the installed unit provides the required language foundation.
     pub(crate) language_foundation: bool,
     /// Optional short package alias supplied by registration metadata.
@@ -86,17 +91,17 @@ pub struct LoweredModule {
     /// Whether this registered unit contributes implicit prelude bindings.
     pub(crate) native_prelude: bool,
     /// Registered array bridge interface identities indexed by access policy.
-    pub(crate) native_array_interfaces: BTreeMap<CollectionAccess, DefinitionPath>,
-    /// Authoritative installed trait contracts indexed by portable definition identity.
-    pub(crate) registered_traits: BTreeMap<DefinitionPath, TraitDef>,
+    pub(crate) native_array_interfaces: BTreeMap<CollectionAccess, DefinitionId>,
+    /// Authoritative installed trait contracts indexed by scoped definition identity.
+    pub(crate) registered_traits: BTreeMap<DefinitionId, TraitDef<DefinitionId>>,
     /// Validated native declaration records retained alongside their generated source view.
-    pub(crate) registered_declarations: Vec<NativeDeclaration>,
+    pub(crate) registered_declarations: Vec<NativeDeclaration<DefinitionId>>,
     /// Lowering-local opaque type slots mapped to registered representation descriptors.
-    pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind<DefinitionId>>,
     /// Lowering-local function slots mapped to registered semantic binding descriptors.
-    pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
+    pub(crate) native_functions: HashMap<FunctionId, NativeBinding<DefinitionId>>,
     /// Registered conversion adapters indexed by the generated trait slot.
-    pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter>,
+    pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter<DefinitionId>>,
     /// Collection access policies indexed by registered trait slot.
     pub(crate) native_trait_access: HashMap<TraitId, CollectionAccess>,
     /// Registered receiver/call policies indexed by generated function slot.
@@ -117,9 +122,14 @@ impl LoweredModule {
         self.registered_native_api
     }
 
-    /// Returns the installed semantic declarations attached during native preparation.
-    pub fn registered_native_declarations(&self) -> &[NativeDeclaration] {
+    /// Returns installed declarations in [`Self::registered_native_definitions`]'s scope.
+    pub fn registered_native_declarations(&self) -> &[NativeDeclaration<DefinitionId>] {
         &self.registered_declarations
+    }
+
+    /// Borrow the retained registration prefix; ordinary source has no attached Native scope.
+    pub fn registered_native_definitions(&self) -> Option<&DefinitionTable> {
+        self.native_definitions.as_ref()
     }
 }
 
@@ -254,6 +264,7 @@ pub(crate) fn lower_module_controlled(
         source_map,
         attributes,
         registered_native_api: false,
+        native_definitions: None,
         native_import_namespaces: BTreeMap::new(),
         language_foundation: false,
         native_package_alias: None,

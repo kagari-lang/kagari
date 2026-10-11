@@ -6,7 +6,7 @@ use crate::{
     declare_analysis,
     imports::{ModuleGraph, SourceUnit},
     lower,
-    native::api as native_api,
+    native::{adoption, api as native_api},
     resolver::resolved::DeclarationNames,
 };
 
@@ -199,19 +199,19 @@ impl AnalysisDatabase {
         let native_files = match self.native_files.get() {
             Some(files) => files,
             None => {
-                let modules = &self.native_modules;
+                let modules = adoption::adopt(&self.native_modules, &self.definitions, cancel)?;
                 let prepared = modules
                     .iter()
                     .enumerate()
                     .map(|(index, module)| match &self.native_sources {
                         Some(sources) => native_api::import_source(
                             module,
-                            modules,
+                            &modules,
                             &sources[index],
                             self.parse_limits,
                             cancel,
                         ),
-                        None => native_api::import(module, modules, self.parse_limits, cancel),
+                        None => native_api::import(module, &modules, self.parse_limits, cancel),
                     })
                     .collect::<Result<Vec<_>, _>>();
                 cancel.check()?;

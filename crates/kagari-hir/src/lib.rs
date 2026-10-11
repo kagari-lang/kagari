@@ -562,7 +562,7 @@ fn analyze_prepared(
 /// ```
 pub fn analyze_source(
     source: &SourceFile,
-    providers: Vec<Arc<ModuleDecl>>,
+    providers: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
 ) -> Result<AnalysisResult<AnalyzedModule>, AnalysisError> {
     if !source.module_identity().within_path_limit() {
         return recover_invalid_identity(source);

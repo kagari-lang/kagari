@@ -12,7 +12,7 @@ use kagari_types::{
     },
     ty::Ty,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 pub(crate) fn module_path<'a>(
     identity: &ModuleIdentity,
@@ -25,13 +25,13 @@ pub(crate) fn module_path<'a>(
     format!("{}::{}", package, identity.path.join("::"))
 }
 
-pub(crate) fn array_interfaces(
-    providers: &[Arc<ModuleDecl>],
+pub(crate) fn array_interfaces<'a>(
+    providers: impl Clone + Iterator<Item = &'a ModuleDecl>,
     definitions: &DefinitionTable,
 ) -> Result<BTreeMap<CollectionAccess, DefinitionId>, DeclarationError> {
     let mut types = BTreeMap::new();
     let mut traits = BTreeMap::new();
-    for provider in providers {
+    for provider in providers.clone() {
         for ty in &provider.types {
             let id = provider.definition(ty.kind.definition_kind(), &ty.name, definitions)?;
             if types.insert(id, ty).is_some() {
@@ -46,7 +46,7 @@ pub(crate) fn array_interfaces(
         }
     }
     let mut interfaces = BTreeMap::new();
-    for implementation in providers.iter().flat_map(|module| &module.implementations) {
+    for implementation in providers.flat_map(|module| &module.implementations) {
         let (Ty::NativeObject(nominal), Some(interface)) =
             (&implementation.for_type, &implementation.trait_type)
         else {
