@@ -4,7 +4,7 @@ mod display;
 pub mod semantic;
 
 use crate::typeck::{GenericBounds, associated};
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     collection::{
         CollectionAccess,
@@ -26,34 +26,30 @@ use std::{
 /// maps declaring owners to their `Self` replacement. Dereferencing exposes only
 /// the parameter map; receiver entries use explicit accessors. This is not a map
 /// from source names, so shadowed binders with the same spelling remain distinct.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeSubstitution<I: DefinitionReference = DefinitionId> {
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TypeSubstitution {
     /// Generic binder to instantiated semantic type.
-    parameters: HashMap<GenericParameterType<I>, TypeId<I>>,
+    parameters: HashMap<GenericParameterType, TypeId>,
     /// Declaring owner to its `Self` replacement.
-    receivers: HashMap<I, TypeId<I>>,
+    receivers: HashMap<DefinitionId, TypeId>,
 }
 
-impl TypeSubstitution {}
-
-impl<I: DefinitionReference> Deref for TypeSubstitution<I> {
-    type Target = HashMap<GenericParameterType<I>, TypeId<I>>;
+impl Deref for TypeSubstitution {
+    type Target = HashMap<GenericParameterType, TypeId>;
 
     fn deref(&self) -> &Self::Target {
         &self.parameters
     }
 }
 
-impl<I: DefinitionReference> DerefMut for TypeSubstitution<I> {
+impl DerefMut for TypeSubstitution {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.parameters
     }
 }
 
-impl<I: DefinitionReference> FromIterator<(GenericParameterType<I>, TypeId<I>)>
-    for TypeSubstitution<I>
-{
-    fn from_iter<T: IntoIterator<Item = (GenericParameterType<I>, TypeId<I>)>>(iter: T) -> Self {
+impl FromIterator<(GenericParameterType, TypeId)> for TypeSubstitution {
+    fn from_iter<T: IntoIterator<Item = (GenericParameterType, TypeId)>>(iter: T) -> Self {
         Self {
             parameters: iter.into_iter().collect(),
             receivers: Default::default(),
@@ -66,9 +62,9 @@ mod nominal_tests;
 
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
-pub struct GenericParameterType<I: DefinitionReference = DefinitionId> {
+pub struct GenericParameterType {
     /// Definition that declares the binder; part of equality and hashing.
-    pub owner: I,
+    pub owner: DefinitionId,
     /// Zero-based binder position within its owner; part of equality and hashing.
     pub position: usize,
     /// Diagnostic spelling only; renaming does not determine binder equality.
@@ -77,33 +73,31 @@ pub struct GenericParameterType<I: DefinitionReference = DefinitionId> {
 
 /// Member-level generic binders and their checked requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedTypeParameters<I: DefinitionReference = DefinitionId> {
+pub struct AssociatedTypeParameters {
     /// Associated family binders in declaration order.
-    pub parameters: Vec<GenericParameterType<I>>,
+    pub parameters: Vec<GenericParameterType>,
     /// Checked constraints on family inputs.
-    pub bounds: GenericBounds<I>,
+    pub bounds: GenericBounds,
 }
 
 /// An associated type definition parameterized by member-level inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedTypeFamily<I: DefinitionReference = DefinitionId> {
+pub struct AssociatedTypeFamily {
     /// Family binders and bounds, separate from enclosing implementation binders.
-    pub inputs: AssociatedTypeParameters<I>,
+    pub inputs: AssociatedTypeParameters,
     /// Output type before applying enclosing/member substitutions.
-    pub value: TypeId<I>,
+    pub value: TypeId,
 }
 
-impl AssociatedTypeFamily {}
-
-impl<I: DefinitionReference> PartialEq for GenericParameterType<I> {
+impl PartialEq for GenericParameterType {
     fn eq(&self, other: &Self) -> bool {
         self.owner == other.owner && self.position == other.position
     }
 }
 
-impl<I: DefinitionReference> Eq for GenericParameterType<I> {}
+impl Eq for GenericParameterType {}
 
-impl<I: DefinitionReference> Hash for GenericParameterType<I> {
+impl Hash for GenericParameterType {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.owner.hash(state);
         self.position.hash(state);
@@ -121,16 +115,14 @@ impl<I: DefinitionReference> Hash for GenericParameterType<I> {
 /// Definition identity, ordered arguments and associated constraints participate in
 /// equality. Semantic identities are resolved through the owning analysis snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct NominalType<I: DefinitionReference = DefinitionId> {
+pub struct NominalType {
     /// Canonical nominal definition, not its local/imported spelling.
-    pub declaration: I,
+    pub declaration: DefinitionId,
     /// Positional arguments in declaring-binder order.
-    pub arguments: Vec<TypeId<I>>,
+    pub arguments: Vec<TypeId>,
     /// Associated member definition to constrained output type.
-    pub associated_types: BTreeMap<I, TypeId<I>>,
+    pub associated_types: BTreeMap<DefinitionId, TypeId>,
 }
-
-impl NominalType {}
 
 /// A semantic type value, despite the `Id` suffix; not an arena index.
 ///
@@ -148,7 +140,7 @@ impl NominalType {}
 /// binders and projections can be valid in checked generic signatures even though
 /// they are not yet concrete monomorphized types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeId<I: DefinitionReference = DefinitionId> {
+pub enum TypeId {
     /// A body-local constraint variable. Never valid in a checked signature or IR.
     Inference(u32),
     /// An unresolved type requiring inference or a diagnostic.
@@ -158,56 +150,56 @@ pub enum TypeId<I: DefinitionReference = DefinitionId> {
     /// An intrinsic scalar/unit/never/String type tag.
     Builtin(BuiltinType),
     /// An ordered tuple of semantic types.
-    Tuple(Vec<TypeId<I>>),
+    Tuple(Vec<TypeId>),
     /// A callable value type, separate from a named function declaration.
     Function {
         /// Parameter types in call order.
-        params: Vec<TypeId<I>>,
+        params: Vec<TypeId>,
         /// Semantic result type.
-        result: Box<TypeId<I>>,
+        result: Box<TypeId>,
     },
     /// Iterator representation carrying its element type.
-    Iter(Box<TypeId<I>>),
+    Iter(Box<TypeId>),
     /// Range element type and open/inclusive/exclusive shape.
-    Range(Box<TypeId<I>>, RangeKind),
+    Range(Box<TypeId>, RangeKind),
     /// Builtin fixed-length array element type; length belongs to the object.
-    Array(Box<TypeId<I>>),
+    Array(Box<TypeId>),
     /// Map storage with key/value types and access policy.
     Map {
         /// Semantic key type.
-        key: Box<TypeId<I>>,
+        key: Box<TypeId>,
         /// Semantic mapped-value type.
-        value: Box<TypeId<I>>,
+        value: Box<TypeId>,
         /// Mutable or readonly collection access; part of type identity.
         access: CollectionAccess,
     },
     /// Set storage element type and collection access.
-    Set(Box<TypeId<I>>, CollectionAccess),
+    Set(Box<TypeId>, CollectionAccess),
     /// A registered native-backed nominal object application.
-    NativeObject(NominalType<I>),
+    NativeObject(NominalType),
     /// A source nominal struct application.
-    Struct(NominalType<I>),
+    Struct(NominalType),
     /// A nominal enum application.
-    Enum(NominalType<I>),
+    Enum(NominalType),
     /// A trait/interface value type with applied arguments/constraints.
-    Trait(NominalType<I>),
+    Trait(NominalType),
     /// An installed host type definition identity.
-    Host(I),
+    Host(DefinitionId),
     /// A generic binder identified by declaring owner and position.
-    Generic(GenericParameterType<I>),
+    Generic(GenericParameterType),
     /// An applied associated type that may still depend on a receiver/trait implementation.
     Projection {
         /// Arguments of the associated type family.
-        arguments: Vec<TypeId<I>>,
+        arguments: Vec<TypeId>,
         /// Type whose implementation supplies the associated member.
-        receiver: Box<TypeId<I>>,
+        receiver: Box<TypeId>,
         /// Applied trait qualification, including associated constraints.
-        interface: Box<NominalType<I>>,
+        interface: Box<NominalType>,
         /// Canonical associated member definition identity.
-        member: I,
+        member: DefinitionId,
     },
     /// Owner-qualified `Self` before receiver substitution.
-    SelfType(I),
+    SelfType(DefinitionId),
 }
 
 impl TypeId {
@@ -274,34 +266,25 @@ pub fn supports_array_repetition(
     true
 }
 
-impl<I: DefinitionReference> Default for TypeSubstitution<I> {
-    fn default() -> Self {
-        Self {
-            parameters: Default::default(),
-            receivers: Default::default(),
-        }
-    }
-}
-
 mod mapping;
 
 mod shape;
 
-impl<I: DefinitionReference> TypeSubstitution<I> {
+impl TypeSubstitution {
     /// Records/replaces the `Self` type for a declaring owner.
-    pub fn insert_receiver(&mut self, owner: I, receiver: TypeId<I>) {
+    pub fn insert_receiver(&mut self, owner: DefinitionId, receiver: TypeId) {
         self.receivers.insert(owner, receiver);
     }
 
     /// Borrows the owner's recorded `Self` replacement, if any.
-    pub fn receiver(&self, owner: &I) -> Option<&TypeId<I>> {
+    pub fn receiver(&self, owner: &DefinitionId) -> Option<&TypeId> {
         self.receivers.get(owner)
     }
 }
 
-impl<I: DefinitionReference> AssociatedTypeFamily<I> {
+impl AssociatedTypeFamily {
     /// Applies outer and member substitutions; returns `None` on arity mismatch and does not itself validate bounds.
-    pub fn apply(&self, outer: &TypeSubstitution<I>, arguments: &[TypeId<I>]) -> Option<TypeId<I>> {
+    pub fn apply(&self, outer: &TypeSubstitution, arguments: &[TypeId]) -> Option<TypeId> {
         if arguments.len() != self.inputs.parameters.len() {
             return None;
         }
@@ -317,7 +300,7 @@ impl<I: DefinitionReference> AssociatedTypeFamily<I> {
     }
 }
 
-impl<I: DefinitionReference> NominalType<I> {
+impl NominalType {
     /// Checks equal declaration/arguments and all required associated constraints; permits extra known constraints.
     pub fn satisfies(&self, required: &Self) -> bool {
         self.declaration == required.declaration
@@ -333,7 +316,7 @@ impl<I: DefinitionReference> NominalType<I> {
     /// `T: Trait` implies `T: Trait<Item = <T as Trait>::Item>` without a
     /// concrete implementation. The projection must use the same receiver,
     /// member and an interface whose constraints this bound already proves.
-    pub(crate) fn satisfies_for(&self, required: &Self, receiver: &TypeId<I>) -> bool {
+    pub(crate) fn satisfies_for(&self, required: &Self, receiver: &TypeId) -> bool {
         self.declaration == required.declaration
             && self.arguments == required.arguments
             && required.associated_types.iter().all(|(member, ty)| {
@@ -346,13 +329,13 @@ impl<I: DefinitionReference> NominalType<I> {
     }
 
     /// Substitutes generic/Self occurrences in arguments and associated outputs.
-    pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> Self {
+    pub fn instantiate(&self, substitution: &TypeSubstitution) -> Self {
         Self {
-            declaration: self.declaration.clone(),
+            declaration: self.declaration,
             associated_types: self
                 .associated_types
                 .iter()
-                .map(|(id, ty)| (id.clone(), ty.instantiate(substitution)))
+                .map(|(id, ty)| (*id, ty.instantiate(substitution)))
                 .collect(),
             arguments: self
                 .arguments
@@ -362,20 +345,20 @@ impl<I: DefinitionReference> NominalType<I> {
         }
     }
 
-    fn map_arguments(&self, mut map: impl FnMut(&TypeId<I>) -> TypeId<I>) -> Self {
+    fn map_arguments(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
         Self {
-            declaration: self.declaration.clone(),
+            declaration: self.declaration,
             associated_types: self
                 .associated_types
                 .iter()
-                .map(|(id, ty)| (id.clone(), map(ty)))
+                .map(|(id, ty)| (*id, map(ty)))
                 .collect(),
             arguments: self.arguments.iter().map(&mut map).collect(),
         }
     }
 }
 
-impl<I: DefinitionReference> TypeId<I> {
+impl TypeId {
     /// Returns whether this is the intrinsic diverging `never` type.
     pub fn is_never(&self) -> bool {
         matches!(self, Self::Builtin(BuiltinType::Never))
@@ -526,7 +509,7 @@ impl<I: DefinitionReference> TypeId<I> {
     }
 
     /// Substitute one binder layer; replacements can contain the caller's parameters.
-    pub fn instantiate(&self, substitution: &TypeSubstitution<I>) -> TypeId<I> {
+    pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
         self.substitute_once(|ty| match ty {
             Self::Generic(parameter) => substitution.get(parameter),
             Self::SelfType(owner) => substitution.receiver(owner),
@@ -536,7 +519,7 @@ impl<I: DefinitionReference> TypeId<I> {
 
     /// Visit direct type children. Projection normalization uses a separately
     /// bounded walk; ordinary substitution remains iterative.
-    pub fn map_children(&self, mut map: impl FnMut(&TypeId<I>) -> TypeId<I>) -> Self {
+    pub fn map_children(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
         match self {
             Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
             Self::Iter(ty) => Self::Iter(Box::new(map(ty))),
@@ -566,7 +549,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 arguments: arguments.iter().map(&mut map).collect(),
                 receiver: Box::new(map(receiver)),
                 interface: Box::new(interface.map_arguments(map)),
-                member: member.clone(),
+                member: *member,
             },
             _ => self.clone(),
         }
@@ -575,8 +558,8 @@ impl<I: DefinitionReference> TypeId<I> {
     /// Preserve known argument context without exposing uninferred callee binders.
     pub(crate) fn argument_context(
         &self,
-        substitution: &TypeSubstitution<I>,
-        parameters: &[GenericParameterType<I>],
+        substitution: &TypeSubstitution,
+        parameters: &[GenericParameterType],
     ) -> Self {
         self.substitute_once(|ty| match ty {
             Self::Generic(parameter) => substitution
@@ -628,7 +611,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     arguments: vec![Self::Unknown; arguments.len()],
                     receiver: Box::new(Self::Unknown),
                     interface: Box::new(interface.map_arguments(|_| Self::Unknown)),
-                    member: member.clone(),
+                    member: *member,
                 },
                 _ => source.clone(),
             };
@@ -747,7 +730,7 @@ impl<I: DefinitionReference> TypeId<I> {
     }
 
     /// A caller-owned binder is known context even before monomorphization.
-    pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType<I>]) -> bool {
+    pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType]) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
@@ -794,7 +777,7 @@ impl<I: DefinitionReference> TypeId<I> {
     }
 
     /// Replaces `Self` occurrences belonging to the specified owner, leaving other owners unchanged.
-    pub fn with_self(&self, owner: &I, replacement: &TypeId<I>) -> TypeId<I> {
+    pub fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
         self.substitute_once(|ty| match ty {
             Self::SelfType(id) if id == owner => Some(replacement),
             _ => None,

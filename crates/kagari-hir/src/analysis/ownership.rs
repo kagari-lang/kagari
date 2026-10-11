@@ -10,18 +10,15 @@ use {
     kagari_common::{
         cancellation::CancellationToken,
         identity::{
-            map::DefinitionContext,
-            mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-            metadata::DefinitionMetadata,
-            reference::DefinitionReference,
-            table::{DefinitionId, DefinitionTable},
+            map::DefinitionContext, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
+            scoped::DefinitionReferences, table::DefinitionTable,
         },
     },
     kagari_source::source::SourceFile,
 };
 
 /// Validate fixed-ID records against the analysis prefix before cache publication.
-pub(super) fn scope<T: DefinitionRecord<DefinitionId> + Clone>(
+pub(super) fn scope<T: DefinitionReferences + Clone>(
     record: &T,
     context: &DefinitionContext,
     cancel: &CancellationToken,
@@ -29,17 +26,18 @@ pub(super) fn scope<T: DefinitionRecord<DefinitionId> + Clone>(
     DefinitionMetadata::checked(context.snapshot(), record.clone(), cancel)
 }
 
-/// Maps portable or scoped references into an existing table; invalid/absent identities return None.
-pub(super) fn locate<I: DefinitionReference, T: DefinitionRecord<I>>(
+/// Validates a scoped query identity against this retained prefix; foreign IDs are absent.
+pub(super) fn locate<T: DefinitionReferences + Clone>(
     record: &T,
     definitions: &DefinitionTable,
-) -> Option<T::Rebind<DefinitionId>> {
+) -> Option<T> {
     record
-        .map_identities(&mut DefinitionMapper::new(
-            &mut |id| Ok(id.resolve(definitions)?),
+        .visit_definition_ids(
+            &mut |id| definitions.resolve(*id).map(|_| ()).map_err(Into::into),
             &CancellationToken::default(),
-        ))
-        .ok()
+        )
+        .ok()?;
+    Some(record.clone())
 }
 
 /// Produces recoverable analysis with diagnostics for an over-limit source module identity.

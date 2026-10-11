@@ -22,7 +22,6 @@ use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
         DefinitionKind,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -77,23 +76,23 @@ impl SearchBudget<'_> {
 
 /// A generic implementation pattern and the members selected when it applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImplementationSignature<I: DefinitionReference = DefinitionId> {
+pub struct ImplementationSignature {
     /// Derived from the retained installation object, never a source identity.
     pub(crate) engine_owned: bool,
     /// Associated member definition to parameterized output implementation.
-    pub associated_type_families: BTreeMap<I, AssociatedTypeFamily<I>>,
+    pub associated_type_families: BTreeMap<DefinitionId, AssociatedTypeFamily>,
     /// Canonical semantic definition identity used as the catalog key.
-    pub id: I,
+    pub id: DefinitionId,
     /// Implemented trait application, possibly containing implementation binders.
-    pub trait_type: NominalType<I>,
+    pub trait_type: NominalType,
     /// Receiver type pattern to match against the requested concrete/generic type.
-    pub for_type: TypeId<I>,
+    pub for_type: TypeId,
     /// Generic binders in declaration order, identified by owner and position.
-    pub generic_params: Vec<GenericParameterType<I>>,
+    pub generic_params: Vec<GenericParameterType>,
     /// Checked generic constraints used during application/implementation selection.
-    pub bounds: GenericBounds<I>,
+    pub bounds: GenericBounds,
     /// Trait method identity to implementation method identity.
-    pub methods: BTreeMap<I, I>,
+    pub methods: BTreeMap<DefinitionId, DefinitionId>,
 }
 
 impl AggregateCatalog {
@@ -1167,9 +1166,9 @@ mod search_tests {
 
 mod mapping;
 
-impl<I: DefinitionReference> AggregateCatalog<I> {
+impl AggregateCatalog {
     /// Borrows one recorded implementation by canonical identity.
-    pub fn implementation_signature(&self, id: &I) -> Option<&ImplementationSignature<I>> {
+    pub fn implementation_signature(&self, id: &DefinitionId) -> Option<&ImplementationSignature> {
         self.implementations.get(id).map(AsRef::as_ref)
     }
 }

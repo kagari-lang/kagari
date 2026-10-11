@@ -1,45 +1,44 @@
 //! Explicit traversal of the owning HIR records.
+
 use crate::aggregates::implementations::ImplementationSignature;
 use crate::identity_mapping::map_hash_entries;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_entries,
-            map_sequence,
+            DefinitionMapper, DefinitionMappingError, check_cancel, map_entries, map_sequence,
         },
-        reference::DefinitionReference,
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for ImplementationSignature<I> {
-    type Rebind<J: DefinitionReference> = ImplementationSignature<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for ImplementationSignature {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImplementationSignature {
             engine_owned: self.engine_owned,
             associated_type_families: map_entries(
                 self.associated_type_families.len(),
                 self.associated_type_families.iter().map(|(key, value)| {
-                    Ok((mapper.reference(key)?, (value).map_identities(mapper)?))
+                    Ok((mapper.reference(key)?, (value).remap_definitions(mapper)?))
                 }),
             )?,
             id: mapper.reference(&self.id)?,
-            trait_type: self.trait_type.map_identities(mapper)?,
-            for_type: self.for_type.map_identities(mapper)?,
+            trait_type: self.trait_type.remap_definitions(mapper)?,
+            for_type: self.for_type.remap_definitions(mapper)?,
             generic_params: map_sequence(&self.generic_params, |value| {
-                (value).map_identities(mapper)
+                (value).remap_definitions(mapper)
             })?,
             bounds: map_hash_entries(
                 self.bounds.len(),
                 self.bounds.iter().map(|(key, value)| {
                     Ok((
-                        (key).map_identities(mapper)?,
-                        map_sequence(value, |value| (value).map_identities(mapper))?,
+                        (key).remap_definitions(mapper)?,
+                        map_sequence(value, |value| (value).remap_definitions(mapper))?,
                     ))
                 }),
             )?,
@@ -51,29 +50,31 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ImplementationSignature<I> 
             )?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for ImplementationSignature {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for (key0, value0) in &self.associated_type_families {
             check_cancel(cancel)?;
             visit(key0)?;
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         check_cancel(cancel)?;
         visit(&self.id)?;
-        self.trait_type.visit_definitions(visit, cancel)?;
-        self.for_type.visit_definitions(visit, cancel)?;
+        self.trait_type.visit_definition_ids(visit, cancel)?;
+        self.for_type.visit_definition_ids(visit, cancel)?;
         for value0 in &self.generic_params {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for (key0, value0) in &self.bounds {
-            (key0).visit_definitions(visit, cancel)?;
+            (key0).visit_definition_ids(visit, cancel)?;
             for value1 in value0 {
-                (value1).visit_definitions(visit, cancel)?;
+                (value1).visit_definition_ids(visit, cancel)?;
             }
         }
         for (key0, value0) in &self.methods {

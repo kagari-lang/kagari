@@ -6,7 +6,8 @@ use kagari_common::{
     identity::{
         map::DefinitionContext,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-        table::DefinitionTable,
+        scoped::DefinitionReferences,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use std::{collections::HashSet, sync::Arc};
@@ -66,5 +67,33 @@ impl HostDeclarations {
             type_paths: self.type_paths.clone(),
             modules: self.modules.clone(),
         }))
+    }
+}
+
+impl DefinitionReferences for HostDeclarations {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        self.interface.visit_definition_ids(visit, cancel)?;
+        for signature in &self.signatures {
+            signature.visit_definition_ids(visit, cancel)?;
+        }
+        for id in self
+            .origins
+            .keys()
+            .chain(self.type_identities.keys())
+            .chain(self.methods.keys().map(|(id, _)| id))
+        {
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
+            visit(id)?;
+        }
+        Ok(())
     }
 }

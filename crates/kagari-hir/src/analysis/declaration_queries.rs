@@ -10,11 +10,7 @@ use crate::{
     resolver::resolved::DeclarationNames,
 };
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{reference::DefinitionReference, table::DefinitionId},
-    span::Span,
-};
+use kagari_common::{cancellation::CancellationToken, span::Span};
 use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, Revision},
@@ -44,13 +40,13 @@ mod tests;
 #[derive(Debug)]
 pub struct FileDeclarations {
     pub(super) parsed: Parse,
-    pub(super) declared: DeclaredAnalysis<DefinitionId>,
+    pub(super) declared: DeclaredAnalysis,
     diagnostics: DiagnosticBuffer,
 }
 
 impl FileDeclarations {
     /// Finds a declared field or enum variant at a source byte offset.
-    pub fn member_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
+    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
         self.declarations().member_at(offset)
     }
 
@@ -65,7 +61,7 @@ impl FileDeclarations {
     }
 
     /// Named declarations, members and generic parameters; no local bindings.
-    pub fn declarations(&self) -> &Declarations<DefinitionId> {
+    pub fn declarations(&self) -> &Declarations {
         &self.declared.declarations
     }
 
@@ -135,11 +131,8 @@ impl DeclarationSnapshot {
         &self.graph
     }
 
-    /// Maps an identity into each file table and returns its declaration, if present.
-    pub fn declaration<I: DefinitionReference>(
-        &self,
-        id: &DeclarationId<I>,
-    ) -> Option<&Declaration<DefinitionId>> {
+    /// Finds a scoped identity in this retained declaration snapshot.
+    pub fn declaration(&self, id: &DeclarationId) -> Option<&Declaration> {
         self.files.values().find_map(|file| {
             let id = ownership::locate(id, file.declarations().definitions())?;
             file.declarations().get(&id)

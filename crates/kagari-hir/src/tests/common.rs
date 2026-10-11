@@ -16,8 +16,8 @@ use crate::{
 use kagari_common::identity::{
     DefinitionKind,
     map::DefinitionContext,
-    mapping::DefinitionRecord,
     metadata::DefinitionMetadata,
+    scoped::RemapDefinitions,
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_source::source::SourceFile;
@@ -118,7 +118,7 @@ pub(crate) fn import_facts<T>(
     context: &DefinitionContext,
 ) -> DefinitionMetadata<T>
 where
-    T: Clone + DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>,
+    T: Clone + RemapDefinitions,
 {
     DefinitionMetadata::checked(definitions.clone(), facts.clone(), &Default::default())
         .unwrap()

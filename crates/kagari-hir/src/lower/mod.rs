@@ -46,6 +46,7 @@ use std::{
 
 pub(crate) mod context;
 mod expr;
+mod identity;
 mod item;
 mod stmt;
 mod ty;
@@ -97,9 +98,9 @@ pub struct LoweredModule {
     /// Validated native declaration records retained alongside their generated source view.
     pub(crate) registered_declarations: Vec<NativeDeclaration<DefinitionId>>,
     /// Lowering-local opaque type slots mapped to registered representation descriptors.
-    pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind<DefinitionId>>,
+    pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     /// Lowering-local function slots mapped to registered semantic binding descriptors.
-    pub(crate) native_functions: HashMap<FunctionId, NativeBinding<DefinitionId>>,
+    pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
     /// Registered conversion adapters indexed by the generated trait slot.
     pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter<DefinitionId>>,
     /// Collection access policies indexed by registered trait slot.

@@ -39,13 +39,35 @@ Its name does not imply one allocation per function.
 | `ParamId`, `LocalId` | Carry arena/owner and source-map-wide indices. Parameters live in function records; local bindings live in statements, patterns or closure parameters. Semantic maps use the complete IDs. |
 | `FieldId`, `VariantId` | Carry arena, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
 | `SourceDeclRef` | Carries a full `SourceUnit` plus a declaration handle for cross-module access. Do not index the importing module with it. |
-| `DefinitionId` | Interpreted by its matching definition table; distinct from all lowering-local IDs. Portable authoring metadata uses `DefinitionPath`. |
+| `DefinitionId` | Interpreted by its matching immutable definition-table prefix; distinct from all lowering-local IDs. Exact owned paths belong to explicit authoring/display queries. |
+| `BindingId` | An analysis identity, scoped body definition and resolved local slot. Changing the definition context does not change the binding's owning analysis or source slot. |
 
 Cloning/reusing one lowering retains its arena; fresh lowering creates a new one.
 `SourceUnit` additionally records logical module, source file and revision. Logical
 module identity is not the same as a physical filename. See
 [source maps](../../crates/kagari-hir/src/source_map.rs) for byte ranges and
 specialized name/member/path sites; synthetic nodes may have empty ranges.
+
+HIR types, declarations, signatures and checked-call facts use fixed `DefinitionId`
+fields. Their Rust models have no parameter selecting paths versus IDs. A
+`DefinitionReferences` visitor covers every retained reference, including binding
+body owners and attached Native/Host inputs. `DefinitionMetadata::checked` validates
+those references against an immutable prefix; it does not validate language meaning.
+
+Independently reusable facts implement `RemapDefinitions`: import their referenced
+ancestor closure, then rebuild ID fields and unique keys in the destination scope.
+For `fn read(p: Player) { val saved = p; }`, importing the `saved` declaration changes
+its body definition to the destination's `read` ID while retaining the analysis and
+local slot; a binding from another source analysis still cannot identify `saved`.
+Collapsed keys, cancellation and identity/traversal limits reject conversion.
+
+Whole analyzed/prepared/declaration bundles retain source arenas, name tables and
+registration versions. They expose reference validation and editable scoped
+extraction, not arbitrary representation conversion or whole-bundle import. Their
+reusable constituent facts are the remapping boundary. Selected-body queries accept
+scoped IDs and use the analysis context for cache keys; callers with an external
+path explicitly look it up in the relevant declaration snapshot first. Source,
+revision and dependency checks still govern reuse.
 
 ## Mapping source syntax to model fields
 

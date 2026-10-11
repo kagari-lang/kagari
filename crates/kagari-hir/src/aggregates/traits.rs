@@ -14,7 +14,6 @@ use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
         ModuleIdentity,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -29,40 +28,40 @@ use std::{
 
 /// A named semantic method parameter without a source-local parameter ID.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MethodParameter<I: DefinitionReference = DefinitionId> {
+pub struct MethodParameter {
     /// Member/type spelling for lookup and diagnostics; identity is stored separately.
     pub name: String,
     /// Declared binding/field mutation policy.
     pub writeability: Writeability,
     /// Checked or recovered semantic value type.
-    pub ty: TypeId<I>,
+    pub ty: TypeId,
 }
 
 /// A canonical trait method contract with default and override policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MethodSignature<I: DefinitionReference = DefinitionId> {
+pub struct MethodSignature {
     /// Script/native default implementation, or absent for a required method.
-    pub default: Option<MethodDefault<I>>,
+    pub default: Option<MethodDefault>,
     /// Installed/checked override policy attached to this declaration.
     pub policy: MethodPolicy,
     /// Canonical semantic definition identity used as the catalog key.
-    pub id: I,
+    pub id: DefinitionId,
     /// Canonical definition identity of the enclosing declaration.
-    pub owner: I,
+    pub owner: DefinitionId,
     /// Zero-based member position within the enclosing declaration, not a byte offset.
     pub slot: usize,
     /// Member/type spelling for lookup and diagnostics; identity is stored separately.
     pub name: String,
     /// Generic binders in declaration order, identified by owner and position.
-    pub generic_params: Vec<GenericParameterType<I>>,
+    pub generic_params: Vec<GenericParameterType>,
     /// Checked generic constraints used during application/implementation selection.
-    pub bounds: GenericBounds<I>,
+    pub bounds: GenericBounds,
     /// Receiver and explicit parameter contracts in call order.
-    pub params: Vec<MethodParameter<I>>,
+    pub params: Vec<MethodParameter>,
     /// Semantic result type before call-site substitution.
-    pub return_type: TypeId<I>,
+    pub return_type: TypeId,
     /// Semantic identity and authoritative source navigation site.
-    pub declaration: Declaration<I>,
+    pub declaration: Declaration,
 }
 
 /// The method declaration owns a default's identity and checked signature.
@@ -70,11 +69,11 @@ pub struct MethodSignature<I: DefinitionReference = DefinitionId> {
 /// Lowering that proof selects a native entry; implementing types need no script
 /// body instance or extra script call frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MethodDefault<I: DefinitionReference = DefinitionId> {
+pub enum MethodDefault {
     /// Default body belongs to the method's source function.
     Script,
     /// Default implementation comes from an installed native binding.
-    Native(NativeBinding<I>),
+    Native(NativeBinding),
 }
 
 impl MethodSignature {
@@ -94,40 +93,40 @@ impl MethodSignature {
 
 /// An applied-trait declaration surface, including parents and associated members.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TraitSignature<I: DefinitionReference = DefinitionId> {
+pub struct TraitSignature {
     /// Declared storage-interface access role, when supplied by registration.
     pub storage_access: Option<CollectionAccess>,
     /// Registered conversion adapter policy, if this trait has one.
-    pub conversion_adapter: Option<ConversionAdapter<I>>,
+    pub conversion_adapter: Option<ConversionAdapter<DefinitionId>>,
     /// Associated family identity to its own binders and constraints.
-    pub associated_type_parameters: BTreeMap<I, AssociatedTypeParameters<I>>,
+    pub associated_type_parameters: BTreeMap<DefinitionId, AssociatedTypeParameters>,
     /// Canonical associated constant identities to their contracts.
-    pub associated_consts: BTreeMap<I, AssociatedConstSignature<I>>,
+    pub associated_consts: BTreeMap<DefinitionId, AssociatedConstSignature>,
     /// Canonical semantic definition identity used as the catalog key.
-    pub id: I,
+    pub id: DefinitionId,
     /// Generic binders in declaration order, identified by owner and position.
-    pub generic_params: Vec<GenericParameterType<I>>,
+    pub generic_params: Vec<GenericParameterType>,
     /// Checked generic constraints used during application/implementation selection.
-    pub bounds: GenericBounds<I>,
+    pub bounds: GenericBounds,
     /// Declared parent applications before receiver/binder substitution.
-    pub supertraits: Vec<NominalType<I>>,
+    pub supertraits: Vec<NominalType>,
     /// Trait method contracts in logical slot order.
-    pub methods: Vec<MethodSignature<I>>,
+    pub methods: Vec<MethodSignature>,
     /// Semantic identity and authoritative source navigation site.
-    pub declaration: Declaration<I>,
+    pub declaration: Declaration,
     /// Associated output identities to their required constraints.
-    pub associated_types: BTreeMap<I, Vec<ConstraintTarget<I>>>,
+    pub associated_types: BTreeMap<DefinitionId, Vec<ConstraintTarget>>,
 }
 
 /// An associated constant contract and optional canonical default initializer.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedConstSignature<I: DefinitionReference = DefinitionId> {
+pub struct AssociatedConstSignature {
     /// Semantic identity and authoritative source navigation site.
-    pub declaration: Declaration<I>,
+    pub declaration: Declaration,
     /// Checked or recovered semantic value type.
-    pub ty: TypeId<I>,
+    pub ty: TypeId,
     /// Canonical constant initializer definition, absent for a required value.
-    pub initializer: Option<I>,
+    pub initializer: Option<DefinitionId>,
 }
 
 impl AggregateCatalog {
@@ -453,25 +452,25 @@ pub fn trait_inheritance_closure(
 
 mod mapping;
 
-impl<I: DefinitionReference> AggregateCatalog<I> {
+impl AggregateCatalog {
     /// Visits trait contracts in definition-key order.
-    pub fn traits(&self) -> impl Iterator<Item = &TraitSignature<I>> {
+    pub fn traits(&self) -> impl Iterator<Item = &TraitSignature> {
         self.traits.values().map(AsRef::as_ref)
     }
 
     /// Borrows a trait contract by canonical identity, or `None` if absent.
-    pub fn trait_(&self, id: &I) -> Option<&TraitSignature<I>> {
+    pub fn trait_(&self, id: &DefinitionId) -> Option<&TraitSignature> {
         self.traits.get(id).map(AsRef::as_ref)
     }
 
     /// Finds a method through the trait-owner/slot reverse index.
-    pub fn trait_method(&self, id: &I) -> Option<&MethodSignature<I>> {
+    pub fn trait_method(&self, id: &DefinitionId) -> Option<&MethodSignature> {
         let (owner, slot) = self.methods.get(id)?;
         self.trait_(owner)?.methods.get(*slot)
     }
 }
 
-impl<I: DefinitionReference> MethodSignature<I> {
+impl MethodSignature {
     /// Returns the declaration's checked override permission.
     pub fn allows_override(&self) -> bool {
         self.policy.override_allowed

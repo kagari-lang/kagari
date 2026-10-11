@@ -1,17 +1,17 @@
 //! Convert checked HIR types to source-independent semantic facts in the same scope.
 use crate::types::{GenericParameterType, NominalType, TypeId};
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty};
 
 /// Converts a nominal application to source-independent semantic metadata; child recovery types panic as in `lower_type`.
-pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> NominalTy<I> {
+pub fn lower_nominal_type(ty: &NominalType) -> NominalTy<DefinitionId> {
     NominalTy {
         associated_types: ty
             .associated_types
             .iter()
-            .map(|(id, ty)| (id.clone(), lower_type(ty)))
+            .map(|(id, ty)| (*id, lower_type(ty)))
             .collect(),
-        declaration: ty.declaration.clone(),
+        declaration: ty.declaration,
         arguments: ty.arguments.iter().map(lower_type).collect(),
     }
 }
@@ -23,7 +23,7 @@ pub fn lower_nominal_type<I: DefinitionReference>(ty: &NominalType<I>) -> Nomina
 /// # Panics
 ///
 /// Panics if any inference variable, unknown or error type reaches this checked boundary.
-pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
+pub fn lower_type(ty: &TypeId) -> Ty<DefinitionId> {
     match ty {
         TypeId::Projection {
             receiver,
@@ -34,9 +34,9 @@ pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
             arguments: arguments.iter().map(lower_type).collect(),
             receiver: Box::new(lower_type(receiver)),
             interface: Box::new(lower_nominal_type(interface)),
-            member: member.clone(),
+            member: *member,
         },
-        TypeId::Host(id) => Ty::Host(id.clone()),
+        TypeId::Host(id) => Ty::Host(*id),
         TypeId::Builtin(ty) => Ty::Builtin(*ty),
         TypeId::Tuple(elements) => Ty::Tuple(elements.iter().map(lower_type).collect()),
         TypeId::Function { params, result } => Ty::Function {
@@ -58,10 +58,10 @@ pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
         TypeId::Trait(ty) => Ty::Trait(lower_nominal_type(ty)),
 
         TypeId::Generic(parameter) => Ty::Parameter {
-            owner: parameter.owner.clone(),
+            owner: parameter.owner,
             position: parameter.position,
         },
-        TypeId::SelfType(owner) => Ty::SelfType(owner.clone()),
+        TypeId::SelfType(owner) => Ty::SelfType(*owner),
         TypeId::Inference(_) | TypeId::Unknown | TypeId::Error => {
             unreachable!("non-concrete type reached concrete ABI encoding")
         }

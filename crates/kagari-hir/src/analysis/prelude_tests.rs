@@ -244,8 +244,19 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
     assert_eq!(reused.reused_bodies(), 1);
     assert!(reused.type_table().call_resolution(old_call).is_none());
     let owner_path = old.definitions().resolve(*owner).unwrap().to_path();
-    let fresh = test_analysis()
-        .body(sources.snapshot(), &owner_path, &Default::default())
+    let mut fresh_database = test_analysis();
+    let fresh_headers = fresh_database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let fresh_owner = fresh_headers
+        .file(file)
+        .unwrap()
+        .declarations()
+        .definitions()
+        .lookup(&owner_path)
+        .unwrap();
+    let fresh = fresh_database
+        .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
     reused.type_table().assert_same_source_facts(
@@ -669,8 +680,19 @@ fn standard_variants_and_propagation_rebase_on_body_reuse() {
         .unwrap();
     assert_eq!(reused.reused_bodies(), 1);
     let owner_path = old.definitions().resolve(*owner).unwrap().to_path();
-    let fresh = test_analysis()
-        .body(sources.snapshot(), &owner_path, &Default::default())
+    let mut fresh_database = test_analysis();
+    let fresh_headers = fresh_database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let fresh_owner = fresh_headers
+        .file(file)
+        .unwrap()
+        .declarations()
+        .definitions()
+        .lookup(&owner_path)
+        .unwrap();
+    let fresh = fresh_database
+        .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
     reused.type_table().assert_same_source_facts(

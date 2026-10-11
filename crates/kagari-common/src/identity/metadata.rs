@@ -5,6 +5,7 @@ use crate::{
         DefinitionPath,
         map::DefinitionContext,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{
             DefinitionId, DefinitionTable, DefinitionTableBuilder,
             wire::{PortableDefinitionRef, PortableDefinitionTable},
@@ -22,13 +23,13 @@ pub struct DefinitionMetadata<T> {
     records: T,
 }
 
-impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
+impl<T: DefinitionReferences> DefinitionMetadata<T> {
     pub fn checked(
         definitions: DefinitionTable,
         records: T,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
-        records.visit_definitions(
+        records.visit_definition_ids(
             &mut |id| definitions.resolve(*id).map(|_| ()).map_err(Into::into),
             cancel,
         )?;
@@ -55,7 +56,9 @@ impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
     pub fn into_records(self) -> T {
         self.records
     }
+}
 
+impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
     pub fn to_paths(
         &self,
         cancel: &CancellationToken,
@@ -71,7 +74,7 @@ impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
         cancel: &CancellationToken,
     ) -> Result<PortableMetadata<T::Rebind<PortableDefinitionRef>>, DefinitionMappingError> {
         let mut references = HashSet::new();
-        self.records.visit_definitions(
+        self.records.visit_definition_ids(
             &mut |id| {
                 references.insert(*id);
                 Ok(())
@@ -88,17 +91,24 @@ impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
             records,
         })
     }
+}
 
+impl<T: RemapDefinitions> DefinitionMetadata<T> {
+    /// Imports referenced definitions and rebuilds reusable records in `context`.
+    ///
+    /// Preserves exact symbolic identity and validates the resulting prefix. This
+    /// creates no semantic or execution evidence. Snapshot-owned source containers
+    /// have reference visitors but do not implement this remapping capability.
+    ///
+    /// Returns identity, cancellation, limit or record-remapping errors without
+    /// publishing partially converted records. Interned names may remain on failure.
     pub fn import_into(
         &self,
         context: &DefinitionContext,
         cancel: &CancellationToken,
-    ) -> Result<DefinitionMetadata<T::Rebind<DefinitionId>>, DefinitionMappingError>
-    where
-        T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
-    {
+    ) -> Result<DefinitionMetadata<T>, DefinitionMappingError> {
         let mut references = HashSet::new();
-        self.records.visit_definitions(
+        self.records.visit_definition_ids(
             &mut |id| {
                 references.insert(*id);
                 Ok(())
@@ -106,7 +116,7 @@ impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
             cancel,
         )?;
         let remap = context.import(&self.definitions, references)?;
-        let records = self.records.map_identities(&mut DefinitionMapper::new(
+        let records = self.records.remap_definitions(&mut DefinitionMapper::new(
             &mut |id| remap.map(*id).map_err(Into::into),
             cancel,
         ))?;

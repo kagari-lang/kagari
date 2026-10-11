@@ -1,31 +1,33 @@
 //! Explicit traversal of the owning HIR records.
+
 use crate::native::{NativeBinding, NativeTypeKind};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel},
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for NativeBinding<I> {
-    type Rebind<J: DefinitionReference> = NativeBinding<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for NativeBinding {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Entry(field0) => NativeBinding::Entry(mapper.reference(field0)?),
             Self::Host(field0) => NativeBinding::Host(*(field0)),
-            Self::Default(field0) => NativeBinding::Default((field0).map_identities(mapper)?),
+            Self::Default(field0) => NativeBinding::Default((field0).remap_definitions(mapper)?),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for NativeBinding {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -36,20 +38,18 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeBinding<I> {
             }
             Self::Host(_) => {}
             Self::Default(field0) => {
-                (field0).visit_definitions(visit, cancel)?;
+                (field0).visit_definition_ids(visit, cancel)?;
             }
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
-    type Rebind<J: DefinitionReference> = NativeTypeKind<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for NativeTypeKind {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Storage {
@@ -68,10 +68,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for NativeTypeKind<I> {
             Self::Range(field0) => NativeTypeKind::Range(*(field0)),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for NativeTypeKind {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;

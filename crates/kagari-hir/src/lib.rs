@@ -54,12 +54,8 @@ use declarations::Declarations;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
-        MAX_IDENTITY_PATH_SEGMENTS,
-        map::DefinitionContext,
-        mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
+        MAX_IDENTITY_PATH_SEGMENTS, map::DefinitionContext, mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata, table::DefinitionTable,
     },
     span::Span,
 };
@@ -101,12 +97,12 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 /// A module's lowered syntax plus independently produced semantic facts.
 ///
 /// ```text
-/// AnalyzedModule<I>
+/// AnalyzedModule
 /// +-- lowered: Arc<LoweredModule> -> source + Module/Body + SourceMap
 /// +-- names: ResolvedNames       -> ExprId/PlaceId -> bindings, shared namespaces
 /// +-- declarations              -> source declarations and scoped identities
-/// +-- signatures: Arc<AnalysisResult<ModuleSignatures<I>>>
-/// +-- typed: TypedModule<I>      -> per-body types and selected operations
+/// +-- signatures: Arc<AnalysisResult<ModuleSignatures>>
+/// +-- typed: TypedModule      -> per-body types and selected operations
 /// +-- aggregates                -> nominal/trait/implementation catalog
 /// `-- imported_functions        -> callable facts for cross-module targets
 /// ```
@@ -114,22 +110,26 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 /// Semantic processing uses definition-table-scoped IDs. Facts may accompany
 /// error diagnostics; only the
 /// checked conversion produces [`CheckedAnalysis`] for executable lowering.
+/// This bundle retains its source analysis and namespace/Host inputs. Reference
+/// validation covers those inputs, but the bundle cannot be projected to paths,
+/// serialized or rebound as though its source ownership were portable. Independently
+/// reusable type/signature facts support explicit ID-to-ID remapping.
 #[derive(Debug, Clone)]
-pub struct AnalyzedModule<I: DefinitionReference = DefinitionId> {
+pub struct AnalyzedModule {
     /// Nominal types, traits and implementation facts available to this analysis.
-    pub aggregates: aggregates::AggregateCatalog<I>,
+    pub aggregates: aggregates::AggregateCatalog,
     /// Shared matching source, node storage and source ranges.
     pub lowered: Arc<lower::LoweredModule>,
     /// Resolved scope, expression, place and pattern bindings.
     pub names: ResolvedNames,
     /// Declaration/binding metadata and definition identity context.
-    pub declarations: declarations::Declarations<I>,
+    pub declarations: declarations::Declarations,
     /// Checked or recovered function/constant facts, including expression types.
-    pub typed: typeck::TypedModule<I>,
+    pub typed: typeck::TypedModule,
     /// Shared signature-stage facts and their diagnostics.
-    pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures<I>>>,
+    pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
     /// Signatures/identities of callable declarations reached through imports.
-    pub imported_functions: ImportedFunctions<I>,
+    pub imported_functions: ImportedFunctions,
 }
 
 /// Useful analysis facts together with diagnostics, including recoverable errors.
@@ -178,10 +178,10 @@ impl<T> AnalysisResult<T> {
 /// Only this type may cross the code-generation boundary. Its contents cannot
 /// be mutated after validation by external callers.
 #[derive(Debug, Clone)]
-pub struct CheckedAnalysis(DefinitionMetadata<AnalyzedModule<DefinitionId>>);
+pub struct CheckedAnalysis(DefinitionMetadata<AnalyzedModule>);
 
 impl Deref for CheckedAnalysis {
-    type Target = AnalyzedModule<DefinitionId>;
+    type Target = AnalyzedModule;
 
     fn deref(&self) -> &Self::Target {
         self.0.records()
@@ -218,7 +218,7 @@ impl CheckedAnalysis {
     }
 
     pub(crate) fn adopt_scoped(
-        module: &AnalyzedModule<DefinitionId>,
+        module: &AnalyzedModule,
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -236,15 +236,15 @@ impl CheckedAnalysis {
 /// separates reusable local diagnostics from the suffix recomputed against the completed
 /// aggregate catalog; signature reuse must not preserve stale cross-module diagnostics.
 #[derive(Debug, Clone)]
-pub(crate) struct PreparedAnalysis<I: DefinitionReference = DefinitionId> {
+pub(crate) struct PreparedAnalysis {
     signatures_reused: bool,
     // The suffix after this boundary depends on the complete aggregate catalog.
     // Recompute it after all declaration signatures exist, including on reuse.
     local_signature_diagnostics: usize,
     lowered: Arc<lower::LoweredModule>,
     names: AnalysisResult<DeclarationNames>,
-    declarations: declarations::Declarations<I>,
-    signatures: Arc<AnalysisResult<typeck::ModuleSignatures<I>>>,
+    declarations: declarations::Declarations,
+    signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
 }
 
 impl PreparedAnalysis {
@@ -367,10 +367,10 @@ impl PreparedAnalysis {
 
 /// Internal declaration-stage bundle: shared lowering, resolved module names and declaration sites.
 #[derive(Debug, Clone)]
-pub(crate) struct DeclaredAnalysis<I: DefinitionReference = DefinitionId> {
+pub(crate) struct DeclaredAnalysis {
     lowered: Arc<lower::LoweredModule>,
     names: AnalysisResult<DeclarationNames>,
-    declarations: declarations::Declarations<I>,
+    declarations: declarations::Declarations,
 }
 
 impl DeclaredAnalysis {
@@ -656,7 +656,7 @@ mod tests;
 mod identity_mapping;
 mod identity_records;
 
-impl AnalysisResult<AnalyzedModule<DefinitionId>> {
+impl AnalysisResult<AnalyzedModule> {
     /// Validates diagnostics and adopts definition metadata for code generation.
     ///
     /// # Errors

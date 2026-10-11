@@ -7,7 +7,15 @@ use crate::{
     typeck::FunctionImplementation,
     types::TypeId,
 };
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        mapping::{DefinitionMappingError, check_cancel},
+        scoped::DefinitionReferences,
+        table::DefinitionId,
+    },
+};
+
 use kagari_types::host_interface::HostFunctionDeclaration;
 
 /// Semantic types are imported once when the immutable host interface is installed.
@@ -71,5 +79,19 @@ impl CallableSignature for HostCallable<'_> {
 
     fn return_type(&self) -> &TypeId {
         &self.signature.result
+    }
+}
+
+impl DefinitionReferences for HostSignature {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        check_cancel(cancel)?;
+        for parameter in &self.params {
+            parameter.visit_definition_ids(visit, cancel)?;
+        }
+        self.result.visit_definition_ids(visit, cancel)
     }
 }

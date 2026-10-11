@@ -42,7 +42,10 @@ fn query(
     sources: &SourceDatabase,
     owner: &DefinitionPath,
 ) -> Arc<FunctionAnalysis> {
-    db.body(sources.snapshot(), owner, &Default::default())
+    db.declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let owner = db.definitions.snapshot().lookup(owner).unwrap();
+    db.body(sources.snapshot(), &owner, &Default::default())
         .unwrap()
         .unwrap()
 }
@@ -359,6 +362,7 @@ fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
     let value = owner(&mut db, &sources, id, "value");
     let old_source = sources.snapshot();
     let old = query(&mut db, &sources, &value);
+    let value = *old.owner();
     sources
         .set(
             "delete.kgr",
@@ -368,13 +372,13 @@ fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
         .unwrap();
     db.declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    assert!(!db.body_cache.contains_key(&value));
+    assert!(!db.body_cache.get_id(value).is_some());
     assert!(
         db.body(sources.snapshot(), &value, &Default::default())
             .unwrap()
             .is_none()
     );
-    assert!(!db.body_cache.contains_key(&value));
+    assert!(!db.body_cache.get_id(value).is_some());
     let token = CancellationToken::default();
     token.cancel();
     assert!(db.body(old_source.clone(), &value, &token).is_err());
@@ -383,7 +387,7 @@ fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
         .unwrap()
         .unwrap();
     assert_eq!(stale.source().revision(), old.source().revision());
-    assert!(!db.body_cache.contains_key(&value));
+    assert!(!db.body_cache.get_id(value).is_some());
     assert!(
         db.body(sources.snapshot(), &value, &Default::default())
             .unwrap()

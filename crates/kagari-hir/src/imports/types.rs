@@ -17,48 +17,48 @@ use std::{
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},
-        identity::{reference::DefinitionReference, table::DefinitionId},
+        identity::table::DefinitionId,
     },
     kagari_source::identity::FileId,
 };
 
 /// A foreign nominal declaration surface prepared before function signature checking.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedType<I: DefinitionReference = DefinitionId> {
+pub struct ImportedType {
     /// Installed storage/type descriptor when this is a registered native-backed type.
-    pub native_type: Option<NativeTypeKind<I>>,
+    pub native_type: Option<NativeTypeKind>,
     /// Associated family name to number of member-level generic parameters.
     pub associated_arities: BTreeMap<String, usize>,
     /// Canonical source declaration address.
     pub id: SourceDeclRef,
     /// Definition and source-site metadata at the original declaration.
-    pub declaration: Declaration<I>,
+    pub declaration: Declaration,
     /// Semantic nominal/type surface with its generic arguments.
-    pub ty: TypeId<I>,
+    pub ty: TypeId,
     /// Trait method names and semantic identities.
-    pub trait_methods: Vec<ImportedTraitMethod<I>>,
+    pub trait_methods: Vec<ImportedTraitMethod>,
     /// Names of declared associated types.
     pub associated_types: Vec<String>,
     /// Prepared parent trait applications.
-    pub supertraits: Vec<NominalType<I>>,
+    pub supertraits: Vec<NominalType>,
 }
 
 /// A method-name/definition pair on an imported trait surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedTraitMethod<I: DefinitionReference = DefinitionId> {
+pub struct ImportedTraitMethod {
     /// Member spelling within the trait.
     pub name: String,
     /// Canonical semantic identity of the method.
-    pub declaration: I,
+    pub declaration: DefinitionId,
 }
 
 /// Canonical type/variant projections shared across importer aliases.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedTypes<I: DefinitionReference = DefinitionId> {
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImportedTypes {
     // Canonical declarations share one surface across local import spellings.
-    resolutions: HashMap<SourceDeclRef, ImportedType<I>>,
-    nominal_types: HashMap<I, ImportedType<I>>,
-    variants: HashMap<SourceDeclRef, Declaration<I>>,
+    resolutions: HashMap<SourceDeclRef, ImportedType>,
+    nominal_types: HashMap<DefinitionId, ImportedType>,
+    variants: HashMap<SourceDeclRef, Declaration>,
 }
 
 /// Borrowed declaration-stage modules and a lazily prepared shared nominal surface cache.
@@ -300,27 +300,17 @@ impl<'a> TypeCatalog<'a> {
     }
 }
 
-impl<I: DefinitionReference> Default for ImportedTypes<I> {
-    fn default() -> Self {
-        Self {
-            resolutions: Default::default(),
-            nominal_types: Default::default(),
-            variants: Default::default(),
-        }
-    }
-}
-
 mod mapping;
 
-impl<I: DefinitionReference> ImportedTypes<I> {
+impl ImportedTypes {
     /// Iterates canonical imported native representations, independent of aliases.
-    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind<I>> {
+    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind> {
         self.resolutions
             .values()
             .filter_map(|ty| ty.native_type.as_ref())
     }
 
-    pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration<I>> {
+    pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration> {
         match name {
             ResolvedName::Source(source) => self.variants.get(&source),
             _ => None,
@@ -328,7 +318,7 @@ impl<I: DefinitionReference> ImportedTypes<I> {
     }
 
     /// Looks up a qualified source type name; other resolver target kinds return `None`.
-    pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType<I>> {
+    pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType> {
         match name {
             ResolvedName::Source(source) => self.resolutions.get(&source),
             _ => None,
@@ -336,12 +326,12 @@ impl<I: DefinitionReference> ImportedTypes<I> {
     }
 
     /// Finds an imported type by its exact source declaration address.
-    pub fn target(&self, id: SourceDeclRef) -> Option<&ImportedType<I>> {
+    pub fn target(&self, id: SourceDeclRef) -> Option<&ImportedType> {
         self.resolutions.values().find(|ty| ty.id == id)
     }
 
     /// Finds a projected nominal surface by semantic definition identity.
-    pub fn by_declaration(&self, id: &I) -> Option<&ImportedType<I>> {
+    pub fn by_declaration(&self, id: &DefinitionId) -> Option<&ImportedType> {
         self.resolutions
             .values()
             .chain(self.nominal_types.values())

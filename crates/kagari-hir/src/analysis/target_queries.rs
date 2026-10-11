@@ -8,13 +8,12 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::table::DefinitionId,
     span::Span,
 };
 use kagari_types::declaration::names::NameNamespace;
 
 pub(super) fn type_hits(
-    facts: &AnalyzedModule<DefinitionId>,
+    facts: &AnalyzedModule,
     cancel: &CancellationToken,
 ) -> Result<Vec<(Span, LookupHit)>, Cancelled> {
     let mut hits = Vec::new();

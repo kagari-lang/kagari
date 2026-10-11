@@ -7,25 +7,25 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::DefinitionId,
     },
 };
 
 /// Checked branch/residual calls and ordinary enum variants selected for one postfix `?`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedPropagation<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedPropagation {
     /// Selected Try branch operation on the operand.
-    pub branch: ResolvedCall<I>,
+    pub branch: ResolvedCall,
     /// Selected conversion used on the early-return residual path.
-    pub from_residual: ResolvedCall<I>,
+    pub from_residual: ResolvedCall,
     /// Enclosing return type expected by residual conversion.
-    pub return_type: TypeId<I>,
+    pub return_type: TypeId,
     /// Canonical variant selecting the residual/early-return branch.
-    pub break_variant: I,
+    pub break_variant: DefinitionId,
     /// Canonical variant carrying the successful output.
-    pub continue_variant: I,
+    pub continue_variant: DefinitionId,
 }
 
 impl TypeTable {
@@ -34,37 +34,37 @@ impl TypeTable {
     }
 }
 
-impl<I: DefinitionReference> TypeTable<I> {
+impl TypeTable {
     /// Borrows the recorded propagation contract, or `None` when selection did not publish one.
-    pub fn propagation(&self, id: ExprId) -> Option<&ResolvedPropagation<I>> {
+    pub fn propagation(&self, id: ExprId) -> Option<&ResolvedPropagation> {
         self.propagations.get(&id)
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for ResolvedPropagation<I> {
-    type Rebind<J: DefinitionReference> = ResolvedPropagation<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for ResolvedPropagation {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         Ok(ResolvedPropagation {
-            branch: self.branch.map_identities(mapper)?,
-            from_residual: self.from_residual.map_identities(mapper)?,
-            return_type: self.return_type.map_identities(mapper)?,
+            branch: self.branch.remap_definitions(mapper)?,
+            from_residual: self.from_residual.remap_definitions(mapper)?,
+            return_type: self.return_type.remap_definitions(mapper)?,
             break_variant: mapper.reference(&self.break_variant)?,
             continue_variant: mapper.reference(&self.continue_variant)?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for ResolvedPropagation {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        self.branch.visit_definitions(visit, cancel)?;
-        self.from_residual.visit_definitions(visit, cancel)?;
-        self.return_type.visit_definitions(visit, cancel)?;
+        self.branch.visit_definition_ids(visit, cancel)?;
+        self.from_residual.visit_definition_ids(visit, cancel)?;
+        self.return_type.visit_definition_ids(visit, cancel)?;
         visit(&self.break_variant)?;
         visit(&self.continue_variant)
     }

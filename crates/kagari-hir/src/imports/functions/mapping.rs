@@ -1,80 +1,82 @@
 //! Explicit traversal of the owning HIR records.
+
 use crate::identity_mapping::map_hash_entries;
 use crate::imports::functions::{ImportedFunction, ImportedFunctions};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel},
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for ImportedFunction<I> {
-    type Rebind<J: DefinitionReference> = ImportedFunction<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for ImportedFunction {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedFunction {
             id: self.id.clone(),
             declaration: mapper.reference(&self.declaration)?,
-            site: self.site.map_identities(mapper)?,
-            signature: self.signature.map_identities(mapper)?,
+            site: self.site.remap_definitions(mapper)?,
+            signature: self.signature.remap_definitions(mapper)?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for ImportedFunction {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
-        self.site.visit_definitions(visit, cancel)?;
-        self.signature.visit_definitions(visit, cancel)?;
+        self.site.visit_definition_ids(visit, cancel)?;
+        self.signature.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for ImportedFunctions<I> {
-    type Rebind<J: DefinitionReference> = ImportedFunctions<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for ImportedFunctions {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedFunctions {
             functions: map_hash_entries(
                 self.functions.len(),
                 self.functions
                     .iter()
-                    .map(|(key, value)| Ok((key.clone(), (value).map_identities(mapper)?))),
+                    .map(|(key, value)| Ok((key.clone(), (value).remap_definitions(mapper)?))),
             )?,
             methods: map_hash_entries(
                 self.methods.len(),
                 self.methods.iter().map(|(key, value)| {
-                    Ok((mapper.reference(key)?, (value).map_identities(mapper)?))
+                    Ok((mapper.reference(key)?, (value).remap_definitions(mapper)?))
                 }),
             )?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for ImportedFunctions {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in self.functions.values() {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for (key0, value0) in &self.methods {
             check_cancel(cancel)?;
             visit(key0)?;
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

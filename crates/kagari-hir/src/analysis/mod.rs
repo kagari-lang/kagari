@@ -34,7 +34,6 @@ use kagari_common::{
         map::{DefinitionContext, DefinitionMap},
         mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
     span::Span,
@@ -95,7 +94,7 @@ pub struct FileAnalysis {
 
     parsed: Parse,
     /// Semantic facts and diagnostics paired with the table owning their definition IDs.
-    result: DefinitionMetadata<AnalysisResult<AnalyzedModule<DefinitionId>>>,
+    result: DefinitionMetadata<AnalysisResult<AnalyzedModule>>,
 }
 
 /// A visible lexical declaration paired with its checked type in this snapshot.
@@ -104,7 +103,7 @@ pub struct BindingInfo {
     /// Type whose definition IDs belong to the originating file analysis snapshot.
     pub ty: TypeId,
     /// Binding declaration whose scoped IDs belong to the originating file analysis.
-    pub declaration: Declaration<DefinitionId>,
+    pub declaration: Declaration,
 }
 
 impl FileAnalysis {
@@ -151,12 +150,12 @@ impl FileAnalysis {
     }
 
     /// Borrows the shared signature-stage result used to check this file.
-    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures<DefinitionId>>> {
+    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
         &self.result.records().facts().signatures
     }
 
     /// Finds an imported source function at a reference, checked call or import directive.
-    pub fn source_function_at(&self, offset: usize) -> Option<&ImportedFunction<DefinitionId>> {
+    pub fn source_function_at(&self, offset: usize) -> Option<&ImportedFunction> {
         let facts = self.result.records().facts();
         facts
             .lowered
@@ -344,7 +343,7 @@ impl FileAnalysis {
     }
 
     /// Borrows recoverable semantic facts and diagnostics, including body analysis.
-    pub fn result(&self) -> &AnalysisResult<AnalyzedModule<DefinitionId>> {
+    pub fn result(&self) -> &AnalysisResult<AnalyzedModule> {
         self.result.records()
     }
 
@@ -363,7 +362,7 @@ impl FileAnalysis {
     }
 
     /// Finds a declaration site or the declaration selected by a checked source reference.
-    pub fn definition_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
+    pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
         let facts = self.result.records().facts();
         if let Some(declaration) = facts.declarations.site_at(offset) {
             return Some(declaration);
@@ -614,12 +613,12 @@ impl FileAnalysis {
 /// An enclosing annotation claims the position even when its terminal name is
 /// unresolved. This prevents an outer expression or type application target
 /// from leaking into a missing nested type reference.
-fn type_reference_at<'a, I: DefinitionReference>(
+fn type_reference_at<'a>(
     lowered: &LoweredModule,
-    table: &TypeTable<I>,
-    declarations: &'a Declarations<I>,
+    table: &TypeTable,
+    declarations: &'a Declarations,
     offset: usize,
-) -> Option<Option<&'a Declaration<I>>> {
+) -> Option<Option<&'a Declaration>> {
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
             TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
@@ -637,11 +636,11 @@ fn type_reference_at<'a, I: DefinitionReference>(
     })
 }
 
-fn type_reference_target_at<I: DefinitionReference>(
+fn type_reference_target_at(
     lowered: &LoweredModule,
-    table: &TypeTable<I>,
+    table: &TypeTable,
     offset: usize,
-) -> Option<Option<TypeTarget<I>>> {
+) -> Option<Option<TypeTarget>> {
     let (index, _) = lowered
         .source_map
         .type_spans()
@@ -662,11 +661,7 @@ fn type_reference_target_at<I: DefinitionReference>(
     Some(target)
 }
 
-fn type_at_in<I: DefinitionReference>(
-    lowered: &LoweredModule,
-    table: &TypeTable<I>,
-    offset: usize,
-) -> Option<TypeId<I>> {
+fn type_at_in(lowered: &LoweredModule, table: &TypeTable, offset: usize) -> Option<TypeId> {
     let expressions = lowered.module.body.expressions().filter_map(|(id, _)| {
         let span = lowered.source_map.expr_span(id);
         (span.start <= offset && offset < span.end)
@@ -707,11 +702,11 @@ fn type_at_in<I: DefinitionReference>(
         .map(|(_, ty)| ty)
 }
 
-fn member_receiver_type_in<I: DefinitionReference>(
+fn member_receiver_type_in(
     lowered: &LoweredModule,
-    table: &TypeTable<I>,
+    table: &TypeTable,
     offset: usize,
-) -> Option<TypeId<I>> {
+) -> Option<TypeId> {
     let expressions = lowered.module.body.expressions().filter_map(|(id, expr)| {
         let ExprKind::Field { receiver, .. } = &expr.kind else {
             return None;
@@ -800,14 +795,15 @@ pub struct AnalysisDatabase {
 
 impl Default for AnalysisDatabase {
     fn default() -> Self {
+        let definitions = DefinitionContext::new().expect("analysis definition context exhausted");
         Self {
             #[cfg(test)]
             import_solver_limits: None,
-            definitions: DefinitionContext::new().expect("analysis definition context exhausted"),
+            definitions: definitions.clone(),
             parse_limits: Default::default(),
             const_limits: Default::default(),
             max_semantic_diagnostics: DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
-            body_cache: DefinitionMap::default(),
+            body_cache: DefinitionMap::new(definitions),
             body_revision: Revision::default(),
             declaration_cache: None,
             signature_cache: None,
@@ -1089,7 +1085,7 @@ impl AnalysisSnapshot {
     }
 
     /// Finds a declaration at a physical source position, including inline-module routing.
-    pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration<DefinitionId>> {
+    pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration> {
         let analysis = self.analysis_at(file, offset)?;
         if let Some(declaration) = analysis.definition_at(offset) {
             return Some(declaration);
@@ -1138,11 +1134,8 @@ impl AnalysisSnapshot {
         self.files.get(&id)
     }
 
-    /// Finds a declaration after mapping its identity into this snapshot; returns `None` if absent.
-    pub fn declaration<I: DefinitionReference>(
-        &self,
-        id: &DeclarationId<I>,
-    ) -> Option<&Declaration<DefinitionId>> {
+    /// Finds a declaration in this snapshot; foreign or absent IDs return `None`.
+    pub fn declaration(&self, id: &DeclarationId) -> Option<&Declaration> {
         let id = ownership::locate(id, self.definitions())?;
         self.files
             .values()
@@ -1181,6 +1174,8 @@ mod owner_tests;
 mod payload_tests;
 #[cfg(test)]
 mod prelude_tests;
+#[cfg(test)]
+mod scoped_identity_tests;
 #[cfg(test)]
 mod signature_tests;
 #[cfg(test)]

@@ -16,10 +16,7 @@ use kagari_syntax::ast::{
     traits::AstNode,
 };
 use {
-    kagari_common::{
-        identity::{ModuleIdentity, reference::DefinitionReference, table::DefinitionId},
-        span::Span,
-    },
+    kagari_common::{identity::ModuleIdentity, span::Span},
     kagari_source::identity::{FileId, FileSpan},
 };
 
@@ -30,7 +27,7 @@ mod tests;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeclarationDocumentation {
     /// Declaration in the owning snapshot's scoped identity table.
-    pub declaration: Declaration<DefinitionId>,
+    pub declaration: Declaration,
     /// Attached source documentation rendered as Markdown text.
     pub documentation: String,
     /// Signature spelling recovered from source, separate from checked semantic types.
@@ -81,10 +78,7 @@ impl DeclarationSnapshot {
 
     /// Read documentation without resolving or checking any function body.
     /// Identities absent from this snapshot never fall back to a global catalog.
-    pub fn documentation<I: DefinitionReference>(
-        &self,
-        id: &DeclarationId<I>,
-    ) -> Option<DeclarationDocumentation> {
+    pub fn documentation(&self, id: &DeclarationId) -> Option<DeclarationDocumentation> {
         self.files.values().find_map(|file| file.documentation(id))
     }
 }
@@ -116,10 +110,7 @@ impl AnalysisSnapshot {
 }
 
 impl FileDeclarations {
-    fn documentation<I: DefinitionReference>(
-        &self,
-        id: &DeclarationId<I>,
-    ) -> Option<DeclarationDocumentation> {
+    fn documentation(&self, id: &DeclarationId) -> Option<DeclarationDocumentation> {
         let id = ownership::locate(id, self.declarations().definitions())?;
         let declaration = self.declarations().get(&id)?;
         let source = self.source();

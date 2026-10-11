@@ -22,8 +22,8 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -46,7 +46,7 @@ mod tests;
 #[derive(Debug, Clone)]
 pub struct FileSignatures {
     pub(super) declaration: Arc<FileDeclarations>,
-    pub(super) prepared: PreparedAnalysis<DefinitionId>,
+    pub(super) prepared: PreparedAnalysis,
     /// Returns accumulated diagnostics through the signature stage, excluding function bodies.
     diagnostics: DiagnosticBuffer,
 }
@@ -54,7 +54,7 @@ pub struct FileSignatures {
 impl FileSignatures {
     /// Navigate checked signature type names and declaration sites without
     /// resolving any function body.
-    pub fn definition_at(&self, offset: usize) -> Option<&Declaration<DefinitionId>> {
+    pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
         self.prepared.declarations.site_at(offset).or_else(|| {
             type_reference_at(
                 &self.prepared.lowered,
@@ -95,12 +95,12 @@ impl FileSignatures {
     }
 
     /// Borrows declaration identities and imported type bindings used by signature checking.
-    pub fn declarations(&self) -> &Declarations<DefinitionId> {
+    pub fn declarations(&self) -> &Declarations {
         &self.prepared.declarations
     }
 
     /// Borrows checked signatures and their recoverable signature diagnostics.
-    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures<DefinitionId>>> {
+    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
         &self.prepared.signatures
     }
 
@@ -125,7 +125,7 @@ impl FileSignatures {
 pub struct SignatureSnapshot {
     pub(super) declarations: DeclarationSnapshot,
     pub(super) files: Arc<BTreeMap<FileId, Arc<FileSignatures>>>,
-    aggregates: Arc<AggregateCatalog<DefinitionId>>,
+    aggregates: Arc<AggregateCatalog>,
     definitions: DefinitionTable,
 }
 
@@ -188,11 +188,11 @@ impl SignatureSnapshot {
 
 /// Semantic dependencies required to check one file's bodies.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct BodyEnvironment<I: DefinitionReference = DefinitionId> {
+pub(super) struct BodyEnvironment {
     /// Callable signatures selected by the file's imports, including inherent methods.
-    pub imported_functions: ImportedFunctions<I>,
+    pub imported_functions: ImportedFunctions,
     /// Aggregate and implementation contracts visible to this file.
-    pub aggregates: AggregateCatalog<I>,
+    pub aggregates: AggregateCatalog,
 }
 
 impl AnalysisDatabase {
@@ -330,26 +330,27 @@ impl AnalysisDatabase {
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for BodyEnvironment<I> {
-    type Rebind<J: DefinitionReference> = BodyEnvironment<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for BodyEnvironment {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         Ok(BodyEnvironment {
-            imported_functions: self.imported_functions.map_identities(mapper)?,
-            aggregates: self.aggregates.map_identities(mapper)?,
+            imported_functions: self.imported_functions.remap_definitions(mapper)?,
+            aggregates: self.aggregates.remap_definitions(mapper)?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for BodyEnvironment {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        self.imported_functions.visit_definitions(visit, cancel)?;
-        self.aggregates.visit_definitions(visit, cancel)
+        self.imported_functions
+            .visit_definition_ids(visit, cancel)?;
+        self.aggregates.visit_definition_ids(visit, cancel)
     }
 }
 

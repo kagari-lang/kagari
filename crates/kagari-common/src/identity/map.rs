@@ -148,6 +148,11 @@ impl<T> DefinitionMap<T> {
         self.entries.clear();
     }
 
+    /// Retain entries by scoped identity without materializing symbolic paths.
+    pub fn retain_ids(&mut self, mut keep: impl FnMut(DefinitionId, &T) -> bool) {
+        self.entries.retain(|id, value| keep(*id, value));
+    }
+
     pub fn retain(&mut self, mut keep: impl FnMut(&DefinitionPath, &T) -> bool) {
         let definitions = self.context.snapshot();
         self.entries.retain(|id, value| {

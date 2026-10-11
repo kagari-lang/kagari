@@ -21,10 +21,7 @@ use crate::{hir::ids::HirArenaId, tests::common::import_facts};
 #[cfg(test)]
 use kagari_common::identity::map::DefinitionContext;
 use kagari_common::{
-    identity::{
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::table::{DefinitionId, DefinitionTable},
     span::Span,
 };
 use kagari_types::{
@@ -36,24 +33,24 @@ use std::collections::{HashMap, HashSet};
 
 /// A checked standard capability or applied nominal trait requirement.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConstraintTarget<I: DefinitionReference = DefinitionId> {
+pub enum ConstraintTarget {
     /// An intrinsic standard capability constraint.
     Standard(StandardTypeConstraint),
     /// A nominal trait application, including arguments and associated constraints.
-    Trait(NominalType<I>),
+    Trait(NominalType),
 }
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TypeTarget<I: DefinitionReference = DefinitionId> {
+pub enum TypeTarget {
     /// Local native-backed type slot.
     OpaqueType(OpaqueTypeId),
     /// Installed host type slot.
     Host(HostTypeId),
     /// Canonical source type definition.
-    Source(I),
+    Source(DefinitionId),
     /// Canonical associated type/family definition.
-    AssociatedType(I),
+    AssociatedType(DefinitionId),
     /// Local struct slot.
     Struct(StructId),
     /// Local enum slot.
@@ -66,21 +63,21 @@ pub enum TypeTarget<I: DefinitionReference = DefinitionId> {
 
 /// A semantic type plus an optional navigable declaration/binder target.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedTypeRef<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedTypeRef {
     /// Resolved or recovered semantic type.
-    pub ty: TypeId<I>,
+    pub ty: TypeId,
     /// Navigation target; structural/intrinsic type forms may have no declaration target.
-    pub target: Option<TypeTarget<I>>,
+    pub target: Option<TypeTarget>,
 }
 
 /// Selected callable category, distinct from the callee expression's name binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallTarget<I: DefinitionReference = DefinitionId> {
+pub enum CallTarget {
     /// The recorded receiver is the callee expression. Its evaluation exits
     /// before any callable value or explicit argument can be produced.
     TerminatingCallee,
     /// A canonical semantic function definition, including cross-module calls.
-    SourceFunction(I),
+    SourceFunction(DefinitionId),
     /// An installed host callable identified by its host declaration slot.
     HostFunction(HostFunctionId),
     /// A function slot in the matching lowered module.
@@ -92,9 +89,9 @@ pub enum CallTarget<I: DefinitionReference = DefinitionId> {
     /// A selected trait method through an applied interface.
     TraitMethod {
         /// Canonical method definition identity.
-        method: I,
+        method: DefinitionId,
         /// Applied interface used for the method selection.
-        interface: NominalType<I>,
+        interface: NominalType,
     },
 }
 
@@ -115,55 +112,55 @@ pub enum CallTarget<I: DefinitionReference = DefinitionId> {
 /// types after coercions. This record is semantic input to compiler lowering, not
 /// a runtime function pointer or executed call.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedCall<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedCall {
     /// Selected callable category and canonical/local identity.
-    pub target: CallTarget<I>,
+    pub target: CallTarget,
     /// Evaluated before explicit arguments, exactly once.
     pub receiver: Option<ExprId>,
     /// Declaration parameter order; arguments may refer to an enclosing binder.
-    pub type_arguments: Vec<TypeId<I>>,
+    pub type_arguments: Vec<TypeId>,
     /// Absent for incomplete calls, terminating callees and language helpers
     /// whose operands are not an ordinary callable signature.
-    pub signature: Option<AppliedCallSignature<I>>,
+    pub signature: Option<AppliedCallSignature>,
 }
 
 /// Selected nominal constructor and field identities aligned to source initializer order.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedStructInit<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedStructInit {
     /// Canonical struct definition identity.
-    pub structure: I,
+    pub structure: DefinitionId,
     /// Source order, including holes for unknown initializer fields.
-    pub fields: Vec<Option<I>>,
+    pub fields: Vec<Option<DefinitionId>>,
 }
 
 /// Known enum owner and optional selected variant for construction/recovery.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedEnumConstructor<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedEnumConstructor {
     /// Canonical enum definition identity.
-    pub enumeration: I,
+    pub enumeration: DefinitionId,
     /// Missing members keep their known enum owner for error recovery.
-    pub variant: Option<I>,
+    pub variant: Option<DefinitionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TraitImplementation<I: DefinitionReference = DefinitionId> {
-    declaration: I,
-    parameters: Vec<GenericParameterType<I>>,
-    bounds: super::GenericBounds<I>,
-    methods: HashMap<I, FunctionId>,
+struct TraitImplementation {
+    declaration: DefinitionId,
+    parameters: Vec<GenericParameterType>,
+    bounds: super::GenericBounds,
+    methods: HashMap<DefinitionId, FunctionId>,
 }
 
 /// Applied Iterable/Iterator contracts selected for a `for` iterable expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedIteration<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedIteration {
     /// Interface used to obtain the iterator.
-    pub into_interface: NominalType<I>,
+    pub into_interface: NominalType,
     /// Semantic iterator value type.
-    pub iterator: TypeId<I>,
+    pub iterator: TypeId,
     /// Interface used to obtain each next element.
-    pub next_interface: NominalType<I>,
+    pub next_interface: NominalType,
     /// Semantic element type bound by the loop pattern.
-    pub item: TypeId<I>,
+    pub item: TypeId,
 }
 
 /// Semantic side tables keyed by IDs from one matching lowered module.
@@ -189,82 +186,82 @@ pub struct ResolvedIteration<I: DefinitionReference = DefinitionId> {
 /// Temporary inference holes and recursion guards are checker state, removed/cleared
 /// before publication. Semantic definition mapping does not remap HIR arenas; body
 /// and signature reuse use explicit source-map remappers for local IDs.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypeTable<I: DefinitionReference = DefinitionId> {
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TypeTable {
     /// Temporary body-local placeholders; removed before publishing facts.
-    pub(super) inference_holes: HashMap<TypeRefId, TypeId<I>>,
-    iterations: HashMap<ExprId, ResolvedIteration<I>>,
-    propagations: HashMap<ExprId, ResolvedPropagation<I>>,
-    protocol_receivers: HashMap<ExprId, TypeId<I>>,
-    associated_consts: HashMap<ExprId, ResolvedAssociatedConst<I>>,
+    pub(super) inference_holes: HashMap<TypeRefId, TypeId>,
+    iterations: HashMap<ExprId, ResolvedIteration>,
+    propagations: HashMap<ExprId, ResolvedPropagation>,
+    protocol_receivers: HashMap<ExprId, TypeId>,
+    associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
     /// Active type-resolution recursion guard; an ID here is being resolved, not a published type fact.
     pub(super) resolving_types: HashSet<TypeRefId>,
     /// Associated member identities mapped to declared constraint targets.
-    pub(crate) associated_bounds: HashMap<I, Vec<ConstraintTarget<I>>>,
+    pub(crate) associated_bounds: HashMap<DefinitionId, Vec<ConstraintTarget>>,
     /// Associated family identities mapped to their generic parameter/constraint metadata.
-    pub(crate) associated_type_parameters: HashMap<I, AssociatedTypeParameters<I>>,
+    pub(crate) associated_type_parameters: HashMap<DefinitionId, AssociatedTypeParameters>,
     /// Checked associated type family definitions keyed by member identity.
-    pub(crate) associated_type_families: HashMap<I, AssociatedTypeFamily<I>>,
-    host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath<I>>,
-    host_paths: HashMap<ExprId, ResolvedHostPath<I>>,
-    implementations: HashMap<(NominalType<I>, TypeId<I>), TraitImplementation<I>>,
-    constraints: HashMap<TypeRefId, Option<ConstraintTarget<I>>>,
-    type_refs: HashMap<TypeRefId, ResolvedTypeRef<I>>,
-    field_types: HashMap<FieldId, TypeId<I>>,
-    expr_fields: HashMap<ExprId, I>,
-    place_fields: HashMap<PlaceId, I>,
-    place_indexes: HashMap<PlaceId, NominalType<I>>,
-    place_index_writes: HashMap<PlaceId, NominalType<I>>,
-    struct_inits: HashMap<ExprId, ResolvedStructInit<I>>,
-    enum_constructors: HashMap<ExprId, ResolvedEnumConstructor<I>>,
-    exprs: HashMap<ExprId, TypeId<I>>,
-    callable_coercions: HashMap<ExprId, (TypeId<I>, NominalType<I>)>,
-    interface_coercions: HashMap<ExprId, ResolvedInterfaceCoercion<I>>,
-    locals: HashMap<LocalId, TypeId<I>>,
-    places: HashMap<PlaceId, TypeId<I>>,
-    calls: HashMap<ExprId, ResolvedCall<I>>,
+    pub(crate) associated_type_families: HashMap<DefinitionId, AssociatedTypeFamily>,
+    host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
+    host_paths: HashMap<ExprId, ResolvedHostPath>,
+    implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
+    constraints: HashMap<TypeRefId, Option<ConstraintTarget>>,
+    type_refs: HashMap<TypeRefId, ResolvedTypeRef>,
+    field_types: HashMap<FieldId, TypeId>,
+    expr_fields: HashMap<ExprId, DefinitionId>,
+    place_fields: HashMap<PlaceId, DefinitionId>,
+    place_indexes: HashMap<PlaceId, NominalType>,
+    place_index_writes: HashMap<PlaceId, NominalType>,
+    struct_inits: HashMap<ExprId, ResolvedStructInit>,
+    enum_constructors: HashMap<ExprId, ResolvedEnumConstructor>,
+    exprs: HashMap<ExprId, TypeId>,
+    callable_coercions: HashMap<ExprId, (TypeId, NominalType)>,
+    interface_coercions: HashMap<ExprId, ResolvedInterfaceCoercion>,
+    locals: HashMap<LocalId, TypeId>,
+    places: HashMap<PlaceId, TypeId>,
+    calls: HashMap<ExprId, ResolvedCall>,
     /// Generated methods whose checked tail call proves the registered default recipe.
     pub(crate) native_default_calls: HashMap<FunctionId, ExprId>,
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
     pattern_ranges: HashMap<PatternId, (ScalarValue, ScalarValue)>,
-    pattern_fields: HashMap<PatternId, Vec<I>>,
-    pattern_variants: HashMap<PatternId, I>,
+    pattern_fields: HashMap<PatternId, Vec<DefinitionId>>,
+    pattern_variants: HashMap<PatternId, DefinitionId>,
 }
 
 /// Selected trait-associated constant access before executable lowering.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedAssociatedConst<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedAssociatedConst {
     /// Type selecting the implementation.
-    pub receiver: TypeId<I>,
+    pub receiver: TypeId,
     /// Applied trait containing the constant.
-    pub interface: NominalType<I>,
+    pub interface: NominalType,
     /// Canonical associated constant definition.
-    pub member: I,
+    pub member: DefinitionId,
 }
 
 /// Checked concrete/interface conversion and the implementation path it uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedInterfaceCoercion<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedInterfaceCoercion {
     /// Selected script/host/upcast implementation category.
-    pub implementation: ResolvedInterfaceImplementation<I>,
+    pub implementation: ResolvedInterfaceImplementation,
     /// Source value type before interface conversion.
-    pub concrete_type: TypeId<I>,
+    pub concrete_type: TypeId,
     /// Applied destination interface type.
-    pub interface_type: NominalType<I>,
+    pub interface_type: NominalType,
 }
 
 /// How an interface value obtains its implementation metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResolvedInterfaceImplementation<I: DefinitionReference = DefinitionId> {
+pub enum ResolvedInterfaceImplementation {
     /// An interface-to-parent-interface conversion.
     Upcast,
     /// A selected script implementation and its applied arguments.
     Script {
         /// Canonical implementation identity.
-        declaration: I,
+        declaration: DefinitionId,
         /// Implementation arguments in binder order.
-        arguments: Vec<TypeId<I>>,
+        arguments: Vec<TypeId>,
     },
     /// An installed host implementation path.
     Host,
@@ -272,28 +269,28 @@ pub enum ResolvedInterfaceImplementation<I: DefinitionReference = DefinitionId> 
 
 /// A checked expression path through declared host access, not an unrestricted Rust reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPath<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedHostPath {
     /// Root expression evaluated before the path's dynamic arguments.
     pub root: ExprId,
     /// Source-order expressions paired with their declared runtime argument slots.
     pub dynamic_arguments: Vec<(u32, ExprId)>,
     /// Installed path declaration selected by checking.
-    pub declaration: HostPathDeclaration<I>,
+    pub declaration: HostPathDeclaration<DefinitionId>,
     /// Checked access/value contract consumed by lowering.
-    pub contract: HostPathContract<I>,
+    pub contract: HostPathContract<DefinitionId>,
 }
 
 /// A checked assignment path through declared host access.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPlacePath<I: DefinitionReference = DefinitionId> {
+pub struct ResolvedHostPlacePath {
     /// Root place anchoring the host mutation path.
     pub root: PlaceId,
     /// Source-order index expressions paired with declared runtime argument slots.
     pub dynamic_arguments: Vec<(u32, ExprId)>,
     /// Installed path declaration selected by mutation checking.
-    pub declaration: HostPathDeclaration<I>,
+    pub declaration: HostPathDeclaration<DefinitionId>,
     /// Checked access/value contract required for mutation.
-    pub contract: HostPathContract<I>,
+    pub contract: HostPathContract<DefinitionId>,
 }
 
 impl TypeTable {
@@ -1076,102 +1073,65 @@ pub(crate) fn match_implementation(
     Some(bindings)
 }
 
-impl<I: DefinitionReference> Default for TypeTable<I> {
-    fn default() -> Self {
-        Self {
-            inference_holes: Default::default(),
-            iterations: Default::default(),
-            propagations: Default::default(),
-            protocol_receivers: Default::default(),
-            associated_consts: Default::default(),
-            resolving_types: Default::default(),
-            associated_bounds: Default::default(),
-            associated_type_parameters: Default::default(),
-            associated_type_families: Default::default(),
-            host_place_paths: Default::default(),
-            host_paths: Default::default(),
-            implementations: Default::default(),
-            constraints: Default::default(),
-            type_refs: Default::default(),
-            field_types: Default::default(),
-            expr_fields: Default::default(),
-            place_fields: Default::default(),
-            place_indexes: Default::default(),
-            place_index_writes: Default::default(),
-            struct_inits: Default::default(),
-            enum_constructors: Default::default(),
-            exprs: Default::default(),
-            callable_coercions: Default::default(),
-            interface_coercions: Default::default(),
-            locals: Default::default(),
-            places: Default::default(),
-            calls: Default::default(),
-            native_default_calls: Default::default(),
-            scalars: Default::default(),
-            pattern_scalars: Default::default(),
-            pattern_ranges: Default::default(),
-            pattern_fields: Default::default(),
-            pattern_variants: Default::default(),
-        }
-    }
-}
-
 mod mapping;
 pub mod propagation;
 
-impl<I: DefinitionReference> TypeTable<I> {
+impl TypeTable {
     /// Returns the checked forwarding call for a generated native default method.
     /// Signature-only or unsuccessful body analysis has no entry.
-    pub fn native_default_call(&self, function: FunctionId) -> Option<ResolvedCall<I>> {
+    pub fn native_default_call(&self, function: FunctionId) -> Option<ResolvedCall> {
         self.call_resolution(*self.native_default_calls.get(&function)?)
     }
 
     /// Returns the recorded selected iterator interfaces and element type, or `None` when no such fact was recorded.
-    pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration<I>> {
+    pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration> {
         self.iterations.get(&id)
     }
 
     /// Returns the recorded receiver type retained for a protocol operation, or `None` when no such fact was recorded.
-    pub fn protocol_receiver(&self, id: ExprId) -> Option<&TypeId<I>> {
+    pub fn protocol_receiver(&self, id: ExprId) -> Option<&TypeId> {
         self.protocol_receivers.get(&id)
     }
 
     /// Returns the recorded index-mutation interface, or `None` when no such fact was recorded.
-    pub fn place_index(&self, id: PlaceId) -> Option<&NominalType<I>> {
+    pub fn place_index(&self, id: PlaceId) -> Option<&NominalType> {
         self.place_indexes.get(&id)
     }
 
-    pub fn place_index_write(&self, id: PlaceId) -> Option<&NominalType<I>> {
+    pub fn place_index_write(&self, id: PlaceId) -> Option<&NominalType> {
         self.place_index_writes.get(&id)
     }
 
     /// Returns the recorded associated family binders and bounds, or `None` when no such fact was recorded.
-    pub fn associated_type_parameters(&self, member: &I) -> Option<&AssociatedTypeParameters<I>> {
+    pub fn associated_type_parameters(
+        &self,
+        member: &DefinitionId,
+    ) -> Option<&AssociatedTypeParameters> {
         self.associated_type_parameters.get(member)
     }
 
     /// Returns the recorded associated family output definition, or `None` when no such fact was recorded.
-    pub fn associated_type_family(&self, member: &I) -> Option<&AssociatedTypeFamily<I>> {
+    pub fn associated_type_family(&self, member: &DefinitionId) -> Option<&AssociatedTypeFamily> {
         self.associated_type_families.get(member)
     }
 
     /// Returns the recorded selected associated constant, or `None` when no such fact was recorded.
-    pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst<I>> {
+    pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst> {
         self.associated_consts.get(&expr)
     }
 
     /// Returns the recorded declared host mutation path, or `None` when no such fact was recorded.
-    pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath<I>> {
+    pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath> {
         self.host_place_paths.get(&place)
     }
 
     /// Returns the recorded declared host read path, or `None` when no such fact was recorded.
-    pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath<I>> {
+    pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath> {
         self.host_paths.get(&expr)
     }
 
     /// Returns the recorded resolved constraint target, or `None` when no such fact was recorded.
-    pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget<I>> {
+    pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget> {
         self.constraints.get(&id).cloned().flatten()
     }
 
@@ -1180,32 +1140,32 @@ impl<I: DefinitionReference> TypeTable<I> {
     }
 
     /// Returns the recorded resolved type and navigation target, or `None` when no such fact was recorded.
-    pub fn type_ref(&self, id: TypeRefId) -> Option<&ResolvedTypeRef<I>> {
+    pub fn type_ref(&self, id: TypeRefId) -> Option<&ResolvedTypeRef> {
         self.type_refs.get(&id)
     }
 
     /// Returns the recorded field semantic type, or `None` when no such fact was recorded.
-    pub fn field_type(&self, field: FieldId) -> Option<TypeId<I>> {
+    pub fn field_type(&self, field: FieldId) -> Option<TypeId> {
         self.field_types.get(&field).cloned()
     }
 
     /// Returns the recorded selected field definition, or `None` when no such fact was recorded.
-    pub fn expr_field(&self, expr: ExprId) -> Option<&I> {
+    pub fn expr_field(&self, expr: ExprId) -> Option<&DefinitionId> {
         self.expr_fields.get(&expr)
     }
 
     /// Returns the recorded selected assignment-field definition, or `None` when no such fact was recorded.
-    pub fn place_field(&self, place: PlaceId) -> Option<&I> {
+    pub fn place_field(&self, place: PlaceId) -> Option<&DefinitionId> {
         self.place_fields.get(&place)
     }
 
     /// Returns the recorded constructor field selections, or `None` when no such fact was recorded.
-    pub fn struct_init(&self, expr: ExprId) -> Option<&ResolvedStructInit<I>> {
+    pub fn struct_init(&self, expr: ExprId) -> Option<&ResolvedStructInit> {
         self.struct_inits.get(&expr)
     }
 
     /// Returns the recorded enum/variant constructor selection, or `None` when no such fact was recorded.
-    pub fn enum_constructor(&self, id: ExprId) -> Option<&ResolvedEnumConstructor<I>> {
+    pub fn enum_constructor(&self, id: ExprId) -> Option<&ResolvedEnumConstructor> {
         self.enum_constructors.get(&id)
     }
 
@@ -1225,47 +1185,47 @@ impl<I: DefinitionReference> TypeTable<I> {
     }
 
     /// Returns the recorded field definitions in pattern field order, or `None` when no such fact was recorded.
-    pub fn pattern_fields(&self, id: PatternId) -> Option<&[I]> {
+    pub fn pattern_fields(&self, id: PatternId) -> Option<&[DefinitionId]> {
         self.pattern_fields.get(&id).map(Vec::as_slice)
     }
 
     /// Returns the recorded selected enum variant, or `None` when no such fact was recorded.
-    pub fn pattern_variant(&self, id: PatternId) -> Option<&I> {
+    pub fn pattern_variant(&self, id: PatternId) -> Option<&DefinitionId> {
         self.pattern_variants.get(&id)
     }
 
     /// Returns the recorded expression semantic type, or `None` when no such fact was recorded.
-    pub fn expr_type(&self, id: ExprId) -> Option<TypeId<I>> {
+    pub fn expr_type(&self, id: ExprId) -> Option<TypeId> {
         self.exprs.get(&id).cloned()
     }
 
     /// Returns the recorded callable source type and destination interface, or `None` when no such fact was recorded.
-    pub fn callable_coercion(&self, id: ExprId) -> Option<&(TypeId<I>, NominalType<I>)> {
+    pub fn callable_coercion(&self, id: ExprId) -> Option<&(TypeId, NominalType)> {
         self.callable_coercions.get(&id)
     }
 
     /// Returns the recorded checked interface conversion, or `None` when no such fact was recorded.
-    pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion<I>> {
+    pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion> {
         self.interface_coercions.get(&id)
     }
 
     /// Returns the recorded local binding type, or `None` when no such fact was recorded.
-    pub fn local_type(&self, id: LocalId) -> Option<TypeId<I>> {
+    pub fn local_type(&self, id: LocalId) -> Option<TypeId> {
         self.locals.get(&id).cloned()
     }
 
     /// Returns the recorded assignment-place type, or `None` when no such fact was recorded.
-    pub fn place_type(&self, id: PlaceId) -> Option<TypeId<I>> {
+    pub fn place_type(&self, id: PlaceId) -> Option<TypeId> {
         self.places.get(&id).cloned()
     }
 
     /// Returns the recorded selected callable and applied signature, or `None` when no such fact was recorded.
-    pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall<I>> {
+    pub fn call_resolution(&self, id: ExprId) -> Option<ResolvedCall> {
         self.calls.get(&id).cloned()
     }
 }
 
-impl<I: DefinitionReference> TypeTable<I> {
+impl TypeTable {
     #[cfg(test)]
     pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
         self.host_place_paths.keys().copied()

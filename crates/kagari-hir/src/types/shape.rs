@@ -2,14 +2,11 @@
 use crate::types::{NominalType, TypeId};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        mapping::{DefinitionMappingError, check_cancel},
-        reference::DefinitionReference,
-    },
+    identity::mapping::{DefinitionMappingError, check_cancel},
 };
 
-pub(super) fn validate<I: DefinitionReference>(
-    ty: &TypeId<I>,
+pub(super) fn validate(
+    ty: &TypeId,
     cancel: &CancellationToken,
 ) -> Result<(), DefinitionMappingError> {
     let mut pending = vec![(ty, 0)];
@@ -64,10 +61,10 @@ pub(super) fn validate<I: DefinitionReference>(
     Ok(())
 }
 
-fn nominal<'a, I: DefinitionReference>(
-    ty: &'a NominalType<I>,
+fn nominal<'a>(
+    ty: &'a NominalType,
     depth: usize,
-    pending: &mut Vec<(&'a TypeId<I>, usize)>,
+    pending: &mut Vec<(&'a TypeId, usize)>,
 ) -> Result<(), DefinitionMappingError> {
     append(
         ty.arguments.iter().chain(ty.associated_types.values()),
@@ -76,10 +73,10 @@ fn nominal<'a, I: DefinitionReference>(
     )
 }
 
-fn append<'a, I: DefinitionReference>(
-    items: impl Iterator<Item = &'a TypeId<I>>,
+fn append<'a>(
+    items: impl Iterator<Item = &'a TypeId>,
     depth: usize,
-    pending: &mut Vec<(&'a TypeId<I>, usize)>,
+    pending: &mut Vec<(&'a TypeId, usize)>,
 ) -> Result<(), DefinitionMappingError> {
     for item in items {
         if pending.len() == 4096 {

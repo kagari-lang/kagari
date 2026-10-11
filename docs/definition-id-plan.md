@@ -1,6 +1,6 @@
 # Definition IDs throughout semantic processing
 
-Status: active implementation; SI01 is complete; coupled SI02-SI04 migrations are in progress.
+Status: active implementation; SI01 is complete; coupled SI02-SI06 migrations are in progress.
 Planning baseline: `2276061e`, after the SA12/SA13 HIR cleanup. The
 [roadmap](implementation-roadmap.md) owns sequencing. This plan owns SA19's
 implementation scope, SI01-SI06 acceptance and progress ledger.
@@ -2115,3 +2115,79 @@ and diff checks pass. No full workspace/backend suite or performance measurement
 ran. Remaining registration/backend/test adoption, HIR visitors, private wire and
 representation-generic removal, selected reload/source-free integration and final
 documentation cleanup remain open; SI02-SI06 acceptance is not claimed.
+
+### SI03 fixed HIR models and SI06 representation removal
+
+HIR no longer declares or consumes identity-representation parameters. Types,
+substitutions, declaration IDs, signatures, aggregate/import catalogs, selected
+calls, type tables and analysis bundles use DefinitionId directly. Shared semantic
+declarations imported from kagari-types still use that owner's transitional
+DefinitionId instantiation; removing the shared owner's generic remains SI06 work.
+No HIR path/wire model or compatibility alias replaces the removed representation.
+
+The visitor audit exposed two different capabilities previously coupled by
+DefinitionRecord/Rebind. Common's DefinitionReferences validates retained ID fields
+and keys; RemapDefinitions rebuilds independently reusable fixed-ID records. Metadata
+construction needs only the visitor, while import_into needs the remapper and returns
+the same record type. Transitional blanket implementations delegate to existing
+generic owners without a second semantic engine. Remove those adapters when the
+remaining types/contract/executable representation owners migrate in SI06.
+
+Binding declaration traversal now includes BindingId.body. Remapping changes that
+scoped function/constant reference while preserving AnalysisId and local slot; the
+ordinary key rebuilding still rejects collisions. A foreign table cannot validate a
+binding merely because the former visitor ignored its body. Type shape limits and
+cancellation remain enforced by both traversal and remapping.
+
+Whole analyzed/prepared/declaration bundles retain source arenas, namespace inputs,
+registration revisions and declaration indexes. The previous arbitrary mapper cloned
+their context/Host/import owners while changing selected ID fields. That incomplete
+operation is removed, not repaired by constructing another portable HIR hierarchy.
+These containers expose complete reference validation and same-scope editable
+extraction only. Independently reusable signatures, type tables, aggregates and
+individual declaration records retain ID-to-ID remapping. Visitors now also cover
+attached Native lowering facts, resolved import bridge IDs, Host contracts/signatures
+and Host index/origin keys. Source/Host slot handles are unchanged. The lasting
+contract is documented in the HIR architecture guide.
+
+Selected-body queries now accept scoped IDs. The function cache shares the analysis
+definition writer and uses ID insertion, lookup and retention; it no longer exports
+paths into a separate cache identity context. External path queries explicitly look
+up the identity in the destination declaration snapshot. This preserves independent
+fresh-analysis comparisons and foreign-ID rejection, with revision/dependency checks
+still governing cache reuse. Namespace/navigation queries likewise take fixed
+DeclarationId values and validate their retained prefixes.
+
+Focused local validation:
+
+- Compiler library check and `cargo clippy -p kagari-compiler --lib
+  --message-format=short -- -D warnings` pass, including the changed common/HIR
+  dependencies. No production HIR DefinitionReference or Rebind remains.
+- `cargo test -p kagari-hir --lib analysis::body_queries::tests
+  --message-format=short --no-fail-fast` passes nine existing cases: selective body
+  checking, incomplete-member recovery, constants, imported/associated invalidation,
+  same-name implementations, stale/deleted queries and retained snapshots.
+- The existing binding-identity and published-cache-prefix cases pass with their
+  new fixed-ID assertions. Binding metadata rejects a foreign table; importing and
+  restoring it changes/restores body IDs while retaining analysis/local identity.
+  These ran under analysis::identity_tests before the structural split; their current
+  owner is analysis::scoped_identity_tests. The latter module's
+  independently_constructed_hir_types_observe_conversion_bounds case also passes,
+  preserving depth rejection and cancellation without an obsolete HIR path conversion.
+- `cargo test -p kagari-compiler --test language_foundation --message-format=short
+  --no-fail-fast` passes all four existing cases after the HIR representation change.
+  This checks the directly affected source-to-MIR/bytecode dependent boundary.
+- The first HIR lib-test build reported 28 fixture errors from old mapper bounds and
+  path-taking body queries. All were repaired at their existing owners; fresh analyses
+  resolve paths in their own snapshots rather than reusing foreign IDs. The selected
+  tests above executed after repair. The preceding compiler-lib fixture failure is
+  unchanged and was not repeated.
+
+Manual structural review covers fixed reference fields, remapped unique keys,
+unchanged source/body handles, namespace/registration ownership, explicit imports
+and cancellation/limits. Splitting scope/metadata cases from navigation identity
+tests resolves the 1200-effective-LOC limit without exemptions. Structure checks
+1060 Rust files with zero violations or exceptions; formatting and diff checks pass.
+No workspace/backend matrix or performance measurement ran. Shared semantic and
+executable representation removal, remaining consumers/codecs, selected source-free
+and reload integration and final plan cleanup remain open.

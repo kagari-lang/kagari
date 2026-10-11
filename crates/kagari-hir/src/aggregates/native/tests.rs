@@ -313,7 +313,7 @@ fn every_native_signature_retains_resolved_public_types() {
             ) {
                 continue;
             }
-            let substitution: TypeSubstitution<_> = function
+            let substitution: TypeSubstitution = function
                 .generic_params
                 .iter()
                 .map(|parameter| {

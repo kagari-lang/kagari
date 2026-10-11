@@ -39,10 +39,7 @@ use crate::{hir::ids::HirArenaId, tests::common::import_facts};
 #[cfg(test)]
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionTable};
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{reference::DefinitionReference, table::DefinitionId},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use smallvec::SmallVec;
 pub(crate) mod applications;
 pub(crate) mod associated;
@@ -71,13 +68,13 @@ mod ty;
 use std::collections::HashMap;
 
 /// Checked function records with eight inline slots before heap allocation.
-pub(crate) type TypedFunctionBuffer<I = DefinitionId> = SmallVec<[TypedFunction<I>; 8]>;
+pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
 
 /// Checked parameters with four inline slots before heap allocation.
-pub(crate) type TypedParameterBuffer<I = DefinitionId> = SmallVec<[TypedParameter<I>; 4]>;
+pub(crate) type TypedParameterBuffer = SmallVec<[TypedParameter; 4]>;
 
 /// Semantic subject type to required standard/trait constraints; keys retain binder identity.
-pub type GenericBounds<I = DefinitionId> = HashMap<TypeId<I>, Vec<ConstraintTarget<I>>>;
+pub type GenericBounds = HashMap<TypeId, Vec<ConstraintTarget>>;
 
 /// Reusable signature-stage facts before checking function bodies.
 ///
@@ -85,13 +82,13 @@ pub type GenericBounds<I = DefinitionId> = HashMap<TypeId<I>, Vec<ConstraintTarg
 /// facts. Bodies are not stored here. Declaration/aggregate preparation supplies
 /// the names and trait environment; body checking consumes these same contracts.
 #[derive(Debug, Clone)]
-pub struct ModuleSignatures<I: DefinitionReference = DefinitionId> {
+pub struct ModuleSignatures {
     /// Nominal definition identity to its checked binder constraints.
-    pub(crate) type_bounds: HashMap<I, GenericBounds<I>>,
+    pub(crate) type_bounds: HashMap<DefinitionId, GenericBounds>,
     /// Callable contracts in the module's prepared function order.
-    pub(crate) functions: TypedFunctionBuffer<I>,
+    pub(crate) functions: TypedFunctionBuffer,
     /// Signature type-reference, field and constraint facts.
-    pub(crate) type_table: TypeTable<I>,
+    pub(crate) type_table: TypeTable,
 }
 
 impl ModuleSignatures {
@@ -139,39 +136,39 @@ impl ModuleSignatures {
 /// can remain in a recovered result; [`crate::AnalysisResult`] owns diagnostics and
 /// the checked conversion gate. The table is not embedded into each HIR node.
 #[derive(Debug, Clone)]
-pub struct TypedModule<I: DefinitionReference = DefinitionId> {
+pub struct TypedModule {
     /// Number of function bodies freshly checked for this result.
     pub checked_bodies: usize,
     /// Number of function bodies restored from compatible prior facts.
     pub reused_bodies: usize,
     /// Typed function signatures retained for consumers.
-    pub functions: TypedFunctionBuffer<I>,
+    pub functions: TypedFunctionBuffer,
     /// Local constant IDs to inferred/declared semantic types.
-    pub consts: HashMap<ConstId, TypeId<I>>,
+    pub consts: HashMap<ConstId, TypeId>,
     /// Successfully evaluated scalar constants; absent entries have no published scalar value.
     pub const_values: HashMap<ConstId, ScalarValue>,
     /// Node-keyed types and selected call/member/protocol facts.
-    pub type_table: TypeTable<I>,
+    pub type_table: TypeTable,
 }
 
 /// A declared callable's semantic signature, separate from its lowered body.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedFunction<I: DefinitionReference = DefinitionId> {
+pub struct TypedFunction {
     /// The implementation belongs to the declaration, independently of call syntax.
-    pub implementation: FunctionImplementation<I>,
+    pub implementation: FunctionImplementation,
     /// Generic binders, including inherited implementation binders where applicable.
-    pub generic_params: Vec<GenericParameterType<I>>,
+    pub generic_params: Vec<GenericParameterType>,
     /// Checked constraints keyed by the declaring parameter, including inherited
     /// impl parameters shadowed by a method parameter with the same name.
-    pub bounds: HashMap<TypeId<I>, Vec<ConstraintTarget<I>>>,
+    pub bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
     /// Local function slot in the matching lowered module.
     pub id: FunctionId,
     /// Diagnostic name of the function/method.
     pub name: String,
     /// Named typed parameters in call order.
-    pub params: TypedParameterBuffer<I>,
+    pub params: TypedParameterBuffer,
     /// Declared/inferred result; recovery can retain an error type.
-    pub return_type: TypeId<I>,
+    pub return_type: TypeId,
 }
 
 /// Implementation provenance carried with checked callable signatures.
@@ -179,18 +176,18 @@ pub struct TypedFunction<I: DefinitionReference = DefinitionId> {
 /// methods await an implementation. Native bindings are installed input and do
 /// not acquire authority from the declaration's name or source URI.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FunctionImplementation<I: DefinitionReference = DefinitionId> {
+pub enum FunctionImplementation {
     /// A source body selected through the enclosing function/module identity.
     Script,
     /// An installed native binding carrying its registered contract.
-    Native(NativeBinding<I>),
+    Native(NativeBinding),
     /// A trait requirement awaiting an implementation, with no script body.
     Required,
 }
 
 /// A function parameter binding paired with its semantic type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedParameter<I: DefinitionReference = DefinitionId> {
+pub struct TypedParameter {
     /// Source parameter identity belonging to the same lowering.
     pub id: ParamId,
     /// Declared parameter binding writeability.
@@ -198,7 +195,7 @@ pub struct TypedParameter<I: DefinitionReference = DefinitionId> {
     /// Diagnostic parameter name.
     pub name: String,
     /// Resolved semantic type, possibly recovered after an error.
-    pub ty: TypeId<I>,
+    pub ty: TypeId,
 }
 
 /// Per-module function signature index used while checking calls.
@@ -257,19 +254,19 @@ pub(crate) struct BodyTypeEnv {
 
 mod mapping;
 
-impl<I: DefinitionReference> ModuleSignatures<I> {
+impl ModuleSignatures {
     /// Borrows constraints for a known nominal owner, or `None` if absent.
-    pub fn type_bounds(&self, id: &I) -> Option<&GenericBounds<I>> {
+    pub fn type_bounds(&self, id: &DefinitionId) -> Option<&GenericBounds> {
         self.type_bounds.get(id)
     }
 
     /// Borrows prepared callable contracts, including required/native declarations.
-    pub fn functions(&self) -> &[TypedFunction<I>] {
+    pub fn functions(&self) -> &[TypedFunction] {
         &self.functions
     }
 
     /// Borrows signature-level semantic facts; no body traversal is triggered.
-    pub fn type_table(&self) -> &TypeTable<I> {
+    pub fn type_table(&self) -> &TypeTable {
         &self.type_table
     }
 }

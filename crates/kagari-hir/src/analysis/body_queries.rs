@@ -32,8 +32,7 @@ use {
         cancellation::CancellationToken,
         identity::{
             mapping::DefinitionMappingError,
-            reference::DefinitionReference,
-            table::{DefinitionId, DefinitionTable, DefinitionTableError},
+            table::{DefinitionId, DefinitionTable},
         },
     },
     kagari_source::{diagnostic::Diagnostic, source::SourceFile, source_database::SourceSnapshot},
@@ -58,12 +57,12 @@ pub struct FunctionAnalysis {
     function: FunctionId,
     signatures: SignatureSnapshot,
     file: Arc<FileSignatures>,
-    environment: BodyEnvironment<DefinitionId>,
+    environment: BodyEnvironment,
     /// Borrows resolved lexical names for the selected body analysis.
     names: ResolvedNames,
     /// Borrows declaration sites including bindings collected for the selected body.
-    declarations: Declarations<DefinitionId>,
-    typed: AnalysisResult<TypedModule<DefinitionId>>,
+    declarations: Declarations,
+    typed: AnalysisResult<TypedModule>,
 }
 
 impl FunctionAnalysis {
@@ -124,12 +123,12 @@ impl FunctionAnalysis {
     }
 
     /// Borrows declaration sites including bindings collected for the selected body.
-    pub fn declarations(&self) -> &Declarations<DefinitionId> {
+    pub fn declarations(&self) -> &Declarations {
         &self.declarations
     }
 
     /// Borrows checked types and lowering decisions for the selected analysis.
-    pub fn type_table(&self) -> &TypeTable<DefinitionId> {
+    pub fn type_table(&self) -> &TypeTable {
         &self.typed.facts.type_table
     }
 
@@ -152,6 +151,8 @@ impl FunctionAnalysis {
 
 impl AnalysisDatabase {
     /// Checks or reuses a selected function after preparing signature dependencies.
+    /// The owner must come from this database's definition context. Callers with an
+    /// external path first look it up in a declaration snapshot; foreign IDs reject.
     ///
     /// Returns `Ok(None)` when the owner does not select an available source body (including
     /// a trait method without a default). Constant prerequisites are also checked. Source
@@ -166,30 +167,20 @@ impl AnalysisDatabase {
     ///
     /// Returns [`AnalysisError`] for cancellation, invalid native inputs or identity mapping.
     /// Cancellation is checked before publishing the selected-body result.
-    pub fn body<I: DefinitionReference>(
+    pub fn body(
         &mut self,
         source: SourceSnapshot,
-        owner: &I,
+        owner: &DefinitionId,
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<FunctionAnalysis>>, AnalysisError> {
         let signatures = self.prepare_signatures(source, cancel)?;
         let definitions = self.definitions.snapshot();
-        let owner_id = match owner.resolve(&definitions) {
-            Ok(id) => id,
-            Err(DefinitionTableError::UnmappedDefinition) => {
-                self.publish_signatures(signatures);
-                return Ok(None);
-            }
-            Err(error) => return Err(DefinitionMappingError::from(error).into()),
-        };
-        let owner = definitions
-            .resolve(owner_id)
-            .map_err(DefinitionMappingError::from)?
-            .to_path();
+        definitions
+            .resolve(*owner)
+            .map_err(DefinitionMappingError::from)?;
+        let owner_id = *owner;
         let target = signatures.files.values().find_map(|file| {
-            let ResolvedName::Function(function) = file
-                .declarations()
-                .definition_target(&file.declarations().definitions().lookup(&owner)?)?
+            let ResolvedName::Function(function) = file.declarations().definition_target(owner)?
             else {
                 return None;
             };
@@ -218,7 +209,7 @@ impl AnalysisDatabase {
             .body_environments(cancel)?
             .remove(&file.source().id())
             .expect("function environment");
-        let previous = self.body_cache.get(&owner);
+        let previous = self.body_cache.get_id(owner_id);
         let previous_environment = previous.map(|old| &old.environment);
         let previous_types = previous.map(|old| &old.typed);
         let result = if let Some(old) = previous.filter(|old| {
@@ -334,20 +325,15 @@ impl AnalysisDatabase {
     ) {
         if declarations.revision() >= self.body_revision {
             self.body_revision = declarations.revision();
-            self.body_cache.retain(|id, _| {
+            self.body_cache.retain_ids(|id, _| {
                 declarations
-                    .declaration(&DeclarationId::Definition(id.clone()))
+                    .declaration(&DeclarationId::Definition(id))
                     .is_some()
             });
             if let Some(result) = result {
-                let owner = result
-                    .definitions
-                    .resolve(result.owner)
-                    .expect("published body owner")
-                    .to_path();
                 self.body_cache
-                    .insert(owner, result)
-                    .expect("bounded function cache identity");
+                    .insert_id(result.owner, result)
+                    .expect("function cache uses the analysis definition scope");
             }
         }
     }

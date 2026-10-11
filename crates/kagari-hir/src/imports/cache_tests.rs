@@ -223,7 +223,7 @@ fn alias_target_swap_invalidates_single_function_body_reuse() {
         .unwrap()
         .to_path();
     let first = analysis
-        .body(sources.snapshot(), &owner, &Default::default())
+        .body(sources.snapshot(), &id, &Default::default())
         .unwrap()
         .unwrap();
     assert!(first.diagnostics().is_empty());
@@ -235,11 +235,22 @@ fn alias_target_swap_invalidates_single_function_body_reuse() {
         )
         .unwrap();
     let incremental = analysis
-        .body(sources.snapshot(), &owner, &Default::default())
+        .body(sources.snapshot(), &id, &Default::default())
         .unwrap()
         .unwrap();
-    let fresh = test_analysis()
-        .body(sources.snapshot(), &owner, &Default::default())
+    let mut fresh_database = test_analysis();
+    let fresh_declarations = fresh_database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let fresh_owner = fresh_declarations
+        .file(root)
+        .unwrap()
+        .declarations()
+        .definitions()
+        .lookup(&owner)
+        .unwrap();
+    let fresh = fresh_database
+        .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
     assert_eq!(incremental.diagnostics(), fresh.diagnostics());

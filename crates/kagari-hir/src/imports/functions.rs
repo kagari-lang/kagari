@@ -13,29 +13,29 @@ use std::collections::HashMap;
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},
-        identity::{reference::DefinitionReference, table::DefinitionId},
+        identity::table::DefinitionId,
     },
     kagari_source::identity::FileId,
 };
 
 /// A canonical foreign function target and a projection of its independently checked signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedFunction<I: DefinitionReference = DefinitionId> {
+pub struct ImportedFunction {
     /// Qualified source declaration address, independent of aliases.
     pub id: SourceDeclRef,
     /// Portable or scoped semantic definition identity.
-    pub declaration: I,
+    pub declaration: DefinitionId,
     /// Declaration/navigation metadata at the original source site.
-    pub site: Declaration<I>,
+    pub site: Declaration,
     /// Callee signature facts; not a second inference of the callee body.
-    pub signature: TypedFunction<I>,
+    pub signature: TypedFunction,
 }
 
 /// Foreign callable facts keyed by canonical source references or inherent-method definitions.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedFunctions<I: DefinitionReference = DefinitionId> {
-    functions: HashMap<SourceDeclRef, ImportedFunction<I>>,
-    methods: HashMap<I, ImportedFunction<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImportedFunctions {
+    functions: HashMap<SourceDeclRef, ImportedFunction>,
+    methods: HashMap<DefinitionId, ImportedFunction>,
 }
 
 impl ImportedFunctions {
@@ -131,20 +131,11 @@ impl<'a> FunctionCatalog<'a> {
     }
 }
 
-impl<I: DefinitionReference> Default for ImportedFunctions<I> {
-    fn default() -> Self {
-        Self {
-            functions: Default::default(),
-            methods: Default::default(),
-        }
-    }
-}
-
 mod mapping;
 
-impl<I: DefinitionReference> ImportedFunctions<I> {
+impl ImportedFunctions {
     /// Finds an inherent/imported callable by semantic definition identity, or `None` if not projected.
-    pub fn target(&self, id: &I) -> Option<&ImportedFunction<I>> {
+    pub fn target(&self, id: &DefinitionId) -> Option<&ImportedFunction> {
         self.methods.get(id).or_else(|| {
             self.functions
                 .values()
@@ -153,7 +144,7 @@ impl<I: DefinitionReference> ImportedFunctions<I> {
     }
 
     /// Finds a projected source callable; non-source resolver names return `None`.
-    pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction<I>> {
+    pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction> {
         match name {
             ResolvedName::Source(source) => self.functions.get(&source),
             _ => None,

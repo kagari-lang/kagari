@@ -4,9 +4,7 @@ use crate::typeck::TypedFunction;
 use std::collections::HashMap;
 
 use {
-    kagari_common::identity::{
-        ModuleIdentity, mapping::DefinitionMappingError, table::DefinitionId,
-    },
+    kagari_common::identity::{ModuleIdentity, mapping::DefinitionMappingError},
     kagari_source::{
         diagnostic::{Diagnostic, Severity},
         identity::{FileId, Revision},
@@ -93,7 +91,7 @@ impl CheckedProgram {
     pub fn source_function(
         &self,
         id: &SourceDeclRef,
-    ) -> Option<(&CheckedAnalysis, &TypedFunction<DefinitionId>)> {
+    ) -> Option<(&CheckedAnalysis, &TypedFunction)> {
         let module = &self.modules[*self.by_file.get(&id.unit.file)?];
         if !id.unit.matches(&module.lowered) {
             return None;

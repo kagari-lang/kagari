@@ -3,7 +3,7 @@ use crate::{
     host::HostFunctionId,
     types::{NominalType, TypeId},
 };
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     callable::NativeDefaultApplication, collection::CollectionAccess,
     declaration::native::NativeStorageLayout, range::RangeKind, scalar::BuiltinType,
@@ -17,24 +17,24 @@ pub mod render;
 /// Installed entry identity, checked host catalog index or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NativeBinding<I: DefinitionReference = DefinitionId> {
+pub enum NativeBinding {
     /// Canonical identity of an installed native entry, not its machine address.
-    Entry(I),
+    Entry(DefinitionId),
     /// Revision-scoped callable in the immutable host declaration universe.
     Host(HostFunctionId),
     /// Registered recipe for a generated trait forwarding body.
     /// Source lowering also requires [`crate::typeck::table::TypeTable::native_default_call`];
     /// source-free linking independently validates the portable recipe.
-    Default(NativeDefaultApplication<I>),
+    Default(NativeDefaultApplication<DefinitionId>),
 }
 
 /// Installed representation descriptor used to apply native-backed source type declarations.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NativeTypeKind<I: DefinitionReference = DefinitionId> {
+pub enum NativeTypeKind {
     /// A nominal registered storage type with explicit layout and generic arity.
     Storage {
         /// Canonical nominal type definition.
-        declaration: I,
+        declaration: DefinitionId,
         /// Required number of positional type arguments.
         arity: usize,
         /// Registered storage representation descriptor, checked at installation boundaries.

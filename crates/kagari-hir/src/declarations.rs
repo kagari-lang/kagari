@@ -26,7 +26,6 @@ use kagari_common::{
         DefinitionKind,
         map::DefinitionContext,
         mapping::DefinitionMappingError,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
     span::Span,
@@ -63,13 +62,13 @@ pub struct BindingId {
 
 /// Semantic declaration identity, distinguishing nominal definitions, binders and body locals.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DeclarationId<I: DefinitionReference = DefinitionId> {
+pub enum DeclarationId {
     /// Scoped identity of a named definition.
-    Definition(I),
+    Definition(DefinitionId),
     /// A binder identified by its declaring owner and ordinal, not spelling.
     GenericParameter {
         /// Definition that declares this generic parameter.
-        owner: I,
+        owner: DefinitionId,
         /// Zero-based parameter position within that owner.
         position: usize,
     },
@@ -79,9 +78,9 @@ pub enum DeclarationId<I: DefinitionReference = DefinitionId> {
 
 /// Semantic identity and authoritative source navigation site for one declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Declaration<I: DefinitionReference = DefinitionId> {
+pub struct Declaration {
     /// Named definition, generic binder or analysis-local binding identity.
-    pub id: DeclarationId<I>,
+    pub id: DeclarationId,
     /// Display spelling; identity is carried separately.
     pub name: String,
     /// Physical file/revision and half-open byte range for navigation.
@@ -104,13 +103,13 @@ pub struct Declaration<I: DefinitionReference = DefinitionId> {
 /// use analysis coordinates, which can differ from authoritative copied-source sites.
 /// Import lookup tables are shared inputs, not copied into every declaration.
 #[derive(Debug, Clone)]
-pub struct Declarations<I: DefinitionReference = DefinitionId> {
+pub struct Declarations {
     /// Validated language-role identities used by ordinary syntax and protocol checking.
-    pub(crate) language_items: BTreeMap<LangRole, I>,
+    pub(crate) language_items: BTreeMap<LangRole, DefinitionId>,
     /// Installed array protocol bridge declarations, when available.
-    pub(crate) array_interfaces: BTreeMap<CollectionAccess, I>,
+    pub(crate) array_interfaces: BTreeMap<CollectionAccess, DefinitionId>,
     /// Type/variant projections selected by this module's resolved imports.
-    pub(crate) imported_types: ImportedTypes<I>,
+    pub(crate) imported_types: ImportedTypes,
     /// Module-level name table used to resolve declaration references.
     pub(crate) names: Arc<NameTable>,
     /// Shared registered host declaration inputs.
@@ -122,14 +121,14 @@ pub struct Declarations<I: DefinitionReference = DefinitionId> {
     /// Shared definition interning context; publication retains a matching table snapshot.
     context: DefinitionContext,
     /// Local name/member keys to identity and navigation records.
-    targets: HashMap<DeclarationKey, Declaration<I>>,
+    targets: HashMap<DeclarationKey, Declaration>,
     /// Reverse identity lookup; binding keys include analysis identity.
-    identities: HashMap<DeclarationId<I>, DeclarationKey>,
+    identities: HashMap<DeclarationId, DeclarationKey>,
     /// Declaration-site bytes in analysis coordinates, separate from navigation origins.
     site_ranges: HashMap<DeclarationKey, Span>,
     /// Local implementation slots to semantic definition identities.
-    impl_identities: HashMap<ImplId, I>,
-    native_types: HashMap<OpaqueTypeId, NativeTypeKind<I>>,
+    impl_identities: HashMap<ImplId, DefinitionId>,
+    native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -625,26 +624,26 @@ impl Builder<'_> {
 
 mod mapping;
 
-impl<I: DefinitionReference> Declarations<I> {
+impl Declarations {
     /// Borrows the scoped definition table associated with these records.
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
     }
 
     /// Iterates installed local and imported representations without name lookup.
-    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind<I>> {
+    pub(crate) fn native_types(&self) -> impl Iterator<Item = &NativeTypeKind> {
         self.native_types
             .values()
             .chain(self.imported_types.native_types())
     }
 
     /// Clones the installed representation for a local opaque type, if registered.
-    pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind<I>> {
+    pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
         self.native_types.get(&id).cloned()
     }
 
     /// Borrows the semantic identity assigned to a local implementation block.
-    pub fn impl_identity(&self, id: ImplId) -> Option<&I> {
+    pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionId> {
         self.impl_identities.get(&id)
     }
 
@@ -664,7 +663,7 @@ impl<I: DefinitionReference> Declarations<I> {
             .map(|hit| hit.target.resolved(self.names.unit.as_ref()))
     }
 
-    pub(crate) fn resolved_variant(&self, name: ResolvedName) -> Option<&Declaration<I>> {
+    pub(crate) fn resolved_variant(&self, name: ResolvedName) -> Option<&Declaration> {
         if let ResolvedName::Source(source) = &name
             && Some(&source.unit) == self.names.unit.as_ref()
             && let SourceItem::Variant(id) = source.item
@@ -675,23 +674,23 @@ impl<I: DefinitionReference> Declarations<I> {
     }
 
     /// Borrow an associated type header by its retained source type-name handle.
-    pub(crate) fn associated_type(&self, name: TypeRefId) -> Option<&Declaration<I>> {
+    pub(crate) fn associated_type(&self, name: TypeRefId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::AssociatedType(name))
     }
 
     /// Borrow an associated constant header, including a required member without an initializer.
-    pub(crate) fn associated_const(&self, name: TypeRefId) -> Option<&Declaration<I>> {
+    pub(crate) fn associated_const(&self, name: TypeRefId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::AssociatedConst(name))
     }
 
     /// Finds a local enum variant declaration by its arena/owner/slot ID.
-    pub fn variant(&self, id: VariantId) -> Option<&Declaration<I>> {
+    pub fn variant(&self, id: VariantId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Variant(id))
     }
 
     /// Member declaration names only, so an unresolved body reference never
     /// accidentally navigates to an enclosing declaration's whole-file span.
-    pub fn member_at(&self, offset: usize) -> Option<&Declaration<I>> {
+    pub fn member_at(&self, offset: usize) -> Option<&Declaration> {
         self.targets
             .iter()
             .filter(|(key, _)| {
@@ -711,7 +710,7 @@ impl<I: DefinitionReference> Declarations<I> {
 
     /// Declaration-site lookup uses analysis coordinates, independently of the
     /// authoritative navigation location of a copied source fragment.
-    pub fn site_at(&self, offset: usize) -> Option<&Declaration<I>> {
+    pub fn site_at(&self, offset: usize) -> Option<&Declaration> {
         self.site_ranges
             .iter()
             .filter(|(_, range)| range.start <= offset && offset < range.end)
@@ -720,11 +719,11 @@ impl<I: DefinitionReference> Declarations<I> {
     }
 
     /// Borrows canonical foreign type/variant declaration projections.
-    pub fn imported_types(&self) -> &ImportedTypes<I> {
+    pub fn imported_types(&self) -> &ImportedTypes {
         &self.imported_types
     }
 
-    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&I> {
+    pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
         match &self.target(name)?.id {
             DeclarationId::Definition(id) => Some(id),
             _ => None,
@@ -732,23 +731,20 @@ impl<I: DefinitionReference> Declarations<I> {
     }
 
     /// Finds a local name target for a definition identity; field/member-only keys return `None`.
-    pub fn definition_target(&self, id: &I) -> Option<ResolvedName> {
-        match self
-            .identities
-            .get(&DeclarationId::Definition(id.clone()))?
-        {
+    pub fn definition_target(&self, id: &DefinitionId) -> Option<ResolvedName> {
+        match self.identities.get(&DeclarationId::Definition(*id))? {
             DeclarationKey::Name(name) => Some(name.clone()),
             _ => None,
         }
     }
 
-    pub(crate) fn generic_type(&self, id: GenericParamId) -> Option<GenericParameterType<I>> {
+    pub(crate) fn generic_type(&self, id: GenericParamId) -> Option<GenericParameterType> {
         let declaration = self.generic_parameter(id)?;
         let DeclarationId::GenericParameter { owner, position } = &declaration.id else {
             return None;
         };
         Some(GenericParameterType {
-            owner: owner.clone(),
+            owner: *owner,
             position: *position,
             name: declaration.name.clone(),
         })
@@ -761,7 +757,7 @@ impl<I: DefinitionReference> Declarations<I> {
 
     /// Parameters declared by this owner, in declaration order. Inherited method
     /// binders keep their original owner and are not included here.
-    pub fn parameters_of(&self, owner: &I) -> Vec<GenericParameterType<I>> {
+    pub fn parameters_of(&self, owner: &DefinitionId) -> Vec<GenericParameterType> {
         let mut params = self
             .iter()
             .filter_map(|declaration| {
@@ -773,7 +769,7 @@ impl<I: DefinitionReference> Declarations<I> {
                     return None;
                 };
                 (declared_owner == owner).then(|| GenericParameterType {
-                    owner: owner.clone(),
+                    owner: *owner,
                     position: *position,
                     name: declaration.name.clone(),
                 })
@@ -784,36 +780,36 @@ impl<I: DefinitionReference> Declarations<I> {
     }
 
     /// Finds declaration metadata for a resolved name, including eligible local/imported variants.
-    pub fn target(&self, name: ResolvedName) -> Option<&Declaration<I>> {
+    pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
         self.targets
             .get(&DeclarationKey::Name(name.clone()))
             .or_else(|| self.resolved_variant(name))
     }
 
     /// Finds a local struct field declaration, or `None` if not recorded.
-    pub fn field(&self, field: FieldId) -> Option<&Declaration<I>> {
+    pub fn field(&self, field: FieldId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Field(field))
     }
 
     /// Finds the declaration-site record for a local generic-parameter handle.
-    pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration<I>> {
+    pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::GenericParameter(id))
     }
 
     /// A binding from another analysis is rejected, even if its arena slot coincides.
-    pub fn get(&self, id: &DeclarationId<I>) -> Option<&Declaration<I>> {
+    pub fn get(&self, id: &DeclarationId) -> Option<&Declaration> {
         self.identities
             .get(id)
             .and_then(|name| self.targets.get(name))
     }
 
     /// Visits stored declaration records in unspecified hash-map order.
-    pub fn iter(&self) -> impl Iterator<Item = &Declaration<I>> {
+    pub fn iter(&self) -> impl Iterator<Item = &Declaration> {
         self.targets.values()
     }
 }
 
-impl<I: DefinitionReference> Declarations<I> {
+impl Declarations {
     /// Shared definition interning context; publication retains a matching table snapshot.
     pub(crate) fn context(&self) -> &DefinitionContext {
         &self.context
