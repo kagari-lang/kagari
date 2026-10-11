@@ -9,6 +9,7 @@ use crate::{
         binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         context::operations::check_sequence_argument,
         scalar::NativeScalar,
+        types::Type,
     },
     value::Value,
 };
@@ -35,20 +36,20 @@ impl NativeBinding {
     pub fn primitive(primitive: NativePrimitive) -> Self {
         let (arguments, result) = match primitive {
             NativePrimitive::StringByteLength => (
-                vec![Codec::Scalar(Ty::Builtin(BuiltinType::String))],
-                Codec::Scalar(Ty::Builtin(BuiltinType::USize)),
+                vec![Codec::Exact(Type::scalar(BuiltinType::String))],
+                Codec::Exact(Type::scalar(BuiltinType::USize)),
             ),
             NativePrimitive::VecIndex => (
                 vec![
                     Codec::Sequence,
-                    Codec::Scalar(Ty::Builtin(BuiltinType::USize)),
+                    Codec::Exact(Type::scalar(BuiltinType::USize)),
                 ],
                 Codec::Value,
             ),
             NativePrimitive::VecSet | NativePrimitive::VecSetFluent => (
                 vec![
                     Codec::MutableSequence,
-                    Codec::Scalar(Ty::Builtin(BuiltinType::USize)),
+                    Codec::Exact(Type::scalar(BuiltinType::USize)),
                     Codec::Value,
                 ],
                 Codec::Value,

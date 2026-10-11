@@ -1,6 +1,6 @@
 //! Ordinary Rust outputs preserve exact scalar contracts or a checked value boundary.
 use crate::{
-    native::{binding::Codec, scalar::NativeScalar},
+    native::{binding::Codec, scalar::NativeScalar, types::Type},
     value::Value,
 };
 
@@ -26,7 +26,7 @@ impl<T: NativeScalar> NativeOutput for T {
     const SCALAR: bool = true;
 
     fn codec() -> Codec {
-        Codec::Scalar(T::abi_type())
+        Codec::Exact(Type::scalar(T::abi_type()))
     }
 
     fn encode(self) -> Value {

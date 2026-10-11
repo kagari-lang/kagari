@@ -5,6 +5,7 @@ use crate::native::{
     context::CallContext,
     returns::NativeOutput,
     scalar::NativeScalar,
+    types::Type,
     views::{SequenceHandle, SequenceMutHandle, ValueHandle},
 };
 
@@ -32,7 +33,7 @@ macro_rules! function {
         where F: for<'call> Fn(&mut CallContext<'call>, $($argument),+) -> NativeResult<R> + Send + Sync + 'static,
             R: NativeOutput, $($argument: NativeScalar),+ {
             fn binding(self) -> NativeBinding {
-                let mut binding = NativeBinding::new(vec![$(Codec::Scalar($argument::abi_type())),+],
+                let mut binding = NativeBinding::new(vec![$(Codec::Exact(Type::scalar($argument::abi_type()))),+],
                     R::codec(), move |cx| {
                         $(let $local = $argument::decode(cx.argument($slot)?)?;)+
                         self(cx, $($local),+).map(R::encode)
@@ -66,7 +67,7 @@ macro_rules! argument_codec {
         Codec::$codec
     };
     (scalar $scalar:ident) => {
-        Codec::Scalar($scalar::abi_type())
+        Codec::Exact(Type::scalar($scalar::abi_type()))
     };
 }
 

@@ -16,6 +16,7 @@ use crate::{
     },
     value::Value,
 };
+use kagari_common::identity::{metadata::DefinitionMetadata, table::DefinitionId};
 use kagari_types::declaration::NativeDeclaration;
 
 /// One synchronous native invocation. Arguments are owned Rust data or retained
@@ -86,14 +87,17 @@ impl NativeBinding {
     /// and binding; every invocation checks concrete Rust mappings before effects.
     /// Ordinary authored registrations should use ModuleBuilder::bind_typed.
     pub fn declared<A: FromKagariArguments, R: IntoKagari>(
-        declaration: &NativeDeclaration,
+        declaration: &DefinitionMetadata<NativeDeclaration<DefinitionId>>,
         entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
         + Send
         + Sync
         + 'static,
     ) -> Self {
-        let mut binding = Self::contextual(declaration.function.params.len(), entry);
-        binding.requirement_owner = Some(declaration.declaration.clone());
+        let mut binding = Self::contextual(declaration.records().function.params.len(), entry);
+        binding.requirement_owner = Some((
+            declaration.records().declaration,
+            declaration.definitions().clone(),
+        ));
         binding
     }
 
@@ -159,9 +163,9 @@ impl NativeBinding {
     {
         let arguments = A::argument_types(catalog)?
             .into_iter()
-            .map(|ty| Codec::Scalar(ty.0))
+            .map(Codec::Exact)
             .collect::<Vec<_>>();
-        let result = Codec::Scalar(R::kagari_type(catalog)?.0);
+        let result = Codec::Exact(R::kagari_type(catalog)?);
         Ok(Self::new(arguments, result, move |call| {
             invoke(call, &entry)
         }))

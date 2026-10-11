@@ -42,10 +42,7 @@ fn signature(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResul
 
 impl<A: KagariArguments, R: KagariType> KagariType for PinnedFunction<A, R> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Ok(Type::function(
-            A::argument_types(catalog)?,
-            R::kagari_type(catalog)?,
-        ))
+        Type::function(A::argument_types(catalog)?, R::kagari_type(catalog)?)
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {

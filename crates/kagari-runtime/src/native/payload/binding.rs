@@ -10,7 +10,7 @@ use crate::{
         types::TypeRef,
     },
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::{NominalTy, Ty},
@@ -24,23 +24,34 @@ impl Runtime {
         declaration: &TypeRef,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
-        self.bind_native_type_declaration(owner, declaration.id(), arguments)
+        self.bind_native_type_declaration(
+            owner,
+            declaration.id(),
+            declaration.definitions(),
+            arguments,
+        )
     }
 
     pub fn bind_native_type_declaration<T: NativePayload>(
         &self,
         owner: &LoadedModule,
-        declaration: &DefinitionPath,
+        declaration: DefinitionId,
+        definitions: &DefinitionTable,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
         self.gc().ensure_no_native_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_loaded_module(owner)?;
+        let id = self
+            .definition_context()
+            .import(definitions, [declaration])
+            .and_then(|remap| remap.map(declaration))
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         let declared = self
             .native_entries
             .catalog
             .types
-            .get(declaration)
+            .get_id(id)
             .ok_or_else(invalid)?;
         if declared.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)
             || !declared.bounds.is_empty()
@@ -51,11 +62,6 @@ impl Runtime {
         for argument in arguments {
             argument.validate(self)?;
         }
-        let id = self
-            .definition_context()
-            .snapshot()
-            .lookup(declaration)
-            .ok_or_else(invalid)?;
         let environment = Arc::new(TypeBindings::new(
             self.definition_context(),
             declared.generic_params.clone(),

@@ -16,7 +16,7 @@ macro_rules! scalar {
     ($($ty:ty),+) => { $(
         impl KagariType for $ty {
             fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
-                Ok(Type::from_semantic(<Self as NativeScalar>::abi_type()))
+                Ok(Type::scalar(<Self as NativeScalar>::abi_type()))
             }
         }
         impl IntoKagari for $ty {

@@ -10,42 +10,49 @@ use crate::{
         types::{FunctionRef, Type},
     },
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, module::ModuleDecl, requirement::NativeCallableRequirement},
+    declaration::{FnDecl, requirement::NativeCallableRequirement},
     ty::Ty,
 };
 use std::collections::BTreeMap;
 
 pub struct InherentMethodsBuilder {
-    pub(crate) owner: DefinitionPath,
+    pub(crate) context: DefinitionContext,
+    pub(crate) owner: DefinitionId,
     pub(crate) receiver: Type,
     pub(crate) receiver_codec: Option<Codec>,
-    pub(crate) methods: BTreeMap<DefinitionPath, FnDecl>,
-    pub(crate) documentation: BTreeMap<DefinitionPath, String>,
-    pub(crate) method_parameters: BTreeMap<DefinitionPath, Vec<String>>,
-    pub(crate) requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
-    pub(crate) concrete_results: BTreeMap<DefinitionPath, Ty>,
-    pub(crate) bindings: BTreeMap<DefinitionPath, NativeBinding>,
+    pub(crate) methods: BTreeMap<DefinitionId, FnDecl<DefinitionId>>,
+    pub(crate) documentation: BTreeMap<DefinitionId, String>,
+    pub(crate) method_parameters: BTreeMap<DefinitionId, Vec<String>>,
+    pub(crate) requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement<DefinitionId>>>,
+    pub(crate) concrete_results: BTreeMap<DefinitionId, Ty<DefinitionId>>,
+    pub(crate) bindings: BTreeMap<DefinitionId, NativeBinding>,
 }
 
 impl InherentMethodsBuilder {
     pub fn define_method(&mut self, mut declaration: MethodDecl) -> NativeResult<FunctionRef> {
         let documentation = declaration.signature.documentation.take();
-        let mut signature = declaration.lower(self.receiver.clone());
-        let id = ModuleDecl::method_id(&self.owner, &signature.name);
+        let mut signature = declaration.lower(self.receiver.clone(), &self.context)?;
+        let id = self
+            .context
+            .intern_child(self.owner, DefinitionKind::Method, &signature.name, 0)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         if self.methods.contains_key(&id) {
             return Err(RuntimeError::metadata_conflict(
                 "duplicate inherent method declaration",
             ));
         }
         if let Some(text) = documentation {
-            self.documentation.insert(id.clone(), text);
+            self.documentation.insert(id, text);
         }
-        signature.implementation = CallableImplementation::Native(id.clone());
-        self.methods.insert(id.clone(), signature);
-        Ok(FunctionRef { id })
+        signature.implementation = CallableImplementation::Native(id);
+        self.methods.insert(id, signature);
+        Ok(FunctionRef {
+            id,
+            definitions: self.context.snapshot(),
+        })
     }
 
     /// Configure method-local parameters, bounds and selected callable requirements.
@@ -58,13 +65,14 @@ impl InherentMethodsBuilder {
             RuntimeError::metadata_conflict("unknown inherent method declaration")
         })?;
         let result = configure(&mut FunctionBuilder {
-            id: method.id.clone(),
+            id: method.id,
+            context: &self.context,
             concrete_results: &mut self.concrete_results,
             signature,
-            requirements: self.requirements.entry(method.id.clone()).or_default(),
-            names: self.method_parameters.entry(method.id.clone()).or_default(),
+            requirements: self.requirements.entry(method.id).or_default(),
+            names: self.method_parameters.entry(method.id).or_default(),
         })?;
-        normalize_bounds(signature);
+        normalize_bounds(signature, &self.context.snapshot())?;
         Ok(result)
     }
 

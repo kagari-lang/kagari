@@ -5,22 +5,14 @@ use crate::{
     native::binding::NativeResult,
     value::Value,
 };
-use kagari_common::identity::reference::DefinitionReference;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::scalar::BuiltinType;
 
 mod sealed {
     pub trait Scalar {}
 }
 
 pub trait NativeScalar: sealed::Scalar + Sized + 'static {
-    fn abi_type() -> Ty;
-
-    fn abi_type_in<I: DefinitionReference>() -> Ty<I> {
-        let Ty::Builtin(kind) = Self::abi_type() else {
-            unreachable!("sealed scalar contract");
-        };
-        Ty::Builtin(kind)
-    }
+    fn abi_type() -> BuiltinType;
 
     fn decode(value: Value) -> NativeResult<Self>;
 
@@ -39,8 +31,8 @@ macro_rules! integer_scalar {
         impl sealed::Scalar for $rust {}
 
         impl NativeScalar for $rust {
-            fn abi_type() -> Ty {
-                Ty::Builtin(BuiltinType::$abi)
+            fn abi_type() -> BuiltinType {
+                BuiltinType::$abi
             }
 
             fn decode(value: Value) -> NativeResult<Self> {
@@ -73,8 +65,8 @@ macro_rules! scalar {
         impl sealed::Scalar for $rust {}
 
         impl NativeScalar for $rust {
-            fn abi_type() -> Ty {
-                Ty::Builtin(BuiltinType::$abi)
+            fn abi_type() -> BuiltinType {
+                BuiltinType::$abi
             }
 
             fn decode(value: Value) -> NativeResult<Self> {
@@ -98,8 +90,8 @@ scalar!(f64, F64, F64);
 impl sealed::Scalar for () {}
 
 impl NativeScalar for () {
-    fn abi_type() -> Ty {
-        Ty::Builtin(BuiltinType::Unit)
+    fn abi_type() -> BuiltinType {
+        BuiltinType::Unit
     }
 
     fn decode(value: Value) -> NativeResult<Self> {

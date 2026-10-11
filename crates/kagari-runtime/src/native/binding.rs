@@ -10,13 +10,13 @@ use crate::{
         declarations::SelectedCall,
         primitive::NativePrimitive,
         result::LinkedResultAdapter,
+        types::{Type, same_definition},
     },
     value::Value,
 };
 use kagari_common::identity::{
-    DefinitionPath,
-    mapping::{DefinitionMapper, DefinitionRecord},
-    table::{DefinitionId, DefinitionTable, DefinitionTableError},
+    mapping::DefinitionRecord,
+    table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
     callable::Signature,
@@ -33,12 +33,15 @@ pub type NativeResult<T> = Result<T, RuntimeError>;
 pub type NativeEntry =
     dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value> + Send + Sync;
 
-/// Scalars have an exact semantic type; generic views inherit their declared slot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Exact conversions retain scoped semantic types; generic views inherit their declared slot.
+#[derive(Debug, Clone)]
 pub enum Codec {
-    Scalar(Ty),
+    Exact(Type),
     Value,
-    Object(DefinitionPath),
+    Object {
+        declaration: DefinitionId,
+        definitions: DefinitionTable,
+    },
     Sequence,
     MutableSequence,
     Map,
@@ -51,14 +54,26 @@ impl Codec {
     /// Both sequence codecs require a nominal storage declaration. Interface
     /// values and builtin arrays cannot acquire a concrete sequence converter.
     pub(crate) fn receiver_shape_matches(&self, method: &Self) -> bool {
-        self == method
-            || matches!(
-                (self, method),
-                (
-                    Self::Sequence | Self::MutableSequence,
-                    Self::Sequence | Self::MutableSequence
-                )
-            )
+        match (self, method) {
+            (Self::Exact(left), Self::Exact(right)) => left.same_type(right),
+            (
+                Self::Object {
+                    declaration: left,
+                    definitions: left_scope,
+                },
+                Self::Object {
+                    declaration: right,
+                    definitions: right_scope,
+                },
+            ) => same_definition(*left, left_scope, *right, right_scope),
+            (Self::Sequence | Self::MutableSequence, Self::Sequence | Self::MutableSequence)
+            | (Self::Value, Self::Value)
+            | (Self::Map, Self::Map)
+            | (Self::Set, Self::Set)
+            | (Self::Iterator, Self::Iterator)
+            | (Self::Callable, Self::Callable) => true,
+            _ => false,
+        }
     }
 
     pub(crate) fn accepts(
@@ -80,22 +95,14 @@ impl Codec {
             _ => None,
         };
         match self {
-            // Codec inputs are authored at the Rust boundary. Resolve their
-            // exact declared identities in the consumer's scope; never export
-            // the checked signature back into authoring paths.
-            Self::Scalar(expected) => expected
-                .map_identities(&mut DefinitionMapper::new(
-                    &mut |path| {
-                        definitions
-                            .lookup(path)
-                            .ok_or_else(|| DefinitionTableError::UnmappedDefinition.into())
-                    },
-                    &Default::default(),
-                ))
-                .is_ok_and(|expected| expected == *ty),
+            Self::Exact(expected) => Type::from_semantic(ty.clone(), definitions)
+                .is_ok_and(|actual| expected.same_type(&actual)),
             Self::Value => true,
-            Self::Object(id) => {
-                matches!(ty, Ty::NativeObject(nominal) if Some(nominal.declaration) == definitions.lookup(id))
+            Self::Object {
+                declaration,
+                definitions: source,
+            } => {
+                matches!(ty, Ty::NativeObject(nominal) if same_definition(*declaration, source, nominal.declaration, definitions))
             }
             Self::Sequence | Self::MutableSequence => {
                 matches!(ty, Ty::NativeObject(_))
@@ -135,7 +142,7 @@ pub struct NativeBinding {
     pub(crate) result: Codec,
     pub(crate) entry: BindingEntry,
     pub(crate) converted_result: bool,
-    pub(crate) requirement_owner: Option<DefinitionPath>,
+    pub(crate) requirement_owner: Option<(DefinitionId, DefinitionTable)>,
 }
 
 /// Primitive authority owns the implementation; a callback cannot claim its effects.
@@ -248,11 +255,11 @@ impl LinkedNativeFunction {
         owner: &LoadedModule,
         key: &SelectedCall,
     ) -> NativeResult<()> {
-        let declaration = match &self.binding.requirement_owner {
-            Some(declaration) => declaration.clone(),
-            None => owner.definition(self.declaration)?.to_path(),
+        let (declaration, definitions) = match &self.binding.requirement_owner {
+            Some((declaration, definitions)) => (*declaration, definitions),
+            None => (self.declaration, owner.definitions()),
         };
-        if declaration != key.declaration {
+        if !same_definition(declaration, definitions, key.declaration, &key.definitions) {
             return Err(RuntimeError::module_validation(
                 "foreign native callable requirement",
             ));

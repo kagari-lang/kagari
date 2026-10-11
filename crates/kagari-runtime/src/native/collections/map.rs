@@ -34,11 +34,14 @@ impl<K, V> Clone for ScriptMap<K, V> {
 
 impl<K: KagariType, V: KagariType> KagariType for ScriptMap<K, V> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Ok(Type::from_semantic(Ty::Map {
-            key: Box::new(K::kagari_type(catalog)?.abi().clone()),
-            value: Box::new(V::kagari_type(catalog)?.abi().clone()),
-            access: CollectionAccess::Mutable,
-        }))
+        Type::from_semantic(
+            Ty::Map {
+                key: Box::new(K::kagari_type(catalog)?.adopt(catalog.types.context())?),
+                value: Box::new(V::kagari_type(catalog)?.adopt(catalog.types.context())?),
+                access: CollectionAccess::Mutable,
+            },
+            &catalog.definitions(),
+        )
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {

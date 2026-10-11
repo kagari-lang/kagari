@@ -533,7 +533,7 @@ impl<'call> CallContext<'call> {
         arguments: A,
     ) -> NativeResult<R> {
         self.heap().ensure_no_native_borrow()?;
-        if R::abi_type_in() != target.result || !A::matches(&target.params) {
+        if Ty::Builtin(R::abi_type()) != target.result || !A::matches(&target.params) {
             return Err(RuntimeError::module_validation(
                 "native callback conversion differs from its declared result",
             ));

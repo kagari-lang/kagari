@@ -917,3 +917,79 @@ files with no violations/exceptions; formatting and diff checks pass. No workspa
 sweep or performance measurement was run. The remaining catalog `paths`/`scope`
 helpers serve unmigrated typed authoring handles and must disappear with those callers;
 this checkpoint does not satisfy SI02 or SI06 exit conditions.
+
+### SI02 scoped Native construction and typed handles
+
+Native builders now own a construction context imported from their provider catalog.
+Function, type, enum, trait and implementation construction uses DefinitionId records;
+typed inputs carry a retained root snapshot and are explicitly adopted before entering
+that context. Composite `Type` values carry no tables in nested nodes. Identity-free
+scalar/composite inputs need no table allocation; the optional root table denotes this
+absence of references, not an identity-representation choice. Combining foreign input
+roots imports them into one explicit context. Retained prefixes are validated before
+acceptance. Type/trait handles also collect implicit variant/method identities when
+adopted, including members not present in the record's reference closure.
+
+Removed the Native catalog's unused whole-record `paths`/`scope` bridges and old
+path-key lookup helper. `FunctionDecl` retains a small typed input buffer until lowering;
+it is not a second declaration model. Signature setters, applied traits, constructors
+and requirement tokens now expose fallible adoption where needed. Bound normalization
+uses the shared scoped normalizer. Inherent method output is sorted by method name,
+not allocation-slot order. Each emitted implementation retains its own generic binder
+and substitutes receiver types, associated outputs, bounds and method signatures.
+
+Exact codecs now retain a scoped `Type`; opaque-object codecs retain an ID and source
+snapshot. Scalar mappings return `BuiltinType`, removing the `abi_type_in<I>` adapter.
+Typed and async registration validate scoped signatures before publishing declarations
+or bindings. Selected-call owners compare exact borrowed identity views across retained
+scopes. Enum member preparation retains its pinned layout instead of caching a projected
+path; member checks compare module and complete segments. Runtime typed conversion and
+opaque-payload binding adopt scoped input IDs before ordinary installed-contract,
+argument, generation and payload checks. Builtin result preparation resolves the fixed
+language identities in the runtime table without creating a path-shaped type tree.
+Future-role selection iterates ID entries rather than projecting catalog keys to paths.
+
+For example, two independently built `scope::one::Item` handles may have different
+numeric IDs. A tuple composed from those handles imports both into one scope; its exact
+codec matches a tuple of the same declared type. `scope::other::Item` remains different
+and is rejected. A newer ID supplied with an older retained snapshot is rejected even
+when both originated from the same writer. None of these identity operations establish
+an installed declaration or executable proof.
+
+Validation and carried work:
+
+- `cargo check -p kagari-runtime --lib --message-format=short` passes after replacing
+  the remaining Native constructor/registration callers. Runtime integration initially
+  had 180 errors, then 111 and 43 as the builder/trait/implementation consumers migrated;
+  those runtime-library errors are resolved.
+- `cargo clippy -p kagari-runtime --lib -- -D warnings` passes after removing obsolete
+  Copy-ID clones and redundant initializers. Scoped runtime library builds also pass.
+- Moved 11 existing standalone registration tests from `native_builder.rs` into
+  `native_registration.rs`, preserving their contract assertions. Selected-operation
+  and default-method cases now author their ordinary required Hash trait locally;
+  their bound/proof rule does not require the complete standard library. Renderer,
+  standard-language owner and declaration-storage integration cases remain in the
+  original target. Added one distinct scoped-input case for retained-prefix rejection,
+  foreign IDs, cross-context equivalent identity and same-name foreign-module rejection.
+- All 12 selected registration tests pass using the direct tracked-test method already
+  documented above: build the runtime library with JSON artifact output, then compile
+  `crates/kagari-runtime/tests/native_registration.rs` with `rustc --edition=2024 --test`,
+  the exact emitted runtime/common/types rlibs and `-L dependency=target/debug/deps`.
+  This covers exact binding rejection, missing entries, storage admission, independent
+  impl binders, associated output/documentation inheritance, default template derivation,
+  proven required operations, duplicate defaults and cross-context adoption/installation.
+- The normal route `cargo test -p kagari-runtime --test native_registration
+  --no-fail-fast --no-run --message-format=short` still fails before tests. It reports
+  81 HIR and 109 MIR errors: HIR Native import/render code now also consumes fixed-ID
+  ModuleDecl with old path assumptions (`native/api.rs`, `native/render.rs`), alongside
+  carried Host/aggregate errors; MIR still supplies path records to fixed-ID contract
+  and verifier APIs. SI03/SI04 own these errors. The selected tests have not passed via
+  Cargo, and the remaining Native/stdlib/compiler fixtures have not been validated.
+
+Production imports, macros, visibility, identity ordering, root scope retention,
+builder ownership and publication points were reviewed. Structure passes 1046 Rust
+files with no violations/exceptions; formatting and diff checks pass. Remaining Native
+provider callers, unit fixtures, standard declarations, source collection/HIR,
+specialization, identity-representation generic removal and final documentation cleanup
+are still required. No workspace/backend sweep or performance measurement was run;
+exhaustive validation remains CI scope. This checkpoint does not complete SI02–SI06.

@@ -17,9 +17,9 @@ impl TraitBuilder<'_> {
     pub(super) fn lower_defaults(&mut self) -> NativeResult<()> {
         let cancel = CancellationToken::default();
         let invalid = |_| RuntimeError::metadata_conflict("invalid native default substitution");
-        let receiver = Ty::SelfType(self.id.clone());
+        let receiver = Ty::SelfType(self.id);
         let interface = NominalTy {
-            declaration: self.id.clone(),
+            declaration: self.id,
             arguments: self
                 .declaration
                 .generic_params
@@ -34,7 +34,7 @@ impl TraitBuilder<'_> {
             let projection = Ty::Projection {
                 receiver: Box::new(receiver.clone()),
                 interface: Box::new(base.clone()),
-                member: output.declaration.clone(),
+                member: output.declaration,
                 arguments: vec![],
             };
             // The receiver bound supplies its associated outputs. Equating an
@@ -52,7 +52,9 @@ impl TraitBuilder<'_> {
         });
         let mut lowered = vec![];
         for (index, method) in self.declaration.methods.iter().enumerate() {
-            let method_id = ModuleDecl::method_id(&self.id, &method.name);
+            let method_id =
+                ModuleDecl::method_id(self.id, &method.name, &self.module.providers.definitions())
+                    .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
             let Some(binding) = self.defaults.get(&method_id) else {
                 if self
                     .requirements
@@ -72,10 +74,7 @@ impl TraitBuilder<'_> {
                 self.declaration.name,
                 method.name
             );
-            let id = self
-                .module
-                .declaration
-                .definition(DefinitionKind::Function, &name);
+            let id = self.module.definition(DefinitionKind::Function, &name)?;
             if self
                 .module
                 .declaration
@@ -99,7 +98,7 @@ impl TraitBuilder<'_> {
                 .collect();
             let parameters: Vec<_> = (0..arguments.len())
                 .map(|position| GenericParam {
-                    owner: id.clone(),
+                    owner: id,
                     position,
                 })
                 .collect();
@@ -117,14 +116,14 @@ impl TraitBuilder<'_> {
             }
             let mut template = method.clone();
             template.name = name;
-            template.implementation = CallableImplementation::Native(id.clone());
+            template.implementation = CallableImplementation::Native(id);
             template.generic_params = parameters;
             let mut bounds = assumptions.clone();
             bounds.extend(method.bounds.clone());
             template.bounds = substitution
                 .apply_bounds(&bounds, &cancel)
                 .map_err(invalid)?;
-            normalize_bounds(&mut template);
+            normalize_bounds(&mut template, &self.module.providers.definitions())?;
             for parameter in &mut template.params {
                 if parameter.name == "self" {
                     parameter.name = "__receiver".into();
@@ -150,7 +149,7 @@ impl TraitBuilder<'_> {
                 .map(|ty| substitution.apply(ty, &cancel))
                 .transpose()
                 .map_err(invalid)?;
-            let signature = self.module.providers.scope(&Signature {
+            let signature = Signature {
                 params: template
                     .params
                     .iter()
@@ -159,7 +158,7 @@ impl TraitBuilder<'_> {
                 result: concrete_result
                     .clone()
                     .unwrap_or_else(|| template.return_type.clone()),
-            })?;
+            };
             binding.check(
                 &signature,
                 &self.module.providers.definitions(),
@@ -177,22 +176,19 @@ impl TraitBuilder<'_> {
         }
         for (index, id, arguments, template, requirements, concrete_result, binding) in lowered {
             if let Some(ty) = concrete_result {
-                self.module
-                    .declaration
-                    .concrete_results
-                    .insert(id.clone(), ty);
+                self.module.declaration.concrete_results.insert(id, ty);
             }
             self.declaration.methods[index].implementation =
                 CallableImplementation::NativeDefault(NativeDefaultApplication {
-                    declaration: id.clone(),
+                    declaration: id,
                     arguments,
                 });
             self.module.declaration.functions.push(template);
-            self.module.declaration.private_functions.insert(id.clone());
+            self.module.declaration.private_functions.insert(id);
             self.module
                 .declaration
                 .callable_requirements
-                .insert(id.clone(), requirements);
+                .insert(id, requirements);
             self.module.bindings.insert(id, binding);
         }
         Ok(())

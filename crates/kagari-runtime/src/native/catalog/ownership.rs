@@ -1,15 +1,18 @@
 //! Native catalog values and keys share an explicit checked identity context.
-use crate::native::types::{TraitRef, TypeRef};
 use crate::{
     error::RuntimeError,
-    native::{catalog::DeclarationCatalog, module::NativeModule},
+    native::{
+        catalog::DeclarationCatalog,
+        module::NativeModule,
+        types::{TraitRef, TypeRef},
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, DefinitionPath,
         map::{DefinitionContext, DefinitionMap},
-        mapping::{DefinitionMapper, DefinitionRecord},
+        mapping::DefinitionRecord,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
     },
@@ -84,8 +87,12 @@ impl DeclarationCatalog {
             .get(declaration)
             .ok_or_else(|| conflict("unknown native trait declaration"))?;
         Ok(TraitRef {
-            id: declaration.clone(),
-            contract: Arc::new(self.paths(contract)?),
+            id: self
+                .definitions()
+                .lookup(declaration)
+                .expect("catalog identity"),
+            definitions: self.definitions(),
+            contract: Arc::new(contract.clone()),
         })
     }
 
@@ -96,8 +103,12 @@ impl DeclarationCatalog {
             .get(declaration)
             .ok_or_else(|| conflict("unknown native type declaration"))?;
         Ok(TypeRef {
-            id: declaration.clone(),
-            declaration: Arc::new(self.paths(contract)?),
+            id: self
+                .definitions()
+                .lookup(declaration)
+                .expect("catalog identity"),
+            definitions: self.definitions(),
+            declaration: Arc::new(contract.clone()),
             parameter_names: (0..contract.generic_params.len())
                 .map(|index| format!("T{index}"))
                 .collect(),
@@ -114,31 +125,6 @@ impl DeclarationCatalog {
 
     pub(crate) fn definitions(&self) -> DefinitionTable {
         self.types.context().snapshot()
-    }
-
-    pub(crate) fn paths<T: DefinitionRecord<DefinitionId>>(
-        &self,
-        records: &T,
-    ) -> Result<T::Rebind<DefinitionPath>, RuntimeError> {
-        let definitions = self.definitions();
-        records
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |id| Ok(definitions.resolve(*id)?.to_path()),
-                &Default::default(),
-            ))
-            .map_err(conflict)
-    }
-
-    pub(crate) fn scope<T: DefinitionRecord<DefinitionPath>>(
-        &self,
-        records: &T,
-    ) -> Result<T::Rebind<DefinitionId>, RuntimeError> {
-        records
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |path| self.types.context().intern(path).map_err(Into::into),
-                &Default::default(),
-            ))
-            .map_err(conflict)
     }
 
     pub(crate) fn declared<'a>(
@@ -191,10 +177,6 @@ impl DeclarationCatalog {
             }
         }
         Ok(result)
-    }
-
-    pub(crate) fn get(&self, declaration: &DefinitionPath) -> Option<&TraitDef<DefinitionId>> {
-        self.traits.get(declaration)
     }
 
     pub(crate) fn insert(

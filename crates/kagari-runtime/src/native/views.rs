@@ -71,7 +71,7 @@ impl<'call> ValueHandle<'call> {
     }
 
     pub fn scalar<S: NativeScalar>(&self) -> NativeResult<S> {
-        if self.ty != &S::abi_type_in() {
+        if self.ty != &Ty::Builtin(S::abi_type()) {
             return Err(RuntimeError::module_validation(
                 "native scalar differs from its argument type",
             ));

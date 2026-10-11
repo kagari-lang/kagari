@@ -8,18 +8,21 @@ use crate::{
         types::{AppliedTrait, ParameterRef, Receiver, Type},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionId},
+};
 use kagari_types::{
     declaration::module::{ImplDecl, ModuleDecl},
-    ty::{GenericParam, substitution::TypeSubstitution},
+    ty::{GenericParam, Ty, substitution::TypeSubstitution},
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 pub struct ImplementationBuilder<'module> {
     module: &'module mut ModuleBuilder,
     receiver: Type,
     receiver_codec: Option<Codec>,
-    parameters: Vec<GenericParam>,
+    parameters: Vec<GenericParam<DefinitionId>>,
     parameter_names: Vec<String>,
 }
 
@@ -35,29 +38,20 @@ impl<'module> ImplementationBuilder<'module> {
         if !self
             .module
             .declaration
-            .owns_inherent_receiver(&self.receiver.0, &|receiver| {
-                self.module
-                    .providers
-                    .scope(receiver)
-                    .ok()
-                    .and_then(|receiver| {
-                        owners.owner(&receiver, &self.module.providers.definitions())
-                    })
+            .owns_inherent_receiver(self.receiver.abi(), &|receiver| {
+                owners.owner(receiver, &self.module.providers.definitions())
             })
         {
             return Err(RuntimeError::metadata_conflict(
                 "inherent methods belong to the type's defining module",
             ));
         }
-        let owner = self
-            .module
-            .declaration
-            .implementation_id(self.module.declaration.implementations.len());
+        let owner = self.module.next_implementation_id()?;
         let parameters: Vec<_> = self
             .parameters
             .iter()
             .map(|parameter| GenericParam {
-                owner: owner.clone(),
+                owner,
                 position: parameter.position,
             })
             .collect();
@@ -67,10 +61,13 @@ impl<'module> ImplementationBuilder<'module> {
             substitution.bind(&source.owner, source.position, target);
         }
         let cancel = CancellationToken::default();
-        let receiver = substitution.apply(&self.receiver.0, &cancel).map_err(|_| {
-            RuntimeError::metadata_conflict("invalid inherent receiver substitution")
-        })?;
+        let receiver = substitution
+            .apply(self.receiver.abi(), &cancel)
+            .map_err(|_| {
+                RuntimeError::metadata_conflict("invalid inherent receiver substitution")
+            })?;
         let mut methods = InherentMethodsBuilder {
+            context: self.module.context().clone(),
             owner,
             receiver: self.receiver.clone(),
             receiver_codec: self.receiver_codec.clone(),
@@ -104,6 +101,7 @@ impl<'module> ImplementationBuilder<'module> {
                 })?;
             signatures.push(signature);
         }
+        signatures.sort_by(|left, right| left.name.cmp(&right.name));
         let concrete_results = methods
             .concrete_results
             .into_iter()
@@ -162,27 +160,32 @@ impl<'module> ImplementationBuilder<'module> {
         module: &'module mut ModuleBuilder,
         receiver: Receiver,
     ) -> NativeResult<Self> {
-        let owner = module
-            .declaration
-            .implementation_id(module.declaration.implementations.len());
+        let owner = module.next_implementation_id()?;
         let (receiver, parameters, parameter_names) = match receiver {
-            Receiver::Concrete(ty) => (ty, vec![], vec![]),
+            Receiver::Concrete(ty) => (
+                Type::from_semantic(ty.adopt(module.context())?, &module.providers.definitions())?,
+                vec![],
+                vec![],
+            ),
             Receiver::Declaration(reference) => {
-                if module.providers.types.get(&reference.id)
-                    != Some(&module.providers.scope(reference.declaration.as_ref())?)
+                let reference = reference.adopt(module.context())?;
+                if module.providers.types.get_id(reference.id)
+                    != Some(reference.declaration.as_ref())
                 {
                     return Err(RuntimeError::metadata_conflict(
                         "native receiver declaration is not in the provider catalog",
                     ));
                 }
                 let parameters: Vec<_> = (0..reference.parameter_names.len())
-                    .map(|position| GenericParam {
-                        owner: owner.clone(),
-                        position,
-                    })
+                    .map(|position| GenericParam { owner, position })
                     .collect();
-                let ty = reference
-                    .apply(parameters.iter().map(|parameter| Type(parameter.as_type())))?;
+                let arguments = parameters
+                    .iter()
+                    .map(|parameter| {
+                        Type::from_semantic(parameter.as_type(), &module.providers.definitions())
+                    })
+                    .collect::<NativeResult<Vec<_>>>()?;
+                let ty = reference.apply(arguments)?;
                 (ty, parameters, reference.parameter_names)
             }
         };
@@ -206,14 +209,17 @@ impl<'module> ImplementationBuilder<'module> {
             .position(|parameter| parameter == name)
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown receiver parameter"))?;
         Ok(ParameterRef {
-            ty: Type(self.parameters[index].as_type()),
+            ty: Type::from_semantic(
+                self.parameters[index].as_type(),
+                &self.module.providers.definitions(),
+            )?,
         })
     }
 
     pub fn receiver_codec(&mut self, codec: Codec) -> NativeResult<()> {
-        let receiver = self.module.providers.scope(self.receiver.abi())?;
+        let receiver = self.receiver.abi();
         if !codec.accepts(
-            &receiver,
+            receiver,
             &self.module.providers.definitions(),
             &self.module.providers,
         ) {
@@ -230,27 +236,28 @@ impl<'module> ImplementationBuilder<'module> {
         applied: AppliedTrait,
         configure: impl FnOnce(&mut MethodsBuilder) -> NativeResult<T>,
     ) -> NativeResult<T> {
-        if self.module.providers.get(&applied.contract.id)
-            != Some(
-                &self
-                    .module
-                    .providers
-                    .scope(applied.contract.contract.as_ref())?,
-            )
+        let contract = applied.contract.adopt(self.module.context())?;
+        let Ty::Trait(ty) = applied.ty().adopt(self.module.context())? else {
+            unreachable!("trait input")
+        };
+        let applied = AppliedTrait {
+            contract,
+            ty,
+            definitions: self.module.providers.definitions(),
+        };
+        if self.module.providers.traits.get_id(applied.contract.id)
+            != Some(applied.contract.contract.as_ref())
         {
             return Err(RuntimeError::metadata_conflict(
                 "trait contract is not in this module's provider catalog",
             ));
         }
-        let id = self
-            .module
-            .declaration
-            .implementation_id(self.module.declaration.implementations.len());
+        let id = self.module.next_implementation_id()?;
         let parameters: Vec<_> = self
             .parameters
             .iter()
             .map(|parameter| GenericParam {
-                owner: id.clone(),
+                owner: id,
                 position: parameter.position,
             })
             .collect();
@@ -260,9 +267,11 @@ impl<'module> ImplementationBuilder<'module> {
             substitution.bind(&source.owner, source.position, target);
         }
         let cancel = CancellationToken::default();
-        let receiver = substitution.apply(&self.receiver.0, &cancel).map_err(|_| {
-            RuntimeError::metadata_conflict("invalid implementation receiver substitution")
-        })?;
+        let receiver = substitution
+            .apply(self.receiver.abi(), &cancel)
+            .map_err(|_| {
+                RuntimeError::metadata_conflict("invalid implementation receiver substitution")
+            })?;
         let mut methods = MethodsBuilder {
             applied,
             id,
@@ -273,27 +282,52 @@ impl<'module> ImplementationBuilder<'module> {
         let result = configure(&mut methods)?;
         // The authoring closure uses its group binder. Each emitted impl owns a
         // fresh binder, including associated outputs configured in the closure.
-        methods.applied.ty = substitution
-            .apply_nominal(&methods.applied.ty, &cancel)
+        let Ty::Trait(applied_type) = methods.applied.ty().adopt(self.module.context())? else {
+            unreachable!("trait input")
+        };
+        let applied_type = substitution
+            .apply_nominal(&applied_type, &cancel)
             .map_err(|_| RuntimeError::metadata_conflict("invalid applied trait substitution"))?;
         let identities: Vec<_> = methods
             .bindings
             .keys()
-            .map(|name| (name.as_str(), ModuleDecl::method_id(&methods.id, name)))
-            .collect();
+            .map(|name| {
+                self.module
+                    .context()
+                    .intern_child(methods.id, DefinitionKind::Method, name, 0)
+                    .map(|id| (name.as_str(), id))
+                    .map_err(conflict)
+            })
+            .collect::<NativeResult<_>>()?;
+        let context = self.module.context().clone();
         self.module
             .declaration
             .implement_trait(
                 methods.applied.contract.contract.as_ref(),
-                methods.applied.ty,
-                receiver,
-                parameters,
+                ImplDecl {
+                    generic_params: parameters,
+                    bounds: vec![],
+                    trait_type: Some(applied_type),
+                    for_type: receiver,
+                    methods: vec![],
+                },
                 &identities,
+                &context,
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         for method in &methods.applied.contract.contract.methods {
-            let target = ModuleDecl::method_id(&methods.id, &method.name);
-            let source = ModuleDecl::method_id(&methods.applied.contract.id, &method.name);
+            let target = ModuleDecl::method_id(
+                methods.id,
+                &method.name,
+                &self.module.providers.definitions(),
+            )
+            .map_err(conflict)?;
+            let source = ModuleDecl::method_id(
+                methods.applied.contract.id,
+                &method.name,
+                &self.module.providers.definitions(),
+            )
+            .map_err(conflict)?;
             if let Some(text) = methods
                 .documentation
                 .get(&method.name)
@@ -306,9 +340,10 @@ impl<'module> ImplementationBuilder<'module> {
             }
         }
         for (name, binding) in methods.bindings {
-            self.module
-                .bindings
-                .insert(ModuleDecl::method_id(&methods.id, &name), binding);
+            self.module.bindings.insert(
+                ModuleDecl::method_id(methods.id, &name, &context.snapshot()).map_err(conflict)?,
+                binding,
+            );
         }
         Ok(result)
     }
@@ -316,7 +351,7 @@ impl<'module> ImplementationBuilder<'module> {
 
 pub struct MethodsBuilder {
     applied: AppliedTrait,
-    id: DefinitionPath,
+    id: DefinitionId,
     receiver_codec: Option<Codec>,
     documentation: BTreeMap<String, String>,
     bindings: BTreeMap<String, NativeBinding>,
@@ -383,4 +418,8 @@ impl MethodsBuilder {
         self.bindings.insert(name.into(), binding);
         Ok(())
     }
+}
+
+fn conflict(message: impl fmt::Display) -> RuntimeError {
+    RuntimeError::metadata_conflict(message.to_string())
 }

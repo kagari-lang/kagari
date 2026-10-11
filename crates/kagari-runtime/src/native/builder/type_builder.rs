@@ -8,7 +8,7 @@ use crate::{
         types::{ParameterRef, Type, TypeRef},
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath};
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind},
     ty::{GenericParam, Ty},
@@ -17,10 +17,10 @@ use std::sync::Arc;
 
 pub struct TypeBuilder<'module> {
     module: &'module mut ModuleBuilder,
-    id: DefinitionPath,
+    id: DefinitionId,
     name: String,
     parameter_names: Vec<String>,
-    parameters: Vec<GenericParam>,
+    parameters: Vec<GenericParam<DefinitionId>>,
     documentation: Option<String>,
     storage: Option<NativeStorage>,
 }
@@ -29,7 +29,14 @@ impl ModuleBuilder {
     /// Install storage for a local native type authored in a portable declaration.
     /// The complete declaration and layout must match; provider types cannot be rebound.
     pub fn bind_storage(&mut self, ty: &TypeRef, storage: NativeStorage) -> NativeResult<()> {
-        if ty.id.module != self.declaration.identity
+        let ty = ty.adopt(self.context())?;
+        if self
+            .providers
+            .definitions()
+            .resolve(ty.id)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+            .module()
+            != &self.declaration.identity
             || self
                 .declaration
                 .types
@@ -46,17 +53,15 @@ impl ModuleBuilder {
                 "native storage binding differs from its local declaration",
             ));
         }
-        self.storage.insert(ty.id.clone(), storage);
+        self.storage.insert(ty.id, storage);
         Ok(())
     }
 }
 
 impl<'module> TypeBuilder<'module> {
-    pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> Self {
-        let id = module
-            .declaration
-            .definition(DefinitionKind::AssociatedType, &name);
-        Self {
+    pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> NativeResult<Self> {
+        let id = module.definition(DefinitionKind::AssociatedType, &name)?;
+        Ok(Self {
             module,
             id,
             name,
@@ -64,7 +69,7 @@ impl<'module> TypeBuilder<'module> {
             parameters: vec![],
             documentation: None,
             storage: None,
-        }
+        })
     }
 
     /// Set full Markdown for the registered native type.
@@ -80,13 +85,13 @@ impl<'module> TypeBuilder<'module> {
             ));
         }
         let parameter = GenericParam {
-            owner: self.id.clone(),
+            owner: self.id,
             position: self.parameters.len(),
         };
         self.parameter_names.push(name);
         self.parameters.push(parameter.clone());
         Ok(ParameterRef {
-            ty: Type(parameter.as_type()),
+            ty: Type::from_semantic(parameter.as_type(), &self.module.providers.definitions())?,
         })
     }
 
@@ -144,18 +149,16 @@ impl<'module> TypeBuilder<'module> {
             variants: vec![],
         };
         if let Some(text) = self.documentation {
-            self.module
-                .declaration
-                .documentation
-                .insert(self.id.clone(), text);
+            self.module.declaration.documentation.insert(self.id, text);
         }
-        self.module.storage.insert(self.id.clone(), storage);
+        self.module.storage.insert(self.id, storage);
         self.module.declaration.types.push(declaration.clone());
         self.module
             .providers
-            .insert_type(self.id.clone(), declaration.clone())?;
+            .insert_type(self.id, declaration.clone())?;
         Ok(TypeRef {
             id: self.id,
+            definitions: self.module.providers.definitions(),
             declaration: Arc::new(declaration),
             parameter_names: self.parameter_names,
         })

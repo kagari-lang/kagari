@@ -121,7 +121,10 @@ impl ModuleBuilder {
         R: IntoKagari,
     {
         let mut catalog = self.providers.clone();
-        catalog.merge(&DeclarationCatalog::declared([&self.declaration])?)?;
+        catalog.merge(&DeclarationCatalog::declared(
+            [&self.declaration],
+            self.context(),
+        )?)?;
         let parameters = A::argument_types(&catalog)?;
         let result = R::kagari_type(&catalog)?;
         let binding = NativeBinding::typed(&catalog, entry)?;
@@ -137,43 +140,46 @@ impl ModuleBuilder {
         catalog: &DeclarationCatalog,
     ) -> NativeResult<FunctionRef> {
         let declaration = spec.declaration(parameters.clone(), result.clone())?;
-        let produces = (declaration.result != result).then_some(result.clone());
+        let produces = (!declaration.result.same_type(&result)).then_some(result.clone());
         if produces.is_some() && !matches!(declaration.result.abi(), Ty::Trait(_)) {
             return Err(RuntimeError::metadata_conflict(
                 "typed function return differs from its declaration",
             ));
         }
-        let signature = catalog.scope(&Signature {
-            params: parameters.into_iter().map(|ty| ty.0).collect(),
-            result: result.0,
-        })?;
+        let signature = Signature {
+            params: parameters
+                .iter()
+                .map(|ty| ty.adopt(self.context()))
+                .collect::<NativeResult<_>>()?,
+            result: result.adopt(self.context())?,
+        };
         binding.check(&signature, &catalog.definitions(), catalog)?;
         let mut candidate = self.declaration.clone();
-        let id = candidate.definition(DefinitionKind::Function, &declaration.name);
+        let id = self.definition(DefinitionKind::Function, &declaration.name)?;
         candidate.functions.push(
             declaration
                 .clone()
-                .lower(CallableImplementation::Native(id.clone())),
+                .lower(CallableImplementation::Native(id), self.context())?,
         );
         if let Some(produces) = &produces {
-            candidate.concrete_results.insert(id, produces.0.clone());
+            candidate
+                .concrete_results
+                .insert(id, produces.adopt(self.context())?);
         }
         let owners = catalog.receiver_owners(Some(&candidate))?;
         candidate
-            .validate(&|receiver| {
-                catalog
-                    .scope(receiver)
-                    .ok()
-                    .and_then(|receiver| owners.owner(&receiver, &catalog.definitions()))
-            })
+            .validate(
+                &|receiver| owners.owner(receiver, &catalog.definitions()),
+                &catalog.definitions(),
+            )
             .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
         let function = self.define_function(declaration)?;
         if let Some(produces) = produces {
             self.declaration
                 .concrete_results
-                .insert(function.id.clone(), produces.0);
+                .insert(function.id, produces.adopt(self.context())?);
         }
-        self.bindings.insert(function.id.clone(), binding);
+        self.bindings.insert(function.id, binding);
         Ok(function)
     }
 }

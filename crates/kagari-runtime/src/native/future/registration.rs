@@ -20,9 +20,9 @@ impl DeclarationCatalog {
     pub fn future_type(&self) -> NativeResult<TypeRef> {
         let mut candidates = self
             .types
-            .iter()
+            .entries()
             .filter(|(_, ty)| ty.kind == TypeDefKind::NativeStorage(NativeStorageLayout::Future));
-        let (id, _) = candidates
+        let (id, declaration) = candidates
             .next()
             .ok_or_else(|| RuntimeError::metadata_conflict("missing Future storage declaration"))?;
         if candidates.next().is_some() {
@@ -30,7 +30,14 @@ impl DeclarationCatalog {
                 "ambiguous Future storage declarations",
             ));
         }
-        self.type_reference(&id)
+        Ok(TypeRef {
+            id,
+            definitions: self.definitions(),
+            declaration: Arc::new(declaration.clone()),
+            parameter_names: (0..declaration.generic_params.len())
+                .map(|index| format!("T{index}"))
+                .collect(),
+        })
     }
 }
 
@@ -48,7 +55,10 @@ impl ModuleBuilder {
         R: IntoKagari + Send + 'static,
     {
         let mut catalog = self.providers.clone();
-        catalog.merge(&DeclarationCatalog::declared([&self.declaration])?)?;
+        catalog.merge(&DeclarationCatalog::declared(
+            [&self.declaration],
+            self.context(),
+        )?)?;
         let parameters = A::argument_types(&catalog)?;
         let result = catalog.future_type()?.apply([R::kagari_type(&catalog)?])?;
         let producer: Arc<dyn Producer> = Arc::new(TypedProducer {
@@ -58,9 +68,9 @@ impl ModuleBuilder {
         let binding = NativeBinding::new(
             parameters
                 .iter()
-                .map(|ty| Codec::Scalar(ty.0.clone()))
+                .map(|ty| Codec::Exact(ty.clone()))
                 .collect::<Vec<_>>(),
-            Codec::Scalar(result.0.clone()),
+            Codec::Exact(result.clone()),
             move |call| {
                 if call.runtime.execution_options().phase != ExecutionPhase::Ordinary {
                     return Err(RuntimeError::execution_phase_violation(

@@ -1,41 +1,45 @@
-//! Explicit function and method signatures precede Rust implementation binding.
+//! Explicit scoped signatures precede Rust implementation binding.
 use crate::{
     error::RuntimeError,
     native::{
         binding::NativeResult,
-        types::{AppliedTrait, MethodRef, ParameterRef, Type},
+        types::{AppliedTrait, MethodRef, ParameterRef, Type, same_definition},
     },
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        map::DefinitionContext,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{FnDecl, NativeDeclaration, Param, requirement::NativeCallableRequirement},
     ty::{Constraint, GenericBound, GenericParam, Ty},
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-pub(crate) fn normalize_bounds(signature: &mut FnDecl) {
-    let mut bounds = BTreeMap::new();
-    for bound in signature.bounds.drain(..) {
-        bounds
-            .entry(bound.ty)
-            .or_insert_with(BTreeSet::new)
-            .extend(bound.constraints);
-    }
-    signature.bounds = bounds
-        .into_iter()
-        .map(|(ty, constraints)| GenericBound {
-            ty,
-            constraints: constraints.into_iter().collect(),
-        })
-        .collect();
+pub(crate) fn normalize_bounds(
+    signature: &mut FnDecl<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> NativeResult<()> {
+    signature.bounds = GenericBound::normalize(
+        signature.bounds.clone(),
+        definitions,
+        &CancellationToken::default(),
+    )
+    .map_err(|error| conflict(format!("native bounds: {error:?}")))?;
+    Ok(())
 }
 
+/// Input parameter handles retain their own scopes until the enclosing builder adopts them.
 #[derive(Debug, Clone)]
 pub struct FunctionDecl {
     pub(crate) documentation: Option<String>,
     pub(crate) name: String,
-    pub(crate) params: Vec<Param>,
+    pub(crate) params: Vec<(String, Type)>,
     pub(crate) result: Type,
 }
 
@@ -55,11 +59,7 @@ impl FunctionDecl {
     }
 
     pub fn parameter(mut self, name: impl Into<String>, ty: Type) -> Self {
-        self.params.push(Param {
-            name: name.into(),
-            ty: ty.0,
-            mutable: false,
-        });
+        self.params.push((name.into(), ty));
         self
     }
 
@@ -68,16 +68,30 @@ impl FunctionDecl {
         self
     }
 
-    pub(crate) fn lower(self, implementation: CallableImplementation) -> FnDecl {
-        FnDecl {
+    pub(crate) fn lower(
+        self,
+        implementation: CallableImplementation<DefinitionId>,
+        context: &DefinitionContext,
+    ) -> NativeResult<FnDecl<DefinitionId>> {
+        Ok(FnDecl {
             name: self.name,
-            params: self.params,
-            return_type: self.result.0,
+            params: self
+                .params
+                .into_iter()
+                .map(|(name, ty)| {
+                    Ok(Param {
+                        name,
+                        ty: ty.adopt(context)?,
+                        mutable: false,
+                    })
+                })
+                .collect::<NativeResult<_>>()?,
+            return_type: self.result.adopt(context)?,
             implementation,
             generic_params: vec![],
             bounds: vec![],
             method_policy: MethodPolicy::default(),
-        }
+        })
     }
 }
 
@@ -88,7 +102,6 @@ pub struct MethodDecl {
 }
 
 impl MethodDecl {
-    /// Preserve complete Markdown, including examples and fenced code blocks.
     pub fn documentation(mut self, text: impl Into<String>) -> Self {
         self.signature.documentation = Some(text.into());
         self
@@ -118,41 +131,48 @@ impl MethodDecl {
         self
     }
 
-    pub(crate) fn lower(mut self, receiver: Type) -> FnDecl {
+    pub(crate) fn lower(
+        mut self,
+        receiver: Type,
+        context: &DefinitionContext,
+    ) -> NativeResult<FnDecl<DefinitionId>> {
         if self.instance {
-            self.signature.params.insert(
-                0,
-                Param {
-                    name: "self".into(),
-                    ty: receiver.0,
-                    mutable: false,
-                },
-            );
+            self.signature.params.insert(0, ("self".into(), receiver));
         }
-        self.signature.lower(CallableImplementation::Required)
+        self.signature
+            .lower(CallableImplementation::Required, context)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct CallableRequirement {
-    pub(crate) requirement: NativeCallableRequirement,
+    pub(crate) requirement: DefinitionMetadata<NativeCallableRequirement<DefinitionId>>,
 }
 
 impl CallableRequirement {
-    pub fn arguments(mut self, arguments: impl IntoIterator<Item = Type>) -> Self {
-        self.requirement.arguments = arguments.into_iter().map(|ty| ty.0).collect();
-        self
+    pub fn arguments(mut self, arguments: impl IntoIterator<Item = Type>) -> NativeResult<Self> {
+        let context = DefinitionContext::new().map_err(conflict)?;
+        let mut requirement = self
+            .requirement
+            .import_into(&context, &CancellationToken::default())
+            .map_err(conflict)?
+            .into_records();
+        requirement.arguments = arguments
+            .into_iter()
+            .map(|ty| ty.adopt(&context))
+            .collect::<NativeResult<_>>()?;
+        self.requirement = DefinitionMetadata::checked(
+            context.snapshot(),
+            requirement,
+            &CancellationToken::default(),
+        )
+        .map_err(conflict)?;
+        Ok(self)
     }
 
-    pub fn method(receiver: Type, method: MethodRef) -> Self {
-        Self {
-            requirement: NativeCallableRequirement {
-                receiver: receiver.0,
-                interface: method.owner.apply([]).ty,
-                member: method.id,
-                arguments: vec![],
-            },
-        }
+    pub fn method(receiver: Type, method: MethodRef) -> NativeResult<Self> {
+        let interface = method.owner.apply([])?;
+        Self::applied_method(receiver, interface, method)
     }
 
     pub fn applied_method(
@@ -160,61 +180,81 @@ impl CallableRequirement {
         interface: AppliedTrait,
         method: MethodRef,
     ) -> NativeResult<Self> {
-        if interface.contract.id != method.owner.id {
-            return Err(RuntimeError::metadata_conflict(
-                "callable member belongs to another trait",
-            ));
+        if !same_definition(
+            interface.contract.id,
+            &interface.contract.definitions,
+            method.owner.id,
+            &method.owner.definitions,
+        ) {
+            return Err(conflict("callable member belongs to another trait"));
         }
+        let context = DefinitionContext::new().map_err(conflict)?;
+        let receiver = receiver.adopt(&context)?;
+        let Ty::Trait(interface) = interface.ty().adopt(&context)? else {
+            unreachable!("trait input")
+        };
+        let member = context
+            .import(method.definitions(), [method.id])
+            .map_err(conflict)?
+            .map(method.id)
+            .map_err(conflict)?;
+        let requirement = NativeCallableRequirement {
+            receiver,
+            interface,
+            member,
+            arguments: vec![],
+        };
         Ok(Self {
-            requirement: NativeCallableRequirement {
-                receiver: receiver.0,
-                interface: interface.ty,
-                member: method.id,
-                arguments: vec![],
-            },
+            requirement: DefinitionMetadata::checked(
+                context.snapshot(),
+                requirement,
+                &CancellationToken::default(),
+            )
+            .map_err(conflict)?,
         })
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SelectedCall {
-    pub(crate) declaration: DefinitionPath,
+    pub(crate) declaration: DefinitionId,
+    pub(crate) definitions: DefinitionTable,
     pub(crate) slot: usize,
 }
 
 impl SelectedCall {
-    /// Recover a checked authoring token from a preauthored native declaration.
-    /// The exact requirement must occur once; invocation still verifies its
-    /// declaration owner and consumes the installed compiler-selected operation.
+    /// Recover a token from an exact scoped requirement. Invocation still checks
+    /// its declaration owner and consumes the installed compiler-selected operation.
     pub fn from_declaration(
-        declaration: &NativeDeclaration,
-        requirement: &NativeCallableRequirement,
+        declaration: &DefinitionMetadata<NativeDeclaration<DefinitionId>>,
+        requirement: &NativeCallableRequirement<DefinitionId>,
     ) -> NativeResult<Self> {
         let mut matches = declaration
+            .records()
             .callable_requirements
             .iter()
             .enumerate()
             .filter(|(_, candidate)| *candidate == requirement);
-        let (slot, _) = matches.next().ok_or_else(|| {
-            RuntimeError::metadata_conflict("unknown native callable requirement")
-        })?;
+        let (slot, _) = matches
+            .next()
+            .ok_or_else(|| conflict("unknown native callable requirement"))?;
         if matches.next().is_some() {
-            return Err(RuntimeError::metadata_conflict(
-                "ambiguous native callable requirement",
-            ));
+            return Err(conflict("ambiguous native callable requirement"));
         }
         Ok(Self {
-            declaration: declaration.declaration.clone(),
+            declaration: declaration.records().declaration,
+            definitions: declaration.definitions().clone(),
             slot,
         })
     }
 }
 
 pub struct FunctionBuilder<'a> {
-    pub(crate) id: DefinitionPath,
-    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionPath, Ty>,
-    pub(crate) signature: &'a mut FnDecl,
-    pub(crate) requirements: &'a mut Vec<NativeCallableRequirement>,
+    pub(crate) id: DefinitionId,
+    pub(crate) context: &'a DefinitionContext,
+    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionId, Ty<DefinitionId>>,
+    pub(crate) signature: &'a mut FnDecl<DefinitionId>,
+    pub(crate) requirements: &'a mut Vec<NativeCallableRequirement<DefinitionId>>,
     pub(crate) names: &'a mut Vec<String>,
 }
 
@@ -222,50 +262,68 @@ impl FunctionBuilder<'_> {
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
         let name = name.into();
         if self.names.contains(&name) {
-            return Err(RuntimeError::metadata_conflict("duplicate type parameter"));
+            return Err(conflict("duplicate type parameter"));
         }
         let parameter = GenericParam {
-            owner: self.id.clone(),
+            owner: self.id,
             position: self.names.len(),
         };
+        let ty = Type::from_semantic(parameter.as_type(), &self.context.snapshot())?;
         self.names.push(name);
-        self.signature.generic_params.push(parameter.clone());
-        Ok(ParameterRef {
-            ty: Type(parameter.as_type()),
-        })
+        self.signature.generic_params.push(parameter);
+        Ok(ParameterRef { ty })
     }
 
-    pub fn parameter(&mut self, name: impl Into<String>, ty: Type) {
+    pub fn parameter(&mut self, name: impl Into<String>, ty: Type) -> NativeResult<()> {
+        let ty = ty.adopt(self.context)?;
         self.signature.params.push(Param {
             name: name.into(),
-            ty: ty.0,
+            ty,
             mutable: false,
         });
+        Ok(())
     }
 
-    pub fn returns(&mut self, ty: Type) {
-        self.signature.return_type = ty.0;
+    pub fn returns(&mut self, ty: Type) -> NativeResult<()> {
+        self.signature.return_type = ty.adopt(self.context)?;
+        Ok(())
     }
 
-    /// The Rust body produces this concrete type; the exported return remains an interface.
-    /// Compilation selects and verifies the interface construction table.
-    pub fn produces(&mut self, ty: Type) {
-        self.concrete_results.insert(self.id.clone(), ty.0);
+    /// The exported result stays an interface; compilation verifies its construction.
+    pub fn produces(&mut self, ty: Type) -> NativeResult<()> {
+        self.concrete_results
+            .insert(self.id, ty.adopt(self.context)?);
+        Ok(())
     }
 
-    pub fn bound(&mut self, ty: Type, contract: AppliedTrait) {
+    pub fn bound(&mut self, ty: Type, contract: AppliedTrait) -> NativeResult<()> {
+        let ty = ty.adopt(self.context)?;
+        let Ty::Trait(contract) = contract.ty().adopt(self.context)? else {
+            unreachable!("trait input")
+        };
         self.signature.bounds.push(GenericBound {
-            ty: ty.0,
-            constraints: vec![Constraint::Trait(contract.ty)],
+            ty,
+            constraints: vec![Constraint::Trait(contract)],
         });
+        Ok(())
     }
 
-    pub fn requires(&mut self, requirement: CallableRequirement) -> SelectedCall {
+    pub fn requires(&mut self, requirement: CallableRequirement) -> NativeResult<SelectedCall> {
+        let requirement = requirement
+            .requirement
+            .import_into(self.context, &CancellationToken::default())
+            .map_err(conflict)?
+            .into_records();
         let slot = self.requirements.len();
-        self.requirements.push(requirement.requirement);
-        SelectedCall {
-            declaration: self.id.clone(),
+        self.requirements.push(requirement);
+        Ok(SelectedCall {
+            declaration: self.id,
+            definitions: self.context.snapshot(),
             slot,
-        }
+        })
     }
+}
+
+fn conflict(error: impl ToString) -> RuntimeError {
+    RuntimeError::metadata_conflict(error.to_string())
 }

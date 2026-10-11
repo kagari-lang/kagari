@@ -32,10 +32,13 @@ impl<T> Clone for ScriptSet<T> {
 
 impl<T: KagariType> KagariType for ScriptSet<T> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Ok(Type::from_semantic(Ty::Set(
-            Box::new(T::kagari_type(catalog)?.abi().clone()),
-            CollectionAccess::Mutable,
-        )))
+        Type::from_semantic(
+            Ty::Set(
+                Box::new(T::kagari_type(catalog)?.adopt(catalog.types.context())?),
+                CollectionAccess::Mutable,
+            ),
+            &catalog.definitions(),
+        )
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {

@@ -1,27 +1,59 @@
-//! Scoped authoring references retain the owner of each Kagari declaration.
+//! Typed registration inputs retain scoped IDs and an immutable root-level owner.
 use crate::{
     error::RuntimeError,
     native::binding::{Codec, NativeResult},
 };
-use kagari_common::identity::{DefinitionPath, associated_type_id};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind,
+        map::DefinitionContext,
+        mapping::{DefinitionMapper, DefinitionRecord},
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
 use kagari_types::{
     declaration::{TraitDef, TypeDef, TypeDefKind, module::ModuleDecl},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Type(pub(crate) Ty);
+/// A semantic type input. Only this outer handle retains a table; nested nodes use IDs.
+/// Identity-free scalar/composite values need no identity table allocation.
+#[derive(Debug, Clone)]
+pub struct Type {
+    ty: Ty<DefinitionId>,
+    definitions: Option<DefinitionTable>,
+}
 
 impl Type {
-    /// Author a portable semantic type; owning builders validate its scopes and shape.
-    pub fn from_semantic(ty: Ty) -> Self {
-        Self(ty)
+    /// Retain a checked identity scope, without granting semantic verification.
+    pub fn from_semantic(
+        ty: Ty<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> NativeResult<Self> {
+        DefinitionMetadata::checked(
+            definitions.clone(),
+            ty.clone(),
+            &CancellationToken::default(),
+        )
+        .map_err(conflict)?;
+        Ok(Self {
+            ty,
+            definitions: Some(definitions.clone()),
+        })
     }
 
     pub fn scalar(kind: BuiltinType) -> Self {
-        Self(Ty::Builtin(kind))
+        Self {
+            ty: Ty::Builtin(kind),
+            definitions: None,
+        }
     }
 
     pub fn unit() -> Self {
@@ -52,19 +84,92 @@ impl Type {
         Self::scalar(BuiltinType::F64)
     }
 
-    pub fn tuple(items: impl IntoIterator<Item = Type>) -> Self {
-        Self(Ty::Tuple(items.into_iter().map(|ty| ty.0).collect()))
+    pub fn tuple(items: impl IntoIterator<Item = Type>) -> NativeResult<Self> {
+        Self::assemble(items.into_iter().collect(), |types| Ok(Ty::Tuple(types)))
     }
 
-    pub fn function(params: impl IntoIterator<Item = Type>, result: Type) -> Self {
-        Self(Ty::Function {
-            params: params.into_iter().map(|ty| ty.0).collect(),
-            result: Box::new(result.0),
+    pub fn function(params: impl IntoIterator<Item = Type>, result: Type) -> NativeResult<Self> {
+        let mut types = params.into_iter().collect::<Vec<_>>();
+        types.push(result);
+        Self::assemble(types, |mut types| {
+            let result = Box::new(types.pop().expect("function result"));
+            Ok(Ty::Function {
+                params: types,
+                result,
+            })
         })
     }
 
-    pub fn abi(&self) -> &Ty {
-        &self.0
+    pub fn abi(&self) -> &Ty<DefinitionId> {
+        &self.ty
+    }
+
+    /// None denotes an identity-free type, not an alternate identity representation.
+    pub fn definitions(&self) -> Option<&DefinitionTable> {
+        self.definitions.as_ref()
+    }
+
+    pub(crate) fn adopt(&self, context: &DefinitionContext) -> NativeResult<Ty<DefinitionId>> {
+        match &self.definitions {
+            None => Ok(self.ty.clone()),
+            Some(definitions) if definitions.id() == context.snapshot().id() => Ok(self.ty.clone()),
+            Some(definitions) => DefinitionMetadata::checked(
+                definitions.clone(),
+                self.ty.clone(),
+                &CancellationToken::default(),
+            )
+            .and_then(|input| input.import_into(context, &CancellationToken::default()))
+            .map(|input| input.into_records())
+            .map_err(conflict),
+        }
+    }
+
+    pub(crate) fn same_type(&self, other: &Self) -> bool {
+        Self::compose(vec![self.clone(), other.clone()])
+            .is_ok_and(|(_, types)| types[0] == types[1])
+    }
+
+    fn compose(
+        inputs: Vec<Self>,
+    ) -> NativeResult<(Option<DefinitionTable>, Vec<Ty<DefinitionId>>)> {
+        let mut definitions: Option<DefinitionTable> = None;
+        let mut foreign = false;
+        for input in &inputs {
+            if let Some(scope) = &input.definitions {
+                match &definitions {
+                    None => definitions = Some(scope.clone()),
+                    Some(current) if current.id() != scope.id() => foreign = true,
+                    Some(current) if current.len() < scope.len() => {
+                        definitions = Some(scope.clone())
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if foreign {
+            let context = DefinitionContext::new().map_err(conflict)?;
+            let types = inputs
+                .iter()
+                .map(|input| input.adopt(&context))
+                .collect::<NativeResult<_>>()?;
+            Ok((Some(context.snapshot()), types))
+        } else {
+            Ok((
+                definitions,
+                inputs.into_iter().map(|input| input.ty).collect(),
+            ))
+        }
+    }
+
+    fn assemble(
+        inputs: Vec<Self>,
+        build: impl FnOnce(Vec<Ty<DefinitionId>>) -> NativeResult<Ty<DefinitionId>>,
+    ) -> NativeResult<Self> {
+        let (definitions, types) = Self::compose(inputs)?;
+        Ok(Self {
+            ty: build(types)?,
+            definitions,
+        })
     }
 }
 
@@ -73,51 +178,87 @@ pub struct ParameterRef {
     pub(crate) ty: Type,
 }
 
+impl ParameterRef {
+    pub fn ty(&self) -> Type {
+        self.ty.clone()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TypeRef {
-    pub(crate) id: DefinitionPath,
-    pub(crate) declaration: Arc<TypeDef>,
+    pub(crate) id: DefinitionId,
+    pub(crate) definitions: DefinitionTable,
+    pub(crate) declaration: Arc<TypeDef<DefinitionId>>,
     pub(crate) parameter_names: Vec<String>,
 }
 
 impl TypeRef {
-    pub fn id(&self) -> &DefinitionPath {
-        &self.id
+    pub(crate) fn adopt(&self, context: &DefinitionContext) -> NativeResult<Self> {
+        let (id, declaration, _) = adopt_reference(
+            self.id,
+            &self.definitions,
+            self.declaration.as_ref(),
+            context,
+        )?;
+        for variant in &declaration.variants {
+            context
+                .intern_child(id, DefinitionKind::Variant, &variant.name, 0)
+                .map_err(conflict)?;
+        }
+        Ok(Self {
+            id,
+            definitions: context.snapshot(),
+            declaration: Arc::new(declaration),
+            parameter_names: self.parameter_names.clone(),
+        })
+    }
+
+    pub fn id(&self) -> DefinitionId {
+        self.id
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
     }
 
     pub fn codec(&self) -> Codec {
         match self.declaration.kind {
-            // Managed enum Values retain their exact type in the declared signature;
-            // they are not opaque Rust storage objects.
             TypeDefKind::Enum => Codec::Value,
-            _ => Codec::Object(self.id.clone()),
+            _ => Codec::Object {
+                declaration: self.id,
+                definitions: self.definitions.clone(),
+            },
         }
     }
 
     pub fn apply(&self, arguments: impl IntoIterator<Item = Type>) -> NativeResult<Type> {
-        let arguments: Vec<_> = arguments.into_iter().map(|ty| ty.0).collect();
+        let arguments = arguments.into_iter().collect::<Vec<_>>();
         if arguments.len() != self.declaration.generic_params.len() {
-            return Err(RuntimeError::metadata_conflict(
-                "native type argument count",
-            ));
+            return Err(conflict("native type argument count"));
         }
         let nominal = NominalTy {
-            declaration: self.id.clone(),
-            arguments,
+            declaration: self.id,
+            arguments: vec![],
             associated_types: BTreeMap::new(),
         };
-        Ok(Type(match self.declaration.kind {
+        let root = match self.declaration.kind {
             TypeDefKind::Enum => Ty::Enum(nominal),
             TypeDefKind::NativeStorage(_) => Ty::NativeObject(nominal),
-            _ => {
-                return Err(RuntimeError::metadata_conflict(
-                    "unsupported authoring type kind",
-                ));
+            _ => return Err(conflict("unsupported authoring type kind")),
+        };
+        let mut inputs = vec![Type::from_semantic(root, &self.definitions)?];
+        inputs.extend(arguments);
+        Type::assemble(inputs, |mut inputs| {
+            let mut result = inputs.remove(0);
+            match &mut result {
+                Ty::Enum(nominal) | Ty::NativeObject(nominal) => nominal.arguments = inputs,
+                _ => unreachable!("nominal input"),
             }
-        }))
+            Ok(result)
+        })
     }
 
-    /// Resolve a member of this enum without exposing unchecked discriminants.
+    /// Member lookup preserves the enum declaration's retained identity scope.
     pub fn variant(&self, name: &str) -> NativeResult<VariantRef> {
         if self.declaration.kind != TypeDefKind::Enum
             || !self
@@ -126,28 +267,32 @@ impl TypeRef {
                 .iter()
                 .any(|variant| variant.name == name)
         {
-            return Err(RuntimeError::metadata_conflict("unknown enum variant"));
+            return Err(conflict("unknown enum variant"));
         }
         Ok(VariantRef {
-            id: ModuleDecl::variant_id(&self.id, name),
+            id: ModuleDecl::variant_id(self.id, name, &self.definitions).map_err(conflict)?,
+            definitions: self.definitions.clone(),
         })
     }
 }
 
-/// An authoring member identity. Execution resolves it in the selected installed
-/// generation and validates its owner and payload layout before access.
+/// Execution still validates the selected generation, owner and payload layout.
 #[derive(Debug, Clone)]
 pub struct VariantRef {
-    pub(crate) id: DefinitionPath,
+    pub(crate) id: DefinitionId,
+    pub(crate) definitions: DefinitionTable,
 }
 
 impl VariantRef {
-    pub fn id(&self) -> &DefinitionPath {
-        &self.id
+    pub fn id(&self) -> DefinitionId {
+        self.id
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
     }
 }
 
-/// A concrete specialization or the complete generic declaration being implemented.
 pub enum Receiver {
     Concrete(Type),
     Declaration(TypeRef),
@@ -165,28 +310,54 @@ impl From<TypeRef> for Receiver {
     }
 }
 
-impl ParameterRef {
-    pub fn ty(&self) -> Type {
-        self.ty.clone()
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct TraitRef {
-    pub(crate) id: DefinitionPath,
-    pub(crate) contract: Arc<TraitDef>,
+    pub(crate) id: DefinitionId,
+    pub(crate) definitions: DefinitionTable,
+    pub(crate) contract: Arc<TraitDef<DefinitionId>>,
 }
 
 impl TraitRef {
-    pub fn apply(&self, arguments: impl IntoIterator<Item = Type>) -> AppliedTrait {
-        AppliedTrait {
-            contract: self.clone(),
-            ty: NominalTy {
-                declaration: self.id.clone(),
-                arguments: arguments.into_iter().map(|ty| ty.0).collect(),
-                associated_types: BTreeMap::new(),
-            },
+    pub(crate) fn adopt(&self, context: &DefinitionContext) -> NativeResult<Self> {
+        let (id, contract, _) =
+            adopt_reference(self.id, &self.definitions, self.contract.as_ref(), context)?;
+        for method in &contract.methods {
+            context
+                .intern_child(id, DefinitionKind::Method, &method.name, 0)
+                .map_err(conflict)?;
         }
+        Ok(Self {
+            id,
+            definitions: context.snapshot(),
+            contract: Arc::new(contract),
+        })
+    }
+
+    pub fn apply(&self, arguments: impl IntoIterator<Item = Type>) -> NativeResult<AppliedTrait> {
+        let mut inputs = vec![Type::from_semantic(
+            Ty::Trait(NominalTy {
+                declaration: self.id,
+                arguments: vec![],
+                associated_types: BTreeMap::new(),
+            }),
+            &self.definitions,
+        )?];
+        inputs.extend(arguments);
+        let applied = Type::assemble(inputs, |mut inputs| {
+            let Ty::Trait(mut nominal) = inputs.remove(0) else {
+                unreachable!("trait input")
+            };
+            nominal.arguments = inputs;
+            Ok(Ty::Trait(nominal))
+        })?;
+        let Ty::Trait(ty) = applied.ty else {
+            unreachable!("trait input")
+        };
+        Ok(AppliedTrait {
+            contract: self.clone(),
+            ty,
+            definitions: applied.definitions.expect("nominal scope"),
+        })
     }
 
     pub fn method(&self, name: &str) -> NativeResult<MethodRef> {
@@ -196,77 +367,156 @@ impl TraitRef {
             .iter()
             .any(|method| method.name == name)
         {
-            return Err(RuntimeError::metadata_conflict(
-                "unknown Kagari trait method",
-            ));
+            return Err(conflict("unknown Kagari trait method"));
         }
         Ok(MethodRef {
             owner: self.clone(),
-            id: kagari_method_id(&self.id, name),
+            id: ModuleDecl::method_id(self.id, name, &self.definitions).map_err(conflict)?,
         })
     }
 
     pub fn receiver(&self) -> Type {
-        Type(Ty::SelfType(self.id.clone()))
+        Type {
+            ty: Ty::SelfType(self.id),
+            definitions: Some(self.definitions.clone()),
+        }
     }
 
-    pub fn id(&self) -> &DefinitionPath {
-        &self.id
+    pub fn id(&self) -> DefinitionId {
+        self.id
     }
-}
 
-fn kagari_method_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
-    ModuleDecl::method_id(owner, name)
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct AppliedTrait {
     pub(crate) contract: TraitRef,
-    pub(crate) ty: NominalTy,
+    pub(crate) ty: NominalTy<DefinitionId>,
+    pub(crate) definitions: DefinitionTable,
 }
 
 impl AppliedTrait {
     pub fn associated(mut self, name: &str, ty: Type) -> NativeResult<Self> {
-        let id = associated_type_id(&self.contract.id, name);
+        let id = self
+            .contract
+            .definitions
+            .lookup_child(self.contract.id, DefinitionKind::AssociatedType, name, 0)
+            .ok_or_else(|| conflict("unknown associated type"))?;
         if !self
             .contract
             .contract
             .associated_types
             .iter()
             .any(|member| member.declaration == id)
-            || self.ty.associated_types.insert(id, ty.0).is_some()
         {
-            return Err(RuntimeError::metadata_conflict(
-                "unknown or duplicate associated type",
-            ));
+            return Err(conflict("unknown associated type"));
         }
+        let member = Type::from_semantic(Ty::SelfType(id), &self.contract.definitions)?;
+        let applied = Type::assemble(vec![self.ty(), ty, member], |mut inputs| {
+            let Ty::SelfType(id) = inputs.pop().expect("member") else {
+                unreachable!("member input")
+            };
+            let value = inputs.pop().expect("associated output");
+            let Ty::Trait(mut nominal) = inputs.pop().expect("trait") else {
+                unreachable!("trait input")
+            };
+            if nominal.associated_types.insert(id, value).is_some() {
+                return Err(conflict("duplicate associated type"));
+            }
+            Ok(Ty::Trait(nominal))
+        })?;
+        let Ty::Trait(ty) = applied.ty else {
+            unreachable!("trait input")
+        };
+        self.ty = ty;
+        self.definitions = applied.definitions.expect("nominal scope");
         Ok(self)
     }
 
     pub fn ty(&self) -> Type {
-        Type(Ty::Trait(self.ty.clone()))
+        Type {
+            ty: Ty::Trait(self.ty.clone()),
+            definitions: Some(self.definitions.clone()),
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct MethodRef {
     pub(crate) owner: TraitRef,
-    pub(crate) id: DefinitionPath,
+    pub(crate) id: DefinitionId,
 }
 
 impl MethodRef {
-    pub fn id(&self) -> &DefinitionPath {
-        &self.id
+    pub fn id(&self) -> DefinitionId {
+        self.id
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.owner.definitions
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct FunctionRef {
-    pub(crate) id: DefinitionPath,
+    pub(crate) id: DefinitionId,
+    pub(crate) definitions: DefinitionTable,
 }
 
 impl FunctionRef {
-    pub fn id(&self) -> &DefinitionPath {
-        &self.id
+    pub fn id(&self) -> DefinitionId {
+        self.id
     }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+}
+
+pub(crate) fn same_definition(
+    left: DefinitionId,
+    left_scope: &DefinitionTable,
+    right: DefinitionId,
+    right_scope: &DefinitionTable,
+) -> bool {
+    match (left_scope.resolve(left), right_scope.resolve(right)) {
+        (Ok(left), Ok(right)) => {
+            left.module() == right.module() && left.segments().eq(right.segments())
+        }
+        _ => false,
+    }
+}
+
+fn conflict(error: impl ToString) -> RuntimeError {
+    RuntimeError::metadata_conflict(error.to_string())
+}
+
+fn adopt_reference<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>>(
+    id: DefinitionId,
+    definitions: &DefinitionTable,
+    record: &T,
+    context: &DefinitionContext,
+) -> NativeResult<(DefinitionId, T, DefinitionTable)> {
+    let cancel = CancellationToken::default();
+    let mut ids = HashSet::from([id]);
+    record
+        .visit_definitions(
+            &mut |id| {
+                ids.insert(*id);
+                Ok(())
+            },
+            &cancel,
+        )
+        .map_err(conflict)?;
+    let remap = context.import(definitions, ids).map_err(conflict)?;
+    let record = record
+        .map_identities(&mut DefinitionMapper::new(
+            &mut |id| remap.map(*id).map_err(Into::into),
+            &cancel,
+        ))
+        .map_err(conflict)?;
+    Ok((remap.map(id).map_err(conflict)?, record, context.snapshot()))
 }

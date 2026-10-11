@@ -73,7 +73,7 @@ impl PreparedClosure {
         result: &Ty<DefinitionId>,
         arguments: A,
     ) -> NativeResult<R> {
-        if result != &R::abi_type_in() || !A::matches(params) {
+        if result != &Ty::Builtin(R::abi_type()) || !A::matches(params) {
             return Err(RuntimeError::module_validation(
                 "native callback conversion differs from its declaration",
             ));

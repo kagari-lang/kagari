@@ -29,7 +29,7 @@ impl sealed::Arguments for () {}
 macro_rules! arguments {
     ($($ty:ident:$local:ident),+) => {
         impl<$($ty: NativeScalar),+> CallArguments for ($($ty,)+) {
-            fn matches(params: &[Ty<DefinitionId>]) -> bool { params == [$($ty::abi_type_in()),+] }
+            fn matches(params: &[Ty<DefinitionId>]) -> bool { params == [$(Ty::Builtin($ty::abi_type())),+] }
 
             fn with_values<R>(self, call: impl FnOnce(&[Value]) -> NativeResult<R>) -> NativeResult<R> {
                 let ($($local,)+) = self;

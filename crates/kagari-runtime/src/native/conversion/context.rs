@@ -141,7 +141,7 @@ impl<'runtime> ConversionContext<'runtime> {
 
     pub fn type_for<T: KagariType>(&self) -> NativeResult<TypeArgument> {
         let ty = T::kagari_type(&self.runtime.native_entries.catalog)?;
-        self.runtime.portable_type_argument(self.owner, ty.abi())
+        self.runtime.native_type_argument(self.owner, &ty)
     }
 
     pub fn parameter(&self, applied: &TypeArgument, index: usize) -> NativeResult<TypeArgument> {
@@ -287,7 +287,7 @@ impl<'runtime> ConversionContext<'runtime> {
         ty: Type,
     ) -> NativeResult<()> {
         expected.validate(self.runtime)?;
-        let actual = self.runtime.portable_type_argument(self.owner, ty.abi())?;
+        let actual = self.runtime.native_type_argument(self.owner, &ty)?;
         if !expected
             .view(self.owner)
             .compatible(actual.view(self.owner))

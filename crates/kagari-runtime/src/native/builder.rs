@@ -12,7 +12,7 @@ use crate::{
             enum_builder::EnumBuilder, implementation::ImplementationBuilder,
             trait_builder::TraitBuilder, type_builder::TypeBuilder,
         },
-        catalog::DeclarationCatalog,
+        catalog::{DeclarationCatalog, import::CatalogImports},
         conversion::{IntoKagari, arguments::FromKagariArguments},
         declarations::{FunctionBuilder, FunctionDecl, normalize_bounds},
         functions::NativeFunction,
@@ -22,45 +22,126 @@ use crate::{
         types::{FunctionRef, Receiver},
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind, ModuleIdentity, PackageId,
+        map::DefinitionContext,
+        mapping::{DefinitionMapper, DefinitionRecord},
+        metadata::DefinitionMetadata,
+        table::DefinitionId,
+    },
+};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::module::ModuleDecl,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug)]
 pub struct ModuleBuilder {
     pub(crate) declaration: ModuleDecl,
     pub(crate) providers: DeclarationCatalog,
-    pub(crate) bindings: BTreeMap<DefinitionPath, NativeBinding>,
-    pub(crate) storage: BTreeMap<DefinitionPath, NativeStorage>,
-    function_parameters: BTreeMap<DefinitionPath, Vec<String>>,
+    pub(crate) bindings: BTreeMap<DefinitionId, NativeBinding>,
+    pub(crate) storage: BTreeMap<DefinitionId, NativeStorage>,
+    function_parameters: BTreeMap<DefinitionId, Vec<String>>,
 }
 
 impl ModuleBuilder {
-    /// Build an explicit declaration set with its Rust entries and providers.
+    /// Adopt declaration records and binding keys from the supplied source scope.
     pub fn from_declaration(
-        declaration: ModuleDecl,
+        declaration: DefinitionMetadata<ModuleDecl>,
         providers: &DeclarationCatalog,
-        bindings: BTreeMap<DefinitionPath, NativeBinding>,
-    ) -> Self {
-        Self {
+        bindings: BTreeMap<DefinitionId, NativeBinding>,
+    ) -> NativeResult<Self> {
+        let providers = construction_catalog(providers)?;
+        let context = providers.types.context();
+        let mut references = bindings.keys().copied().collect::<HashSet<_>>();
+        let cancel = CancellationToken::default();
+        declaration
+            .records()
+            .visit_definitions(
+                &mut |id| {
+                    references.insert(*id);
+                    Ok(())
+                },
+                &cancel,
+            )
+            .map_err(conflict)?;
+        let remap = context
+            .import(declaration.definitions(), references)
+            .map_err(conflict)?;
+        let declaration = declaration
+            .records()
+            .map_identities(&mut DefinitionMapper::new(
+                &mut |id| remap.map(*id).map_err(Into::into),
+                &cancel,
+            ))
+            .map_err(conflict)?;
+        declaration.collect_definitions(context).map_err(conflict)?;
+        let bindings = bindings
+            .into_iter()
+            .map(|(id, binding)| Ok((remap.map(id).map_err(conflict)?, binding)))
+            .collect::<NativeResult<_>>()?;
+        Ok(Self {
             declaration,
-            providers: providers.clone(),
+            providers,
             bindings,
             storage: BTreeMap::new(),
             function_parameters: BTreeMap::new(),
-        }
+        })
     }
 
-    pub fn new(identity: &str, providers: &DeclarationCatalog) -> Self {
+    pub fn new(identity: &str, providers: &DeclarationCatalog) -> NativeResult<Self> {
         let mut path = identity.split("::");
         let identity = ModuleIdentity {
             package: PackageId(path.next().unwrap_or_default().into()),
             path: path.map(str::to_owned).collect(),
         };
-        Self::from_declaration(ModuleDecl::new(identity), providers, BTreeMap::new())
+        let providers = construction_catalog(providers)?;
+        let declaration = ModuleDecl::new(identity);
+        declaration
+            .collect_definitions(providers.types.context())
+            .map_err(conflict)?;
+        Ok(Self {
+            declaration,
+            providers,
+            bindings: BTreeMap::new(),
+            storage: BTreeMap::new(),
+            function_parameters: BTreeMap::new(),
+        })
+    }
+
+    pub(crate) fn context(&self) -> &DefinitionContext {
+        self.providers.types.context()
+    }
+
+    pub(crate) fn definition(
+        &self,
+        kind: DefinitionKind,
+        name: &str,
+    ) -> NativeResult<DefinitionId> {
+        let root = self
+            .providers
+            .definitions()
+            .lookup_root(&self.declaration.identity)
+            .expect("construction module root");
+        self.context()
+            .intern_child(root, kind, name, 0)
+            .map_err(conflict)
+    }
+
+    pub(crate) fn next_implementation_id(&self) -> NativeResult<DefinitionId> {
+        let root = self
+            .providers
+            .definitions()
+            .lookup_root(&self.declaration.identity)
+            .expect("construction module root");
+        let occurrence = u32::try_from(self.declaration.implementations.len())
+            .map_err(|_| conflict("too many native implementations"))?;
+        self.context()
+            .intern_child(root, DefinitionKind::Impl, "", occurrence)
+            .map_err(conflict)
     }
 
     /// Set the complete Markdown overview emitted as module documentation.
@@ -91,17 +172,16 @@ impl ModuleBuilder {
                 "duplicate function declaration",
             ));
         }
-        let id = self
-            .declaration
-            .definition(DefinitionKind::Function, &declaration.name);
+        let id = self.definition(DefinitionKind::Function, &declaration.name)?;
         if let Some(documentation) = declaration.documentation.take() {
-            self.declaration
-                .documentation
-                .insert(id.clone(), documentation);
+            self.declaration.documentation.insert(id, documentation);
         }
-        let function = declaration.lower(CallableImplementation::Native(id.clone()));
+        let function = declaration.lower(CallableImplementation::Native(id), self.context())?;
         self.declaration.functions.push(function);
-        Ok(FunctionRef { id })
+        Ok(FunctionRef {
+            id,
+            definitions: self.providers.definitions(),
+        })
     }
 
     pub fn function<T>(
@@ -109,7 +189,9 @@ impl ModuleBuilder {
         function: &FunctionRef,
         configure: impl FnOnce(&mut FunctionBuilder<'_>) -> NativeResult<T>,
     ) -> NativeResult<T> {
-        if function.id.module != self.declaration.identity {
+        let definitions = self.providers.definitions();
+        let view = definitions.resolve(function.id).map_err(conflict)?;
+        if view.module() != &self.declaration.identity {
             return Err(RuntimeError::metadata_conflict(
                 "function belongs to another module",
             ));
@@ -118,23 +200,21 @@ impl ModuleBuilder {
             .declaration
             .functions
             .iter_mut()
-            .find(|signature| signature.name == function.id.path[0].name)
+            .find(|signature| signature.name == view.last().expect("function identity").name)
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown function declaration"))?;
         let result = configure(&mut FunctionBuilder {
-            id: function.id.clone(),
+            id: function.id,
+            context: self.providers.types.context(),
             concrete_results: &mut self.declaration.concrete_results,
             signature,
             requirements: self
                 .declaration
                 .callable_requirements
-                .entry(function.id.clone())
+                .entry(function.id)
                 .or_default(),
-            names: self
-                .function_parameters
-                .entry(function.id.clone())
-                .or_default(),
+            names: self.function_parameters.entry(function.id).or_default(),
         })?;
-        normalize_bounds(signature);
+        normalize_bounds(signature, &self.providers.definitions())?;
         Ok(result)
     }
 
@@ -149,7 +229,8 @@ impl ModuleBuilder {
     pub fn bind_with(&mut self, function: FunctionRef, binding: NativeBinding) -> NativeResult<()> {
         let declaration = self
             .declaration
-            .native_declarations()
+            .native_declarations(&self.providers.definitions())
+            .map_err(conflict)?
             .into_iter()
             .find(|declaration| declaration.declaration == function.id)
             .ok_or_else(|| {
@@ -167,7 +248,6 @@ impl ModuleBuilder {
                 .clone()
                 .unwrap_or_else(|| declaration.function.return_type.clone()),
         };
-        let signature = self.providers.scope(&signature)?;
         binding.check(&signature, &self.providers.definitions(), &self.providers)?;
         if self.bindings.contains_key(&function.id) {
             return Err(RuntimeError::metadata_conflict(
@@ -191,7 +271,8 @@ impl ModuleBuilder {
     ) -> NativeResult<()> {
         let declaration = self
             .declaration
-            .native_declarations()
+            .native_declarations(&self.providers.definitions())
+            .map_err(conflict)?
             .into_iter()
             .find(|declaration| declaration.declaration == function.id)
             .ok_or_else(|| {
@@ -212,16 +293,16 @@ impl ModuleBuilder {
         )
     }
 
-    pub fn define_trait(&mut self, name: impl Into<String>) -> TraitBuilder<'_> {
+    pub fn define_trait(&mut self, name: impl Into<String>) -> NativeResult<TraitBuilder<'_>> {
         TraitBuilder::new(self, name.into())
     }
 
-    pub fn define_type(&mut self, name: impl Into<String>) -> TypeBuilder<'_> {
+    pub fn define_type(&mut self, name: impl Into<String>) -> NativeResult<TypeBuilder<'_>> {
         TypeBuilder::new(self, name.into())
     }
 
     /// Declare an ordinary managed enum; no opaque Rust storage is required.
-    pub fn define_enum(&mut self, name: impl Into<String>) -> EnumBuilder<'_> {
+    pub fn define_enum(&mut self, name: impl Into<String>) -> NativeResult<EnumBuilder<'_>> {
         EnumBuilder::new(self, name.into())
     }
 
@@ -233,4 +314,13 @@ impl ModuleBuilder {
         let mut builder = ImplementationBuilder::new(self, receiver.into())?;
         configure(&mut builder)
     }
+}
+
+fn construction_catalog(providers: &DeclarationCatalog) -> NativeResult<DeclarationCatalog> {
+    let context = DefinitionContext::new().map_err(conflict)?;
+    CatalogImports::new(context).import(providers)
+}
+
+fn conflict(error: impl ToString) -> RuntimeError {
+    RuntimeError::metadata_conflict(error.to_string())
 }

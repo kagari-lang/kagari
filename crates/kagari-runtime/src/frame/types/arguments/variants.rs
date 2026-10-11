@@ -1,20 +1,16 @@
-//! Applied members retain complete portable identity at their type-preparation boundary.
+//! Applied enum members retain their generation-pinned layout and scoped identity.
 use crate::{error::RuntimeError, module::EnumVariantRef};
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 
 #[derive(Debug)]
 pub(crate) struct PreparedEnumMember {
     layout: EnumVariantRef,
-    identity: DefinitionPath,
 }
 
 impl PreparedEnumMember {
     pub(super) fn new(layout: EnumVariantRef) -> Result<Self, RuntimeError> {
-        let identity = layout
-            .module()
-            .definition(layout.variant().declaration)?
-            .to_path();
-        Ok(Self { layout, identity })
+        layout.module().definition(layout.variant().declaration)?;
+        Ok(Self { layout })
     }
 
     pub(crate) fn layout(&self) -> &EnumVariantRef {
@@ -22,13 +18,29 @@ impl PreparedEnumMember {
     }
 
     pub(crate) fn name(&self) -> Option<&str> {
-        self.identity.path.last().map(|member| member.name.as_str())
+        self.layout
+            .module()
+            .definition(self.layout.variant().declaration)
+            .ok()?
+            .last()
+            .map(|member| member.name)
     }
 
-    pub(crate) fn matches_identity(&self, identity: &DefinitionPath) -> bool {
-        // Authoring handles remain portable across runtimes. Compare the complete
-        // identity, including module, segment kinds and occurrences, not only a name.
-        // The retained applied layout separately owns payload scope and generation.
-        &self.identity == identity
+    pub(crate) fn matches_identity(
+        &self,
+        identity: DefinitionId,
+        definitions: &DefinitionTable,
+    ) -> bool {
+        let Ok(actual) = self
+            .layout
+            .module()
+            .definition(self.layout.variant().declaration)
+        else {
+            return false;
+        };
+        let Ok(expected) = definitions.resolve(identity) else {
+            return false;
+        };
+        actual.module() == expected.module() && actual.segments().eq(expected.segments())
     }
 }

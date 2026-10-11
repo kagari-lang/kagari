@@ -2,7 +2,11 @@
 use crate::{
     Runtime, error::RuntimeError, frame::types::arguments::TypeArgument, module::LoadedModule,
 };
-use kagari_types::language::binding;
+use kagari_types::{
+    language::binding,
+    ty::{NominalTy, Ty},
+};
+use std::slice;
 
 #[derive(Clone, Copy)]
 pub(crate) enum BuiltinResult {
@@ -59,11 +63,28 @@ impl Runtime {
         // Preserve builtin failure order: prepare only after operand validation,
         // and only the result contract actually requested by the operation.
         // No module-store borrow crosses type/layout preparation.
+        let definitions = self.definition_context().snapshot();
+        let ordering = Ty::Enum(NominalTy {
+            declaration: definitions
+                .lookup(&binding::ordering_declaration())
+                .ok_or_else(invalid)?,
+            arguments: vec![],
+            associated_types: Default::default(),
+        });
         let ty = match result {
-            BuiltinResult::Ordering => binding::ordering(),
-            BuiltinResult::OptionalOrdering => binding::option(binding::ordering()),
+            BuiltinResult::Ordering => ordering,
+            BuiltinResult::OptionalOrdering => Ty::Enum(NominalTy {
+                declaration: definitions
+                    .lookup(&binding::option_declaration())
+                    .ok_or_else(invalid)?,
+                arguments: vec![ordering],
+                associated_types: Default::default(),
+            }),
         };
-        let applied = self.portable_type_argument(owner, &ty)?;
+        let applied = self
+            .resolve_type_arguments(owner, slice::from_ref(&ty))?
+            .pop()
+            .ok_or_else(invalid)?;
         let mut records = self.modules.inner.try_borrow_mut().map_err(|_| invalid())?;
         let execution = records
             .resolve_mut(owner)

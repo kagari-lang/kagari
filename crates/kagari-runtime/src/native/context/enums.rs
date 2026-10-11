@@ -4,12 +4,12 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::{TypeArgument, variants::PreparedEnumMember},
     module::{EnumVariantRef, LoadedModule},
-    native::{binding::NativeResult, context::CallContext, types::VariantRef},
+    native::{
+        binding::NativeResult,
+        context::CallContext,
+        types::{Type, VariantRef},
+    },
     value::{EnumTag, EnumValueSnapshot, Value},
-};
-use kagari_common::identity::{
-    mapping::{DefinitionMapper, DefinitionRecord},
-    table::DefinitionId,
 };
 use kagari_types::ty::Ty;
 use std::{cell::Ref, slice};
@@ -40,17 +40,12 @@ impl Runtime {
             .map(|prepared| prepared.layout().clone())
     }
 
-    pub(crate) fn portable_type_argument(
+    pub(crate) fn native_type_argument(
         &self,
         owner: &LoadedModule,
-        ty: &Ty,
+        ty: &Type,
     ) -> NativeResult<TypeArgument> {
-        let ty: Ty<DefinitionId> = ty
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |path| self.definition_context().intern(path).map_err(Into::into),
-                &Default::default(),
-            ))
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let ty = ty.adopt(self.definition_context())?;
         self.resolve_type_arguments(owner, slice::from_ref(&ty))?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("nominal type scope"))
@@ -78,15 +73,17 @@ impl CallContext<'_> {
         applied: &TypeArgument,
         variant: &VariantRef,
     ) -> NativeResult<EnumVariantRef> {
-        let member = variant
-            .id()
-            .path
+        let identity = variant
+            .definitions()
+            .resolve(variant.id())
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let member = identity
             .last()
             .ok_or_else(|| RuntimeError::module_validation("native enum member identity"))?;
         let prepared = self
             .runtime
-            .declared_enum_member(self.owner, applied, &member.name)?;
-        if !prepared.matches_identity(variant.id()) {
+            .declared_enum_member(self.owner, applied, member.name)?;
+        if !prepared.matches_identity(variant.id(), variant.definitions()) {
             return Err(RuntimeError::module_validation(
                 "variant belongs to another enum",
             ));

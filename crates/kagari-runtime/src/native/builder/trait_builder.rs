@@ -11,7 +11,10 @@ use crate::{
         types::{AppliedTrait, FunctionRef, ParameterRef, TraitRef, Type},
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId},
+};
 use kagari_types::{
     collection::CollectionAccess,
     declaration::{
@@ -19,26 +22,26 @@ use kagari_types::{
     },
     ty::{Constraint, GenericParam, NominalTy, Ty},
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 mod defaults;
 
 pub struct TraitBuilder<'module> {
     module: &'module mut ModuleBuilder,
-    id: DefinitionPath,
-    declaration: TraitDef,
+    id: DefinitionId,
+    declaration: TraitDef<DefinitionId>,
     parameter_names: Vec<String>,
-    method_parameters: BTreeMap<DefinitionPath, Vec<String>>,
-    requirements: BTreeMap<DefinitionPath, Vec<NativeCallableRequirement>>,
-    documentation: BTreeMap<DefinitionPath, String>,
-    defaults: BTreeMap<DefinitionPath, NativeBinding>,
-    concrete_results: BTreeMap<DefinitionPath, Ty>,
+    method_parameters: BTreeMap<DefinitionId, Vec<String>>,
+    requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement<DefinitionId>>>,
+    documentation: BTreeMap<DefinitionId, String>,
+    defaults: BTreeMap<DefinitionId, NativeBinding>,
+    concrete_results: BTreeMap<DefinitionId, Ty<DefinitionId>>,
 }
 
 impl<'module> TraitBuilder<'module> {
-    pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> Self {
-        let id = module.declaration.definition(DefinitionKind::Trait, &name);
-        Self {
+    pub(crate) fn new(module: &'module mut ModuleBuilder, name: String) -> NativeResult<Self> {
+        let id = module.definition(DefinitionKind::Trait, &name)?;
+        Ok(Self {
             module,
             id,
             declaration: TraitDef {
@@ -58,12 +61,12 @@ impl<'module> TraitBuilder<'module> {
             documentation: BTreeMap::new(),
             defaults: BTreeMap::new(),
             concrete_results: BTreeMap::new(),
-        }
+        })
     }
 
     /// Set the complete trait-level Markdown documentation.
     pub fn documentation(&mut self, text: impl Into<String>) {
-        self.documentation.insert(self.id.clone(), text.into());
+        self.documentation.insert(self.id, text.into());
     }
 
     /// Document an already declared associated type; names are checked against ownership.
@@ -72,7 +75,12 @@ impl<'module> TraitBuilder<'module> {
         name: &str,
         text: impl Into<String>,
     ) -> NativeResult<()> {
-        let id = associated_type_id(&self.id, name);
+        let id = self
+            .module
+            .providers
+            .definitions()
+            .lookup_child(self.id, DefinitionKind::AssociatedType, name, 0)
+            .ok_or_else(|| conflict("unknown associated type documentation target"))?;
         if !self
             .declaration
             .associated_types
@@ -100,54 +108,66 @@ impl<'module> TraitBuilder<'module> {
             return Err(RuntimeError::metadata_conflict("duplicate trait parameter"));
         }
         let parameter = GenericParam {
-            owner: self.id.clone(),
+            owner: self.id,
             position: self.parameter_names.len(),
         };
         self.parameter_names.push(name);
         self.declaration.generic_params.push(parameter.clone());
         Ok(ParameterRef {
-            ty: Type(parameter.as_type()),
+            ty: Type::from_semantic(parameter.as_type(), &self.module.providers.definitions())?,
         })
     }
 
-    pub fn receiver(&self) -> Type {
-        Type(Ty::SelfType(self.id.clone()))
+    pub fn receiver(&self) -> NativeResult<Type> {
+        Type::from_semantic(Ty::SelfType(self.id), &self.module.providers.definitions())
     }
 
     /// Refer to an operation on this default body's actual receiver. The final
     /// declaration, including any later method edits, is checked at installation.
     pub fn operation(&self, method: &FunctionRef) -> NativeResult<CallableRequirement> {
-        if !self
-            .declaration
-            .methods
-            .iter()
-            .any(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
-        {
+        if !self.declaration.methods.iter().any(|signature| {
+            ModuleDecl::method_id(
+                self.id,
+                &signature.name,
+                &self.module.providers.definitions(),
+            )
+            .ok()
+                == Some(method.id)
+        }) {
             return Err(RuntimeError::metadata_conflict(
                 "unknown trait method declaration",
             ));
         }
         Ok(CallableRequirement {
-            requirement: NativeCallableRequirement {
-                receiver: self.receiver().0,
-                interface: NominalTy {
-                    declaration: self.id.clone(),
-                    arguments: self
-                        .declaration
-                        .generic_params
-                        .iter()
-                        .map(GenericParam::as_type)
-                        .collect(),
-                    associated_types: BTreeMap::new(),
+            requirement: DefinitionMetadata::checked(
+                self.module.providers.definitions(),
+                NativeCallableRequirement {
+                    receiver: Ty::SelfType(self.id),
+                    interface: NominalTy {
+                        declaration: self.id,
+                        arguments: self
+                            .declaration
+                            .generic_params
+                            .iter()
+                            .map(GenericParam::as_type)
+                            .collect(),
+                        associated_types: BTreeMap::new(),
+                    },
+                    member: method.id,
+                    arguments: vec![],
                 },
-                member: method.id.clone(),
-                arguments: vec![],
-            },
+                &CancellationToken::default(),
+            )
+            .map_err(conflict)?,
         })
     }
 
-    pub fn parent(&mut self, parent: AppliedTrait) {
-        self.declaration.supertraits.push(parent.ty);
+    pub fn parent(&mut self, parent: AppliedTrait) -> NativeResult<()> {
+        let Ty::Trait(parent) = parent.ty().adopt(self.module.context())? else {
+            unreachable!("trait input")
+        };
+        self.declaration.supertraits.push(parent);
+        Ok(())
     }
 
     pub fn associated_type(
@@ -155,7 +175,11 @@ impl<'module> TraitBuilder<'module> {
         name: &str,
         bounds: impl IntoIterator<Item = AppliedTrait>,
     ) -> NativeResult<Type> {
-        let id = associated_type_id(&self.id, name);
+        let id = self
+            .module
+            .context()
+            .intern_child(self.id, DefinitionKind::AssociatedType, name, 0)
+            .map_err(conflict)?;
         if self
             .declaration
             .associated_types
@@ -167,13 +191,18 @@ impl<'module> TraitBuilder<'module> {
             ));
         }
         self.declaration.associated_types.push(AssociatedTypeDef {
-            declaration: id.clone(),
+            declaration: id,
             generic_params: vec![],
             parameter_bounds: vec![],
             bounds: bounds
                 .into_iter()
-                .map(|bound| Constraint::Trait(bound.ty))
-                .collect(),
+                .map(|bound| {
+                    let Ty::Trait(bound) = bound.ty().adopt(self.module.context())? else {
+                        unreachable!("trait input")
+                    };
+                    Ok(Constraint::Trait(bound))
+                })
+                .collect::<NativeResult<_>>()?,
         });
         let interface: Vec<_> = self
             .declaration
@@ -181,16 +210,19 @@ impl<'module> TraitBuilder<'module> {
             .iter()
             .map(GenericParam::as_type)
             .collect();
-        let trait_ref = TraitRef {
-            id: self.id.clone(),
-            contract: Arc::new(self.declaration.clone()),
-        };
-        Ok(Type(Ty::Projection {
-            receiver: Box::new(self.receiver().0),
-            interface: Box::new(trait_ref.apply(interface.into_iter().map(Type)).ty),
-            member: id,
-            arguments: vec![],
-        }))
+        Type::from_semantic(
+            Ty::Projection {
+                receiver: Box::new(Ty::SelfType(self.id)),
+                interface: Box::new(NominalTy {
+                    declaration: self.id,
+                    arguments: interface,
+                    associated_types: BTreeMap::new(),
+                }),
+                member: id,
+                arguments: vec![],
+            },
+            &self.module.providers.definitions(),
+        )
     }
 
     pub fn define_method(&mut self, mut declaration: MethodDecl) -> NativeResult<FunctionRef> {
@@ -204,13 +236,27 @@ impl<'module> TraitBuilder<'module> {
                 "duplicate trait method declaration",
             ));
         }
-        let receiver = self.receiver();
-        let id = ModuleDecl::method_id(&self.id, &declaration.signature.name);
+        let receiver = self.receiver()?;
+        let id = self
+            .module
+            .context()
+            .intern_child(
+                self.id,
+                DefinitionKind::Method,
+                &declaration.signature.name,
+                0,
+            )
+            .map_err(conflict)?;
         if let Some(text) = declaration.signature.documentation.take() {
-            self.documentation.insert(id.clone(), text);
+            self.documentation.insert(id, text);
         }
-        self.declaration.methods.push(declaration.lower(receiver));
-        Ok(FunctionRef { id })
+        self.declaration
+            .methods
+            .push(declaration.lower(receiver, self.module.context())?);
+        Ok(FunctionRef {
+            id,
+            definitions: self.module.providers.definitions(),
+        })
     }
 
     /// Configure method-local binders, bounds and the operations used by a default.
@@ -223,16 +269,25 @@ impl<'module> TraitBuilder<'module> {
             .declaration
             .methods
             .iter_mut()
-            .find(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
+            .find(|signature| {
+                ModuleDecl::method_id(
+                    self.id,
+                    &signature.name,
+                    &self.module.providers.definitions(),
+                )
+                .ok()
+                    == Some(method.id)
+            })
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown trait method declaration"))?;
         let result = configure(&mut FunctionBuilder {
-            id: method.id.clone(),
+            id: method.id,
+            context: self.module.context(),
             concrete_results: &mut self.concrete_results,
             signature,
-            requirements: self.requirements.entry(method.id.clone()).or_default(),
-            names: self.method_parameters.entry(method.id.clone()).or_default(),
+            requirements: self.requirements.entry(method.id).or_default(),
+            names: self.method_parameters.entry(method.id).or_default(),
         })?;
-        normalize_bounds(signature);
+        normalize_bounds(signature, &self.module.providers.definitions())?;
         Ok(result)
     }
 
@@ -251,12 +306,15 @@ impl<'module> TraitBuilder<'module> {
         method: FunctionRef,
         mut binding: NativeBinding,
     ) -> NativeResult<()> {
-        if !self
-            .declaration
-            .methods
-            .iter()
-            .any(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
-        {
+        if !self.declaration.methods.iter().any(|signature| {
+            ModuleDecl::method_id(
+                self.id,
+                &signature.name,
+                &self.module.providers.definitions(),
+            )
+            .ok()
+                == Some(method.id)
+        }) {
             return Err(RuntimeError::metadata_conflict(
                 "unknown trait method declaration",
             ));
@@ -268,7 +326,7 @@ impl<'module> TraitBuilder<'module> {
         }
         // Lowering gives the body a private function identity. Requirement
         // tokens continue to name the authored trait method.
-        binding.requirement_owner = Some(method.id.clone());
+        binding.requirement_owner = Some((method.id, self.module.providers.definitions()));
         self.defaults.insert(method.id, binding);
         Ok(())
     }
@@ -288,7 +346,15 @@ impl<'module> TraitBuilder<'module> {
             .declaration
             .methods
             .iter()
-            .find(|signature| ModuleDecl::method_id(&self.id, &signature.name) == method.id)
+            .find(|signature| {
+                ModuleDecl::method_id(
+                    self.id,
+                    &signature.name,
+                    &self.module.providers.definitions(),
+                )
+                .ok()
+                    == Some(method.id)
+            })
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown trait method declaration"))?;
         if !signature
             .params
@@ -317,7 +383,8 @@ impl<'module> TraitBuilder<'module> {
         }
         self.lower_defaults()?;
         let result = TraitRef {
-            id: self.id.clone(),
+            id: self.id,
+            definitions: self.module.providers.definitions(),
             contract: Arc::new(self.declaration.clone()),
         };
         self.module
@@ -331,4 +398,8 @@ impl<'module> TraitBuilder<'module> {
         self.module.declaration.traits.push(self.declaration);
         Ok(result)
     }
+}
+
+fn conflict(message: impl fmt::Display) -> RuntimeError {
+    RuntimeError::metadata_conflict(message.to_string())
 }
