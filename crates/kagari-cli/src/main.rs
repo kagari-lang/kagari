@@ -375,7 +375,8 @@ fn read_source(path: &Path) -> Result<SourceFile, CliError> {
 
 fn register_default_host_functions(runtime: &mut KagariRuntime) -> Result<(), RuntimeError> {
     runtime.register_host_function(HostFunction::new(
-        host_interface::standard_log(),
+        host_interface::standard_log()
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?,
         |cx, args| {
             let Some(Value::Str(message)) = args.first() else {
                 return Err(HostError::new("host.log expects one string argument"));

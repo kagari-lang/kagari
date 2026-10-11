@@ -52,16 +52,19 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             let calls = Arc::new(Mutex::new(Vec::new()));
             let called = calls.clone();
             let binding = runtime
-                .register_host_function(HostFunction::new(standard_log(), move |cx, args| {
-                    let [Value::Str(id)] = args else {
-                        panic!("log string")
-                    };
-                    called
-                        .lock()
-                        .unwrap()
-                        .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-                    Ok(Value::Unit)
-                }))
+                .register_host_function(HostFunction::new(
+                    standard_log().unwrap(),
+                    move |cx, args| {
+                        let [Value::Str(id)] = args else {
+                            panic!("log string")
+                        };
+                        called
+                            .lock()
+                            .unwrap()
+                            .push(cx.runtime().gc().string(*id).unwrap().to_owned());
+                        Ok(Value::Unit)
+                    },
+                ))
                 .unwrap();
             let loaded = runtime.load_program("linked", module).unwrap();
             assert_eq!(loaded.bytecode.native_imports.len(), 1);

@@ -400,7 +400,7 @@ fn run(
     let cancel = cancellation.clone();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::standard_log(),
+            kagari_types::host_interface::standard_log().unwrap(),
             move |cx, args| {
                 let [Value::Str(id)] = args else {
                     return Err(HostError::new("log requires one string"));

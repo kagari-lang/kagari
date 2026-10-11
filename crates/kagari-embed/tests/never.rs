@@ -326,16 +326,19 @@ fn healthy() -> i32 { 42 }
         let captured = effects.clone();
         runtime
             .runtime_mut()
-            .register_host_function(HostFunction::new(standard_log(), move |cx, args| {
-                let [Value::Str(id)] = args else {
-                    panic!("log string")
-                };
-                captured
-                    .lock()
-                    .unwrap()
-                    .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-                Ok(Value::Unit)
-            }))
+            .register_host_function(HostFunction::new(
+                standard_log().unwrap(),
+                move |cx, args| {
+                    let [Value::Str(id)] = args else {
+                        panic!("log string")
+                    };
+                    captured
+                        .lock()
+                        .unwrap()
+                        .push(cx.runtime().gc().string(*id).unwrap().to_owned());
+                    Ok(Value::Unit)
+                },
+            ))
             .unwrap();
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();

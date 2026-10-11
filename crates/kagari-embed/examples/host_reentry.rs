@@ -53,25 +53,29 @@ fn main() {
     let output = retained.clone();
     let mut runtime = engine.runtime(context.clone());
     runtime
-        .register_host_function(HostFunction::new(standard_log(), move |call, _| {
-            let scratch = Value::Array(
-                call.runtime()
-                    .alloc_array(
-                        &call.runtime().execution_root().unwrap(),
-                        Ty::Builtin(BuiltinType::I32),
-                        vec![Value::I32(3)],
-                    )
-                    .unwrap(),
-            );
-            call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
-            let root = call.runtime().execution_root().unwrap();
-            let value = reenter(call, &root, make, &[])
-                .map_err(|error| HostError::new(format!("script callback failed: {error:?}")))?;
-            call.runtime().collect_garbage().unwrap();
-            assert!(call.runtime().gc().validate_value(&scratch));
-            *output.lock().unwrap() = Some(value);
-            Ok(Value::Unit)
-        }))
+        .register_host_function(HostFunction::new(
+            standard_log().unwrap(),
+            move |call, _| {
+                let scratch = Value::Array(
+                    call.runtime()
+                        .alloc_array(
+                            &call.runtime().execution_root().unwrap(),
+                            Ty::Builtin(BuiltinType::I32),
+                            vec![Value::I32(3)],
+                        )
+                        .unwrap(),
+                );
+                call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
+                let root = call.runtime().execution_root().unwrap();
+                let value = reenter(call, &root, make, &[]).map_err(|error| {
+                    HostError::new(format!("script callback failed: {error:?}"))
+                })?;
+                call.runtime().collect_garbage().unwrap();
+                assert!(call.runtime().gc().validate_value(&scratch));
+                *output.lock().unwrap() = Some(value);
+                Ok(Value::Unit)
+            },
+        ))
         .unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();

@@ -58,12 +58,15 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                 ..Default::default()
             });
             runtime
-                .register_host_function(HostFunction::new(standard_log(), move |context, _| {
-                    let root = context.runtime().execution_root().unwrap();
-                    assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
-                    context.runtime().collect_garbage().unwrap();
-                    Ok(Value::Unit)
-                }))
+                .register_host_function(HostFunction::new(
+                    standard_log().unwrap(),
+                    move |context, _| {
+                        let root = context.runtime().execution_root().unwrap();
+                        assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
+                        context.runtime().collect_garbage().unwrap();
+                        Ok(Value::Unit)
+                    },
+                ))
                 .unwrap();
             let loaded = runtime.load_program("debug-reentry.kgr", program).unwrap();
             let mut debug = DebugSession::new(&runtime).unwrap();

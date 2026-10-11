@@ -657,7 +657,7 @@ fn installed_host_and_reflection_helpers_are_available() {
     let mut runtime = engine.runtime(ExecutionContext::default());
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::standard_log(),
+            kagari_types::host_interface::standard_log().unwrap(),
             |_, _| Ok(Value::Unit),
         ))
         .unwrap();

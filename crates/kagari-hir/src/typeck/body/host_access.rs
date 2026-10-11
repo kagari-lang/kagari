@@ -81,7 +81,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn infer_log_signature(
         &mut self,
-        declaration: &HostFunctionDeclaration,
+        declaration: &HostFunctionDeclaration<DefinitionId>,
         name: &str,
         callee: ExprId,
         args: &[ExprId],
@@ -96,13 +96,7 @@ impl<'a> BodyChecker<'a> {
             env,
         );
         if args.len() != declaration.params.len() {
-            let implicit = usize::from(declaration.method_owner().is_some());
-            self.check_builtin_arity(
-                name,
-                declaration.params.len() - implicit,
-                args.len().saturating_sub(implicit),
-                callee,
-            );
+            self.check_builtin_arity(name, declaration.params.len(), args.len(), callee);
         }
         for (index, parameter) in declaration.params.iter().enumerate() {
             if self.cancel.check().is_err() {
@@ -133,7 +127,11 @@ impl<'a> BodyChecker<'a> {
             .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
             BuiltinFunction::TypeOf => 1,
-            BuiltinFunction::Print => host_interface::standard_log().params.len(),
+            BuiltinFunction::Print => host_interface::standard_log()
+                .expect("log contract initialized during declaration collection")
+                .records()
+                .params
+                .len(),
             BuiltinFunction::GetField => 2,
             BuiltinFunction::SetField | BuiltinFunction::SetIndex => 3,
         };
@@ -211,13 +209,17 @@ impl<'a> BodyChecker<'a> {
                 self.check_reflection_assignment_value(*value, expected.as_ref(), env);
                 Some(base_ty.unwrap_or(TypeId::Unknown))
             }
-            BuiltinFunction::Print => Some(self.infer_log_signature(
-                &host_interface::standard_log(),
-                "print",
-                callee,
-                args,
-                env,
-            )),
+            BuiltinFunction::Print => Some(
+                self.infer_log_signature(
+                    host_interface::standard_log()
+                        .expect("log contract initialized during declaration collection")
+                        .records(),
+                    "print",
+                    callee,
+                    args,
+                    env,
+                ),
+            ),
         }
     }
 

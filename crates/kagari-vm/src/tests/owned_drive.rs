@@ -61,19 +61,22 @@ fn async_owned_drive_contract() {
         ..Default::default()
     });
     runtime
-        .register_host_function(HostFunction::new(standard_log(), move |context, args| {
-            let root = context.runtime().execution_root().unwrap();
-            assert!(
-                context
-                    .runtime()
-                    .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
-                    .is_err()
-            );
-            let nested = reenter(context, &root, ping, &[]).unwrap();
-            assert_eq!(nested.value(context.runtime().gc()), Some(Value::I32(7)));
-            received.lock().unwrap().extend_from_slice(args);
-            Ok(Value::Unit)
-        }))
+        .register_host_function(HostFunction::new(
+            standard_log().unwrap(),
+            move |context, args| {
+                let root = context.runtime().execution_root().unwrap();
+                assert!(
+                    context
+                        .runtime()
+                        .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
+                        .is_err()
+                );
+                let nested = reenter(context, &root, ping, &[]).unwrap();
+                assert_eq!(nested.value(context.runtime().gc()), Some(Value::I32(7)));
+                received.lock().unwrap().extend_from_slice(args);
+                Ok(Value::Unit)
+            },
+        ))
         .unwrap();
     let loaded = runtime.load_program("owned", program).unwrap();
     let vm = Vm::new(runtime);
@@ -250,7 +253,7 @@ fn async_owned_drive_contract_iterator_invalidation() {
     let observed = seen.clone();
     let mut runtime = standard_runtime(Default::default());
     runtime
-        .register_host_function(HostFunction::new(standard_log(), move |_, _| {
+        .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
             *observed.lock().unwrap() += 1;
             Ok(Value::Unit)
         }))

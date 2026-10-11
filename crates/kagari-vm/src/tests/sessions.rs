@@ -61,7 +61,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let result = retained.clone();
             let mut runtime = runtime();
             runtime
-                .register_host_function(HostFunction::new(standard_log(), move |context, args| {
+                .register_host_function(HostFunction::new(standard_log().unwrap(), move |context, args| {
                     let runtime = context.runtime();
                     if matches!(args, [Value::Str(id)] if &*runtime.gc().string(*id).unwrap() == "outer") {
                         let token = context
@@ -186,7 +186,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     },
                     ..Default::default()
                 });
-                runtime.register_host_function(HostFunction::new(standard_log(), move |context, args| {
+                runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, args| {
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
                     let temporary = Value::Array(context.runtime().alloc_array(&context.runtime().execution_root().unwrap(), Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
                     context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
@@ -284,7 +284,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     assert!(foreign.gc().validate_value(&foreign_value));
     let retained_foreign_value = foreign_value;
     let mut runtime = runtime();
-    runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
+    runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, _| {
         called.fetch_add(1, Ordering::SeqCst);
         let runtime = context.runtime();
         assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
@@ -342,7 +342,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
         let targets = versions.clone();
         let values = observed.clone();
         let mut runtime = runtime();
-        runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
+        runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, _| {
             let root = context.runtime().execution_root().unwrap();
             let versions = targets.lock().unwrap().clone();
             for version in &versions {
@@ -382,7 +382,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         .unwrap()
         .id;
     let mut runtime = runtime();
-    runtime.register_host_function(HostFunction::new(standard_log(), move |context, args| {
+    runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, args| {
         let root = context.runtime().execution_root().unwrap();
         let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
         assert!(matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
@@ -450,7 +450,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let calls = Arc::new(AtomicUsize::new(0));
             let recorded = calls.clone();
             runtime
-                .register_host_function(HostFunction::new(standard_log(), move |_, _| {
+                .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
                     recorded.fetch_add(1, Ordering::SeqCst);
                     cancel.cancel();
                     Ok(Value::Unit)
@@ -522,7 +522,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let observed = calls.clone();
         let mut runtime = runtime();
         runtime
-            .register_host_function(HostFunction::new(standard_log(), move |_, _| {
+            .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::Unit)
             }))
@@ -576,37 +576,41 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let saved = captured.clone();
         let mut runtime = runtime();
         runtime
-            .register_host_function(HostFunction::new(standard_log(), move |context, _| {
-                let owner = context.runtime().execution_root().unwrap();
-                let ty = kagari_types::language::binding::result(
-                    Ty::Builtin(BuiltinType::I32),
-                    Ty::Builtin(BuiltinType::String),
-                );
-                let applied = context
-                    .runtime()
-                    .resolve_type_arguments(&owner, &[ty])
-                    .unwrap()
-                    .remove(0);
-                let value = context
-                    .runtime()
-                    .make_enum_member(
-                        &owner,
-                        &applied,
-                        "Err",
-                        vec![
-                            context
-                                .runtime()
-                                .gc()
-                                .alloc_string("host failure".into())
-                                .unwrap(),
-                        ],
-                    )
-                    .unwrap();
-                *saved.lock().unwrap() = context.runtime().result_failure(&value);
-                let root = context.runtime().execution_root().unwrap();
-                let error = reenter(context, &root, fail, &[]).unwrap_err();
-                Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
-            }))
+            .register_host_function(HostFunction::new(
+                standard_log().unwrap(),
+                move |context, _| {
+                    let owner = context.runtime().execution_root().unwrap();
+                    let ty = kagari_types::language::binding::result(
+                        Ty::Builtin(BuiltinType::I32),
+                        Ty::Builtin(BuiltinType::String),
+                    );
+                    let applied = context
+                        .runtime()
+                        .resolve_type_arguments(&owner, &[ty])
+                        .unwrap()
+                        .remove(0);
+                    let value = context
+                        .runtime()
+                        .make_enum_member(
+                            &owner,
+                            &applied,
+                            "Err",
+                            vec![
+                                context
+                                    .runtime()
+                                    .gc()
+                                    .alloc_string("host failure".into())
+                                    .unwrap(),
+                            ],
+                        )
+                        .unwrap();
+                    *saved.lock().unwrap() = context.runtime().result_failure(&value);
+                    let root = context.runtime().execution_root().unwrap();
+                    let error = reenter(context, &root, fail, &[]).unwrap_err();
+                    Err(HostError::new("nested call failed")
+                        .with_trace(error.trace().unwrap().clone()))
+                },
+            ))
             .unwrap();
         let loaded = runtime
             .load_program("host-origin.kgr", route(module, encoded))

@@ -1360,3 +1360,50 @@ passes 1052 Rust files with no violations or documented exceptions; formatting a
 `git diff --check` pass. This is a broken intermediate SI03 checkpoint. Remaining
 shared constructors/protocols, semantic consumers, specialization/codecs, obsolete
 representation removal and final documentation cleanup are still required.
+
+### SI03 shared scoped log contract
+
+The shared `standard_log` constructor now returns fixed-ID DefinitionMetadata. It
+registers the existing exact `host` package / `host` module / `log` function identity
+directly in its construction context. One immutable contract owner retains that scope;
+repeated calls clone its metadata rather than allocate new identity universes or build
+path-shaped function records. This is a fixed built-in declaration, not a global pool
+for arbitrary identities. Its lifetime and validity are process-wide and independent
+of user providers; installed runtime contracts still pass normal adoption and binding
+validation. The symbol, borrowed String parameter, Unit result and effects are unchanged.
+
+Source declaration collection initializes this fallible contract before publishing
+semantic facts. Print checking borrows its scoped signature and no longer invokes the
+obsolete path-based Host function constructor or method-owner projection. No log ID
+escapes into another scope through HIR print facts: the existing RuntimeHelper selection
+remains the representation at that point. Compiler native-import construction must
+still adopt the contract into the program scope during SI04. CLI registration now
+propagates construction failure; direct runtime/example registration consumers take the
+scoped metadata. The two VM analysis helpers now construct scoped HostInterface inputs.
+Other already-carried fixture/API migrations are not claimed complete.
+
+Focused evidence:
+
+- `cargo test -p kagari-types --test host_identity
+  standard_log_retains_scoped_contract_and_canonical_binding_after_adoption -- --exact`
+  passes. It checks the exact canonical identity and shared signature/effects, repeated
+  retained scope, explicit foreign-context import, old-prefix rejection and invariant
+  binding fingerprints after import.
+- `cargo test -p kagari-bytecode --test identity
+  required_host_fingerprint_is_derived_and_independent_of_docs_and_order -- --exact`
+  passes after migrating this existing fixture to scoped construction. It preserves
+  the independent-context/reversed-allocation case, documentation/order invariance,
+  effect sensitivity and artifact fingerprint checks. The first attempt exposed a
+  stale reference to the removed authoring fixture; that test-only error was repaired
+  and the selected case rerun successfully.
+- `cargo clippy -p kagari-types --lib --test host_identity -- -D warnings` passes.
+- `cargo check -p kagari-hir --lib --message-format=short` still fails with 181 errors
+  and no warnings. The four carried print/Host-value errors are gone; protocol,
+  aggregate/type-display and other semantic consumers remain SI03. Normal HIR,
+  compiler, CLI and VM behavioral acceptance remains pending. Updated registration
+  call sites in those dependents have not been covered by a successful dependent build.
+
+Structure passes 1052 Rust files with no violations or documented exceptions; formatting
+and diff checks pass. No ABI/format bump or workspace sweep was performed. Continue the
+protocol scope migration and other carried HIR errors, then the required program/codecs,
+identity-generic deletion, selected integration checks and final documentation cleanup.

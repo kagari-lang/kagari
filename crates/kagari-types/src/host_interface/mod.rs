@@ -5,13 +5,14 @@ use crate::host_interface::{
 use bincode::{DefaultOptions, Options};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+    map::DefinitionContext,
     mapping::DefinitionMappingError,
     metadata::DefinitionMetadata,
     reference::DefinitionReference,
     table::{DefinitionId, DefinitionTable, DefinitionTableError},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, iter};
+use std::{collections::HashSet, iter, sync::OnceLock};
 
 const MAGIC: [u8; 4] = *b"KHI\0";
 const VERSION: u16 = 12;
@@ -392,22 +393,43 @@ fn codec() -> impl Options {
         .with_limit(MAX_BYTES)
 }
 
-/// The declaration for the registered `print` entry and CLI log binding.
-pub fn standard_log() -> HostFunctionDeclaration {
-    let mut declaration = HostFunctionDeclaration::new(
-        "host.log",
-        vec![HostParameter {
-            name: "message".into(),
-            ty: HostValueType::String,
-            passing: HostPassingStyle::SharedBorrow,
-        }],
-        HostValueType::Unit,
-    );
-    declaration.effects.may_trap = true;
-    declaration.effects.may_call_host_services = true;
-    declaration.effects.may_mutate_host_state = true;
-    declaration.documentation = "Write a message to the host log.".into();
-    declaration
+/// The scoped declaration for the registered `print` entry and CLI log binding.
+///
+/// This immutable contract owns one retained scope. Consumers combining it with
+/// other metadata must import it into their context. Repeated calls share that
+/// scope; they neither allocate a new identity universe nor intern into a global pool.
+/// Allocation failure is returned before the contract can enter semantic processing.
+pub fn standard_log()
+-> Result<DefinitionMetadata<HostFunctionDeclaration<DefinitionId>>, DefinitionMappingError> {
+    static LOG: OnceLock<
+        Result<DefinitionMetadata<HostFunctionDeclaration<DefinitionId>>, DefinitionMappingError>,
+    > = OnceLock::new();
+    LOG.get_or_init(|| {
+        let context = DefinitionContext::new()?;
+        let root = context.intern_root(&ModuleIdentity {
+            package: PackageId("host".into()),
+            path: vec!["host".into()],
+        })?;
+        let declaration = HostFunctionDeclaration {
+            id: context.intern_child(root, DefinitionKind::Function, "log", 0)?,
+            symbol: "host.log".into(),
+            params: vec![HostParameter {
+                name: "message".into(),
+                ty: HostValueType::String,
+                passing: HostPassingStyle::SharedBorrow,
+            }],
+            return_type: HostValueType::Unit,
+            effects: HostFunctionEffects {
+                may_trap: true,
+                may_call_host_services: true,
+                may_mutate_host_state: true,
+                ..Default::default()
+            },
+            documentation: "Write a message to the host log.".into(),
+        };
+        DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+    })
+    .clone()
 }
 
 fn hash(bytes: impl IntoIterator<Item = u8>) -> u64 {

@@ -279,7 +279,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .unwrap();
             runtime
                 .register_host_function(HostFunction::new(
-                    kagari_types::host_interface::standard_log(),
+                    kagari_types::host_interface::standard_log().unwrap(),
                     move |call, _| {
                         call.runtime()
                             .set_host_path(

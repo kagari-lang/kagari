@@ -11,7 +11,7 @@ fn executes_source_lowered_declared_host_log() {
     let mut runtime = host_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::standard_log(),
+            kagari_types::host_interface::standard_log().unwrap(),
             move |cx, args| {
                 let Some(Value::Str(message)) = args.first() else {
                     return Err(HostError::new("host.log expects one string argument"));

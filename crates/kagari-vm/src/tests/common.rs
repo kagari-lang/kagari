@@ -4,6 +4,7 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
@@ -66,14 +67,18 @@ pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
             .map(|module| Arc::new(module.to_declaration().unwrap()))
             .collect(),
     );
-    analysis.set_host_declarations(
-        HostDeclarations::new(HostInterface {
+    let (definitions, log) = standard_log().unwrap().into_parts();
+    let interface = DefinitionMetadata::checked(
+        definitions,
+        HostInterface {
             paths: vec![],
             types: vec![],
-            functions: vec![standard_log()],
-        })
-        .unwrap(),
-    );
+            functions: vec![log],
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    analysis.set_host_declarations(HostDeclarations::new(interface).unwrap());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot should succeed");

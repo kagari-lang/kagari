@@ -11,9 +11,9 @@ use kagari_bytecode::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        ModuleIdentity,
+        DefinitionKind, ModuleIdentity, PackageId,
         map::DefinitionContext,
-        metadata::scope_record,
+        metadata::{DefinitionMetadata, scope_record},
         table::wire::{PortableDefinitionRef, PortableDefinitionTable},
     },
 };
@@ -271,20 +271,32 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
     };
     let context = DefinitionContext::new().unwrap();
     let cancel = CancellationToken::default();
-    let authoring = HostInterface {
-        paths: vec![],
-        types: vec![],
-        functions: vec![
-            standard_log(),
-            HostFunctionDeclaration::new("host.other", vec![], HostValueType::Unit),
-        ],
-    };
-    let scoped = scope_record(&authoring, &cancel)
+    let log = standard_log()
         .unwrap()
         .import_into(&context, &cancel)
         .unwrap();
+    let root = context
+        .intern_root(&ModuleIdentity {
+            package: PackageId("host".into()),
+            path: vec!["host".into()],
+        })
+        .unwrap();
+    let other = HostFunctionDeclaration {
+        id: context
+            .intern_child(root, DefinitionKind::Function, "other", 0)
+            .unwrap(),
+        symbol: "host.other".into(),
+        params: vec![],
+        return_type: HostValueType::Unit,
+        effects: Default::default(),
+        documentation: String::new(),
+    };
+    let interface = HostInterface {
+        paths: vec![],
+        types: vec![],
+        functions: vec![log.into_records(), other],
+    };
     let definitions = context.snapshot();
-    let interface = scoped.into_records();
     let fingerprint = ArtifactFingerprint::of_host_interface(&interface, &definitions).unwrap();
     let mut reordered = interface.clone();
     reordered.functions.reverse();
@@ -293,9 +305,20 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
         fingerprint,
         ArtifactFingerprint::of_host_interface(&reordered, &definitions).unwrap()
     );
-    let mut reversed_authoring = authoring;
-    reversed_authoring.functions.reverse();
-    let independent = scope_record(&reversed_authoring, &cancel).unwrap();
+    let independent_context = DefinitionContext::new().unwrap();
+    let independent_root = independent_context
+        .intern_root(&ModuleIdentity {
+            package: PackageId("host".into()),
+            path: vec!["host".into()],
+        })
+        .unwrap();
+    independent_context
+        .intern_child(independent_root, DefinitionKind::Function, "other", 0)
+        .unwrap();
+    let independent = DefinitionMetadata::checked(definitions.clone(), reordered.clone(), &cancel)
+        .unwrap()
+        .import_into(&independent_context, &cancel)
+        .unwrap();
     assert_eq!(
         fingerprint,
         ArtifactFingerprint::of_host_interface(independent.records(), independent.definitions())

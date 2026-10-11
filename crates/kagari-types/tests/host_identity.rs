@@ -2,13 +2,68 @@
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
         map::{DefinitionContext, DefinitionMap},
         mapping::DefinitionMappingError,
         table::{DefinitionId, DefinitionTableError},
     },
 };
-use kagari_types::host_interface::value_type::HostValueType;
+use kagari_types::host_interface::{HostPassingStyle, standard_log, value_type::HostValueType};
+
+#[test]
+fn standard_log_retains_scoped_contract_and_canonical_binding_after_adoption() {
+    let log = standard_log().unwrap();
+    let repeated = standard_log().unwrap();
+    assert_eq!(log.records(), repeated.records());
+    assert_eq!(log.definitions().id(), repeated.definitions().id());
+    let contract = log.records();
+    contract.validate(log.definitions()).unwrap();
+    assert_eq!(contract.symbol, "host.log");
+    assert_eq!(contract.params.len(), 1);
+    assert_eq!(contract.params[0].name, "message");
+    assert_eq!(contract.params[0].ty, HostValueType::String);
+    assert_eq!(contract.params[0].passing, HostPassingStyle::SharedBorrow);
+    assert_eq!(contract.return_type, HostValueType::Unit);
+    assert!(contract.effects.may_trap);
+    assert!(contract.effects.may_call_host_services);
+    assert!(contract.effects.may_mutate_host_state);
+    assert_eq!(
+        log.definitions().resolve(contract.id).unwrap().to_path(),
+        DefinitionPath {
+            module: ModuleIdentity {
+                package: PackageId("host".into()),
+                path: vec!["host".into()]
+            },
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Function,
+                name: "log".into(),
+                occurrence: 0
+            }],
+        },
+    );
+    let target = DefinitionContext::new().unwrap();
+    target.intern(&path("unrelated")).unwrap();
+    let retained = target.snapshot();
+    let imported = log.import_into(&target, &Default::default()).unwrap();
+    assert_ne!(contract.id, imported.records().id);
+    assert!(retained.resolve(imported.records().id).is_err());
+    imported.records().validate(imported.definitions()).unwrap();
+    assert_eq!(
+        contract.fingerprint(log.definitions()).unwrap(),
+        imported
+            .records()
+            .fingerprint(imported.definitions())
+            .unwrap(),
+    );
+    assert_eq!(
+        log.definitions().resolve(contract.id).unwrap().to_path(),
+        imported
+            .definitions()
+            .resolve(imported.records().id)
+            .unwrap()
+            .to_path(),
+    );
+}
 
 fn path(name: &str) -> DefinitionPath {
     DefinitionPath {
