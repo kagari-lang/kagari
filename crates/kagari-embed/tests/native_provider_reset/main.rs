@@ -279,11 +279,14 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
     ).unwrap();
     let mut cancelled = 0;
     let mut finished = false;
+    let mut config = EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    // This scenario calls only the stateless from_fn callback. Each attempt still
+    // gets fresh runtime state, heap, cancellation token and observer.
+    let engine = engine(config);
     for at in 0..200 {
         let context = ExecutionContext::default();
-        let mut config = EngineConfig::default();
-        config.default_runtime.gc.collection_threshold = Some(1);
-        let mut runtime = engine(config).runtime(context.clone());
+        let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let options = kagari_runtime::session::ExecutionOptions {
             cancellation: context.cancellation.clone(),

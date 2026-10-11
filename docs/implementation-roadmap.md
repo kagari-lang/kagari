@@ -30,10 +30,13 @@ host-registration migration remain separate.
 
 ## Test execution cost
 
-[TP01-TP03](test-preparation-plan.md) have implemented reusable native preparation,
-isolated source sessions and three SDK test-owner migrations, with focused
-correctness checks passing. Idle-machine timing and retained-memory acceptance
-remain open because another test project competed for CPU during validation.
+[The test preparation task](test-preparation-plan.md) has implemented reusable
+native preparation, isolated source sessions and three SDK pilot migrations.
+TP04 consolidates six more ordinary scalar SDK runners and removes invariant
+preparation from ABI, cancellation and documentation loops; 19 focused tests and
+the affected structural checks passed.
+Final matched timing and retained-memory acceptance are deferred until after the
+optimization work; concurrent CPU load does not block focused correctness work.
 [A subsequent reduced-load sample](performance-baseline.md#focused-preparation-recheck-2026-10-11)
 passed nine selected tests twice and confirmed cheaper runtime creation; it does
 not establish whole-suite speedup or retained-memory reduction.

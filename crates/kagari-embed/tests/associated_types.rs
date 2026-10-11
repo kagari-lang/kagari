@@ -1,64 +1,24 @@
+// Share route preparation while retaining a fresh runtime per execution.
+#[path = "support/execution.rs"]
+mod execution;
+use execution::Route;
+
 use kagari_bytecode::program::verify_program;
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_embed::{
-    BytecodeArtifact,
-    context::{ExecutionContext, JitPolicy},
-    engine::KagariEngine,
-    program::PreparedProgram,
-};
-use kagari_runtime::value::Value;
+use kagari_embed::{BytecodeArtifact, engine::KagariEngine};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 
 fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
-    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
-        let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
-        } else {
-            artifact.clone()
-        };
-        let context = ExecutionContext {
-            jit_policy: if jit {
-                JitPolicy::Enabled
-            } else {
-                JitPolicy::Disabled
-            },
-            ..Default::default()
-        };
-        let mut runtime = engine.runtime(context.clone());
-        let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
-        let loaded = runtime
-            .load_program(&loaded_program, Default::default())
-            .unwrap();
-        let result = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
-                    &loaded_program,
-                    &loaded,
-                    "main",
-                    &mut backend,
-                    &context.cancellation,
-                )
-                .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
-        } else {
-            runtime.execute(&loaded, "main", &[], &context)
-        }
-        .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
-    }
+    execution::assert_returns_i32(
+        engine,
+        artifact,
+        &[Route::Source, Route::Artifact, Route::ArtifactJit],
+        42,
+    );
 }
 
 fn execute(source: &str) {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("associated.kgr", source),

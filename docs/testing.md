@@ -28,6 +28,7 @@ For a single source case, the runner performs these steps:
 2. Encode/decode once, and prepare direct and decoded programs once each.
 3. Run the chosen source, artifact and artifact/JIT routes in separate runtimes.
 4. Assert the result while it remains rooted in that runtime.
+5. Release the scalar result and assert that the execution left no active roots.
 
 JIT preparation still belongs to the loaded runtime/generation. The general
 language-contract runner additionally preserves actual-native requirements,
@@ -47,9 +48,35 @@ one scenario. Run its routes sequentially; let Rust's test harness schedule
 scenarios without a nested pool or a separate executable per scenario.
 
 The language-contract cases are grouped by types/dispatch and evaluation, with
-one shared runner. The SDK `default_methods` suite is the ordinary runner pilot.
-Other suites remain candidates for measured migration, not implicit obligations
-of this change.
+one shared runner. Ordinary scalar SDK routes in `default_methods`,
+`standard_traits`, `instantiation`, `associated_types`, `conversion_traits`,
+`collection_interfaces` and `collection_access` use the integration helper.
+`syntax_examples` selects the two interpreter routes. Keep each caller's runtime
+configuration, including collection thresholds; the helper does not choose policy
+for a semantic owner. Specialized host, mutation, trap and root-lifetime assertions
+remain with their existing runner.
+
+## Put invariant preparation outside scenario loops
+
+Reuse at the smallest sufficient lifetime. An artifact rejection test that varies
+only an ABI field compiles its input once, then constructs and validates a separate
+artifact for each field value. A cancellation-point sweep can reuse its provider
+engine and prepared program when the exercised callbacks are stateless; each
+attempt still creates a new runtime, observer and cancellation token. Captured
+application state needs separate preparation when it is part of the scenario.
+
+The standard documentation owner validates provider declarations once, then forks
+that native-only analysis for each extracted example. Each example sees only its
+own source snapshot. It retains documentation coverage, deduplication and complete
+diagnostic reporting without converting checked facts back to an unused portable
+representation. Runtime routes are not needed for this analysis-only contract.
+
+Analysis forks retain an append-only identity context. Dropping a session releases
+its query state, but its new interned identities can remain until the last owner
+of that context is dropped. Test baselines are bounded by their executable's case
+set; do not extend this pattern into an unbounded process-wide source service.
+Such a service needs an explicit baseline lifetime or a separately designed
+identity isolation boundary, preserving the validity of existing scoped IDs.
 
 ## Measure the actual bottleneck
 
@@ -64,6 +91,9 @@ compilation separately from harness execution and
 process peak working set. Preserve the workspace profile, features, default
 parallelism and workload; record machine/toolchain and cache state. Compare current
 measurements rather than assuming the historical workspace ranking is unchanged.
+When another workload competes for CPU, continue focused correctness validation
+and batch performance comparisons after the optimization work. Do not repeatedly
+rerun successful tests waiting for a cleaner timing sample.
 
 If preparation still dominates, measure native installation, source checking,
 artifact preparation, loading and execution separately before adding another

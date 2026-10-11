@@ -80,5 +80,7 @@ pub fn assert_returns_i32(
             Value::I32(expected),
             "{route:?}"
         );
+        drop(result);
+        assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route:?}");
     }
 }

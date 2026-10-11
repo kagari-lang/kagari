@@ -1,13 +1,14 @@
+// Share route preparation while retaining a fresh runtime per execution.
+#[path = "support/execution.rs"]
+mod execution;
+use execution::Route;
+
+use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_source::source::SourceFile;
-use {
-    kagari_compiler::source::lower::instances::MirLoweringOptions,
-    kagari_embed::context::{ExecutionContext, JitPolicy},
-};
 
 use kagari_embed::{
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
-    program::PreparedProgram,
 };
 
 #[test]
@@ -229,54 +230,16 @@ fn explicit_struct_arguments_emit_distinct_phantom_layouts() {
 }
 
 fn execute_contextual_source(source: &str, expected: i32) {
-    let engine = KagariEngine::default();
-    let mut context = ExecutionContext::default();
-
+    let engine = execution::engine(Default::default());
     let artifact = engine
         .compile_to_artifact(SourceFile::new("context.kgr", source), Default::default())
         .unwrap();
-    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
-        let artifact = if encoded {
-            kagari_embed::BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
-        } else {
-            artifact.clone()
-        };
-        context.jit_policy = if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
-        };
-        let mut runtime = engine.runtime(context.clone());
-        let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
-        let loaded = runtime
-            .load_program(&loaded_program, Default::default())
-            .unwrap();
-        let result = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
-                    &loaded_program,
-                    &loaded,
-                    "main",
-                    &mut backend,
-                    &context.cancellation,
-                )
-                .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
-        } else {
-            runtime.execute(&loaded, "main", &[], &context)
-        }
-        .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            kagari_runtime::value::Value::I32(expected)
-        );
-    }
+    execution::assert_returns_i32(
+        &engine,
+        artifact,
+        &[Route::Source, Route::Artifact, Route::ArtifactJit],
+        expected,
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use kagari_common::identity::DefinitionKind;
-use kagari_hir::analyze_source;
-use kagari_source::source::SourceFile;
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
 use kagari_stdlib::modules;
 use kagari_types::declaration::module::ModuleDecl;
 use std::{collections::BTreeSet, sync::Arc};
@@ -42,10 +42,35 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
         }
     }
     assert_eq!(traits, 40);
+    let mut baseline = AnalysisDatabase::default();
+    baseline.set_native_modules(providers);
+    let native = baseline
+        .snapshot(SourceSnapshot::default(), &Default::default())
+        .unwrap();
+    for declaration in native.declaration_snapshot().files() {
+        let file = native.file(declaration.source().id()).unwrap();
+        assert!(
+            file.result().diagnostics().is_empty(),
+            "{:?}",
+            file.result().diagnostics()
+        );
+    }
+    drop(native);
     let mut failures = Vec::new();
     for (index, example) in examples.iter().enumerate() {
-        let source = SourceFile::new(format!("standard-example-{index}.kgr"), example);
-        let analyzed = analyze_source(&source, providers.clone()).unwrap();
+        let source = Arc::new(SourceFile::new(
+            format!("standard-example-{index}.kgr"),
+            example,
+        ));
+        // Start from the sealed provider inputs, never another example's sources.
+        let snapshot = baseline
+            .clone()
+            .snapshot(
+                SourceSnapshot::single_file(source.clone()),
+                &Default::default(),
+            )
+            .unwrap();
+        let analyzed = snapshot.file(source.id()).unwrap().result();
         if !analyzed.diagnostics().is_empty() {
             failures.push(format!("{example}\n{:?}", analyzed.diagnostics()));
         }

@@ -349,10 +349,11 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
 
 #[test]
 fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
+    let program = common::bytecode_ok("fn main() -> i32 { 1 }");
     for version in 5..33 {
         let previous = format!("kagari-runtime-abi-v{version}");
         let artifact = KbcArtifact::from_program(
-            common::bytecode_ok("fn main() -> i32 { 1 }"),
+            program.clone(),
             ArtifactBuildOptions {
                 runtime_abi_version: previous.clone(),
                 ..Default::default()
@@ -375,12 +376,13 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
 
 #[test]
 fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
+    let program = common::bytecode_ok("fn main() -> i32 { 1 }");
     for previous in [
         "kagari-runtime-helper-abi-v3",
         "kagari-runtime-helper-abi-v4",
     ] {
         let artifact = KbcArtifact::from_program(
-            common::bytecode_ok("fn main() -> i32 { 1 }"),
+            program.clone(),
             ArtifactBuildOptions {
                 runtime_helper_abi_version: previous.into(),
                 ..Default::default()
