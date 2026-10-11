@@ -3058,3 +3058,56 @@ files with zero violations/exceptions; `cargo fmt --all -- --check` and
 `git diff --check` pass. This intermediate checkpoint changes test fixtures only;
 previous production/library and focused integration evidence remains applicable.
 The goal and final documentation retirement remain open.
+
+
+### SI06 complete contract fixture scope migration
+
+Migrated the remaining contract library fixtures (applications, native layouts,
+inheritance, proof catalogs and interface calls) plus instantiation/native-default
+integration fixtures. Each fixture registers IDs before constructing semantic
+records and retains an explicit context/table for queries and validation. Protocol
+proof fixtures register intrinsic names only; no new carried trait contract or
+implementation is supplied to make a negative proof pass. Forged names, kinds,
+occurrences and module owners remain distinct registered IDs and preserve all
+existing contract rejection assertions. Native default instantiation compares with
+the original table in the same scope, rather than comparing unrelated fresh IDs.
+
+The 165 carried contract library compilation errors are resolved. Clippy also
+exposed 67 old-API errors in the two integration fixtures, which are now migrated.
+Three runtime test failures during migration came from constructing query IDs after
+the ProofCatalog snapshot. The fixtures now register those query names before
+publishing the immutable catalog, preserving snapshot-prefix validation. No
+production identity check was relaxed and no new compatibility interface was added.
+
+Removed direct serde roundtrip assertions on NativeDefaultApplication, which is
+now exclusively semantic data. Its actual independent-scope roundtrip remains in
+public_abi_wire's existing NativeDefault-bearing public-item coverage. The distinct
+4097-argument decoder rejection moved to that codec owner's bounded-reader test,
+which now rejects the real NativeDefault wire prefix before reading any elements.
+Transformation limit and cancellation assertions remain in native_defaults.
+
+Focused local evidence (only affected contract scopes):
+
+- `cargo test -p kagari-contract --lib types:: --no-fail-fast
+  --message-format=short`: 25 cases initially passed and two snapshot-order fixture
+  failures were repaired. The two failed proof cases were rerun by exact name and
+  both pass; all 27 selected type cases have passing evidence. This also completes
+  the previous checkpoint's skipped matching/verifier checks.
+- `cargo test -p kagari-contract --lib callable::interface::tests::
+  --no-fail-fast --message-format=short`: all six interface cases pass.
+- `cargo test -p kagari-contract --test instantiation --test native_defaults
+  --no-fail-fast --message-format=short`: instantiation and 12 default cases passed;
+  the remaining snapshot-order case was repaired and its exact-name rerun passes.
+- `cargo test -p kagari-contract --test public_abi_wire --no-fail-fast
+  --message-format=short`: both independent-scope roundtrip and bounded wire-reader
+  cases pass, including the moved default argument limit.
+- `cargo clippy -p kagari-contract --lib --tests --message-format=short -- -D warnings`
+  passes after repairing the identified fixtures and redundant Copy/field syntax.
+  Manual review checks owner/member correspondence, source-free proof assumptions,
+  scope capture order, fixed-ID query helpers and preservation of negative cases.
+- Structure checks 1085 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. No workspace/backend/feature test matrix ran locally.
+
+Compiler/runtime library fixtures and remaining SDK/VM consumers still require
+SI06 cleanup. This checkpoint resolves contract fixture build failures, not final
+cross-subsystem acceptance; final CI scope and plan retirement remain outstanding.

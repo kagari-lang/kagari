@@ -390,7 +390,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         return_type: Ty::Projection {
             receiver: Box::new(receiver.clone()),
             interface: Box::new(dependency_view.clone()),
-            member: member,
+            member,
             arguments: vec![],
         },
     };

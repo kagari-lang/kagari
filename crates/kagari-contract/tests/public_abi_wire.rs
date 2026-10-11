@@ -261,16 +261,23 @@ fn public_abi_records_roundtrip_independent_scopes_and_preserve_binding_pairs() 
 #[test]
 fn public_abi_reader_bounds_declarations_before_reading_elements() {
     // Function tag, method policy, name, Required implementation, generic count.
-    let bytes = codec()
+    let generics = codec()
         .serialize(&(0u32, true, "read", 0u32, u64::MAX))
         .unwrap();
-    let error = match codec().deserialize::<PublicItemRecord>(&bytes) {
-        Ok(_) => panic!("accepted an unbounded generic parameter vector"),
-        Err(error) => error,
-    };
-    assert!(
-        error
-            .to_string()
-            .contains("nested declaration count limit exceeded")
-    );
+    // The same reader owns NativeDefault arguments: implementation tag 3,
+    // file-local declaration reference, then the oversized argument count.
+    let default_arguments = codec()
+        .serialize(&(0u32, true, "read", 3u32, 0u32, 4097u64))
+        .unwrap();
+    for bytes in [generics, default_arguments] {
+        let error = match codec().deserialize::<PublicItemRecord>(&bytes) {
+            Ok(_) => panic!("accepted an unbounded signature vector"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("nested declaration count limit exceeded")
+        );
+    }
 }

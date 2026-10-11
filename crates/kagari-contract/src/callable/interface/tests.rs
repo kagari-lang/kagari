@@ -1,21 +1,31 @@
 use super::*;
-use kagari_common::identity::ModuleIdentity;
+use kagari_common::identity::{ModuleIdentity, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    declaration::{AssociatedTypeDef, FnDecl, Param, module::ModuleDecl},
+    declaration::{AssociatedTypeDef, FnDecl, Param},
     scalar::BuiltinType,
 };
 use std::{collections::BTreeMap, slice};
 
-fn fixture() -> (InterfaceCallContract, TraitDef) {
-    let module = ModuleDecl::new(ModuleIdentity::single_file("generic-interface.kgr"));
-    let owner = module.definition(DefinitionKind::Trait, "Map");
-    let item = GenericParam {
-        owner: owner.clone(),
-        position: 0,
-    };
+fn id(context: &DefinitionContext, module: &str, kind: DefinitionKind, name: &str) -> DefinitionId {
+    let root = context
+        .intern_root(&ModuleIdentity::single_file(module))
+        .unwrap();
+    context.intern_child(root, kind, name, 0).unwrap()
+}
+
+fn fixture(context: &DefinitionContext) -> (InterfaceCallContract, TraitDef) {
+    let owner = id(
+        context,
+        "generic-interface.kgr",
+        DefinitionKind::Trait,
+        "Map",
+    );
+    let item = GenericParam { owner, position: 0 };
     let key = GenericParam {
-        owner: ModuleDecl::method_id(&owner, "map"),
+        owner: context
+            .intern_child(owner, DefinitionKind::Method, "map", 0)
+            .unwrap(),
         position: 0,
     };
     let contract = TraitDef {
@@ -36,7 +46,7 @@ fn fixture() -> (InterfaceCallContract, TraitDef) {
             params: vec![
                 Param {
                     name: "self".into(),
-                    ty: Ty::SelfType(owner.clone()),
+                    ty: Ty::SelfType(owner),
                     mutable: false,
                 },
                 Param {
@@ -68,15 +78,19 @@ fn fixture() -> (InterfaceCallContract, TraitDef) {
 
 #[test]
 fn interface_application_substitutes_both_binders_inside_callbacks_and_results() {
-    let (mut call, contract) = fixture();
+    let context = DefinitionContext::new().unwrap();
+    let (mut call, contract) = fixture(&context);
     let cancel = CancellationToken::default();
-    let catalog = ProofCatalog::new(vec![], vec![], [], [], [], &cancel).unwrap();
+    let catalog =
+        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     for key in [
         Ty::Builtin(BuiltinType::I32),
         Ty::Tuple(vec![Ty::Builtin(BuiltinType::String)]),
     ] {
         call.arguments = vec![key.clone()];
-        let signature = call.signature(&contract, &cancel).unwrap();
+        let signature = call
+            .signature(&contract, &cancel, &context.snapshot())
+            .unwrap();
         assert_eq!(
             signature.params[1],
             Ty::Function {
@@ -94,11 +108,16 @@ fn interface_application_substitutes_both_binders_inside_callbacks_and_results()
 
 #[test]
 fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
-    let (mut call, mut contract) = fixture();
+    let context = DefinitionContext::new().unwrap();
+    let (mut call, mut contract) = fixture(&context);
     let cancel = CancellationToken::default();
     let marker = NominalTy {
-        declaration: ModuleDecl::new(ModuleIdentity::single_file("generic-interface.kgr"))
-            .definition(DefinitionKind::Trait, "Marker"),
+        declaration: id(
+            &context,
+            "generic-interface.kgr",
+            DefinitionKind::Trait,
+            "Marker",
+        ),
         arguments: vec![],
         associated_types: BTreeMap::new(),
     };
@@ -108,8 +127,7 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
         constraints: vec![Constraint::Trait(marker.clone())],
     });
     let parameter = GenericParam {
-        owner: ModuleDecl::new(ModuleIdentity::single_file("caller.kgr"))
-            .definition(DefinitionKind::Function, "forward"),
+        owner: id(&context, "caller.kgr", DefinitionKind::Function, "forward"),
         position: 0,
     };
     call.arguments = vec![parameter.as_type()];
@@ -134,6 +152,7 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
         [],
         [(marker.declaration, &marker_contract)],
         [],
+        &context.snapshot(),
         &cancel,
     )
     .unwrap();
@@ -167,7 +186,8 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
 
 #[test]
 fn malformed_applications_and_erased_self_positions_are_rejected() {
-    let (call, contract) = fixture();
+    let context = DefinitionContext::new().unwrap();
+    let (call, contract) = fixture(&context);
     let cancel = CancellationToken::default();
     for mutation in 0..4 {
         let mut bad = call.clone();
@@ -175,42 +195,64 @@ fn malformed_applications_and_erased_self_positions_are_rejected() {
             0 => bad.arguments.clear(),
             1 => bad.interface.arguments.clear(),
             2 => bad.method_slot = 9,
-            _ => bad.interface.declaration.path[0].name = "Other".into(),
+            _ => {
+                bad.interface.declaration = id(
+                    &context,
+                    "generic-interface.kgr",
+                    DefinitionKind::Trait,
+                    "Other",
+                )
+            }
         }
-        assert!(bad.signature(&contract, &cancel).is_err());
+        assert!(
+            bad.signature(&contract, &cancel, &context.snapshot())
+                .is_err()
+        );
     }
     let mut bad = contract.clone();
-    bad.methods[0].return_type = Ty::SelfType(call.interface.declaration.clone());
-    let catalog = ProofCatalog::new(vec![], vec![], [], [], [], &cancel).unwrap();
+    bad.methods[0].return_type = Ty::SelfType(call.interface.declaration);
+    let catalog =
+        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     assert!(!call.check(&bad, &catalog, &[], &[], &cancel).unwrap());
 }
 
 #[test]
 fn partial_associated_outputs_require_scoped_receiver_evidence() {
-    let (mut call, mut contract) = fixture();
+    let context = DefinitionContext::new().unwrap();
+    let (mut call, mut contract) = fixture(&context);
     let cancel = CancellationToken::default();
-    let residual =
-        kagari_common::identity::associated_type_id(&call.interface.declaration, "Residual");
+    let residual = context
+        .intern_child(
+            call.interface.declaration,
+            DefinitionKind::AssociatedType,
+            "Residual",
+            0,
+        )
+        .unwrap();
     contract.associated_types.push(AssociatedTypeDef {
-        declaration: residual.clone(),
+        declaration: residual,
         generic_params: vec![],
         parameter_bounds: vec![],
         bounds: vec![],
     });
     contract.methods[0].return_type = Ty::Projection {
-        receiver: Box::new(Ty::SelfType(call.interface.declaration.clone())),
+        receiver: Box::new(Ty::SelfType(call.interface.declaration)),
         interface: Box::new(call.interface.clone()),
-        member: residual.clone(),
+        member: residual,
         arguments: vec![],
     };
-    assert!(call.signature(&contract, &cancel).is_err());
+    assert!(
+        call.signature(&contract, &cancel, &context.snapshot())
+            .is_err()
+    );
     let parameter = GenericParam {
-        owner: ModuleDecl::new(ModuleIdentity::single_file("caller.kgr"))
-            .definition(DefinitionKind::Function, "forward"),
+        owner: id(&context, "caller.kgr", DefinitionKind::Function, "forward"),
         position: 0,
     };
     call.receiver = Some(parameter.as_type());
-    let signature = call.signature(&contract, &cancel).unwrap();
+    let signature = call
+        .signature(&contract, &cancel, &context.snapshot())
+        .unwrap();
     assert_eq!(
         signature.result,
         Ty::Projection {
@@ -228,8 +270,9 @@ fn partial_associated_outputs_require_scoped_receiver_evidence() {
         vec![],
         vec![],
         [],
-        [(call.interface.declaration.clone(), &contract)],
+        [(call.interface.declaration, &contract)],
         [],
+        &context.snapshot(),
         &cancel,
     )
     .unwrap();
@@ -266,27 +309,39 @@ fn partial_associated_outputs_require_scoped_receiver_evidence() {
             .unwrap()
     );
     call.interface.associated_types.insert(
-        ModuleDecl::new(ModuleIdentity::single_file("forged.kgr"))
-            .definition(DefinitionKind::AssociatedType, "Residual"),
+        id(
+            &context,
+            "forged.kgr",
+            DefinitionKind::AssociatedType,
+            "Residual",
+        ),
         Ty::Builtin(BuiltinType::I32),
     );
-    assert!(call.signature(&contract, &cancel).is_err());
+    assert!(
+        call.signature(&contract, &cancel, &context.snapshot())
+            .is_err()
+    );
 }
 
 #[test]
 fn static_constraint_calls_do_not_invent_a_receiver_argument() {
-    let (mut call, mut contract) = fixture();
+    let context = DefinitionContext::new().unwrap();
+    let (mut call, mut contract) = fixture(&context);
     let cancel = CancellationToken::default();
     contract.methods[0].params.remove(0);
-    contract.methods[0].return_type = Ty::SelfType(call.interface.declaration.clone());
-    assert!(call.signature(&contract, &cancel).is_err());
+    contract.methods[0].return_type = Ty::SelfType(call.interface.declaration);
+    assert!(
+        call.signature(&contract, &cancel, &context.snapshot())
+            .is_err()
+    );
     let parameter = GenericParam {
-        owner: ModuleDecl::new(ModuleIdentity::single_file("caller.kgr"))
-            .definition(DefinitionKind::Function, "forward"),
+        owner: id(&context, "caller.kgr", DefinitionKind::Function, "forward"),
         position: 0,
     };
     call.receiver = Some(parameter.as_type());
-    let signature = call.signature(&contract, &cancel).unwrap();
+    let signature = call
+        .signature(&contract, &cancel, &context.snapshot())
+        .unwrap();
     assert_eq!(signature.params.len(), 1);
     assert_eq!(signature.result, parameter.as_type());
     let evidence = GenericBound {
@@ -297,8 +352,9 @@ fn static_constraint_calls_do_not_invent_a_receiver_argument() {
         vec![],
         vec![],
         [],
-        [(call.interface.declaration.clone(), &contract)],
+        [(call.interface.declaration, &contract)],
         [],
+        &context.snapshot(),
         &cancel,
     )
     .unwrap();
@@ -321,9 +377,13 @@ fn static_constraint_calls_do_not_invent_a_receiver_argument() {
 
 #[test]
 fn supplied_normalization_cannot_override_a_declared_signature() {
-    let (mut call, contract) = fixture();
+    let context = DefinitionContext::new().unwrap();
+    let (mut call, contract) = fixture(&context);
     let cancel = CancellationToken::default();
-    let source = call.signature(&contract, &cancel).unwrap().result;
+    let source = call
+        .signature(&contract, &cancel, &context.snapshot())
+        .unwrap()
+        .result;
     let forged = Ty::Tuple(vec![
         Ty::Builtin(BuiltinType::Bool),
         Ty::Builtin(BuiltinType::String),
@@ -334,7 +394,13 @@ fn supplied_normalization_cannot_override_a_declared_signature() {
     });
     // Structural use can read the supplied physical signature, but independent
     // linked proof must reject the invented equality before execution.
-    assert_eq!(call.signature(&contract, &cancel).unwrap().result, forged);
-    let catalog = ProofCatalog::new(vec![], vec![], [], [], [], &cancel).unwrap();
+    assert_eq!(
+        call.signature(&contract, &cancel, &context.snapshot())
+            .unwrap()
+            .result,
+        forged
+    );
+    let catalog =
+        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     assert!(!call.check(&contract, &catalog, &[], &[], &cancel).unwrap());
 }

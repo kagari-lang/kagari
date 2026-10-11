@@ -2,8 +2,7 @@
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
-        associated_type_id,
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, table::DefinitionId,
     },
 };
 use kagari_contract::types::{
@@ -25,27 +24,25 @@ use kagari_types::{
 };
 use std::collections::BTreeMap;
 
-fn identity(kind: DefinitionKind, name: &str) -> DefinitionPath {
-    DefinitionPath {
-        module: ModuleIdentity {
-            package: PackageId("game".into()),
-            path: vec!["defaults".into()],
-        },
-        path: vec![DefinitionPathSegment {
-            kind,
-            name: name.into(),
-            occurrence: 0,
-        }],
+fn module() -> ModuleIdentity {
+    ModuleIdentity {
+        package: PackageId("game".into()),
+        path: vec!["defaults".into()],
     }
+}
+
+fn identity(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> DefinitionId {
+    let root = context.intern_root(&module()).unwrap();
+    context.intern_child(root, kind, name, 0).unwrap()
 }
 
 fn scalar() -> Ty {
     Ty::Builtin(BuiltinType::I32)
 }
 
-fn interface(owner: &DefinitionPath, arguments: Vec<Ty>) -> NominalTy {
+fn interface(owner: &DefinitionId, arguments: Vec<Ty>) -> NominalTy {
     NominalTy {
-        declaration: owner.clone(),
+        declaration: *owner,
         arguments,
         associated_types: BTreeMap::new(),
     }
@@ -68,7 +65,8 @@ fn function(name: &str, implementation: CallableImplementation, parameter: Ty) -
 }
 
 struct Fixture {
-    owner: DefinitionPath,
+    context: DefinitionContext,
+    owner: DefinitionId,
     contract: TraitDef,
     template: NativeDeclaration,
     table: InterfaceTable,
@@ -76,15 +74,16 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let owner = identity(DefinitionKind::Trait, "Echo");
-        let declaration = identity(DefinitionKind::Function, "default_echo");
+        let context = DefinitionContext::new().unwrap();
+        let owner = identity(&context, DefinitionKind::Trait, "Echo");
+        let declaration = identity(&context, DefinitionKind::Function, "default_echo");
         let parameter = GenericParam {
-            owner: declaration.clone(),
+            owner: declaration,
             position: 0,
         };
         let mut body = function(
             "default_echo",
-            CallableImplementation::Native(identity(DefinitionKind::Function, "handler")),
+            CallableImplementation::Native(identity(&context, DefinitionKind::Function, "handler")),
             parameter.as_type(),
         );
         body.generic_params.push(parameter.clone());
@@ -93,13 +92,13 @@ impl Fixture {
             constraints: vec![Constraint::Trait(interface(&owner, vec![]))],
         });
         let application = NativeDefaultApplication {
-            declaration: declaration.clone(),
-            arguments: vec![Ty::SelfType(owner.clone())],
+            declaration,
+            arguments: vec![Ty::SelfType(owner)],
         };
         let mut method = function(
             "echo",
             CallableImplementation::NativeDefault(application),
-            Ty::SelfType(owner.clone()),
+            Ty::SelfType(owner),
         );
         method.method_policy.override_allowed = false;
         let mut derived = method.clone();
@@ -108,8 +107,16 @@ impl Fixture {
             unreachable!()
         };
         application.arguments[0] = scalar();
+        let implementation = identity(&context, DefinitionKind::Impl, "");
+        context
+            .intern_child(owner, DefinitionKind::Method, "echo", 0)
+            .unwrap();
+        context
+            .intern_child(implementation, DefinitionKind::Method, "echo", 0)
+            .unwrap();
         Self {
-            owner: owner.clone(),
+            context: context.clone(),
+            owner,
             contract: TraitDef {
                 conversion_adapter: None,
                 storage_access: None,
@@ -128,7 +135,7 @@ impl Fixture {
                 callable_requirements: vec![],
             },
             table: InterfaceTable {
-                declaration: identity(DefinitionKind::Impl, ""),
+                declaration: implementation,
                 name: "script_default".into(),
                 generic_params: vec![],
                 bounds: vec![],
@@ -147,19 +154,18 @@ impl Fixture {
             vec![(&self.table).into()],
             vec![],
             [],
-            [(self.owner.clone(), &self.contract)],
+            [(self.owner, &self.contract)],
             [&self.template],
+            &self.context.snapshot(),
             &CancellationToken::default(),
         )
     }
 
     fn requirement(&self) -> NativeCallableRequirement {
-        let mut member = self.owner.clone();
-        member.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Method,
-            name: "echo".into(),
-            occurrence: 0,
-        });
+        let member = self
+            .context
+            .intern_child(self.owner, DefinitionKind::Method, "echo", 0)
+            .unwrap();
         NativeCallableRequirement {
             receiver: self.table.for_type.clone(),
             interface: match &self.table.trait_type {
@@ -181,8 +187,9 @@ fn final_default_selects_the_registered_template_and_concrete_receiver() {
             PublicItem::Trait(fixture.contract.clone()),
             PublicItem::InterfaceTable(Box::new(fixture.table.clone())),
         ],
-        &fixture.owner.module,
+        &module(),
         &cancel,
+        &fixture.context.snapshot(),
     )
     .unwrap();
     let catalog = fixture.catalog().unwrap();
@@ -214,8 +221,9 @@ fn default_contracts_reject_missing_templates_wrong_shapes_and_stronger_bounds()
             vec![(&original.table).into()],
             vec![],
             [],
-            [(original.owner.clone(), &original.contract)],
+            [(original.owner, &original.contract)],
             [],
+            &original.context.snapshot(),
             &CancellationToken::default()
         )
         .is_err()
@@ -235,9 +243,11 @@ fn default_contracts_reject_missing_templates_wrong_shapes_and_stronger_bounds()
                 application.arguments.clear();
             }
             4 => {
-                fixture.template.function.bounds[0].constraints = vec![Constraint::Trait(
-                    interface(&identity(DefinitionKind::Trait, "Other"), vec![]),
-                )]
+                fixture.template.function.bounds[0].constraints =
+                    vec![Constraint::Trait(interface(
+                        &identity(&fixture.context, DefinitionKind::Trait, "Other"),
+                        vec![],
+                    ))]
             }
             _ => unreachable!(),
         }
@@ -282,7 +292,7 @@ fn final_defaults_reject_overrides_and_changed_template_applications() {
 #[test]
 fn default_template_obligations_include_declared_parent_traits() {
     let mut fixture = Fixture::new();
-    let parent_owner = identity(DefinitionKind::Trait, "Parent");
+    let parent_owner = identity(&fixture.context, DefinitionKind::Trait, "Parent");
     let mut parent = fixture.contract.clone();
     parent.name = "Parent".into();
     parent.methods.clear();
@@ -298,11 +308,9 @@ fn default_template_obligations_include_declared_parent_traits() {
             vec![],
             vec![],
             [],
-            [
-                (fixture.owner.clone(), &fixture.contract),
-                (parent_owner.clone(), &parent)
-            ],
+            [(fixture.owner, &fixture.contract), (parent_owner, &parent)],
             [&fixture.template],
+            &fixture.context.snapshot(),
             &cancel
         )
         .is_ok()
@@ -313,11 +321,9 @@ fn default_template_obligations_include_declared_parent_traits() {
             vec![],
             vec![],
             [],
-            [
-                (fixture.owner.clone(), &fixture.contract),
-                (parent_owner, &parent)
-            ],
+            [(fixture.owner, &fixture.contract), (parent_owner, &parent)],
             [&fixture.template],
+            &fixture.context.snapshot(),
             &cancel
         )
         .is_err()
@@ -327,8 +333,9 @@ fn default_template_obligations_include_declared_parent_traits() {
 #[test]
 fn generic_interface_instantiation_preserves_explicit_default_argument_mapping() {
     let mut fixture = Fixture::new();
+    let original = fixture.table.clone();
     let parameter = GenericParam {
-        owner: fixture.table.declaration.clone(),
+        owner: fixture.table.declaration,
         position: 0,
     };
     fixture.table.generic_params.push(parameter.clone());
@@ -340,8 +347,11 @@ fn generic_interface_instantiation_preserves_explicit_default_argument_mapping()
         unreachable!()
     };
     application.arguments[0] = parameter.as_type();
-    let table = fixture.table.instantiate(&[scalar()]).unwrap();
-    assert_eq!(table, Fixture::new().table);
+    let table = fixture
+        .table
+        .instantiate(&[scalar()], &[], &fixture.context.snapshot())
+        .unwrap();
+    assert_eq!(table, original);
     fixture.table = table;
     let selected = fixture
         .catalog()
@@ -360,12 +370,14 @@ fn foreign_self_binders_and_defaults_outside_method_contracts_are_rejected() {
     else {
         unreachable!()
     };
-    application.arguments[0] = Ty::SelfType(identity(DefinitionKind::Trait, "Other"));
+    application.arguments[0] =
+        Ty::SelfType(identity(&fixture.context, DefinitionKind::Trait, "Other"));
     assert!(
         verify::validate(
             &[PublicItem::Trait(fixture.contract.clone())],
-            &fixture.owner.module,
-            &CancellationToken::default()
+            &module(),
+            &CancellationToken::default(),
+            &fixture.context.snapshot()
         )
         .is_err()
     );
@@ -373,8 +385,9 @@ fn foreign_self_binders_and_defaults_outside_method_contracts_are_rejected() {
     assert!(
         verify::validate(
             &[PublicItem::Function(method)],
-            &fixture.owner.module,
-            &CancellationToken::default()
+            &module(),
+            &CancellationToken::default(),
+            &fixture.context.snapshot()
         )
         .is_err()
     );
@@ -384,7 +397,7 @@ fn foreign_self_binders_and_defaults_outside_method_contracts_are_rejected() {
 fn trait_arguments_and_self_follow_the_declared_template_order() {
     let mut fixture = Fixture::new();
     let item = GenericParam {
-        owner: fixture.owner.clone(),
+        owner: fixture.owner,
         position: 0,
     };
     fixture.contract.generic_params.push(item.clone());
@@ -399,13 +412,13 @@ fn trait_arguments_and_self_follow_the_declared_template_order() {
     else {
         unreachable!()
     };
-    application.arguments = vec![item.as_type(), Ty::SelfType(fixture.owner.clone())];
+    application.arguments = vec![item.as_type(), Ty::SelfType(fixture.owner)];
     let value = GenericParam {
-        owner: fixture.template.declaration.clone(),
+        owner: fixture.template.declaration,
         position: 0,
     };
     let receiver = GenericParam {
-        owner: fixture.template.declaration.clone(),
+        owner: fixture.template.declaration,
         position: 1,
     };
     fixture.template.function.generic_params = vec![value.clone(), receiver.clone()];
@@ -470,17 +483,20 @@ fn trait_arguments_and_self_follow_the_declared_template_order() {
 #[test]
 fn associated_output_maps_to_the_registered_template_result() {
     let mut fixture = Fixture::new();
-    let output = associated_type_id(&fixture.owner, "Output");
+    let output = fixture
+        .context
+        .intern_child(fixture.owner, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
     fixture.contract.associated_types.push(AssociatedTypeDef {
         generic_params: vec![],
         parameter_bounds: vec![],
-        declaration: output.clone(),
+        declaration: output,
         bounds: vec![],
     });
     let projection = Ty::Projection {
-        receiver: Box::new(Ty::SelfType(fixture.owner.clone())),
+        receiver: Box::new(Ty::SelfType(fixture.owner)),
         interface: Box::new(interface(&fixture.owner, vec![])),
-        member: output.clone(),
+        member: output,
         arguments: vec![],
     };
     fixture.contract.methods[0].return_type = projection.clone();
@@ -491,7 +507,7 @@ fn associated_output_maps_to_the_registered_template_result() {
     };
     application.arguments.push(projection);
     let parameter = GenericParam {
-        owner: fixture.template.declaration.clone(),
+        owner: fixture.template.declaration,
         position: 1,
     };
     fixture
@@ -506,7 +522,7 @@ fn associated_output_maps_to_the_registered_template_result() {
     };
     required
         .associated_types
-        .insert(output.clone(), parameter.as_type());
+        .insert(output, parameter.as_type());
     let Ty::Trait(implemented) = &mut fixture.table.trait_type else {
         unreachable!()
     };
@@ -537,7 +553,7 @@ fn associated_output_maps_to_the_registered_template_result() {
 }
 
 #[test]
-fn default_application_transforms_and_decoding_remain_bounded_and_cancellable() {
+fn default_application_transforms_remain_bounded_and_cancellable() {
     let fixture = Fixture::new();
     let CallableImplementation::NativeDefault(application) =
         &fixture.contract.methods[0].implementation
@@ -552,22 +568,13 @@ fn default_application_transforms_and_decoding_remain_bounded_and_cancellable() 
         application.apply(&substitution, &cancel).unwrap().arguments,
         [scalar()]
     );
-    let bytes = bincode::serialize(application).unwrap();
-    assert_eq!(
-        bincode::deserialize::<NativeDefaultApplication>(&bytes).unwrap(),
-        *application
-    );
     let oversized = NativeDefaultApplication {
-        declaration: application.declaration.clone(),
+        declaration: application.declaration,
         arguments: vec![scalar(); 4097],
     };
     assert_eq!(
         oversized.apply(&substitution, &cancel),
         Err(TypeTransformError::LimitExceeded)
-    );
-    assert!(
-        bincode::deserialize::<NativeDefaultApplication>(&bincode::serialize(&oversized).unwrap())
-            .is_err()
     );
     let catalog = fixture.catalog().unwrap();
     cancel.cancel();
@@ -576,7 +583,7 @@ fn default_application_transforms_and_decoding_remain_bounded_and_cancellable() 
         Err(TypeTransformError::Cancelled)
     );
     let empty = NativeDefaultApplication {
-        declaration: application.declaration.clone(),
+        declaration: application.declaration,
         arguments: vec![],
     };
     assert_eq!(
@@ -607,8 +614,9 @@ fn registered_impl_inherits_the_same_checked_default_as_an_executable_table() {
         }],
         vec![],
         [],
-        [(fixture.owner.clone(), &fixture.contract)],
+        [(fixture.owner, &fixture.contract)],
         [&fixture.template],
+        &fixture.context.snapshot(),
         &cancel,
     )
     .unwrap();
@@ -627,9 +635,9 @@ fn registered_impl_inherits_the_same_checked_default_as_an_executable_table() {
 fn registered_generic_impl_checks_nested_obligations_before_selecting_its_default() {
     let fixture = Fixture::new();
     let cancel = CancellationToken::default();
-    let declaration = identity(DefinitionKind::Impl, "array");
+    let declaration = identity(&fixture.context, DefinitionKind::Impl, "array");
     let parameter = GenericParam {
-        owner: declaration.clone(),
+        owner: declaration,
         position: 0,
     };
     let applied = interface(&fixture.owner, vec![]);
@@ -653,8 +661,9 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
         ],
         vec![],
         [],
-        [(fixture.owner.clone(), &fixture.contract)],
+        [(fixture.owner, &fixture.contract)],
         [&fixture.template],
+        &fixture.context.snapshot(),
         &cancel,
     )
     .unwrap();
@@ -694,24 +703,25 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
 #[test]
 fn hidden_associated_arguments_are_rechecked_against_linked_contracts() {
     let mut fixture = Fixture::new();
-    let output_owner = identity(DefinitionKind::Trait, "Source");
-    let output = associated_type_id(&output_owner, "Output");
+    let output_owner = identity(&fixture.context, DefinitionKind::Trait, "Source");
+    let output = fixture
+        .context
+        .intern_child(output_owner, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
     let mut output_contract = fixture.contract.clone();
     output_contract.name = "Source".into();
     output_contract.methods.clear();
     output_contract.associated_types.push(AssociatedTypeDef {
-        declaration: output.clone(),
+        declaration: output,
         generic_params: vec![],
         parameter_bounds: vec![],
         bounds: vec![],
     });
     let mut output_table = fixture.table.clone();
-    output_table.declaration = identity(DefinitionKind::Impl, "source");
+    output_table.declaration = identity(&fixture.context, DefinitionKind::Impl, "source");
     output_table.methods.clear();
     let mut output_interface = interface(&output_owner, vec![]);
-    output_interface
-        .associated_types
-        .insert(output.clone(), scalar());
+    output_interface.associated_types.insert(output, scalar());
     output_table.trait_type = Ty::Trait(output_interface);
     let CallableImplementation::NativeDefault(application) =
         &mut fixture.contract.methods[0].implementation
@@ -719,13 +729,13 @@ fn hidden_associated_arguments_are_rechecked_against_linked_contracts() {
         unreachable!()
     };
     application.arguments.push(Ty::Projection {
-        receiver: Box::new(Ty::SelfType(fixture.owner.clone())),
+        receiver: Box::new(Ty::SelfType(fixture.owner)),
         interface: Box::new(interface(&output_owner, vec![])),
         member: output,
         arguments: vec![],
     });
     fixture.template.function.generic_params.push(GenericParam {
-        owner: fixture.template.declaration.clone(),
+        owner: fixture.template.declaration,
         position: 1,
     });
     let CallableImplementation::NativeDefault(application) =
@@ -749,17 +759,19 @@ fn hidden_associated_arguments_are_rechecked_against_linked_contracts() {
         assert!(verify::interface_contract_matches(
             &fixture.table,
             &fixture.contract,
-            &cancel
+            &cancel,
+            &fixture.context.snapshot()
         ));
         let catalog = ProofCatalog::new(
             vec![(&fixture.table).into(), (&output_table).into()],
             vec![],
             [],
             [
-                (fixture.owner.clone(), &fixture.contract),
-                (output_owner.clone(), &output_contract),
+                (fixture.owner, &fixture.contract),
+                (output_owner, &output_contract),
             ],
             [&fixture.template],
+            &fixture.context.snapshot(),
             &cancel,
         )
         .unwrap();
@@ -780,28 +792,37 @@ fn unspecified_associated_output_proves_only_its_own_projection() {
     let fixture = Fixture::new();
     let mut contract = fixture.contract.clone();
     contract.methods.clear();
-    let output = associated_type_id(&fixture.owner, "Output");
+    let output = fixture
+        .context
+        .intern_child(fixture.owner, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
     contract.associated_types.push(AssociatedTypeDef {
-        declaration: output.clone(),
+        declaration: output,
         generic_params: vec![],
         parameter_bounds: vec![],
         bounds: vec![],
     });
     let cancel = CancellationToken::default();
+    let receiver = GenericParam {
+        owner: identity(&fixture.context, DefinitionKind::Function, "caller"),
+        position: 0,
+    }
+    .as_type();
+    let missing = fixture
+        .context
+        .intern_child(fixture.owner, DefinitionKind::AssociatedType, "Missing", 0)
+        .unwrap();
+    let other = identity(&fixture.context, DefinitionKind::Trait, "Other");
     let catalog = ProofCatalog::new(
         vec![],
         vec![],
         [],
-        [(fixture.owner.clone(), &contract)],
+        [(fixture.owner, &contract)],
         [],
+        &fixture.context.snapshot(),
         &cancel,
     )
     .unwrap();
-    let receiver = GenericParam {
-        owner: identity(DefinitionKind::Function, "caller"),
-        position: 0,
-    }
-    .as_type();
     let available = interface(&fixture.owner, vec![]);
     let assumptions = [GenericBound {
         ty: receiver.clone(),
@@ -810,12 +831,12 @@ fn unspecified_associated_output_proves_only_its_own_projection() {
     let projection = Ty::Projection {
         receiver: Box::new(receiver.clone()),
         interface: Box::new(available.clone()),
-        member: output.clone(),
+        member: output,
         arguments: vec![],
     };
     let proves = |value| {
         let mut required = available.clone();
-        required.associated_types.insert(output.clone(), value);
+        required.associated_types.insert(output, value);
         catalog
             .holds(&required, &receiver, &assumptions, &cancel)
             .unwrap()
@@ -835,16 +856,14 @@ fn unspecified_associated_output_proves_only_its_own_projection() {
         };
         match variant {
             0 => **receiver = scalar(),
-            1 => *member = associated_type_id(&fixture.owner, "Missing"),
-            2 => interface.declaration = identity(DefinitionKind::Trait, "Other"),
+            1 => *member = missing,
+            2 => interface.declaration = other,
             _ => arguments.push(scalar()),
         }
         assert!(!proves(forged));
     }
     let mut constrained = available.clone();
-    constrained
-        .associated_types
-        .insert(output.clone(), scalar());
+    constrained.associated_types.insert(output, scalar());
     let concrete_assumption = [GenericBound {
         ty: receiver.clone(),
         constraints: vec![Constraint::Trait(constrained.clone())],

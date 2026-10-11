@@ -1,46 +1,52 @@
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, associated_type_id,
+    DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
+use kagari_contract::types::InterfaceTable;
 use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{FnDecl, Param},
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
 use std::collections::BTreeMap;
-fn owner(name: &str) -> DefinitionPath {
-    DefinitionPath {
-        module: ModuleIdentity::single_file("substitution.kgr"),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: name.into(),
-            occurrence: 0,
-        }],
-    }
+fn owner(context: &DefinitionContext, name: &str) -> DefinitionId {
+    let root = context
+        .intern_root(&ModuleIdentity::single_file("substitution.kgr"))
+        .unwrap();
+    context
+        .intern_child(root, DefinitionKind::Trait, name, 0)
+        .unwrap()
 }
 
-fn parameter(owner: &DefinitionPath, position: usize) -> Ty {
+fn parameter(owner: &DefinitionId, position: usize) -> Ty {
     Ty::Parameter {
-        owner: owner.clone(),
+        owner: *owner,
         position,
     }
 }
 
 #[test]
 fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
-    use kagari_contract::types::InterfaceTable;
-    use kagari_types::{
-        callable::CallableImplementation,
-        declaration::{FnDecl, Param},
-    };
-    let implementation = owner("Impl");
-    let method = associated_type_id(&implementation, "construct");
-    let interface = owner("Iterable");
-    let item = associated_type_id(&interface, "Item");
+    let context = DefinitionContext::new().unwrap();
+    let implementation = owner(&context, "Impl");
+    let method = context
+        .intern_child(
+            implementation,
+            DefinitionKind::AssociatedType,
+            "construct",
+            0,
+        )
+        .unwrap();
+    let interface = owner(&context, "Iterable");
+    let item = context
+        .intern_child(interface, DefinitionKind::AssociatedType, "Item", 0)
+        .unwrap();
     let outer = GenericParam {
-        owner: implementation.clone(),
+        owner: implementation,
         position: 0,
     };
     let local = GenericParam {
-        owner: method.clone(),
+        owner: method,
         position: 0,
     };
     let source = parameter(&method, 0);
@@ -49,12 +55,12 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
         associated_type_families: vec![],
         associated_consts: vec![],
         host_bridge: false,
-        declaration: implementation.clone(),
+        declaration: implementation,
         name: "Impl".into(),
         generic_params: vec![outer.clone()],
         bounds: vec![],
         trait_type: Ty::Trait(NominalTy {
-            declaration: interface.clone(),
+            declaration: interface,
             arguments: vec![],
             associated_types: BTreeMap::new(),
         }),
@@ -69,7 +75,7 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
                 constraints: vec![Constraint::Trait(NominalTy {
                     declaration: interface,
                     arguments: vec![],
-                    associated_types: BTreeMap::from([(item.clone(), input.clone())]),
+                    associated_types: BTreeMap::from([(item, input.clone())]),
                 })],
             }],
             params: vec![Param {
@@ -81,7 +87,9 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
         }],
     };
     let number = Ty::Builtin(BuiltinType::I32);
-    let applied = table.instantiate(std::slice::from_ref(&number)).unwrap();
+    let applied = table
+        .instantiate(std::slice::from_ref(&number), &[], &context.snapshot())
+        .unwrap();
     assert_eq!(applied.for_type, Ty::Tuple(vec![number.clone()]));
     assert!(applied.generic_params.is_empty());
     let method = &applied.methods[0];
