@@ -3,7 +3,6 @@ use kagari_contract::types::PublicItem;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::module::LoadedModule;
 use kagari_source::source::SourceFile;
-use kagari_stdlib::identity as library;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
@@ -43,7 +42,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     };
     let engine = KagariEngine::default();
     let mut runtime = engine.runtime(Default::default());
-    let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, Vec<i32>) } fn main() -> Option { Option::Some(42) }";
+    let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, [i32]) } fn main() -> Option { Option::Some(42) }";
     let original = compile(&engine, source);
     let loaded = runtime
         .load_program(
@@ -274,11 +273,10 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         panic!("tuple payload")
     };
     assert_eq!(payload[0], Ty::Builtin(BuiltinType::I32));
-    let Ty::Trait(list) = &payload[1] else {
-        panic!("list interface payload")
-    };
-    assert_eq!(list.declaration, library::trait_id("List"));
-    assert_eq!(list.arguments, vec![Ty::Builtin(BuiltinType::String)]);
+    assert_eq!(
+        payload[1],
+        Ty::Array(Box::new(Ty::Builtin(BuiltinType::String)))
+    );
     let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
     decoded.validate_for_loader(&Default::default()).unwrap();
     assert_eq!(

@@ -43,6 +43,9 @@ fn function_owner(name: &str) -> ModuleIdentity {
     if name.starts_with("$foundation_string_") {
         return namespaces::type_owner("String");
     }
+    if name.starts_with("$foundation_array_") {
+        return namespaces::module("core", "array");
+    }
     if name.starts_with("$foundation_list_") {
         return namespaces::type_owner("Vec");
     }

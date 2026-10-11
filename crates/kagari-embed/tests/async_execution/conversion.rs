@@ -29,7 +29,7 @@ use std::{
 
 const SOURCE: &str = r#"
 use test::converted_reply::read;
-fn items() -> Vec<i32> { [5] }
+fn items() -> Vec<i32> { Vec::from([5]) }
 fn push(items: Vec<i32>) { items.push(9); }
 fn first(items: Vec<i32>) -> i32 { items[0] }
 fn factory(items: Vec<i32>) -> fn()->Future<i32> {

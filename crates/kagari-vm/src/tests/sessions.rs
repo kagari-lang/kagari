@@ -49,7 +49,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
     for encoded in [false, true] {
         for jit in [false, true] {
             let module = compile_test_bytecode(
-                "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> Vec<i32> { print(\"inner\"); [n, 8] }",
+                "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> [i32] { print(\"inner\"); [n, 8] }",
             );
             let make = module.modules[module.root.index()]
                 .functions

@@ -1,5 +1,6 @@
 //! Immutable language contracts are available independently of optional modules.
-use crate::{catalog, identity};
+use crate::{catalog, identity, namespaces};
+use kagari_common::identity::DefinitionKind;
 use kagari_runtime::{
     error::RuntimeError,
     native::{
@@ -112,10 +113,15 @@ impl StandardDeclarations {
     }
 
     pub fn vec(&self, item: Type) -> Type {
-        Type::from_semantic(Ty::Array(
-            Box::new(item.abi().clone()),
-            CollectionAccess::Mutable,
-        ))
+        self.catalog()
+            .expect("checked standard providers")
+            .type_reference(
+                &ModuleDecl::new(namespaces::type_owner("Vec"))
+                    .definition(DefinitionKind::AssociatedType, "Vec"),
+            )
+            .expect("registered Vec")
+            .apply([item])
+            .expect("Vec element arity")
     }
 
     pub fn collection_cursor(&self, item: Type) -> Type {

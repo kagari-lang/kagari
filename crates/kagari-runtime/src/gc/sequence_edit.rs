@@ -55,6 +55,7 @@ impl GcHeap {
     ) -> NativeResult<R> {
         self.ensure_execution_allowed()?;
         self.ensure_no_native_borrow()?;
+        self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
         let references = self.with_native::<SequencePayload, _>(id, |sequence| {
             if sequence.values.traced().is_empty() {
@@ -117,22 +118,21 @@ fn invalid() -> RuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Runtime, error::RuntimeError, layout_fixtures::allocation_owner, value::Value};
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
+    use crate::native::conversion::context::ConversionContext;
+    use crate::{Runtime, error::RuntimeError, layout_fixtures::sequence_owner, value::Value};
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
     fn direct_scalar_lease_keeps_the_buffer_and_completed_writes_on_error() {
         let mut runtime = Runtime::default();
-        let owner = allocation_owner(&mut runtime);
-        let id = runtime
-            .alloc_array(
-                &owner,
-                Ty::Builtin(BuiltinType::I32),
-                vec![Value::I32(1), Value::I32(2)],
-            )
+        let owner = sequence_owner(&mut runtime);
+        let root = ConversionContext::new(&runtime, &owner)
+            .unwrap()
+            .encode(vec![1i32, 2])
             .unwrap();
-        let root = runtime.root_value(Value::Array(id)).unwrap();
+        let Value::GcHandle(id) = root.value(runtime.gc()).unwrap() else {
+            panic!("Vec")
+        };
         let heap = runtime.gc();
         let address = heap
             .with_sequence_mut::<i32, _>(id, |values| Ok(values.as_ptr() as usize))
@@ -146,7 +146,7 @@ mod tests {
         });
         assert!(error.is_err());
         assert_eq!(
-            heap.array_snapshot(id).unwrap(),
+            heap.sequence_snapshot(id).unwrap(),
             vec![Value::I32(2), Value::I32(1)]
         );
         heap.with_sequence_mut::<i32, _>(id, |values| {
@@ -160,15 +160,14 @@ mod tests {
     #[test]
     fn removals_survive_failure_and_unwind_and_release_lease_accounting() {
         let mut runtime = Runtime::default();
-        let owner = allocation_owner(&mut runtime);
-        let id = runtime
-            .alloc_array(
-                &owner,
-                Ty::Builtin(BuiltinType::I32),
-                (0..5).map(Value::I32).collect(),
-            )
+        let owner = sequence_owner(&mut runtime);
+        let root = ConversionContext::new(&runtime, &owner)
+            .unwrap()
+            .encode((0..5).collect::<Vec<i32>>())
             .unwrap();
-        let root = runtime.root_value(Value::Array(id)).unwrap();
+        let Value::GcHandle(id) = root.value(runtime.gc()).unwrap() else {
+            panic!("Vec")
+        };
         let heap = runtime.gc();
         let before = heap.stats().current_heap_units;
         let mut calls = 0;
@@ -184,7 +183,7 @@ mod tests {
         );
         assert_eq!(calls, 4);
         assert_eq!(
-            heap.array_snapshot(id).unwrap(),
+            heap.sequence_snapshot(id).unwrap(),
             vec![Value::I32(0), Value::I32(2), Value::I32(3), Value::I32(4)]
         );
         assert_eq!(heap.stats().current_heap_units, before - 1);
@@ -199,10 +198,10 @@ mod tests {
             .is_err()
         );
         assert_eq!(
-            heap.array_snapshot(id).unwrap(),
+            heap.sequence_snapshot(id).unwrap(),
             vec![Value::I32(4), Value::I32(3), Value::I32(2), Value::I32(0)]
         );
-        heap.array_push(id, Value::I32(9)).unwrap();
+        heap.sequence_push(id, Value::I32(9)).unwrap();
         assert_eq!(heap.stats().current_heap_units, before);
         drop(root);
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);

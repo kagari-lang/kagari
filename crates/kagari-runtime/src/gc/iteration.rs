@@ -36,6 +36,19 @@ impl GcHeap {
                         if !visited.insert(id) {
                             continue;
                         }
+                        if self.ensure_sequence(id).is_ok() {
+                            guard._children.push(CollectionIteration {
+                                _children: Vec::new(),
+                                loop_leases: Vec::new(),
+                                _lease: Some(
+                                    self.iterations
+                                        .acquire(id, None)
+                                        .map_err(|_| self.resource_limit("iteration registry"))?,
+                                ),
+                                _root: self.root_value(value).ok_or_else(invalid)?,
+                            });
+                            continue;
+                        }
                         let mut objects = self.objects_mut()?;
                         let (cursor, dependencies) = match self.object_mut(&mut objects, id) {
                             Some(HeapObject::Native(object))

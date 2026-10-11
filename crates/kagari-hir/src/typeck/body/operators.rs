@@ -425,7 +425,7 @@ impl<'a> BodyChecker<'a> {
                                 TypeId::Unknown
                                     | TypeId::Error
                                     | TypeId::Struct(_)
-                                    | TypeId::Array(_, _)
+                                    | TypeId::Array(_)
                                     | TypeId::Map { .. }
                                     | TypeId::Set(_, _)
                             )

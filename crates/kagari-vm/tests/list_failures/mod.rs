@@ -19,7 +19,7 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), calls);
-    let Value::Array(array) = probe
+    let Value::GcHandle(array) = probe
         .retained
         .lock()
         .unwrap()
@@ -31,13 +31,16 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
         panic!("array")
     };
     assert_eq!(
-        vm.runtime().gc().array_snapshot(array).unwrap(),
+        vm.runtime().gc().sequence_snapshot(array).unwrap(),
         expected
             .iter()
             .map(|value| Value::I32(*value))
             .collect::<Vec<_>>()
     );
-    vm.runtime().gc().array_push(array, Value::I32(99)).unwrap();
+    vm.runtime()
+        .gc()
+        .sequence_push(array, Value::I32(99))
+        .unwrap();
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -49,7 +52,7 @@ fn retain_failure_keeps_completed_removals_and_stops_callbacks() {
         r#"
 use test::probe::{keep, tick};
 fn main() {
-    val values = [1,2,3,4]; keep(values);
+    val values = Vec::from([1,2,3,4]); keep(values);
     values.retain(|value| {
         val count = tick();
         if count == 3usize { val fail = 1 / 0; }
@@ -105,7 +108,7 @@ fn custom_receiver_failures_preserve_completed_writes_and_removals() {
         ("retain(|value| value < 0)", vec![1, 2]),
     ] {
         let source = format!(
-            "{CONTAINER} fn main() {{ val values = [3,1,2]; keep(values); val receiver: MutableList<i32> = Sequence {{ items: values }}; receiver.{operation}; }}"
+            "{CONTAINER} fn main() {{ val values = Vec::from([3,1,2]); keep(values); val receiver: MutableList<i32> = Sequence {{ items: values }}; receiver.{operation}; }}"
         );
         failed_array(&source, &expected, 2);
     }
@@ -115,7 +118,7 @@ fn custom_receiver_failures_preserve_completed_writes_and_removals() {
 fn active_iteration_rejects_list_edits_and_releases_the_guard_on_failure() {
     for operation in ["sort()", "reverse()", "retain(|value| true)", "dedup()"] {
         let source = format!(
-            "use test::probe::keep; fn main() {{ val values = [3,1,2]; keep(values); for value in values {{ values.{operation}; }} }}"
+            "use test::probe::keep; fn main() {{ val values = Vec::from([3,1,2]); keep(values); for value in values {{ values.{operation}; }} }}"
         );
         failed_array(&source, &[3, 1, 2], 0);
     }

@@ -102,7 +102,7 @@ impl AggregateCatalog {
                         "storage interface implementations must belong to their nominal type",
                     )
                 }
-                TypeId::Array(_, _) | TypeId::Map { .. } | TypeId::Set(_, _)
+                TypeId::Array(_) | TypeId::Map { .. } | TypeId::Set(_, _)
                     if implementation.engine_owned =>
                 {
                     None
@@ -878,7 +878,7 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
                 pending.extend(&n.arguments)
             }
             TypeId::Tuple(items) => pending.extend(items),
-            TypeId::Array(item, _)
+            TypeId::Array(item)
             | TypeId::Set(item, _)
             | TypeId::Iter(item)
             | TypeId::Range(item, _) => pending.push(item),

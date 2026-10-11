@@ -1,12 +1,14 @@
+use kagari_common::identity::DefinitionKind;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::value::Value;
+use kagari_runtime::{native::conversion::context::ConversionContext, value::Value};
 use kagari_source::source::SourceFile;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_stdlib::namespaces;
+use kagari_types::declaration::module::ModuleDecl;
 use std::sync::{Arc, Mutex};
 
 fn execute(source: &str) {
@@ -136,14 +138,17 @@ fn shifts_reject_negative_and_width_counts() {
 #[test]
 fn failed_shift_keeps_target_and_completed_rhs_effects() {
     use kagari_runtime::host::HostFunction;
-    use kagari_types::{
-        collection::CollectionAccess,
-        host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
+    use kagari_types::host_interface::{
+        HostFunctionDeclaration, HostInterface, value_type::HostValueType,
     };
     let declaration = HostFunctionDeclaration::new(
         "demo.memory",
         vec![],
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+        HostValueType::Vec(
+            ModuleDecl::new(namespaces::type_owner("Vec"))
+                .definition(DefinitionKind::AssociatedType, "Vec"),
+            Box::new(HostValueType::I32),
+        ),
     );
     let engine = KagariEngine::default();
     engine
@@ -175,7 +180,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let captured_memory = memory_slot.clone();
     runtime
         .register_host_function(HostFunction::new(declaration, move |_, _| {
-            Ok(Value::Array(
+            Ok(Value::GcHandle(
                 captured_memory.lock().unwrap().expect("initialized memory"),
             ))
         }))
@@ -185,11 +190,13 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let memory = runtime
-        .runtime()
-        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+    let root = ConversionContext::new(runtime.runtime(), &loaded)
+        .unwrap()
+        .encode(vec![7i32])
         .unwrap();
-    let root = runtime.runtime().root_value(Value::Array(memory)).unwrap();
+    let Value::GcHandle(memory) = root.value(runtime.runtime().gc()).unwrap() else {
+        panic!("Vec memory fixture")
+    };
     *memory_slot.lock().unwrap() = Some(memory);
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     assert!(
@@ -197,7 +204,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         "{error:?}"
     );
     assert_eq!(
-        runtime.runtime().gc().array_snapshot(memory).unwrap(),
+        runtime.runtime().gc().sequence_snapshot(memory).unwrap(),
         vec![Value::I32(7), Value::I32(1), Value::I32(2)]
     );
     drop(root);
@@ -261,7 +268,7 @@ fn casts_respect_early_return_and_nested_generics() {
         r#"
         fn stop() -> i32 { (if true { return 42; } else { return 1; }) as u8; 0 }
         fn main() -> i32 {
-            val nested: Vec<Vec<u8>> = [[8u8 >> 1]];
+            val nested: Vec<Vec<u8>> = Vec::from([Vec::from([8u8 >> 1])]);
             { val passed = nested[0][0] == 4u8; if !passed {val zero=0;1/zero;} };
             stop()
         }

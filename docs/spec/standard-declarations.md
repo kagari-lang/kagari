@@ -21,7 +21,9 @@ The installed `core`/`alloc`/`std` foundation contains complete language contrac
 operators, comparisons, hashing, Index, Fn, iteration, collection interfaces,
 formatting and error conversion. It also declares Option/Result/Ordering/Bound,
 range forms, cold Future values and the default Vec/HashMap/HashSet types. The SDK installs their basic native operations by default. Array literals
-construct Vec. Explicit registrations declare the core traits; validated language
+construct builtin fixed-length arrays independently of installed declarations.
+Vec is registered nominal sequence storage; Vec::from and HashSet::from are
+ordinary associated constructors taking `[T]`. Explicit registrations declare the core traits; validated language
 roles select their semantic duties. Installation remains independent of syntax/HIR.
 Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
 retain its definition identity. Native modules carry public alias targets, and
@@ -239,10 +241,13 @@ must be rooted before further allocation or reentry; callback argument packs do
 not create a script tuple merely to carry Rust arguments.
 
 Scoped sequence views borrow rooted existing storage. Primitive layouts use
-contiguous typed buffers, including empty arrays whose layout is determined by
+contiguous typed buffers, including empty sequences whose layout is determined by
 the declared element type. Heap-reference elements use traced Values. Bulk slice
-access does not copy the entire array or allocate a per-call scratch buffer.
-Mutable access respects alias/iteration guards and storage revisions.
+access does not copy the entire sequence or allocate a per-call scratch buffer.
+Mutable access respects alias/iteration guards and storage revisions. These
+sequence codecs and edit leases accept registered nominal sequence storage, never
+builtin arrays. Fixed arrays share internal buffer kernels only after separate
+family and element-contract validation.
 
 `SequenceEdit` leases the actual sequence buffer for synchronous mutation. The
 lease excludes receiver-slot access through other aliases and restores storage on

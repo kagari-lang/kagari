@@ -107,7 +107,7 @@ fn projection_bounds_valid(
                 pending.extend(params);
                 pending.push(result);
             }
-            Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
+            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
                 pending.push(item)
             }
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),

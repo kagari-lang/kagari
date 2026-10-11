@@ -11,9 +11,7 @@ use std::collections::HashSet;
 impl Ty {
     pub fn collection_access(&self) -> Option<CollectionAccess> {
         match self {
-            Self::Array(_, access) | Self::Set(_, access) | Self::Map { access, .. } => {
-                Some(*access)
-            }
+            Self::Set(_, access) | Self::Map { access, .. } => Some(*access),
             _ => None,
         }
     }
@@ -21,7 +19,6 @@ impl Ty {
     /// Weaken only the outer storage capability; element types remain invariant.
     pub fn read_only_view(&self) -> Option<Self> {
         Some(match self {
-            Self::Array(item, _) => Self::Array(item.clone(), CollectionAccess::ReadOnly),
             Self::Set(item, _) => Self::Set(item.clone(), CollectionAccess::ReadOnly),
             Self::Map { key, value, .. } => Self::Map {
                 key: key.clone(),
@@ -39,7 +36,7 @@ impl Ty {
             return false;
         }
         match (self, target) {
-            (Self::Array(a, _), Self::Array(b, _)) | (Self::Set(a, _), Self::Set(b, _)) => a == b,
+            (Self::Set(a, _), Self::Set(b, _)) => a == b,
             (
                 Self::Map {
                     key: ak, value: av, ..
@@ -109,20 +106,25 @@ mod tests {
     #[test]
     fn weakening_is_outer_only_and_does_not_change_storage_families() {
         let item = Ty::Builtin(BuiltinType::I32);
-        let mutable = Ty::Array(Box::new(item.clone()), CollectionAccess::Mutable);
+        let mutable = Ty::Set(Box::new(item.clone()), CollectionAccess::Mutable);
         let readonly = mutable.read_only_view().unwrap();
         assert!(mutable.can_weaken_to(&readonly));
         assert!(!readonly.can_weaken_to(&mutable));
-        assert!(!mutable.can_weaken_to(&Ty::Set(Box::new(item), CollectionAccess::ReadOnly)));
-        let nested_mutable = Ty::Array(Box::new(mutable), CollectionAccess::Mutable);
-        let nested_readonly = Ty::Array(Box::new(readonly), CollectionAccess::ReadOnly);
+        assert!(!mutable.can_weaken_to(&Ty::Array(Box::new(item))));
+        assert!(
+            Ty::Array(Box::new(mutable.clone()))
+                .read_only_view()
+                .is_none()
+        );
+        let nested_mutable = Ty::Array(Box::new(mutable));
+        let nested_readonly = Ty::Array(Box::new(readonly));
         assert!(!nested_mutable.can_weaken_to(&nested_readonly));
     }
 
     #[test]
     fn repetition_rejects_shared_payloads_and_checks_cancellation() {
         let scalar = Ty::Builtin(BuiltinType::I32);
-        let shared = Ty::Array(Box::new(scalar.clone()), CollectionAccess::ReadOnly);
+        let shared = Ty::Array(Box::new(scalar.clone()));
         let cancel = CancellationToken::default();
         assert!(supports_array_repetition(
             &Ty::Tuple(vec![scalar.clone()]),

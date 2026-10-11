@@ -2,6 +2,7 @@ use super::*;
 use crate::{hir::expr::ExprKind, tests::test_analysis};
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_stdlib::catalog as foundation_catalog;
+use kagari_types::collection::CollectionAccess;
 
 #[test]
 fn branch_and_array_merges_recover_complementary_member_facts() {
@@ -34,7 +35,7 @@ fn branch_and_array_merges_recover_complementary_member_facts() {
             TypeId::Builtin(BuiltinType::Bool),
         ]);
         let expected = if array {
-            TypeId::Array(Box::new(pair), CollectionAccess::Mutable)
+            TypeId::Array(Box::new(pair))
         } else {
             pair
         };

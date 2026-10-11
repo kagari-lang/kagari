@@ -3,7 +3,6 @@
 //! invalid or incomplete spelling produces diagnostics and recovery types.
 
 use crate::{
-    builtin::array_bridge,
     declarations::{DeclarationId, Declarations},
     hir::{
         ids::{BodyOwner, HirOwner, ImplId, TraitId, TypeRefId},
@@ -396,13 +395,9 @@ pub(super) fn resolve_type_in(
                 TypeId::Tuple(elements)
             }
         }
-        TypeKind::Array(element) => array_bridge::list_interface(
-            resolve_type_in(module, *element, context, table, cancel),
-            false,
-            context.declarations,
-        )
-        .map(TypeId::Trait)
-        .unwrap_or(TypeId::Error),
+        TypeKind::Array(element) => TypeId::Array(Box::new(resolve_type_in(
+            module, *element, context, table, cancel,
+        ))),
         TypeKind::Function { params, result } => TypeId::Function {
             params: params
                 .iter()

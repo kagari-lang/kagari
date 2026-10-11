@@ -168,7 +168,7 @@ fn match_pairs<'a, I: DefinitionReference>(
             }
             (Ty::Range(left, a), Ty::Range(right, b)) if a == b => pending.push((left, right)),
             (Ty::Iter(left), Ty::Iter(right)) => pending.push((left, right)),
-            (Ty::Array(left, _), Ty::Array(right, _)) | (Ty::Set(left, _), Ty::Set(right, _)) => {
+            (Ty::Array(left), Ty::Array(right)) | (Ty::Set(left, _), Ty::Set(right, _)) => {
                 pending.push((left, right))
             }
             (

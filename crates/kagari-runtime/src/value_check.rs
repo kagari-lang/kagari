@@ -89,7 +89,7 @@ pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> 
         (Value::GcHandle(id), Ty::Iter(_)) => view
             .parameter(0)
             .is_some_and(|element| heap.matches_iter_type(*id, element)),
-        (Value::Array(id), Ty::Array(_, _)) => heap.array_contract(*id).is_some_and(|contract| {
+        (Value::Array(id), Ty::Array(_)) => heap.array_contract(*id).is_some_and(|contract| {
             view.parameter(0)
                 .is_some_and(|element| contract.matches_view(element))
         }),

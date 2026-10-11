@@ -208,7 +208,7 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
 fn concrete_collection_native_signatures_preserve_element_types() {
     let program = fixture(
         r#"pub fn answer() -> i32 {
-        val values = [40]; values.push(2);
+        val values = Vec::from([40]); values.push(2);
         values[0] + match values.get(1usize) { Some(value) => value, None => 0 }
     }"#,
     );
@@ -219,7 +219,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
             .flat_map(|module| &module.native_imports)
             .any(|import| matches!(
                 import.signature.params.first(),
-                Some(kagari_types::ty::Ty::Array(_, _))
+                Some(kagari_types::ty::Ty::NativeObject(nominal)) if nominal.arguments == [Ty::Builtin(BuiltinType::I32)]
             ))
     );
     let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
@@ -313,10 +313,10 @@ pub fn answer() -> i32 {
 fn native_storage_writes_reject_element_type_forgery() {
     let mut program = fixture(
         r#"pub fn answer() -> i32 {
-        val values = [[42]];
-        val wrong = ["bad"];
+        val values = Vec::from([Vec::from([42])]);
+        val wrong = Vec::from(["bad"]);
         wrong.push("still bad");
-        values.push([1]);
+        values.push(Vec::from([1]));
         values[0][0]
     }"#,
     );
@@ -345,11 +345,11 @@ fn native_storage_writes_reject_element_type_forgery() {
         .registers
         .iter()
         .find_map(|(index, ty)| {
-            matches!(ty,Ty::Array(item,_) if item.as_ref() == &Ty::Builtin(BuiltinType::String))
+            matches!(ty,Ty::NativeObject(nominal) if nominal.arguments == [Ty::Builtin(BuiltinType::String)])
                 .then_some(Register::new(*index))
         })
         .unwrap();
-    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if imports[id.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_list_push_fluent") && matches!(&imports[id.index()].signature.params[0], Ty::Array(item, _) if matches!(item.as_ref(), Ty::Array(_, _))))).unwrap();
+    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if imports[id.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_list_push_fluent") && matches!(&imports[id.index()].signature.params[0], Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::NativeObject(_)])))).unwrap();
     let BytecodeInstruction::Call { args, .. } = instruction else {
         unreachable!()
     };

@@ -7,14 +7,12 @@ use crate::{
     module::LoadedModule,
     native::{
         binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        context::operations::check_array_argument,
+        context::operations::check_sequence_argument,
         scalar::NativeScalar,
     },
     value::Value,
 };
-use kagari_types::{
-    callable::Signature, collection::CollectionAccess, scalar::BuiltinType, ty::Ty,
-};
+use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
 
 // A fixed kernel's successful result must not carry the cold diagnostic payload.
 pub(crate) type PrimitiveResult = Result<Value, Box<RuntimeError>>;
@@ -86,7 +84,7 @@ impl LinkedNativeFunction {
 impl NativePrimitive {
     /// The relationship between element, value and result types is part of the
     /// body contract, including in generic declarations before specialization.
-    pub(crate) fn accepts_signature<D: PartialEq>(self, signature: &Signature<D>) -> bool {
+    pub(crate) fn accepts_signature<D: PartialEq + Clone>(self, signature: &Signature<D>) -> bool {
         let params = &signature.params;
         match self {
             Self::StringByteLength => {
@@ -94,19 +92,19 @@ impl NativePrimitive {
                     && signature.result == Ty::Builtin(BuiltinType::USize)
             }
             Self::VecIndex => {
-                matches!(params.as_slice(), [Ty::Array(element, _), Ty::Builtin(BuiltinType::USize)]
-                if **element == signature.result)
+                matches!(params.as_slice(), [Ty::NativeObject(nominal), Ty::Builtin(BuiltinType::USize)]
+                if nominal.arguments.as_slice() == [signature.result.clone()])
             }
             Self::VecSet | Self::VecSetFluent => {
                 let [
-                    Ty::Array(element, CollectionAccess::Mutable),
+                    Ty::NativeObject(nominal),
                     Ty::Builtin(BuiltinType::USize),
                     value,
                 ] = params.as_slice()
                 else {
                     return false;
                 };
-                **element == *value
+                nominal.arguments.as_slice() == [value.clone()]
                     && match self {
                         Self::VecSet => signature.result == Ty::Builtin(BuiltinType::Unit),
                         _ => signature.result == params[0],
@@ -130,9 +128,9 @@ impl NativePrimitive {
             Self::VecIndex => {
                 let base = argument(0)?;
                 let id =
-                    check_array_argument(runtime, owner, &signature.params[0], false, || Ok(base))?;
+                    check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
                 let index = usize::decode(argument(1)?)?;
-                heap.array_element(id, index)?.ok_or_else(|| {
+                heap.sequence_element(id, index)?.ok_or_else(|| {
                     Box::new(RuntimeError::new(
                         RuntimeErrorKind::IndexOutOfBounds,
                         "list index is out of bounds",
@@ -142,7 +140,7 @@ impl NativePrimitive {
             Self::VecSet | Self::VecSetFluent => {
                 let base = argument(0)?;
                 let id =
-                    check_array_argument(runtime, owner, &signature.params[0], true, || Ok(base))?;
+                    check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
                 let index = usize::decode(argument(1)?)?;
                 let value = argument(2)?;
                 if !signature.params[2].matches(runtime, &value, owner) {
@@ -157,9 +155,9 @@ impl NativePrimitive {
                 // Value needs neither an owning SDK handle nor a conversion GC
                 // safepoint: this body cannot grow the heap or call foreign code.
                 runtime.resources().poll_execution()?;
-                heap.check_array_replacement(id, index)?;
+                heap.check_sequence_replacement(id, index)?;
                 runtime.resources().poll_execution()?;
-                heap.array_set(id, index, value)?;
+                heap.sequence_set(id, index, value)?;
                 Ok(match self {
                     Self::VecSet => Value::Unit,
                     _ => base,

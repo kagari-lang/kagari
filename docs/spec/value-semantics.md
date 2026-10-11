@@ -10,15 +10,14 @@ semantics. Tuple and enum copies preserve the semantics of each member; copying
 a member that refers to a mutable object does not copy that object. Enum payloads
 cannot be reassigned in place.
 
-Structs, arrays, maps, and sets are mutable identity-bearing objects. Assignment,
+Structs, arrays, Vec objects, maps, and sets are mutable identity-bearing objects. Assignment,
 argument passing, and returns share their identity. `val` prevents rebinding a
 slot, not mutation of the referenced object. Container copy operations are
 shallow. There is no generic deep-copy or deep-freeze operation in v1.
 
-[Collection access](collection-access.md) distinguishes read-only `List<T>`
-(`[T]`), `Map<K, V>` and `Set<T>` from writable `MutableList<T>`,
+[Collection access](collection-access.md) distinguishes read-only `List<T>`, `Map<K, V>` and `Set<T>` from writable `MutableList<T>`,
 `MutableMap<K, V>` and `MutableSet<T>`. Concrete storage is `Vec`,
-`HashMap` and `HashSet`. Literals infer `Vec<T>`. Access
+`HashMap` and `HashSet`. Array literals infer `[T]`. Access
 conversion preserves the underlying object. Copy/factory algorithms are not
 part of the current foundational collection interface.
 Read-only views do not freeze referenced objects or other writable aliases.
@@ -324,12 +323,10 @@ tuple does not replace the tuple.
 - A compound assignment evaluates root/index/RHS once, reads after RHS, and never
   writes after a failed RHS, invalidated location, or overflow.
 
-The shared `language_contract` suite checks Map and Set identity through arguments
-and return values, including distinct collections with equal contents. It also
-checks `Map.values()` sharing mutable element objects while creating independent
-array structure, and `Set.to_array()` allowing independent element replacement
-and growth. Enum/tuple member comparisons retain Map identity after mutation.
-These fixtures run through source, artifact loading and the existing JIT/fallback.
+The shared language and collection suites check identity through arguments and
+returns, independent storage from explicit constructors, and shared referenced
+elements. Source, artifact and JIT-enabled paths retain these contracts; native
+preparation may use interpreter fallback.
 
 Iterator terminal operations hold source iteration guards until callbacks finish,
 short-circuit or fail. Hosts use
@@ -345,7 +342,7 @@ failure. Short-circuit operations consume the decisive item and leave subsequent
 items available through the same iterator and its aliases.
 
 Heap pop/remove/clear APIs return `Result` for operational failure. `Ok(None)`
-from Array pop/remove or Map remove, and `Ok(false)` from Set remove, indicate
+from Vec pop/remove or Map remove, and `Ok(false)` from Set remove, indicate
 normal absence only. Invalid keys/handles, iteration protection and execution
 rejection are errors. Clear returns `Result<(), RuntimeError>`. Standard helpers
 preserve this distinction and check iteration protection before allocating their
@@ -420,7 +417,9 @@ See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).
 
 ## Repeat arrays and bulk replacement
 
-`[value; count]` constructs a fresh `Vec<T>`, not a fixed-length array.
+`[value; count]` constructs a fresh builtin `[T]` array whose length remains fixed.
+Length is not a type argument; rebinding a `var` to another array changes only that
+slot. Existing aliases retain the original object and length.
 Evaluate `value`, then the `usize` count, exactly once. The value is evaluated even
 for zero length. Repetition requires a type proven to contain no shared mutable
 object identity: scalars, String and integer ranges qualify; Tuple and enum payloads

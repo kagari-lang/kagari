@@ -21,38 +21,38 @@ impl Ord for Rank {
 struct Count { var calls: i32 }
 fn ordered<T: Ord>(values: Vec<T>) { values.sort(); }
 fn selected_main() -> bool {
-    val values = [3, 1, 2, 1, 5];
+    val values = Vec::from([3, 1, 2, 1, 5]);
     ordered(values);
     values[0usize] == 1 && values[1usize] == 1 && values[2usize] == 2 && values[3usize] == 3 && values[4usize] == 5
 }
 fn supplied_main() -> bool {
-    val values = [3, 1, 2, 1, 5];
+    val values = Vec::from([3, 1, 2, 1, 5]);
     values.sort_by(|left, right| right.cmp(left));
     values[0usize] == 5 && values[1usize] == 3 && values[2usize] == 2 && values[3usize] == 1 && values[4usize] == 1
 }
 fn script_main() -> bool {
     val first = Rank { key: 2, tag: 0, visits: 0 };
-    val values = [first, Rank { key: 1, tag: 1, visits: 0 }, Rank { key: 2, tag: 2, visits: 0 }];
+    val values = Vec::from([first, Rank { key: 1, tag: 1, visits: 0 }, Rank { key: 2, tag: 2, visits: 0 }]);
     val view: List<Rank> = values;
     values.sort();
     view[0usize].tag == 1 && view[1usize].tag == 0 && view[2usize].tag == 2 && first.visits > 0
 }
 fn application_main() -> bool {
-    val values = [3, 1, 2]; arrange(values);
+    val values = Vec::from([3, 1, 2]); arrange(values);
     values[0usize] == 1 && values[1usize] == 2 && values[2usize] == 3
 }
 fn application_supplied_main() -> bool {
-    val values = [3, 1, 2]; arrange_by(values, |left, right| right.cmp(left));
+    val values = Vec::from([3, 1, 2]); arrange_by(values, |left, right| right.cmp(left));
     values[0usize] == 3 && values[1usize] == 2 && values[2usize] == 1
 }
 fn application_reverse_main() -> bool {
-    val values = [1, 2, 3]; val view: List<i32> = values; reverse(values);
+    val values = Vec::from([1, 2, 3]); val view: List<i32> = values; reverse(values);
     view[0usize] == 3 && view[1usize] == 2 && view[2usize] == 1
 }
 fn edge_main() -> bool {
     val calls = Count { calls: 0 };
-    val empty: Vec<i32> = []; empty.sort(); empty.sort_by(|left, right| { calls.calls += 1; left.cmp(right) });
-    val single = [7]; single.sort(); single.sort_by(|left, right| { calls.calls += 1; left.cmp(right) });
+    val empty: Vec<i32> = Vec::from([]); empty.sort(); empty.sort_by(|left, right| { calls.calls += 1; left.cmp(right) });
+    val single = Vec::from([7]); single.sort(); single.sort_by(|left, right| { calls.calls += 1; left.cmp(right) });
     val empty_view: List<i32> = empty;
     val single_view: List<i32> = single;
     calls.calls == 0 && empty.is_empty() && empty_view.is_empty() && !single.is_empty() && !single_view.is_empty() && single[0usize] == 7

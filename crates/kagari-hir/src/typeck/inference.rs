@@ -71,7 +71,7 @@ pub(crate) fn infer(
                 pending.push((expected, actual));
             }
             (TypeId::Iter(expected), TypeId::Iter(actual))
-            | (TypeId::Array(expected, _), TypeId::Array(actual, _))
+            | (TypeId::Array(expected), TypeId::Array(actual))
             | (TypeId::Set(expected, _), TypeId::Set(actual, _)) => {
                 pending.push((expected, actual));
             }
@@ -189,8 +189,8 @@ mod tests {
         let mut expected = TypeId::Generic(parameter.clone());
         let mut actual = TypeId::Builtin(BuiltinType::I32);
         for _ in 0..10_000 {
-            expected = TypeId::Array(Box::new(expected), CollectionAccess::Mutable);
-            actual = TypeId::Array(Box::new(actual), CollectionAccess::Mutable);
+            expected = TypeId::Array(Box::new(expected));
+            actual = TypeId::Array(Box::new(actual));
         }
         let mut substitution = TypeSubstitution::default();
         let cancelled = kagari_common::cancellation::CancellationToken::default();
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(substitution[&parameter], TypeId::Builtin(BuiltinType::I32));
         // Drop the synthetic deep inputs iteratively too; this test isolates traversal.
         for mut ty in [expected, actual] {
-            while let TypeId::Array(element, _) = ty {
+            while let TypeId::Array(element) = ty {
                 ty = *element;
             }
         }
@@ -243,9 +243,9 @@ mod tests {
         let mut integer = TypeId::Builtin(BuiltinType::I32);
         let mut boolean = TypeId::Builtin(BuiltinType::Bool);
         for _ in 0..10_000 {
-            recovering = TypeId::Array(Box::new(recovering), CollectionAccess::Mutable);
-            integer = TypeId::Array(Box::new(integer), CollectionAccess::Mutable);
-            boolean = TypeId::Array(Box::new(boolean), CollectionAccess::Mutable);
+            recovering = TypeId::Array(Box::new(recovering));
+            integer = TypeId::Array(Box::new(integer));
+            boolean = TypeId::Array(Box::new(boolean));
         }
         assert!(!recovering.conflicts_with(&integer));
         recovering.recover_from(&integer);
@@ -254,7 +254,7 @@ mod tests {
         recovering.recover_from(&boolean);
         assert!(!recovering.conflicts_with(&integer));
         for mut ty in [recovering, integer, boolean] {
-            while let TypeId::Array(element, _) = ty {
+            while let TypeId::Array(element) = ty {
                 ty = *element;
             }
         }
@@ -344,18 +344,12 @@ mod tests {
             let template = make(NominalType {
                 associated_types: Default::default(),
                 declaration: declaration.clone(),
-                arguments: vec![TypeId::Array(
-                    Box::new(TypeId::Generic(parameter.clone())),
-                    CollectionAccess::Mutable,
-                )],
+                arguments: vec![TypeId::Array(Box::new(TypeId::Generic(parameter.clone())))],
             });
             let actual = make(NominalType {
                 associated_types: Default::default(),
                 declaration: declaration.clone(),
-                arguments: vec![TypeId::Array(
-                    Box::new(TypeId::Builtin(BuiltinType::I32)),
-                    CollectionAccess::Mutable,
-                )],
+                arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
             });
             let mut substitution = TypeSubstitution::default();
             infer(
@@ -382,10 +376,7 @@ mod tests {
                 make(NominalType {
                     associated_types: Default::default(),
                     declaration: foreign,
-                    arguments: vec![TypeId::Array(
-                        Box::new(TypeId::Builtin(BuiltinType::I32)),
-                        CollectionAccess::Mutable,
-                    )],
+                    arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
                 }),
                 make(NominalType {
                     associated_types: Default::default(),

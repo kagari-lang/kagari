@@ -39,7 +39,7 @@ fn engine() -> KagariEngine {
         .bind_with(
             singleton,
             NativeBinding::new([Codec::Value], Codec::MutableSequence, |call| {
-                call.allocate_sequence(call.result_type_parameter(0)?, vec![call.argument(0)?])
+                call.allocate_vec(call.result_type_parameter(0)?, vec![call.argument(0)?])
             }),
         )
         .unwrap();
@@ -77,9 +77,7 @@ fn engine() -> KagariEngine {
             NativeBinding::new(
                 [Codec::Value, Codec::Value],
                 Codec::MutableSequence,
-                |call| {
-                    call.allocate_sequence(call.result_type_parameter(0)?, vec![call.argument(1)?])
-                },
+                |call| call.allocate_vec(call.result_type_parameter(0)?, vec![call.argument(1)?]),
             ),
         )
         .unwrap();

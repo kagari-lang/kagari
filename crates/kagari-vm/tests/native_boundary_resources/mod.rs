@@ -87,7 +87,7 @@ impl MutationFixture {
     fn is_empty(&self) -> bool {
         let heap = self.vm.runtime().gc();
         let length = match self.value() {
-            Value::Array(id) => heap.array_len(id),
+            Value::GcHandle(id) => heap.sequence_len(id),
             Value::Map(id) => heap.map_len(id),
             Value::Set(id) => heap.set_len(id),
             _ => panic!("retained collection"),
@@ -99,7 +99,7 @@ impl MutationFixture {
 #[test]
 fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     let fixture = MutationFixture::new(
-        "use test::roots::retain; fn main() -> Option<i32> { val array = [42]; retain(array); array.pop() }",
+        "use test::roots::retain; fn main() -> Option<i32> { val array: Vec<i32> = Vec::new(); array.push(42); retain(array); array.pop() }",
         RuntimeLimits {
             ..Default::default()
         },
@@ -187,7 +187,7 @@ use std::hash::{Hash};
             impl Eq for Key {}
             impl Hash for Key { fn hash(self) -> i64 { self.calls[0] = self.calls[0] + 1; 7 } }
             fn main() -> i32 {
-                val key = Key { calls: [0], number: 1 };
+                val key = Key { calls: Vec::from([0]), number: 1 };
                 val map: HashMap<Key, i32> = HashMap::new();
                 map.insert(key, 42); retain(map); map.remove(key); key.calls[0]
             }

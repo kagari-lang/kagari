@@ -1,13 +1,13 @@
 fn main() -> i32 {
-    val counter = [18];
+    val counter = Vec::from([18]);
     val arrays = Vec::from_fn(2usize, |index| {
         counter[0usize] = counter[0usize] + 2;
-        [counter[0usize]]
+        Vec::from([counter[0usize]])
     });
     val result: Vec<i32> = Vec::new();
     result.push(arrays[0usize][0usize]);
     result.push(arrays[1usize][0usize]);
-    val view: [i32] = result;
+    val view: std::collections::List<i32> = result;
     if view.len() == 2usize
         && std::math::floor(2.5) == 2.0
         && std::math::ceil(2.5) == 3.0

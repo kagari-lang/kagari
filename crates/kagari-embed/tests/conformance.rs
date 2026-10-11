@@ -164,7 +164,7 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
                 r#"use std::collections::{HashMap, HashSet};
 
 fn main() -> (usize, usize, usize, bool, i32) {
-    val values = [1, 2];
+    val values = Vec::from([1, 2]);
     values.push(3);
     val map: HashMap<String, i32> = HashMap::new();
     map.insert("ok", 7);

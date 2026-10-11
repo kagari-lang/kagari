@@ -70,30 +70,30 @@ mod tests {
         let mut contract = catalog
             .traits
             .iter()
-            .find(|contract| contract.name == "List")
+            .find(|contract| contract.name == "Set")
             .unwrap()
             .clone();
         let integer = Ty::Builtin(BuiltinType::I32);
-        let mutable = Ty::Array(Box::new(integer.clone()), CollectionAccess::Mutable);
-        let readonly = Ty::Array(Box::new(integer.clone()), CollectionAccess::ReadOnly);
+        let mutable = Ty::Set(Box::new(integer.clone()), CollectionAccess::Mutable);
+        let readonly = Ty::Set(Box::new(integer.clone()), CollectionAccess::ReadOnly);
         let parameter = GenericParam {
             owner: id(DefinitionKind::Impl, ""),
             position: 0,
         };
-        let mut interface = library::applied("List", vec![integer.clone()]);
+        let mut interface = library::applied("Set", vec![integer.clone()]);
         // An ordinary installed interface gets its capability from its record,
         // without any addition to the language protocol inventory.
-        let custom = id(DefinitionKind::Trait, "CustomSequence");
+        let custom = id(DefinitionKind::Trait, "CustomSet");
         interface.declaration = custom.clone();
         let mut table = InterfaceTable {
             declaration: parameter.owner.clone(),
-            name: "List".into(),
+            name: "Set".into(),
             generic_params: vec![parameter.clone()],
             bounds: vec![],
             methods: vec![],
             associated_consts: vec![],
-            for_type: Ty::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable),
-            trait_type: Ty::Trait(library::applied("List", vec![parameter.as_type()])),
+            for_type: Ty::Set(Box::new(parameter.as_type()), CollectionAccess::Mutable),
+            trait_type: Ty::Trait(library::applied("Set", vec![parameter.as_type()])),
             associated_type_families: vec![],
             host_bridge: false,
         };
@@ -129,15 +129,15 @@ mod tests {
         );
         contract.storage_access = Some(CollectionAccess::ReadOnly);
         // Generic arguments cannot acquire the outer access relaxation.
-        interface = library::applied("List", vec![readonly.clone()]);
+        interface = library::applied("Set", vec![readonly.clone()]);
         interface.declaration = custom.clone();
-        table.trait_type = Ty::Trait(library::applied("List", vec![parameter.as_type()]));
+        table.trait_type = Ty::Trait(library::applied("Set", vec![parameter.as_type()]));
         let Ty::Trait(implemented) = &mut table.trait_type else {
             unreachable!()
         };
         implemented.declaration = custom;
-        table.for_type = Ty::Array(Box::new(mutable), CollectionAccess::Mutable);
-        let nested = Ty::Array(Box::new(readonly), CollectionAccess::ReadOnly);
+        table.for_type = Ty::Set(Box::new(mutable), CollectionAccess::Mutable);
+        let nested = Ty::Set(Box::new(readonly), CollectionAccess::ReadOnly);
         assert!(
             match_implementation(&table, Some(&contract), &interface, &nested, &cancel)
                 .unwrap()

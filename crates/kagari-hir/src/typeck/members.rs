@@ -205,7 +205,7 @@ fn add_iterator_view(
             receiver,
             TypeId::Range(_, _)
                 | TypeId::Iter(_)
-                | TypeId::Array(_, _)
+                | TypeId::Array(_)
                 | TypeId::Map { .. }
                 | TypeId::Set(_, _)
                 | TypeId::Builtin(BuiltinType::String)

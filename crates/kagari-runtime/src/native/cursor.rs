@@ -42,19 +42,24 @@ impl NativeCursor {
 }
 
 impl CallContext<'_> {
-    /// Create a shared cursor over a declared Vec argument. Store it in a
+    /// Create a shared cursor over a declared nominal sequence argument. Store it in a
     /// native payload and visit it in iteration_sources for for-scope cleanup.
     pub fn sequence_cursor(&self, index: usize) -> NativeResult<NativeCursor> {
         let ty = self.argument_type(index)?;
-        let Ty::Array(item, _) = ty else {
+        let Ty::NativeObject(_) = ty else {
             return Err(RuntimeError::module_validation(
-                "sequence cursor requires Vec",
+                "sequence cursor requires nominal sequence storage",
             ));
         };
+        let id = self.sequence_argument(index)?;
+        let contract = self
+            .heap()
+            .sequence_contract(id)
+            .ok_or_else(|| RuntimeError::module_validation("sequence cursor element"))?;
         let value = self.iter_operation(index, IterOp::New)?;
         Ok(NativeCursor(Arc::new(Cursor {
             value,
-            ty: Ty::Iter(item.clone()),
+            ty: Ty::Iter(Box::new(contract.ty.clone())),
         })))
     }
 }

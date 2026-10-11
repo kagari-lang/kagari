@@ -17,7 +17,7 @@ use kagari_mir::{
     instruction::{CallTarget, Constant, Instruction, MirValue, PathRef, Terminator},
     verify::{MirVerificationErrorKind as Error, verify_mir},
 };
-use kagari_types::{collection::CollectionAccess, visibility::Visibility};
+use kagari_types::visibility::Visibility;
 
 fn raw(source: &str) -> MirModule {
     lower_to_mir(&common::analyze_ok(source), &Default::default())
@@ -162,19 +162,13 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     let nominal = NominalType {
         associated_types: Default::default(),
         declaration: declaration.clone(),
-        arguments: vec![TypeId::Array(
-            Box::new(TypeId::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable,
-        )],
+        arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
     };
     let encoded = lower_type(&TypeId::Struct(nominal));
     let expected = Ty::Struct(NominalTy {
         associated_types: Default::default(),
         declaration,
-        arguments: vec![Ty::Array(
-            Box::new(Ty::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable,
-        )],
+        arguments: vec![Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))],
     });
     assert_eq!(encoded, expected);
     let bytes = bincode::serialize(&encoded).unwrap();

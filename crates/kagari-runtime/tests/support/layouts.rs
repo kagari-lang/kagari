@@ -198,3 +198,37 @@ pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> LoadedModule {
         )
         .unwrap()
 }
+
+/// Load registered sequence contracts for tests of growth and detached leases.
+#[allow(dead_code)]
+pub fn sequence_owner(runtime: &mut Runtime) -> LoadedModule {
+    use kagari_contract::types::PublicItem;
+    use kagari_runtime::native::{builder::ModuleBuilder, storage::NativeStorage};
+
+    let mut builder = ModuleBuilder::new("kagari-alloc::vec", &Default::default());
+    let mut vector = builder.define_type("Vec");
+    vector.type_parameter("T").unwrap();
+    vector.native_storage(NativeStorage::sequence(0)).unwrap();
+    vector.finish().unwrap();
+    let module = builder.finish().unwrap();
+    let declaration = module.to_declaration().unwrap();
+    module.install(runtime).unwrap();
+    runtime
+        .load_program(
+            "sequence-fixture",
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity: declaration.identity.clone(),
+                    public_items: declaration
+                        .types
+                        .iter()
+                        .cloned()
+                        .map(PublicItem::Type)
+                        .collect(),
+                    ..Default::default()
+                }],
+            },
+        )
+        .unwrap()
+}

@@ -8,7 +8,7 @@ use kagari_runtime::{
     Runtime, error::RuntimeErrorKind, module::LoadedModule, value::Value,
     value_semantics::script_equal,
 };
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn runtime_is_send() {
@@ -34,10 +34,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     let first_owner = allocation_owner(&mut first);
     let enum_owner = layouts::enum_owner(
         &mut first,
-        vec![Ty::Array(
-            Box::new(Ty::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable,
-        )],
+        vec![Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))],
     );
     let mut second = Runtime::default();
     let second_owner = allocation_owner(&mut second);
@@ -59,8 +56,8 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
     assert_ne!(own, foreign);
     let before = first.gc().stats();
     assert!(first.gc().array_get(foreign, 0).is_none());
-    assert!(first.gc().array_push(foreign, Value::I32(3)).is_err());
-    assert!(first.gc().array_push(own, Value::Array(foreign)).is_err());
+    assert!(first.gc().array_set(foreign, 0, Value::I32(3)).is_err());
+    assert!(first.gc().array_set(own, 0, Value::Array(foreign)).is_err());
     assert!(
         first
             .gc()
@@ -93,10 +90,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
         first
             .alloc_array(
                 &first_owner,
-                Ty::Array(
-                    Box::new(Ty::Builtin(BuiltinType::I32)),
-                    CollectionAccess::Mutable
-                ),
+                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
                 vec![Value::Array(foreign)]
             )
             .unwrap_err()
@@ -141,7 +135,7 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
     assert_eq!(next.index(), object.index());
     assert!(next.generation() > object.generation());
     let before = runtime.gc().stats();
-    assert!(runtime.gc().array_push(object, Value::I32(7)).is_err());
+    assert!(runtime.gc().array_set(object, 0, Value::I32(7)).is_err());
     assert_eq!(runtime.gc().stats(), before);
     assert!(script_equal(runtime.gc(), &Value::Array(object), &Value::Array(object)).is_err());
 

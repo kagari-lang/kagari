@@ -51,7 +51,9 @@ pub fn satisfies_standard_constraint(
             | HostValueType::F32
             | HostValueType::F64
             | HostValueType::String
-            | HostValueType::Array(_, _)
+            | HostValueType::Array(_)
+            | HostValueType::Vec(..)
+            | HostValueType::List(..)
             | HostValueType::Map { .. }
             | HostValueType::Set(_, _) => {}
         }
@@ -62,7 +64,6 @@ pub fn satisfies_standard_constraint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collection::CollectionAccess;
 
     #[test]
     fn host_standard_constraints_distinguish_payload_and_collection_identity() {
@@ -79,7 +80,7 @@ mod tests {
             &HostValueType::option(float.clone()),
             StandardTypeConstraint::HashKey
         ));
-        let array = HostValueType::Array(Box::new(float), CollectionAccess::ReadOnly);
+        let array = HostValueType::Array(Box::new(float));
         assert!(satisfies_standard_constraint(
             &array,
             StandardTypeConstraint::HashKey

@@ -86,7 +86,7 @@ fn generic_implementations_normalize_nested_associated_types() {
         r#"
         trait Reader { type Item; fn read(self) -> Self::Item; }
         struct Number { val value: i32 }
-        impl Reader for Number { type Item = Vec<i32>; fn read(self) -> Self::Item { [self.value] } }
+        impl Reader for Number { type Item = Vec<i32>; fn read(self) -> Self::Item { Vec::from([self.value]) } }
         fn read(r: Reader<Item = Vec<i32>>) -> Vec<i32> { r.read() }
         fn main() -> i32 { read(Number { value: 42 })[0] }
     "#,

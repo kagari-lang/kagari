@@ -221,7 +221,8 @@ fn inherent_example(receiver: &Ty, name: &str) -> String {
         )
     } else {
         let ty = match receiver {
-            Ty::Array(..) => "Vec<i32>",
+            Ty::Array(..) => "[i32]",
+            Ty::NativeObject(_) => "Vec<i32>",
             Ty::Map { .. } => "std::collections::HashMap<i32, i32>",
             Ty::Set(..) => "std::collections::HashSet<i32>",
             _ => unreachable!("standard inherent documentation receiver"),
@@ -244,7 +245,12 @@ fn inherent_example(receiver: &Ty, name: &str) -> String {
             },
         )
     };
-    if name == "new" {
+    if name == "from" {
+        format!(
+            "fn create() -> {ty} {{ {}::from([1, 2]) }}",
+            ty.split('<').next().unwrap()
+        )
+    } else if name == "new" {
         format!(
             "fn create() -> {ty} {{ {}::new() }}",
             ty.split('<').next().unwrap()
@@ -257,6 +263,9 @@ fn inherent_example(receiver: &Ty, name: &str) -> String {
 pub(super) fn complete(module: &mut ModuleDecl) {
     let path = module.identity.path.join("::");
     let overview = match path.as_str() {
+        "array" => {
+            "Builtin shared arrays have construction-time fixed length and checked element access."
+        }
         "iter" => {
             "Shared iteration and iterable construction. Iterator values retain progress and obey guarded structural mutation."
         }

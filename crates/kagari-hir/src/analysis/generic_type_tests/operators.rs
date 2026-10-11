@@ -30,7 +30,7 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
         let source = SourceFile::new(
             "reflective-context.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: Vec<Marker<i32>> = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
+                "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: [Marker<i32>] = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source, foundation_catalog::shared())
@@ -68,7 +68,9 @@ fn declared_arguments_suppress_dependent_errors_but_keep_known_member_conflicts(
     ] {
         let source = SourceFile::new(
             "standard-recovery.kgr",
-            format!("fn bad() {{ val values = [(1, true)]; {body} }} fn good() -> i32 {{ 42 }}"),
+            format!(
+                "fn bad() {{ val values = Vec::from([(1, true)]); {body} }} fn good() -> i32 {{ 42 }}"
+            ),
         );
         let analysis = analyze_contracts(&source);
         assert_eq!(
@@ -105,7 +107,7 @@ fn declared_container_operands_supply_constructor_context_in_both_call_forms() {
         let source = SourceFile::new(
             "standard-context.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: Vec<Marker<i32>> = []; val map: HashMap<i32, Marker<i32>> = HashMap::new(); {body} }}"
+                "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: Vec<Marker<i32>> = Vec::from([]); val map: HashMap<i32, Marker<i32>> = HashMap::new(); {body} }}"
             ),
         );
         let analysis = analyze_contracts(&source);

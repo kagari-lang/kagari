@@ -29,6 +29,7 @@ use kagari_common::identity::{
 };
 use kagari_contract::{ids::FunctionRef, operations::IterOp, types as abi, types::PublicItem};
 use kagari_types::{
+    declaration::native::NativeStorageLayout,
     language::binding,
     ty::{NominalTy, Ty, substitution::TypeSubstitution},
 };
@@ -533,9 +534,19 @@ impl Runtime {
             IterOp::String(kind) => self.gc.new_string_iter(value, ty.ty(), kind, owner),
             IterOp::New => {
                 let item = ty.derive(self, owner, |ty| match ty {
-                    Ty::Range(item, _) | Ty::Array(item, _) | Ty::Set(item, _) => {
+                    Ty::Range(item, _) | Ty::Array(item) | Ty::Set(item, _) => {
                         Some((**item).clone())
                     }
+                    Ty::NativeObject(nominal) => self
+                        .native_entries
+                        .storage
+                        .get_id(nominal.declaration)
+                        .and_then(|storage| match storage.layout() {
+                            NativeStorageLayout::Sequence { element } => {
+                                nominal.arguments.get(element).cloned()
+                            }
+                            _ => None,
+                        }),
                     Ty::Map { key, value, .. } => {
                         Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
                     }

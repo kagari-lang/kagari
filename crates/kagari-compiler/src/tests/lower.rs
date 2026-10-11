@@ -426,7 +426,7 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
         "matrix(if true { return 42; } else { return 7; })[grow(1)][0]",
     ] {
         let analyzed = common::program_ok(&format!(
-            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> Vec<Vec<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
+            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> [[i32]] {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
         ));
         let ir = lower_to_mir(
             analyzed.root(),
@@ -623,7 +623,7 @@ fn records_ir_function_effect_summary() {
     let analyzed = common::program_ok(
         r#"
 fn main() -> usize {
-    val values = [1, 2];
+    val values = Vec::from([1, 2]);
     values.push(3);
     print("ok");
     values.len()
@@ -870,7 +870,7 @@ fn foundation_calls_lower_to_checked_native_imports() {
     let analyzed = common::program_ok(
         r#"
 fn main() -> usize {
-    val values = [1, 2];
+    val values = Vec::from([1, 2]);
     values.push(3);
     values.pop();
     values.len()
@@ -956,7 +956,7 @@ fn main() -> () {
             .blocks
             .iter()
             .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. } if ir.definitions().resolve(import.binding).unwrap().segments().last().is_some_and(|part| part.name == "$foundation_list_index")))
+            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. } if ir.definitions().resolve(import.binding).unwrap().segments().last().is_some_and(|part| part.name == "$foundation_array_index")))
     );
     assert!(
         function

@@ -172,7 +172,7 @@ impl FunctionLowerer<'_, '_> {
             .type_table
             .expr_type(expr_id)
             .ok_or(MirLoweringError::MissingExprType(expr_id))?;
-        let TypeId::Array(item, _) = ty else {
+        let TypeId::Array(item) = ty else {
             return Err(MirLoweringError::MissingBinding(
                 "checked array literal element type",
             ));

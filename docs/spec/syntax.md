@@ -11,7 +11,7 @@ The syntax follows these design constraints:
 
 Rust is the default reference for punctuation and grouping where Kagari has the
 same source construct. Deliberate differences include `val`/`var` bindings,
-dynamically sized `[T]` arrays, and the absence of Rust borrow
+fixed-length `[T]` arrays whose runtime length is not part of the type, and the absence of Rust borrow
 and lifetime syntax. Rust spelling alone does not add an unsupported Kagari type
 or runtime behavior.
 
@@ -910,6 +910,14 @@ literal         ::= INTEGER
 
 ### Expression Notes
 
+- `[e1, e2]` and `[value; count]` construct builtin `[T]` arrays, independently
+  of installed library declarations. `[T]` context supplies the invariant element
+  type, including empty arrays. An empty array needs an element type from context
+  or later constraints.
+  Array elements are writable; length cannot change. `var` permits rebinding to a
+  different array without redirecting aliases of the old object. Use explicit
+  `Vec::from(array)` or `HashSet::from(array)` for growable library storage.
+
 - A `match` guard is evaluated after its pattern binds names. It must be `bool`;
   a false guard continues to the next arm, even for an otherwise irrefutable
   pattern. Guards are evaluated only for matching patterns.
@@ -936,8 +944,8 @@ literal         ::= INTEGER
   `(0..4).iter().collect::<Vec<i32>>()`. Ranges without a start are bounds
   descriptions, not iterable sequences. All six forms implement `RangeBounds<T>`
   for array interval operations; `RangeFull` implements it for any `T`.
-- This phase does not introduce fixed-size array types or borrowed slice views.
-  Array indexing still accepts a single integer, not a range. Range values expose
+- Array length is fixed at construction; there are no type-level lengths or
+  borrowed slice views. Array indexing accepts a single integer, not a range. Range values expose
   `Iterable` and `RangeBounds`; range equality, ordering and hashing are not yet
   standard protocols.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.

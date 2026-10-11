@@ -352,11 +352,11 @@ fn main()->i32 {
  store(map,(Tag::Value(Key{id:1,ignored:3}),7),22);
  val set:HashSet<Key> = HashSet::new();
  set.insert(a); set.insert(b); set.insert(Key{id:1,ignored:4});
- { val passed = set.len()==[1,2].len(); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = set.len()==Vec::from([1,2]).len(); if !passed { val zero = 0; 1 / zero; } };
  { val passed = set.contains(Key{id:2,ignored:5}); if !passed { val zero = 0; 1 / zero; } };
  { val passed = set.remove(Key{id:2,ignored:5}); if !passed { val zero = 0; 1 / zero; } };
  { val passed = !set.contains(b); if !passed { val zero = 0; 1 / zero; } };
- { val passed = map.len()==[1,2].len(); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = map.len()==Vec::from([1,2]).len(); if !passed { val zero = 0; 1 / zero; } };
  { val passed = map.contains_key((Tag::Value(Key{id:2,ignored:0}),7)); if !passed { val zero = 0; 1 / zero; } };
  val query = (Tag::Value(Key{id:1,ignored:0}),7);
  val found = map.get(query);
@@ -384,7 +384,7 @@ fn main()->i32 {
  val b=Chain::Next(Key{value:42},Chain::End);
  val set:HashSet<Chain> = HashSet::new(); set.insert(a);set.insert(b);
  if a != b { return 0; }
- if set.len()==[1].len() && set.contains(b) {42} else {0}
+ if set.len()==Vec::from([1]).len() && set.contains(b) {42} else {0}
 }
 "#,
     );

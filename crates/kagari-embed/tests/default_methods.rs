@@ -485,7 +485,7 @@ fn shared_generic_method_constructs_a_typed_list_result() {
     execute(
         r#"use std::collections::{List};
 
-trait Wrap { fn wrap<T>(self, value: T) -> List<T> { [value] } }
+trait Wrap { fn wrap<T>(self, value: T) -> List<T> { Vec::from([value]) } }
 struct Source {}
 impl Wrap for Source {}
 struct Item { val value: i32 }
@@ -514,7 +514,7 @@ fn shared_list_table_mappings_are_checked_without_source() {
                 "shared-list.kgr",
                 r#"use std::collections::{List};
 
-trait Wrap { fn wrap<T>(self, value: T) -> List<T> { [value] } }
+trait Wrap { fn wrap<T>(self, value: T) -> List<T> { Vec::from([value]) } }
 struct Source {}
 impl Wrap for Source {}
 fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
@@ -771,7 +771,7 @@ fn shared_methods_upcast_generic_interfaces() {
 
 trait Wrap {
     fn wrap<T>(self, value: T) -> List<T> {
-        val mutable: MutableList<T> = [value];
+        val mutable: MutableList<T> = Vec::from([value]);
         val readonly: List<T> = mutable;
         readonly
     }
@@ -799,7 +799,7 @@ fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
 
 trait Wrap {
     fn wrap<T>(self, value: T) -> List<T> {
-        val mutable: MutableList<T> = [value];
+        val mutable: MutableList<T> = Vec::from([value]);
         mutable
     }
 }
@@ -932,7 +932,7 @@ struct Box<T> { var value: T }
 enum Wrapped<T> { Some(T), None }
 trait Wrap {
     fn wrap<T>(self, value: T) -> List<Box<Wrapped<T>>> {
-        [Box { value: Wrapped::Some(value) }]
+        Vec::from([Box { value: Wrapped::Some(value) }])
     }
     fn unwrap<T>(self, value: Box<Wrapped<T>>, fallback: T) -> T {
         match value.value { Wrapped::Some(inner) => inner, Wrapped::None => fallback }

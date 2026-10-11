@@ -6,7 +6,7 @@ use kagari_stdlib::catalog as foundation_catalog;
 #[test]
 fn body_constraints_use_later_arguments_and_local_uses() {
     for body in [
-        "val xs = []; xs.push(42);",
+        "val xs = Vec::from([]); xs.push(42);",
         "val xs = Vec::new(); xs.push(42);",
         "val xs = HashSet::new(); xs.insert(42);",
         "val xs = HashMap::new(); xs.insert(1, true);",
@@ -14,9 +14,9 @@ fn body_constraints_use_later_arguments_and_local_uses() {
         "consume(Marker { value: 7 }, 1);",
         "val callback = |x| x + 1; callback(41);",
         "apply(|x| x + 1, 41);",
-        "val checked: Result<Vec<i32>, String> = Ok([42]);",
-        "val checked: Result<Vec<i32>, String> = apply(|x| Ok([x]), 42);",
-        "val checked: Option<Result<Vec<i32>, String>> = apply(|x| Some(Ok([x])), 42);",
+        "val checked: Result<Vec<i32>, String> = Ok(Vec::from([42]));",
+        "val checked: Result<Vec<i32>, String> = apply(|x| Ok(Vec::from([x])), 42);",
+        "val checked: Option<Result<Vec<i32>, String>> = apply(|x| Some(Ok(Vec::from([x]))), 42);",
     ] {
         let source = SourceFile::new(
             "body-inference.kgr",
@@ -39,9 +39,9 @@ fn body_constraints_use_later_arguments_and_local_uses() {
 fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
     for body in [
         "val xs = [];",
-        "val xs = []; xs.push(1); xs.push(true);",
-        "val xs: List<i32> = []; xs.push(1);",
-        "val checked: Result<Vec<i32>, bool> = apply(|x| Result<Vec<i32>, String>::Ok([x]), 42);",
+        "val xs = Vec::from([]); xs.push(1); xs.push(true);",
+        "val xs: List<i32> = Vec::from([]); xs.push(1);",
+        "val checked: Result<Vec<i32>, bool> = apply(|x| Result<Vec<i32>, String>::Ok(Vec::from([x])), 42);",
         "val checked: Result<i32, String> = apply(|x| Ok([x]), 42);",
     ] {
         let source = SourceFile::new(
@@ -377,7 +377,7 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
             false,
         ),
         (
-            "use std::collections::HashMap; fn main() { val value: Vec<HashMap<f32, i32>> = []; }",
+            "use std::collections::HashMap; fn main() { val value: Vec<HashMap<f32, i32>> = Vec::from([]); }",
             false,
         ),
         (
@@ -420,8 +420,8 @@ fn empty_container_context_is_shared_by_all_expression_positions() {
         "fn make() -> [i32] { [] }",
         "use std::collections::HashMap; fn make() -> HashMap<i32, bool> { HashMap::new() }",
         "use std::collections::{HashSet};\nfn make() -> HashSet<i32> { HashSet::new() }",
-        "use std::collections::{HashMap, HashSet};\nfn take(values: Vec<i32>, map: HashMap<i32, bool>, set: HashSet<i32>) {} fn main() { take([], HashMap::new(), HashSet::new()); }",
-        "use std::collections::{HashMap, HashSet};\nstruct Values { val array: Vec<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> } fn main() { Values { array: [], map: HashMap::new(), set: HashSet::new() }; }",
+        "use std::collections::{HashMap, HashSet};\nfn take(values: Vec<i32>, map: HashMap<i32, bool>, set: HashSet<i32>) {} fn main() { take(Vec::from([]), HashMap::new(), HashSet::new()); }",
+        "use std::collections::{HashMap, HashSet};\nstruct Values { val array: Vec<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> } fn main() { Values { array: Vec::from([]), map: HashMap::new(), set: HashSet::new() }; }",
         "use std::collections::HashMap; fn main() { var map: HashMap<i32, bool> = HashMap::new(); map = HashMap::new(); }",
     ] {
         let source = SourceFile::new("empty-context.kgr", body);
@@ -460,7 +460,7 @@ fn assignment_context_uses_checked_target_types_without_bypassing_writeability()
             true,
         ),
         (
-            "val values: Vec<Marker<i32>> = [Marker { value: 1 }]; values[0] = Marker { value: 2 };",
+            "val values: Vec<Marker<i32>> = Vec::from([Marker { value: 1 }]); values[0] = Marker { value: 2 };",
             true,
         ),
         (

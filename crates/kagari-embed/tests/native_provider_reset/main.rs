@@ -117,7 +117,7 @@ fn readonly_interfaces_expose_reads_and_hide_mutators_without_native_access_flag
             .compile_to_artifact(
                 SourceFile::new(
                     "memory://readonly.kgr",
-                    "fn main() { val view: [i32] = [1]; view.push(2); }"
+                    "fn main() { val view: std::collections::List<i32> = Vec::from([1]); view.push(2); }"
                 ),
                 Default::default(),
             )
@@ -130,7 +130,7 @@ fn readonly_list_methods_observe_mutation_through_a_concrete_alias() {
     execute(
         r#"use std::collections::{List};
 fn main() -> i32 {
-            val storage = [20];
+            val storage = Vec::from([20]);
             val view: List<i32> = storage;
             storage.push(22);
             match view.get(1usize) {

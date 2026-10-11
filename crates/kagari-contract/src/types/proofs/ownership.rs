@@ -91,7 +91,7 @@ impl ProofCatalog<'_> {
                 Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
                     nominal.declaration.module == table.declaration().module
                 }
-                Ty::Array(_, _) | Ty::Map { .. } | Ty::Set(_, _) => {
+                Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => {
                     owners.owner(table.receiver()).as_ref() == Some(&table.declaration().module)
                 }
                 _ => false,
@@ -192,7 +192,7 @@ fn overlapping(left: &Ty, right: &Ty) -> bool {
         }
         (Ty::Range(_, left), Ty::Range(_, right)) => left == right,
         (Ty::Iter(_), Ty::Iter(_))
-        | (Ty::Array(_, _), Ty::Array(_, _))
+        | (Ty::Array(_), Ty::Array(_))
         | (Ty::Set(_, _), Ty::Set(_, _))
         | (Ty::Map { .. }, Ty::Map { .. }) => true,
         _ => false,
@@ -208,7 +208,7 @@ fn occurs_in_constructor(parameter: &Ty, ty: &Ty) -> bool {
         match ty {
             Ty::Struct(n) | Ty::NativeObject(n) | Ty::Enum(n) => pending.extend(&n.arguments),
             Ty::Tuple(items) => pending.extend(items),
-            Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
+            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
                 pending.push(item)
             }
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),

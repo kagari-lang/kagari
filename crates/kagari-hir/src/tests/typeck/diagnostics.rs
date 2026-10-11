@@ -7,7 +7,7 @@ use kagari_types::scalar::IntegerType;
 fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
     let source = SourceFile::new(
         "holes.kgr",
-        "use std::collections::{List};\nfn bad() { val partial: (i32, List<_>) = (42, []); partial } fn good() -> u8 { 42 }",
+        "use std::collections::{List};\nfn bad() { val partial: (i32, List<_>) = (42, Vec::from([])); partial } fn good() -> u8 { 42 }",
     );
     let result = crate::analyze_source(&source, foundation_catalog::shared())
         .expect("installed declaration analysis");
@@ -283,7 +283,7 @@ fn rejects_heap_backed_const_types() {
         r#"
 struct Point { var x: i32, var y: i32 }
 const PAIR: (i32, i32) = (1, 2);
-const VALUES: Vec<i32> = [3, 4];
+const VALUES: Vec<i32> = Vec::from([3, 4]);
 const POINT: Point = Point { x: 5, y: 6 };
 "#,
     );

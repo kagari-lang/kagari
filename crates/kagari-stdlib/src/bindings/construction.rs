@@ -113,15 +113,15 @@ fn parse(target: BuiltinType, text: &str) -> NativeResult<Result<Value, u8>> {
 }
 
 pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let Ty::Array(_, _) = cx.result_type() else {
+    let Ty::NativeObject(_) = cx.result_type() else {
         return Err(invalid());
     };
     let result = cx.allocate_result()?;
     let _root = cx.heap().root_value(result).ok_or_else(invalid)?;
-    let Value::Array(id) = result else {
+    let Value::GcHandle(id) = result else {
         return Err(invalid());
     };
-    for_each(cx, |cx, value| cx.heap().array_push(id, value))?;
+    for_each(cx, |cx, value| cx.heap().sequence_push(id, value))?;
     Ok(result)
 }
 
@@ -138,7 +138,7 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
         return Err(invalid());
     };
     let kind = *kind;
-    if matches!(cx.argument_type(0)?, Ty::Array(_, _)) {
+    if matches!(cx.argument_type(0)?, Ty::NativeObject(_)) {
         return scalar_array_aggregate(cx, kind, product);
     }
     let identity = i32::from(product);
@@ -187,13 +187,13 @@ fn for_each(
     let source = cx.argument(0)?;
     // A foundation array has no user callbacks. Read its contiguous storage
     // directly without allocating a cursor or Option for each element.
-    if let Value::Array(id) = source {
-        let length = cx.heap().array_len(id).ok_or_else(invalid)?;
+    if let Value::GcHandle(id) = source {
+        let length = cx.heap().sequence_len(id).ok_or_else(invalid)?;
         for index in 0..length {
             if index % 256 == 0 {
                 cx.poll()?;
             }
-            visit(cx, cx.heap().array_get(id, index).ok_or_else(invalid)?)?;
+            visit(cx, cx.heap().sequence_get(id, index).ok_or_else(invalid)?)?;
         }
         return Ok(());
     }

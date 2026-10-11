@@ -814,7 +814,7 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
         }
         (TypeId::Range(_, left), TypeId::Range(_, right)) => left == right,
         (TypeId::Iter(_), TypeId::Iter(_))
-        | (TypeId::Array(_, _), TypeId::Array(_, _))
+        | (TypeId::Array(_), TypeId::Array(_))
         | (TypeId::Set(_, _), TypeId::Set(_, _))
         | (TypeId::Map { .. }, TypeId::Map { .. }) => true,
         _ => false,
@@ -863,10 +863,13 @@ pub(super) fn validate_standard_type_constraints(
                 pending.push(result);
                 pending.extend(params.iter().rev());
             }
-            TypeId::Array(element, _) | TypeId::Iter(element) | TypeId::Range(element, _) => {
+            TypeId::Array(element) | TypeId::Iter(element) | TypeId::Range(element, _) => {
                 pending.push(element)
             }
-            TypeId::Struct(NominalType {
+            TypeId::NativeObject(NominalType {
+                arguments: args, ..
+            })
+            | TypeId::Struct(NominalType {
                 arguments: args, ..
             })
             | TypeId::Enum(NominalType {
@@ -1161,7 +1164,7 @@ mod constraint_traversal_tests {
             access: CollectionAccess::Mutable,
         };
         for _ in 0..10_000 {
-            ty = TypeId::Array(Box::new(ty), CollectionAccess::Mutable);
+            ty = TypeId::Array(Box::new(ty));
         }
         let mut diagnostics = SmallVec::new();
         let cancelled = CancellationToken::default();
@@ -1185,7 +1188,7 @@ mod constraint_traversal_tests {
         );
         // Drop the synthetic deep input iteratively as well: this test exercises
         // validation, not the recursive representation's destructor.
-        while let TypeId::Array(inner, _) = ty {
+        while let TypeId::Array(inner) = ty {
             ty = *inner;
         }
         assert_eq!(cancelled_count, 0);

@@ -246,7 +246,7 @@ fn matches_host_type(
                 pending.extend(ap.iter().zip(bp));
             }
             (Ty::Iter(a), Ty::Iter(b))
-            | (Ty::Array(a, _), Ty::Array(b, _))
+            | (Ty::Array(a), Ty::Array(b))
             | (Ty::Set(a, _), Ty::Set(b, _)) => {
                 pending.push((a, b));
             }
@@ -322,7 +322,7 @@ pub fn references(
                 pending.extend(params);
                 pending.push(result);
             }
-            Ty::Array(ty, _) | Ty::Set(ty, _) | Ty::Iter(ty) => pending.push(ty),
+            Ty::Array(ty) | Ty::Set(ty, _) | Ty::Iter(ty) => pending.push(ty),
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             Ty::NativeObject(ty) | Ty::Struct(ty) | Ty::Enum(ty) | Ty::Trait(ty) => {
                 pending.extend(&ty.arguments);

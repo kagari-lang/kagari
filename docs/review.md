@@ -623,8 +623,8 @@ List/MutableList, Map/MutableMap and Set/MutableSet and permits shared aliases.
 The concern is the extra semantic axis and unrelated rules attached to it.
 
 For an installed Vec implementation, the intended interface model is shown
-below. The constructor follows SA20's agreed future API; its implementation is
-deferred together with the fixed-length builtin Array migration.
+below. The explicit constructor is implemented by SA20; broader SA18 changes
+remain deferred.
 
 ```kagari
 val concrete = Vec::from([1, 2]);
@@ -767,17 +767,17 @@ any claimed memory or speed improvement. Implementation remains deferred.
 
 ## SA20 Separate builtin fixed-length arrays from library lists
 
-The length decision is now settled for the initial implementation: `[T]` has a
+Implemented and locally accepted through BA01-BA05. `[T]` has a
 construction-time fixed length stored in the object, not in type identity. The
-user selected this work next; the [BA01-BA05 execution plan](builtin-array-plan.md)
-owns implementation contracts and progress, with queue placement in the
+[execution plan](builtin-array-plan.md) owns implementation contracts and the
+acceptance ledger, with status in the
 [roadmap](implementation-roadmap.md#builtin-fixed-length-arrays-sa20).
-Implementation has not started.
+Full CI acceptance remains open.
 
-The requested future direction is to retain a builtin Array whose length cannot
-change after construction. Array literals such as `[1, 2, 3]` should construct
-that builtin type, not select mutable Vec storage. Array remains distinct from
-List/MutableList and does not implicitly convert to or implement those interfaces.
+Builtin Array length cannot change after construction. Array literals such as
+`[1, 2, 3]` construct that builtin type independently of installed Vec storage.
+Array remains distinct from List/MutableList and does not implicitly convert to
+or implement those interfaces.
 Its supported core protocols cover indexing and iteration, and element replacement
 is permitted. The execution plan owns the exact protocol integration.
 Fixed length does not imply immutable elements or a change to binding `val`/`var`.
@@ -795,9 +795,9 @@ builtin Array rather than requiring macros or variadic parameters:
 | `HashSet::new()` | Construct an empty concrete HashSet. |
 | `HashSet::from(array)` | Construct an independent concrete HashSet and deduplicate according to checked element Eq/Hash. |
 
-The following examples are future API sketches, not currently supported programs:
+The following examples use the installed standard declarations:
 
-```text
+```kagari
 val array = [1, 2, 3]; // builtin Array; length stays 3
 val concrete = Vec::from(array);
 val readable: List<i32> = Vec::from([1, 2, 3]);
@@ -833,13 +833,12 @@ path and define existing-array spread alias/copy behavior explicitly.
 
 Collection implementations and their constructor selection stay in library
 declarations/implementations. Semantic analysis consumes checked declaration IDs,
-generic arguments and trait facts; it should not need a dedicated Map/Set type
-variant for every library implementation. Retain Array as an intrinsic semantic
-type with its own contract. Review the current special Vec/HashMap/HashSet mapping
-in [NativeTypeKind::apply](../crates/kagari-hir/src/native.rs) coherently with SA18;
-do not rename the existing resizable Array representation and consider the
-separation complete. No new Slice interface or implicit array/List coercion is
-selected; the explicit associated constructors above remain future work.
+generic arguments and trait facts. Vec now uses the existing nominal native-object
+model with registered sequence storage; Array has its own intrinsic semantic
+type and fixed-storage admission. Shared buffer kernels retain one implementation
+of element operations. The independent HashMap/HashSet representation cleanup
+remains deferred with broader collection work. No new Slice interface or implicit
+array/List coercion was introduced.
 
 The length alternatives were reviewed as follows:
 
@@ -859,14 +858,12 @@ including through a `val` binding; no operation resizes an existing Array.
 Current [collection access](spec/collection-access.md),
 [value semantics](spec/value-semantics.md#repeat-arrays-and-bulk-replacement) and
 [architecture](architecture.md#language-contracts-and-native-implementations)
-instead specify `[T]` as List and literal/repeat construction as Vec. Activating
-this direction deliberately replaces those contracts and requires coordinated
-syntax, type, library, artifact/runtime, example and tooling updates. Preserve
-left-to-right once-only literal evaluation, checked element/index behavior,
-shared-object/GC rooting and cleanup. Decide repeat-count compatibility with the
-length model explicitly; preserve repetition's existing shared-identity safety
-rule unless separately changed. Do not import Rust move/borrow semantics, Kotlin
-variance or structural collection equality as incidental changes.
+now specify builtin `[T]` and fixed literal/repeat construction. Syntax, type,
+library, artifact/runtime, examples and tooling have migrated together. The
+implementation preserves left-to-right once-only evaluation, checked elements
+and indices, shared identity, GC roots and cleanup. Runtime repeat counts remain
+supported under the existing repeat-value safety rule. Rust move/borrow semantics,
+Kotlin variance and structural collection equality remain outside this change.
 
 Primary references: Rust's [array types](https://doc.rust-lang.org/reference/types/array.html)
 have type-level constant lengths; Kotlin's [arrays](https://kotlinlang.org/docs/arrays.html)
@@ -879,13 +876,12 @@ separate list construction from arrays. Rust's
 support naming and responsibility comparisons, not copying either language's
 runtime ownership model.
 
-Follow-up owner: syntax/type semantics, foundation declarations and collection
-constructors, checked executable contracts and runtime array storage. Reuse
-focused literal/repetition, indexing/iteration, interface matching, generic,
-aliasing and source-free artifact/GC tests during execution. The linked execution
-plan now bounds the migration, including the nominal Vec representation and host
-adapters. This entry retains the design rationale; implementation and specification
-changes await the planned phases.
+Implementation owners are syntax/type semantics, foundation declarations and
+collection constructors, checked executable contracts and runtime array storage.
+Existing literal/repetition, indexing/iteration, interface, generic, aliasing,
+source-free artifact and GC suites cover the migration. The execution plan retains
+validation evidence and repaired integration failures; this entry retains the
+design rationale.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 

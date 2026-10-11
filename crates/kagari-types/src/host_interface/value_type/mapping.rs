@@ -32,9 +32,16 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostValueType<I> {
             Self::Tuple(field0) => HostValueType::Tuple(map_sequence(field0, |value| {
                 (value).map_identities(mapper)
             })?),
-            Self::Array(field0, field1) => HostValueType::Array(
-                Box::new(((field0).as_ref()).map_identities(mapper)?),
-                *(field1),
+            Self::Array(field0) => {
+                HostValueType::Array(Box::new(((field0).as_ref()).map_identities(mapper)?))
+            }
+            Self::Vec(declaration, item) => HostValueType::Vec(
+                mapper.reference(declaration)?,
+                Box::new(item.map_identities(mapper)?),
+            ),
+            Self::List(declaration, item) => HostValueType::List(
+                mapper.reference(declaration)?,
+                Box::new(item.map_identities(mapper)?),
             ),
             Self::Map { key, value, access } => HostValueType::Map {
                 key: Box::new(((key).as_ref()).map_identities(mapper)?),
@@ -90,8 +97,13 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostValueType<I> {
                     (value0).visit_definitions(visit, cancel)?;
                 }
             }
-            Self::Array(field0, _) => {
+            Self::Array(field0) => {
                 ((field0).as_ref()).visit_definitions(visit, cancel)?;
+            }
+            Self::Vec(declaration, item) | Self::List(declaration, item) => {
+                check_cancel(cancel)?;
+                visit(declaration)?;
+                item.visit_definitions(visit, cancel)?;
             }
             Self::Map {
                 key,

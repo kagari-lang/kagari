@@ -74,7 +74,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         pub struct Item { pub var value: i32 }
         pub fn number() -> i32 { val r: Relay = 0; r.relay(42) }
         pub fn text() -> String { val r: Relay = 0; r.relay("retained") }
-        pub fn vector() -> Vec<Item> { val r: Relay = 0; r.relay([Item { value: 42 }]) }
+        pub fn vector() -> Vec<Item> { val r: Relay = 0; r.relay(Vec::from([Item { value: 42 }])) }
         pub fn closure() -> fn() -> Item {
             val r: Relay = 0;
             val item = Item { value: 42 };
@@ -83,7 +83,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         }
         pub fn readonly() -> List<i32> {
             val r: Relay = 0;
-            val list: List<i32> = [42];
+            val list: List<i32> = Vec::from([42]);
             r.relay(list)
         }
         pub fn read(list: List<i32>) -> i32 { list[0] }
@@ -222,7 +222,7 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
         pub struct Holder<T> { val item: T }
         impl<T> Producer for Holder<T> {
             type Items = Vec<T>;
-            fn items(self) -> Vec<T> { [self.item] }
+            fn items(self) -> Vec<T> { Vec::from([self.item]) }
         }
         pub trait Relay { fn relay<P: Producer>(self, source: P) -> P::Items { source.again() } }
         impl Relay for i32 {}

@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 
 fn composite() -> Type {
     Type::Tuple(vec![
-        Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
+        Type::Array(Box::new(Type::I32)),
         Type::Map {
             access: CollectionAccess::Mutable,
             key: Box::new(Type::String),
@@ -63,7 +63,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         .set_host_interface(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
         .unwrap();
 
-    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use std::collections::{HashMap, HashSet};\nuse demo as api; fn main() -> (Vec<i32>, HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> (Vec<i32>, HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use std::collections::{HashMap, HashSet};\nuse demo as api; fn main() -> ([i32], HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> ([i32], HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
     let payload = artifact.program.modules[artifact.program.root.index()]
         .functions
         .iter()
@@ -167,10 +167,7 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
                 "demo.take",
                 vec![HostParameter {
                     name: "value".into(),
-                    ty: Type::Tuple(vec![
-                        Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
-                        Type::Bool,
-                    ]),
+                    ty: Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::Bool]),
                     passing: HostPassingStyle::Owned,
                 }],
                 Type::Unit,
@@ -192,7 +189,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
         "demo.take",
         vec![HostParameter {
             name: "value".into(),
-            ty: Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
+            ty: Type::Array(Box::new(Type::I32)),
             passing: HostPassingStyle::Owned,
         }],
         Type::I32,

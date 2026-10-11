@@ -15,7 +15,7 @@ use kagari_source::{
 };
 use kagari_stdlib::{catalog as foundation_catalog, namespaces};
 use kagari_types::{
-    declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeTypeConstructor},
+    declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
     scalar::BuiltinType,
     ty::{GenericParam, Ty},
 };
@@ -24,21 +24,21 @@ use std::sync::Arc;
 fn main() {
     let source = SourceFile::new(
         "layouts.kgr",
-        "use demo::storage::Samples; pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: Samples<i32> } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val generic: Number = Deferred { payload: 1 }; generic.get(); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
+        "use demo::storage::Samples; pub struct External { val storage: Samples<i32> } pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: [i32] } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val generic: Number = Deferred { payload: 1 }; generic.get(); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
     );
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(source.name(), source.text().into(), SourceLayer::Base)
         .unwrap();
     // This compiler-only consumer receives an application storage declaration.
-    // The array constructor is an engine representation; no runtime handler runs.
+    // Nominal sequence storage remains distinct from the builtin array field.
     let mut storage = ModuleDecl::new(ModuleIdentity {
         package: PackageId("demo".into()),
         path: vec!["storage".into()],
     });
     storage.types.push(TypeDef {
         name: "Samples".into(),
-        kind: TypeDefKind::Native(NativeTypeConstructor::Array),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
         generic_params: vec![GenericParam {
             owner: storage.definition(DefinitionKind::AssociatedType, "Samples"),
             position: 0,

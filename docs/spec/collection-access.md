@@ -11,7 +11,7 @@ Generated .kgr files are tooling views, not the source of these declarations.
 
 | Read-only interface | Writable interface | Canonical default implementation |
 | --- | --- | --- |
-| `List<T>`, abbreviated `[T]` | `MutableList<T>: List<T>` | `Vec<T>` |
+| `List<T>` | `MutableList<T>: List<T>` | `Vec<T>` |
 | `Map<K, V>` | `MutableMap<K, V>: Map<K, V>` | `HashMap<K, V>` |
 | `Set<T>` | `MutableSet<T>: Set<T>` | `HashSet<T>` |
 
@@ -20,15 +20,24 @@ dynamic interface types. Native and script types implement them through ordinary
 trait checking. The contracts, parent relationships, associated outputs and
 read-only/writable conversions exist without optional native libraries.
 
-`[T]` means read-only `List<T>`, not fixed-size storage, a slice or a borrow.
-Existing `[1, 2]` and `[value; count]` literals create the canonical `Vec<T>`.
-Vec, HashMap and HashSet have compiler-owned nominal declarations and
-minimal Rust construction, access, mutation and iteration implementations in the
-runtime foundation. These use ordinary checked native bindings/storage registration
-and remain available when optional modules are off. Optional providers do not
-redeclare or replace the default types. Selecting defaults adds no map/set literal
-syntax and does not make Map/Set interface constructors choose concrete storage.
-Vec::from_fn and other callback conveniences remain library algorithms.
+`[T]` is a builtin fixed-length array. `[1, 2]` and `[value; count]` construct
+arrays; their length is established at construction and is absent from the type.
+Arrays permit bounded element replacement and share identity through assignment,
+arguments and returns. They do not implement List/MutableList or expose growth,
+removal, capacity or detached sequence edits. Their core registrations supply
+len/is_empty, Index and Iterable independently of Vec's declarations.
+
+`Vec<T>` is distinct nominal native sequence storage. It implements List and
+MutableList through ordinary checked registrations. Use `Vec::from(array)` or
+`HashSet::from(array)` for explicit construction; there is no implicit conversion
+between Array and either Vec or List. A new collection has independent storage
+and shares referenced element objects. Vec preserves order and duplicates; HashSet applies
+its checked Eq/Hash implementations and has unspecified traversal order.
+
+Vec, HashMap and HashSet remain available when optional modules are off. Optional
+providers do not redeclare or replace their canonical declarations. Interfaces do
+not select storage or provide implicit constructors. There is no map/set literal
+syntax. Vec::from_fn and callback conveniences remain library algorithms.
 
 Concrete additional classes register native storage independently of their trait
 impls. An interface does not select an allocator or implementation. Additional
@@ -59,9 +68,9 @@ Binding mutability, container mutation and element mutation are independent:
 ```kgr
 struct Cell { var value: i32 }
 fn main() -> usize {
-    val storage = [Cell { value: 1 }];
+    val storage = Vec::from([Cell { value: 1 }]);
     val writable: MutableList<Cell> = storage;
-    val readable: [Cell] = writable;
+    val readable: List<Cell> = writable;
     readable[0].value = 42;
     writable.push(Cell { value: 7 });
     readable.len() // 2: both views refer to the same object.
@@ -110,7 +119,8 @@ require a particular optional `Iter<T>` class. Checked interface metadata retain
 actual associated outputs and targets for static and dynamic dispatch.
 
 List interface indices use `usize`; unsuffixed literals receive that context.
-Native Vec indexing additionally accepts the existing integer index types.
+Nominal Vec indexing uses its checked Index<usize> implementation. Builtin array
+indexing accepts the existing integer index types.
 Out-of-bounds `get`/`remove` return None; invalid indexing, `set` and `insert` trap.
 List insert permits an index equal to the length. `pop` returns None when empty.
 Map remove returns the previous value or None; Set remove returns a boolean.
@@ -162,13 +172,13 @@ explicit type arguments supply otherwise unknown element types. Interfaces do no
 have constructors that silently choose a concrete implementation.
 
 ```kgr
-val storage = [10, 20];
+val storage = Vec::from([10, 20]);
 val readable: List<i32> = storage;
 val map: HashMap<String, i32> = HashMap::new();
 val set: HashSet<i32> = HashSet::new();
 ```
 
-Array literals and `[value; count]` construct the canonical Vec. Repetition
+Array literals and `[value; count]` construct builtin fixed-length arrays. Repetition
 retains its value-only rule, including empty results. Distinct reference objects
 require separate construction; the application-provider factory in the reset
 proof demonstrates how an optional native function supplies that algorithm.

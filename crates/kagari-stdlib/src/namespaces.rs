@@ -70,7 +70,7 @@ pub fn receiver_owner(ty: &Ty) -> Option<ModuleIdentity> {
         }
         Ty::Builtin(BuiltinType::String) => type_owner("String"),
         Ty::Builtin(_) => module("core", "num"),
-        Ty::Array(..) => type_owner("Vec"),
+        Ty::Array(..) => module("core", "array"),
         Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),
         Ty::Iter(_) => module("core", "iter"),
         Ty::Range(..) => module("core", "ops"),

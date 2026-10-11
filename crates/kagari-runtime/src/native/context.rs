@@ -214,17 +214,19 @@ impl<'call> CallContext<'call> {
 
     fn sequence_id(&self, index: usize) -> NativeResult<HeapObjectId> {
         match self.argument(index)? {
-            Value::GcHandle(id) | Value::Array(id) => Ok(id),
+            Value::GcHandle(id) => {
+                self.heap().ensure_sequence(id)?;
+                Ok(id)
+            }
             _ => Err(RuntimeError::module_validation("native sequence argument")),
         }
     }
 
     pub fn sequence_push(&self, index: usize, value: Value) -> NativeResult<()> {
         match self.argument(index)? {
-            Value::Array(id) => self.heap().array_push(id, value),
             Value::GcHandle(id) => {
                 self.heap()
-                    .sequence_push(id, self.argument_type_view(index)?, value)
+                    .push_sequence_value(id, self.argument_type_view(index)?, value)
             }
             _ => Err(RuntimeError::module_validation("native sequence argument")),
         }
@@ -387,7 +389,8 @@ impl<'call> CallContext<'call> {
             .forward_enum_origin(self.owner, original, value)
     }
 
-    pub fn allocate_sequence(
+    /// Allocate a fixed-length builtin array with an explicit element contract.
+    pub fn allocate_array(
         &self,
         element: TypeArgument,
         elements: Vec<Value>,
@@ -399,6 +402,16 @@ impl<'call> CallContext<'call> {
         self.heap()
             .alloc_array_with_contract(contract, elements)
             .map(Value::Array)
+    }
+
+    /// Allocate the installed standard Vec with an explicit element contract.
+    pub fn allocate_vec(&self, element: TypeArgument, elements: Vec<Value>) -> NativeResult<Value> {
+        self.heap().ensure_no_native_borrow()?;
+        element.validate(self.runtime)?;
+        self.runtime.validate_heap_payloads(&elements)?;
+        let applied = self.runtime.vec_type(self.owner, &element)?;
+        self.runtime
+            .allocate_sequence(self.owner, &applied, elements)
     }
 
     pub fn owner(&self) -> &LoadedModule {

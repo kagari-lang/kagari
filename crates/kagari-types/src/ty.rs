@@ -68,7 +68,7 @@ pub enum Ty<I = DefinitionPath> {
     },
     Iter(Box<Ty<I>>),
     Range(Box<Ty<I>>, RangeKind),
-    Array(Box<Ty<I>>, CollectionAccess),
+    Array(Box<Ty<I>>),
     Map {
         key: Box<Ty<I>>,
         value: Box<Ty<I>>,
@@ -93,7 +93,7 @@ impl<I: DefinitionReference> Ty<I> {
                     pending.extend(ty.associated_types.values());
                 }
                 Self::Tuple(items) => pending.extend(items),
-                Self::Array(item, _)
+                Self::Array(item)
                 | Self::Set(item, _)
                 | Self::Iter(item)
                 | Self::Range(item, _) => pending.push(item),
@@ -120,7 +120,7 @@ impl<I: DefinitionReference> Ty<I> {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
+                Self::Array(ty) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
                     pending.push(ty)
                 }
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
@@ -176,8 +176,18 @@ impl<I: DefinitionReference> Ty<I> {
             HostValueType::Tuple(types) => {
                 Self::Tuple(types.iter().map(Self::from_host_type).collect())
             }
-            HostValueType::Array(ty, access) => {
-                Self::Array(Box::new(Self::from_host_type(ty)), *access)
+            HostValueType::Array(ty) => Self::Array(Box::new(Self::from_host_type(ty))),
+            HostValueType::Vec(declaration, item) | HostValueType::List(declaration, item) => {
+                let nominal = NominalTy {
+                    declaration: declaration.clone(),
+                    arguments: vec![Self::from_host_type(item)],
+                    associated_types: Default::default(),
+                };
+                if matches!(ty, HostValueType::Vec(..)) {
+                    Self::NativeObject(nominal)
+                } else {
+                    Self::Trait(nominal)
+                }
             }
             HostValueType::Map { key, value, access } => Self::Map {
                 key: Box::new(Self::from_host_type(key)),

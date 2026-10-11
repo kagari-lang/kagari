@@ -7,11 +7,13 @@ use crate::{
     typeck::FunctionImplementation,
     types::{NominalType, TypeId, TypeSubstitution},
 };
+use kagari_common::identity::DefinitionKind;
 use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::identity as library;
+use kagari_stdlib::{identity as library, namespaces};
+use kagari_types::declaration::module::ModuleDecl;
 use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType};
 
 fn foundation_interface(name: &str) -> NominalType {
@@ -43,8 +45,13 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
         .unwrap();
     let catalog = &authoring_catalog.facts().aggregates;
     let item = TypeId::Builtin(BuiltinType::I32);
-    let mutable = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
-    let readonly = TypeId::Array(Box::new(item.clone()), CollectionAccess::ReadOnly);
+    let mutable = TypeId::NativeObject(NominalType {
+        declaration: ModuleDecl::new(namespaces::type_owner("Vec"))
+            .definition(DefinitionKind::AssociatedType, "Vec"),
+        arguments: vec![item.clone()],
+        associated_types: Default::default(),
+    });
+    let array = TypeId::Array(Box::new(item.clone()));
     for kind in ["List", "MutableList"] {
         let mut interface = foundation_interface(kind);
         interface.arguments.push(item.clone());
@@ -64,18 +71,17 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
                 .engine_implementation(&interface, &mutable, &Default::default())
                 .is_some()
         );
-        // Readonly collection surfaces are declared trait views, not a second
-        // physical Vec layout with another set of native implementations.
+        // Fixed arrays cannot acquire List/MutableList from shared buffer layout.
         assert!(
             catalog
-                .engine_implementation(&interface, &readonly, &Default::default())
+                .engine_implementation(&interface, &array, &Default::default())
                 .is_none()
         );
         assert!(
             catalog
                 .concrete_interface_implementation(
                     &interface,
-                    &readonly,
+                    &array,
                     &Default::default(),
                     4096,
                     64,
@@ -274,10 +280,7 @@ fn every_native_signature_retains_resolved_public_types() {
                 .iter()
                 .map(|parameter| {
                     let ty = if parameter.name == "I" {
-                        TypeId::Array(
-                            Box::new(TypeId::Builtin(BuiltinType::I32)),
-                            CollectionAccess::Mutable,
-                        )
+                        TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))
                     } else {
                         TypeId::Builtin(BuiltinType::I32)
                     };

@@ -396,11 +396,7 @@ impl<'a> DeclarationView<'a> {
             .into(),
             Ty::Parameter { owner, position } => self.parameter_spelling(owner, *position),
             Ty::SelfType(_) => "Self".into(),
-            Ty::Array(item, CollectionAccess::ReadOnly) => format!("[{}]", self.spell(item)?),
-            Ty::Array(item, CollectionAccess::Mutable) => {
-                let name = self.representation_name(NativeTypeConstructor::Array, "Vec")?;
-                format!("{name}<{}>", self.spell(item)?)
-            }
+            Ty::Array(item) => format!("[{}]", self.spell(item)?),
             Ty::Map {
                 key,
                 value,

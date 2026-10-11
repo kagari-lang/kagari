@@ -66,10 +66,9 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
         .unwrap();
     let interface = crate::layout_fixtures::interface_value_with(
         &mut runtime,
-        Ty::Array(
-            Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
-            CollectionAccess::Mutable,
-        ),
+        Ty::Array(Box::new(Ty::Builtin(
+            kagari_types::scalar::BuiltinType::I32,
+        ))),
         Value::Array(array),
     );
     let Value::Interface(id) = interface else {
@@ -246,10 +245,9 @@ fn rejects_host_handles_and_path_views_as_default_heap_payloads() {
             layout(
                 "HostBacked",
                 "path",
-                Ty::Array(
-                    Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
-                    CollectionAccess::Mutable
-                )
+                Ty::Array(Box::new(Ty::Builtin(
+                    kagari_types::scalar::BuiltinType::I32
+                )))
             ),
             vec![rejected[1]],
         )
@@ -278,7 +276,7 @@ fn rejects_non_storable_heap_mutations() {
         .unwrap();
 
     assert!(
-        heap.array_push(array, shared_borrow_value(heap, 1))
+        heap.array_set(array, 0, shared_borrow_value(heap, 1))
             .is_err()
     );
     assert!(heap.array_set(array, 0, path_view_value(heap, 4)).is_err());

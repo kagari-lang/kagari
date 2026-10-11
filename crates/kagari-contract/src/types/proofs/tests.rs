@@ -103,13 +103,13 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
         owner: generic.declaration.clone(),
         position: 0,
     };
-    generic.for_type = Ty::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable);
+    generic.for_type = Ty::Array(Box::new(parameter.as_type()));
     generic.generic_params.push(parameter.clone());
     generic.bounds.push(bound(
         parameter.as_type(),
         intrinsic::applied(Protocol::Eq, vec![]),
     ));
-    let query = |item| Ty::Array(Box::new(item), CollectionAccess::Mutable);
+    let query = |item| Ty::Array(Box::new(item));
     let catalog = ProofCatalog::new(vec![(&generic).into()], vec![], [], [], [], &cancel).unwrap();
     assert!(
         catalog
@@ -249,7 +249,7 @@ fn family_projection_normalization_applies_both_binders_and_rejects_cycles() {
         position: 0,
     };
     implementation.generic_params.push(parameter.clone());
-    implementation.for_type = Ty::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable);
+    implementation.for_type = Ty::Array(Box::new(parameter.as_type()));
     let input = GenericParam {
         owner: member.clone(),
         position: 0,
@@ -263,7 +263,7 @@ fn family_projection_normalization_applies_both_binders_and_rejects_cycles() {
             value: Ty::Tuple(vec![parameter.as_type(), input.as_type()]),
         });
     let projection = Ty::Projection {
-        receiver: Box::new(Ty::Array(Box::new(scalar()), CollectionAccess::Mutable)),
+        receiver: Box::new(Ty::Array(Box::new(scalar()))),
         interface: Box::new(interface.clone()),
         member: member.clone(),
         arguments: vec![Ty::Builtin(BuiltinType::Bool)],
@@ -360,7 +360,7 @@ fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
     growing.for_type = parameter.as_type();
     growing.generic_params.push(parameter.clone());
     growing.bounds.push(bound(
-        Ty::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable),
+        Ty::Array(Box::new(parameter.as_type())),
         marker.clone(),
     ));
     let catalog = ProofCatalog::new(vec![(&growing).into()], vec![], [], [], [], &cancel).unwrap();
@@ -601,7 +601,7 @@ fn equality_composition_uses_carried_payloads_and_stops_at_identity_boundaries()
             .unwrap()
     );
     let storages = [
-        Ty::Array(Box::new(key.clone()), CollectionAccess::Mutable),
+        Ty::Array(Box::new(key.clone())),
         Ty::Map {
             key: Box::new(key.clone()),
             value: Box::new(chain.clone()),

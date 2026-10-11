@@ -88,6 +88,10 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         let (id, expected) = match source {
             Value::Array(id) => (*id, GcObjectKind::Array),
+            Value::GcHandle(id) => {
+                self.ensure_sequence(*id)?;
+                (*id, GcObjectKind::Native)
+            }
             Value::Map(id) => (*id, GcObjectKind::Map),
             Value::Set(id) => (*id, GcObjectKind::Set),
             Value::Str(_) | Value::Range(_) => return Ok(OwnedLease::new(Some(scope))),
@@ -173,7 +177,7 @@ impl GcHeap {
     pub(super) fn collection_revision(&self, source: &Value) -> Option<u64> {
         match source {
             Value::Str(_) | Value::Range(_) => Some(0),
-            Value::Array(id) | Value::Map(id) | Value::Set(id) => {
+            Value::Array(id) | Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => {
                 let objects = self.objects.borrow();
                 self.readable_object(&objects, *id)?;
                 Some(objects[id.index()].revision)
@@ -211,9 +215,8 @@ impl GcHeap {
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         let valid = match (source, ty) {
-            (Value::Array(id), Ty::Array(_, _)) => {
-                self.object_kind(*id) == Some(GcObjectKind::Array)
-            }
+            (Value::Array(id), Ty::Array(_)) => self.object_kind(*id) == Some(GcObjectKind::Array),
+            (Value::GcHandle(id), Ty::NativeObject(_)) => self.ensure_sequence(*id).is_ok(),
             (Value::Set(id), Ty::Set(_, _)) => self.object_kind(*id) == Some(GcObjectKind::Set),
             (Value::Map(id), Ty::Map { .. }) => self.object_kind(*id) == Some(GcObjectKind::Map),
             (Value::Range(range), Ty::Range(_, kind)) => {
@@ -231,7 +234,13 @@ impl GcHeap {
             return Err(invalid());
         }
         let item_type = match ty {
-            Ty::Range(item, _) | Ty::Array(item, _) | Ty::Set(item, _) => (**item).clone(),
+            Ty::Range(item, _) | Ty::Array(item) | Ty::Set(item, _) => (**item).clone(),
+            Ty::NativeObject(_) => {
+                let Value::GcHandle(id) = source else {
+                    return Err(invalid());
+                };
+                self.sequence_contract(*id).ok_or_else(invalid)?.ty.clone()
+            }
             Ty::Map { key, value, .. } => Ty::Tuple(vec![(**key).clone(), (**value).clone()]),
             Ty::Builtin(BuiltinType::String) => ty.clone(),
             _ => return Err(invalid()),
@@ -370,8 +379,8 @@ impl GcHeap {
                             .map(PendingItem::Value),
                         1,
                     ),
-                    Value::Array(id) => (
-                        self.array_get(*id, iter.position as usize)
+                    Value::Array(id) | Value::GcHandle(id) => (
+                        self.buffer_get(*id, iter.position as usize)
                             .map(PendingItem::Value),
                         1,
                     ),

@@ -183,13 +183,14 @@ impl GcHeap {
         access(payload)
     }
 
-    pub(crate) fn sequence_push(
+    pub(crate) fn push_sequence_value(
         &self,
         id: HeapObjectId,
         expected: TypeView<'_>,
         value: Value,
     ) -> NativeResult<()> {
         self.ensure_execution_allowed()?;
+        self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
         {
             let objects = self.objects.try_borrow().map_err(|_| {
@@ -232,6 +233,7 @@ impl GcHeap {
         access: impl for<'slice> FnOnce(&'slice mut [E]) -> NativeResult<R>,
     ) -> NativeResult<R> {
         self.ensure_execution_allowed()?;
+        self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
         let mut objects = self
             .objects

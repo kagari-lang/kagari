@@ -14,7 +14,9 @@ pub fn host_representation(ty: &HostValueType) -> ValueType {
         HostValueType::String => ValueType::Str,
         HostValueType::Opaque(_) => ValueType::HostHandle,
         HostValueType::Tuple(_)
-        | HostValueType::Array(_, _)
+        | HostValueType::Array(_)
+        | HostValueType::Vec(..)
+        | HostValueType::List(..)
         | HostValueType::Map { .. }
         | HostValueType::Set(_, _)
         | HostValueType::Option(_, _)

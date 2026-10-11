@@ -157,7 +157,7 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
     let mut hp = HostFieldDeclaration::new(
         &declaration.id,
         "hp",
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+        HostValueType::Array(Box::new(HostValueType::I32)),
     );
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;

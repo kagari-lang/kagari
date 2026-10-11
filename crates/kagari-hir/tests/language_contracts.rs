@@ -9,7 +9,6 @@ use kagari_stdlib::{
     catalog as foundation_catalog, catalog as language, identity as library, namespaces,
 };
 use kagari_types::{
-    collection::CollectionAccess,
     language as identities,
     language::Protocol,
     scalar::BuiltinType,
@@ -175,10 +174,7 @@ fn portable_collection_view_preserves_concrete_iterator_proofs() {
     actual
         .associated_types
         .insert(iter, Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32))));
-    let receiver = Ty::Array(
-        Box::new(Ty::Builtin(BuiltinType::I32)),
-        CollectionAccess::Mutable,
-    );
+    let receiver = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
     assert_eq!(
         inheritance::interface_views(&actual, &receiver, &cancel, &lookup).unwrap()[0],
         actual
@@ -218,9 +214,9 @@ fn default_containers_and_user_iterator_type_check_without_an_optional_module() 
             }
         }
         fn main() -> i32 {
-            val data: MutableList<i32> = [1, 2];
+            val data: MutableList<i32> = Vec::from([1, 2]);
             data.push(3);
-            val view: [i32] = data;
+            val view: std::collections::List<i32> = data;
             val map: HashMap<i32, i32> = HashMap::new();
             map.insert(1, 2);
             val set: HashSet<i32> = HashSet::new();
@@ -313,7 +309,7 @@ fn list_method_navigation_uses_language_owned_declarations() {
         .find(|module| module.identity == namespaces::module("std", "collections"))
         .unwrap();
     let generated = declaration_source(&module, &foundation_catalog::shared()).unwrap();
-    let source = "use std::collections::{List};\nfn main() { val values: List<i32> = [2,1]; values.sorted_by_key(|value| value); }";
+    let source = "use std::collections::{List};\nfn main() { val values: List<i32> = Vec::from([2,1]); values.sorted_by_key(|value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("list-navigation.kgr", source.into(), SourceLayer::Base)
@@ -395,4 +391,17 @@ fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
             generated.uri
         );
     }
+}
+
+#[test]
+fn builtin_arrays_type_check_without_installed_library_declarations() {
+    let mut sources = SourceDatabase::default();
+    let file = sources.set("arrays-only.kgr", "fn first<T>(values: [T]) -> T { values[0] } fn main() -> i32 { val empty: [u8] = []; var data: [i32] = [1, 2]; val alias = data; alias[0] = 42; data = [9]; first(alias) }".into(), SourceLayer::Base).unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let errors = snapshot.file(file).unwrap().result().diagnostics();
+    assert!(errors.is_empty(), "{errors:#?}");
+    snapshot.check_program(file, &Default::default()).unwrap();
 }

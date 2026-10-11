@@ -893,7 +893,7 @@ fn shared_native_lists_retain_the_callers_nominal_generation() {
         fn keep<T>(value: T) -> T { value }
         trait Capture {
             fn capture<T>(self, value: T) -> fn() -> i32 {
-                val list: List<T> = [value];
+                val list: List<T> = Vec::from([value]);
                 || { val held: T = keep(list[0]); helper() }
             }
         }
@@ -1007,7 +1007,7 @@ fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
         fn keep<T>(value: T) -> T { value }
         trait Capture {
             fn capture<T>(self, value: T) -> fn() -> i32 {
-                val list: MutableList<(Item, Box<Wrapped<T>>)> = [(Item { value: 1 }, Box { item: Wrapped::Some(value) })];
+                val list: MutableList<(Item, Box<Wrapped<T>>)> = Vec::from([(Item { value: 1 }, Box { item: Wrapped::Some(value) })]);
                 list.push((Item { value: 1 }, Box { item: Wrapped::Some(value) }));
                 val view: List<(Item, Box<Wrapped<T>>)> = list;
                 var seen = 0;
@@ -1038,7 +1038,7 @@ fn shared_repeat_arrays_keep_scalar_contracts_in_generic_frames() {
         fn keep<T>(value: T) -> T { value }
         trait Capture {
             fn capture<T>(self, value: T) -> fn() -> i32 {
-                val list: List<i32> = [42; 2];
+                val list: [i32] = [42; 2];
                 || { val held: i32 = keep(list[1]); helper() + held - 42 }
             }
         }

@@ -37,12 +37,10 @@ mod arrays;
 mod future;
 mod maps_sets;
 mod native;
+mod sequences;
 mod task;
 
-#[cfg(test)]
-use kagari_types::collection::CollectionAccess;
-
-mod array_ops;
+mod buffers;
 mod capacity;
 mod collection;
 mod collector;
@@ -54,6 +52,7 @@ pub(crate) mod leases;
 pub mod mutations;
 pub mod roots;
 mod sequence_edit;
+mod sequence_ops;
 mod storage;
 mod string_iter;
 mod values;

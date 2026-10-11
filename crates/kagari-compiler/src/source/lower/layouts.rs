@@ -276,7 +276,7 @@ pub(super) fn collect(
                 pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
             }
             TypeId::Tuple(types) => pending.extend(types.into_iter().map(|ty| (ty, span))),
-            TypeId::Array(ty, _) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
+            TypeId::Array(ty) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
                 pending.push_back((*ty, span))
             }
             TypeId::Map { key, value, .. } => {

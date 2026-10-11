@@ -13,7 +13,7 @@ struct Item { val value: i32 }
 struct Holder<T> { val item: T }
 impl<T> Producer for Holder<T> {
     type Items = Vec<T>;
-    fn items(self) -> Vec<T> { [self.item] }
+    fn items(self) -> Vec<T> { Vec::from([self.item]) }
 }
 trait Relay {
     fn relay<P: Producer>(self, source: P) -> P::Items { source.items() }
@@ -56,7 +56,7 @@ fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
     assert_eq!(facts.len(), 1);
     assert!(matches!(&facts[0].source, Ty::Projection { .. }));
     assert!(
-        matches!(&facts[0].result, Ty::Array(item, _) if matches!(item.as_ref(), Ty::Struct(_)))
+        matches!(&facts[0].result, Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::Struct(_)]))
     );
     artifact.into_verified(&Default::default()).unwrap();
 }
@@ -86,10 +86,10 @@ fn interface_signature_normalizations_are_evidence_not_trusted_type_overrides() 
             3 => {
                 // Keep the physical HeapObject representation while changing
                 // the associated result's semantic element type.
-                let Ty::Array(item, _) = &mut call.normalizations[0].result else {
-                    panic!("array result")
+                let Ty::NativeObject(nominal) = &mut call.normalizations[0].result else {
+                    panic!("Vec result")
                 };
-                **item = Ty::Builtin(BuiltinType::Bool);
+                nominal.arguments[0] = Ty::Builtin(BuiltinType::Bool);
             }
             4 => call.normalizations[0].result = call.normalizations[0].source.clone(),
             _ => unreachable!(),

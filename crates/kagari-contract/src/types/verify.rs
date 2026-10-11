@@ -26,9 +26,6 @@ use std::{
     iter,
 };
 
-#[cfg(test)]
-use kagari_types::collection::CollectionAccess;
-
 pub fn validate(
     items: &[PublicItem],
     module: &ModuleIdentity,

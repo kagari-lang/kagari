@@ -4,6 +4,6 @@ struct Token { val values: Vec<i32> }
 impl Container<usize> for Token {}
 impl Marker for Token {}
 fn main() -> i32 {
-    val value = echo(Token { values: [21, 21] }, 0usize);
+    val value = echo(Token { values: Vec::from([21, 21]) }, 0usize);
     value.values[0usize] + value.values[1usize]
 }

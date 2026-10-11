@@ -1,5 +1,5 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
-use crate::catalog::contracts::{applied_item, method, unit};
+use crate::catalog::contracts::{applied_item, method, unit, vec_type};
 use crate::catalog::{enums, key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
 use kagari_types::{
@@ -8,7 +8,7 @@ use kagari_types::{
     declaration::{
         FnDecl, TypeDef, TypeDefKind,
         module::{ImplDecl, ModuleDecl},
-        native::NativeTypeConstructor,
+        native::{NativeStorageLayout, NativeTypeConstructor},
         requirement::NativeCallableRequirement,
     },
     range::RangeKind,
@@ -141,7 +141,14 @@ fn declare_key_calls(module: &mut ModuleDecl, family: &str) {
         .filter(|method| {
             matches!(
                 method.name.as_str(),
-                "new" | "get" | "contains" | "contains_key" | "insert" | "insert_fluent" | "remove"
+                "new"
+                    | "from"
+                    | "get"
+                    | "contains"
+                    | "contains_key"
+                    | "insert"
+                    | "insert_fluent"
+                    | "remove"
             )
         })
         .map(|method| ModuleDecl::method_id(&owner, &method.name))
@@ -174,7 +181,15 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         );
         range_implementations(module, kind);
     }
-    define_type(module, "Vec", NativeTypeConstructor::Array, &["T"], false);
+    let owner = module.definition(DefinitionKind::AssociatedType, "Vec");
+    module.types.push(TypeDef {
+        name: "Vec".into(),
+        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+        generic_params: parameters(&owner, &["T"]),
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
     define_type(
         module,
         "HashMap",
@@ -191,6 +206,11 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         false,
     );
     for (family, names, protocols) in [
+        (
+            "array",
+            &["T"][..],
+            &[RegistrationTrait::Index, RegistrationTrait::Iterable][..],
+        ),
         (
             "list",
             &["T"][..],
@@ -316,7 +336,8 @@ fn range_implementations(module: &mut ModuleDecl, kind: RangeKind) {
 
 fn storage(family: &str, items: &[Ty]) -> Ty {
     match family {
-        "list" => Ty::Array(Box::new(items[0].clone()), CollectionAccess::Mutable),
+        "array" => Ty::Array(Box::new(items[0].clone())),
+        "list" => vec_type(items[0].clone()),
         "map" => Ty::Map {
             key: Box::new(items[0].clone()),
             value: Box::new(items[1].clone()),
@@ -340,7 +361,39 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
     };
     let mut new = method("new", vec![], receiver.clone());
     new.implementation = CallableImplementation::Native(binding(module, family, "new"));
-    let mut methods: Vec<FnDecl> = vec![new];
+    let mut methods: Vec<FnDecl> = if family == "array" {
+        [
+            method(
+                "len",
+                vec![receiver.clone()],
+                Ty::Builtin(BuiltinType::USize),
+            ),
+            method(
+                "is_empty",
+                vec![receiver.clone()],
+                Ty::Builtin(BuiltinType::Bool),
+            ),
+        ]
+        .into_iter()
+        .map(|mut method| {
+            method.implementation =
+                CallableImplementation::Native(binding(module, family, &method.name));
+            method
+        })
+        .collect()
+    } else {
+        vec![new]
+    };
+    if matches!(family, "list" | "set") {
+        let mut from = method(
+            "from",
+            vec![Ty::Array(Box::new(items[0].clone()))],
+            receiver.clone(),
+        );
+        from.params[0].name = "array".into();
+        from.implementation = CallableImplementation::Native(binding(module, family, "from"));
+        methods.push(from);
+    }
     // Concrete mutators preserve fluent returns; capability methods return unit.
     for kind in [
         RegistrationTrait::MutableList,

@@ -184,7 +184,6 @@ fn attach_types(
                 layout,
             },
             TypeDefKind::Native(constructor) => match constructor {
-                NativeTypeConstructor::Array => NativeTypeKind::Vec,
                 NativeTypeConstructor::String => NativeTypeKind::String,
                 NativeTypeConstructor::Map => NativeTypeKind::HashMap,
                 NativeTypeConstructor::Set => NativeTypeKind::HashSet,

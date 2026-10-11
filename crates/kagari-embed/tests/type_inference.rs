@@ -73,7 +73,7 @@ fn later_collection_uses_preserve_access_and_runtime_values() {
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> i32 {
-            val values = [];
+            val values = Vec::from([]);
             val alias = values;
             alias.push(20);
             values.push(22);
@@ -102,14 +102,14 @@ fn inference_order_does_not_change_evaluation_order() {
             value
         }
         fn main() -> i32 {
-            val events = [];
+            val events = Vec::from([]);
             val x = consume(Marker { value: record(events, 20) }, record(events, 22));
             { val passed = events[0] == 20; if !passed {val zero=0;1/zero;} };
             { val passed = events[1] == 22; if !passed {val zero=0;1/zero;} };
             { val passed = events.len() == 2usize; if !passed {val zero=0;1/zero;} };
             val pair = Pair { marker: Marker { value: x }, seed: true };
             val bundle = Bundle::Pair(Marker { value: x }, true);
-            val options = [None, Some(22)];
+            val options = Vec::from([None, Some(22)]);
             val branch = if false { None } else { Some(22) };
             { val passed = options[1] == branch; if !passed {val zero=0;1/zero;} };
             val callback = |value| value + 1;
@@ -125,11 +125,11 @@ fn expected_collection_types_constrain_sources_and_callbacks() {
         r#"
         use std::collections;
         fn main() -> i32 {
-            val source = [20, 22];
+            val source = Vec::from([20, 22]);
             val selected: collections::MapIterator<i32,Result<i32,String>> = collections::map(source, |x| Ok(x));
             var total=0;
             for item in selected {match item {Ok(n)=>{total+=n;},Err(_)=>{return 0;}};}
-            val nested: Vec<Vec<i32>> = [[], [total]];
+            val nested: Vec<Vec<i32>> = Vec::from([Vec::from([]), Vec::from([total])]);
             nested[1][0]
         }
     "#,
@@ -164,7 +164,7 @@ fn numeric_suffixes_context_and_full_unsigned_range_execute() {
             { val passed = single == 1.25f32; if !passed {val zero=0;1/zero;} };
             val inferred = 2.0;
             { val passed = inferred == 2.0f64; if !passed {val zero=0;1/zero;} };
-            { val passed = [1,2].len() == 2usize; if !passed {val zero=0;1/zero;} };
+            { val passed = Vec::from([1,2]).len() == 2usize; if !passed {val zero=0;1/zero;} };
             42
         }
     "#,
@@ -244,9 +244,9 @@ fn explicit_type_arguments_and_local_placeholders_execute() {
             fn transform<T>(self, value: T) -> T { value }
         }
         fn main() -> i32 {
-            val values: Vec<_> = [20, 22];
+            val values: Vec<_> = Vec::from([20, 22]);
             val copy = identity::<Vec<i32>>(values);
-            val mapped = collections::map::<i32,i64>([42], |x| 42i64).next();
+            val mapped = collections::map::<i32,i64>(Vec::from([42]), |x| 42i64).next();
             { val passed = mapped == Some(42i64); if !passed {val zero=0;1/zero;} };
             val success = Ok::<i32, String>(42);
             { val passed = match success {Ok(_)=>true,Err(_)=>false}; if !passed {val zero=0;1/zero;} };
@@ -266,7 +266,7 @@ fn invalid_explicit_arguments_and_unresolved_holes_are_rejected() {
         "fn identity<T>(x: T) -> T { x } fn main() { identity::<Missing>(1); }",
         "fn identity<T>(x: T) -> T { x } fn main() { identity::<T = i32>(1); }",
         "fn main() { val f = |x: i32| x; f::<i32>(1); }",
-        "fn main() { val values: Vec<_> = []; }",
+        "fn main() { val values: Vec<_> = Vec::from([]); }",
         "fn main(x: _) {}",
         "struct Bad { val field: _ } fn main() {}",
         "fn main() { val x: i64 = Some(1).map::<i32>(|x| x).unwrap(); }",

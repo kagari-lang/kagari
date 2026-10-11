@@ -29,12 +29,12 @@ fn scoped_task_contract() {
     let f = Fixture::configured_source(
         r#"
 use test::async_sdk::request;
-fn items() -> Vec<i32> { [10,20] }
+fn items() -> Vec<i32> { Vec::from([10,20]) }
 fn push(items:Vec<i32>) { items.push(30); }
 fn replace(items:Vec<i32>) { items[1]=40; }
 fn count(items:Vec<i32>) -> usize { items.len() }
 fn work(items:Vec<i32>) -> fn()->Future<Vec<i32>> {
-    async || { val results:Vec<i32> = []; for item in items { results.push(request(item).await); } results }
+    async || { val results:Vec<i32> = Vec::from([]); for item in items { results.push(request(item).await); } results }
 }
 fn simple() -> fn()->Future<i32> { async || 7 }
 fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request(0) } }

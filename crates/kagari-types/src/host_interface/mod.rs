@@ -205,7 +205,9 @@ impl HostFunctionDeclaration {
                         pending.extend([ok.as_ref(), error.as_ref()])
                     }
                     HostValueType::Opaque(_)
-                    | HostValueType::Array(_, _)
+                    | HostValueType::Array(_)
+                    | HostValueType::Vec(..)
+                    | HostValueType::List(..)
                     | HostValueType::Map { .. }
                     | HostValueType::Set(_, _) => {
                         return Err(HostInterfaceError::InvalidDeclaration);

@@ -30,7 +30,7 @@ enum Node<I = DefinitionPath> {
     Function(u32),
     Iter,
     Range(RangeKind),
-    Array(CollectionAccess),
+    Array,
     Map(CollectionAccess),
     Set(CollectionAccess),
     Struct(I, u32),
@@ -109,9 +109,9 @@ impl<I: DefinitionReference> Ty<I> {
                     pending.push((element, depth + 1));
                     Node::Iter
                 }
-                Self::Array(element, access) => {
+                Self::Array(element) => {
                     pending.push((element, depth + 1));
-                    Node::Array(*access)
+                    Node::Array
                 }
                 Self::Map { key, value, access } => {
                     pending.push((value, depth + 1));
@@ -297,7 +297,7 @@ fn build<I: DefinitionReference, E: de::Error>(
         },
         Node::Range(kind) => Ty::Range(Box::new(build(nodes, depth + 1)?), kind),
         Node::Iter => Ty::Iter(Box::new(build(nodes, depth + 1)?)),
-        Node::Array(access) => Ty::Array(Box::new(build(nodes, depth + 1)?), access),
+        Node::Array => Ty::Array(Box::new(build(nodes, depth + 1)?)),
         Node::Map(access) => Ty::Map {
             key: Box::new(build(nodes, depth + 1)?),
             value: Box::new(build(nodes, depth + 1)?),
@@ -405,10 +405,7 @@ mod tests {
                 position: 0,
             },
             Ty::Tuple(vec![
-                Ty::Array(
-                    Box::new(Ty::Builtin(BuiltinType::I32)),
-                    CollectionAccess::Mutable,
-                ),
+                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
                 Ty::Map {
                     key: Box::new(Ty::Builtin(BuiltinType::String)),
                     value: Box::new(Ty::Set(
@@ -454,10 +451,7 @@ mod tests {
             arguments: vec![Ty::Builtin(BuiltinType::Bool)],
             associated_types: [(
                 member.clone(),
-                Ty::Array(
-                    Box::new(Ty::Builtin(BuiltinType::I32)),
-                    CollectionAccess::Mutable,
-                ),
+                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
             )]
             .into(),
         };
@@ -500,7 +494,7 @@ mod tests {
     fn abi_type_wire_rejects_malformed_and_oversized_nodes() {
         for nodes in [
             vec![],
-            vec![Node::<DefinitionPath>::Array(CollectionAccess::Mutable)],
+            vec![Node::<DefinitionPath>::Array],
             vec![Node::Function(1), Node::Builtin(BuiltinType::I32)],
             vec![Node::Tuple(2), Node::Builtin(BuiltinType::I32)],
             vec![
@@ -521,11 +515,11 @@ mod tests {
 
         let mut deep: Ty = Ty::Builtin(BuiltinType::I32);
         for _ in 0..MAX_DEPTH {
-            deep = Ty::Array(Box::new(deep), CollectionAccess::Mutable);
+            deep = Ty::Array(Box::new(deep));
         }
         assert!(codec().serialize(&deep).is_err());
         let mut nodes = (0..MAX_DEPTH)
-            .map(|_| Node::<DefinitionPath>::Array(CollectionAccess::Mutable))
+            .map(|_| Node::<DefinitionPath>::Array)
             .collect::<Vec<_>>();
         nodes.push(Node::Builtin(BuiltinType::I32));
         let bytes = codec().serialize(&nodes).unwrap();

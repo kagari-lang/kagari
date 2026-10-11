@@ -2,7 +2,11 @@
 use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity};
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::module::{DeclarationError, ModuleDecl},
+    declaration::{
+        TypeDefKind,
+        module::{DeclarationError, ModuleDecl},
+        native::NativeStorageLayout,
+    },
     ty::Ty,
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -21,12 +25,29 @@ pub(crate) fn array_interfaces(
 ) -> Result<BTreeMap<CollectionAccess, DefinitionPath>, DeclarationError> {
     let mut interfaces = BTreeMap::new();
     for implementation in providers.iter().flat_map(|module| &module.implementations) {
-        let (Ty::Array(element, _), Some(interface)) =
+        let (Ty::NativeObject(nominal), Some(interface)) =
             (&implementation.for_type, &implementation.trait_type)
         else {
             continue;
         };
-        if interface.arguments.as_slice() != [element.as_ref().clone()] {
+        let Some(element) = providers
+            .iter()
+            .find(|module| module.identity == nominal.declaration.module)
+            .and_then(|module| {
+                module.types.iter().find(|ty| {
+                    module.definition(ty.kind.definition_kind(), &ty.name) == nominal.declaration
+                })
+            })
+            .and_then(|ty| match ty.kind {
+                TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element }) => {
+                    nominal.arguments.get(element)
+                }
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        if interface.arguments.as_slice() != [element.clone()] {
             continue;
         }
         let Some(contract) = providers

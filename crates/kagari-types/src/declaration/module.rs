@@ -798,7 +798,7 @@ fn supported_type(ty: &Ty) -> Result<(), DeclarationError> {
     while let Some(ty) = pending.pop() {
         match ty {
             Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) => {}
-            Ty::Array(item, _) | Ty::Set(item, _) | Ty::Range(item, _) | Ty::Iter(item) => {
+            Ty::Array(item) | Ty::Set(item, _) | Ty::Range(item, _) | Ty::Iter(item) => {
                 pending.push(item)
             }
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),

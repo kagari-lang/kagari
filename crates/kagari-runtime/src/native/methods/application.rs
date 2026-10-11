@@ -81,7 +81,7 @@ fn children(ty: &Ty<DefinitionId>) -> Vec<&Ty<DefinitionId>> {
             .collect(),
         Ty::Tuple(items) => items.iter().collect(),
         Ty::Function { params, result } => params.iter().chain([result.as_ref()]).collect(),
-        Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => vec![item],
+        Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => vec![item],
         Ty::Map { key, value, .. } => vec![key, value],
         _ => Vec::new(),
     }

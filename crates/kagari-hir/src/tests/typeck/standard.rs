@@ -10,11 +10,26 @@ use crate::{
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib::{catalog as foundation_catalog, catalog, identity as library};
+use kagari_types::collection::CollectionAccess;
 use kagari_types::declaration::{
     module::ModuleDecl,
     names::{ExportName, NameNamespace},
 };
 use std::sync::Arc;
+
+fn foundation_vec(item: TypeId) -> TypeId {
+    let module = kagari_types::declaration::module::ModuleDecl::new(
+        kagari_stdlib::namespaces::type_owner("Vec"),
+    );
+    TypeId::NativeObject(NominalType {
+        declaration: module.definition(
+            kagari_common::identity::DefinitionKind::AssociatedType,
+            "Vec",
+        ),
+        arguments: vec![item],
+        associated_types: Default::default(),
+    })
+}
 
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
@@ -25,12 +40,12 @@ fn foundation_interface(name: &str) -> NominalType {
 }
 
 #[test]
-fn infers_array_method_call_types() {
+fn infers_vec_method_call_types() {
     let source = SourceFile::new(
         "array-method.kgr",
         r#"
 fn main() -> usize {
-    val values = [1, 2];
+    val values = Vec::from([1, 2]);
     val next = values.push(3);
     next.len()
 }
@@ -53,10 +68,7 @@ fn main() -> usize {
 
     assert_eq!(
         typed.type_table.expr_type(push_expr),
-        Some(TypeId::Array(
-            Box::new(TypeId::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable
-        ))
+        Some(foundation_vec(TypeId::Builtin(BuiltinType::I32)))
     );
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
@@ -365,10 +377,7 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         assert_eq!(call.type_arguments, [TypeId::Builtin(BuiltinType::I32)]);
         assert_eq!(
             analyzed.typed.type_table.expr_type(tail),
-            Some(TypeId::Array(
-                Box::new(TypeId::Builtin(BuiltinType::I32)),
-                CollectionAccess::Mutable
-            ))
+            Some(foundation_vec(TypeId::Builtin(BuiltinType::I32)))
         );
     }
 }

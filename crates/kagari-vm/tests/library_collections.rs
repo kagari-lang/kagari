@@ -86,8 +86,8 @@ fn primitive_sort_and_supplied_comparator_preserve_shared_identity() {
     assert_eq!(
         run(r#"
         fn main() -> bool {
-            val empty: Vec<i32> = []; empty.sort();
-            val values = [3, 1, 2, 1]; val alias = values;
+            val empty: Vec<i32> = Vec::from([]); empty.sort();
+            val values = Vec::from([3, 1, 2, 1]); val alias = values;
             values.sort();
             if alias[0] != 1 || alias[1] != 1 || alias[2] != 2 || alias[3] != 3 { return false; }
             values.sort_by(|a, b| b.cmp(a));
@@ -113,7 +113,7 @@ fn script_ord_is_selected_and_equal_elements_remain_stable() {
             val b = Rank { key: 1, tag: 1, visits: 0 };
             val c = Rank { key: 1, tag: 2, visits: 0 };
             val d = Rank { key: 2, tag: 3, visits: 0 };
-            val values = [a,b,c,d]; values.sort();
+            val values = Vec::from([a,b,c,d]); values.sort();
             values[0].tag == 1 && values[1].tag == 2 && values[2].tag == 0 && values[3].tag == 3
                 && a.visits + b.visits + c.visits + d.visits > 0
         }
@@ -192,7 +192,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         use test::probe::{keep, tick};
         struct Item { val key: i32, var visits: i32 }
         fn main() {
-            val values = [Item { key: 3, visits: 0 }, Item { key: 1, visits: 0 }, Item { key: 2, visits: 0 }, Item { key: 0, visits: 0 }]; keep(values);
+            val values = Vec::from([Item { key: 3, visits: 0 }, Item { key: 1, visits: 0 }, Item { key: 2, visits: 0 }, Item { key: 0, visits: 0 }]); keep(values);
             values.sort_by(|a,b| { a.visits += 1; val count = tick(); if count == 3usize { val fail = 1 / 0; }; a.key.cmp(b.key) });
         }
     "#;
@@ -211,7 +211,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, "main").is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
-    let Value::Array(array) = probe
+    let Value::GcHandle(array) = probe
         .retained
         .lock()
         .unwrap()
@@ -222,7 +222,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     else {
         panic!("array");
     };
-    let values = vm.runtime().gc().array_snapshot(array).unwrap();
+    let values = vm.runtime().gc().sequence_snapshot(array).unwrap();
     let mut keys = Vec::new();
     let mut visits = 0;
     for value in &values {
@@ -254,7 +254,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         visits, 3,
         "completed effects on referenced payloads survive failure"
     );
-    vm.runtime().gc().array_push(array, values[0]).unwrap();
+    vm.runtime().gc().sequence_push(array, values[0]).unwrap();
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -276,7 +276,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             r#"
             use test::probe::keep;
             fn main() {{
-                val values = [3,1,2]; keep(values);
+                val values = Vec::from([3,1,2]); keep(values);
                 values.sort_by(|a,b| {{ {mutation} a.cmp(b) }});
             }}
         "#
@@ -297,7 +297,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             format!("{error:?}").contains("guarded callback"),
             "{error:?}"
         );
-        let Value::Array(array) = probe
+        let Value::GcHandle(array) = probe
             .retained
             .lock()
             .unwrap()
@@ -309,10 +309,13 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             panic!("array");
         };
         assert_eq!(
-            vm.runtime().gc().array_snapshot(array),
+            vm.runtime().gc().sequence_snapshot(array),
             Some(vec![Value::I32(3), Value::I32(1), Value::I32(2)])
         );
-        vm.runtime().gc().array_push(array, Value::I32(9)).unwrap();
+        vm.runtime()
+            .gc()
+            .sequence_push(array, Value::I32(9))
+            .unwrap();
     }
 }
 
@@ -321,11 +324,11 @@ fn primitive_selection_covers_unsigned_bounds_and_string_ordering() {
     assert_eq!(
         run(r#"
         fn main() -> bool {
-            val values: Vec<u64> = [18446744073709551615u64, 0u64, 9223372036854775808u64];
+            val values: Vec<u64> = Vec::from([18446744073709551615u64, 0u64, 9223372036854775808u64]);
             values.sort();
             if values[0] != 0u64 || values[2] != 18446744073709551615u64 { return false; }
             values.sort_by(|a,b| b.cmp(a));
-            val text = ["z", "a", "a", "b"]; text.sort();
+            val text = Vec::from(["z", "a", "a", "b"]); text.sort();
             values[0] == 18446744073709551615u64 && text[0] == "a" && text[3] == "z"
         }
     "#),
@@ -349,7 +352,7 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
             r#"use std::cmp::{Ordering};
 
         impl Ord for i32 { fn cmp(self, other: Self) -> Ordering { Ordering::Equal } }
-        fn main() { [1,3,2].sort(); }
+        fn main() { Vec::from([1,3,2]).sort(); }
     "#
             .into(),
             SourceLayer::Base,
@@ -386,7 +389,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         &foundation_catalog::shared(),
     )
     .unwrap();
-    let text = "use std::collections::map; fn main() { val values = map([2,1], |value| value); }";
+    let text = "use std::collections::map; fn main() { val values = map(Vec::from([2,1]), |value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("tooling.kgr", text.into(), SourceLayer::Base)
@@ -402,7 +405,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let offset = text.find("map([2,1]").unwrap();
+    let offset = text.find("map(Vec::from([2,1]").unwrap();
     let target = snapshot.definition_at(file, offset).unwrap();
     let source = snapshot.source(target.location.file).unwrap();
     assert_eq!(source.name(), generated.uri);

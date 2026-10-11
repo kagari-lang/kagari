@@ -493,6 +493,13 @@ cycles; identity-preserving adapters retain the original object instead. Input
 and output capabilities are independent, and no borrowed input reference escapes.
 NativeResult is the runtime-failure channel; a nested business Result remains data.
 Conversion does not implicitly install nominal providers or ignore type origins.
+Rust Vec<T> and ScriptVec<T> refer to the installed nominal Vec declaration and
+reject builtin arrays, including empty ones. Portable HostValueType::Array carries
+only its element schema; Vec and List schemas carry their explicit declaration
+identity plus element schema. Runtime matching preserves these families and checks
+empty-container element contracts as well as each stored value. CallContext exposes
+allocate_array and allocate_vec explicitly; native storage factories allocate
+fixed arrays with allocate_array.
 
 An explicitly declared interface result can differ from the callback's concrete
 Rust result. Compilation selects its existing result adapter before execution;

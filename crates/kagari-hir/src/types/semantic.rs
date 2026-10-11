@@ -45,7 +45,7 @@ pub fn lower_type<I: DefinitionReference>(ty: &TypeId<I>) -> Ty<I> {
         },
         TypeId::Range(element, kind) => Ty::Range(Box::new(lower_type(element)), *kind),
         TypeId::Iter(element) => Ty::Iter(Box::new(lower_type(element))),
-        TypeId::Array(element, access) => Ty::Array(Box::new(lower_type(element)), *access),
+        TypeId::Array(element) => Ty::Array(Box::new(lower_type(element))),
         TypeId::Map { key, value, access } => Ty::Map {
             key: Box::new(lower_type(key)),
             value: Box::new(lower_type(value)),
@@ -110,7 +110,7 @@ pub fn raise_type(ty: &Ty) -> TypeId {
         },
         Ty::Range(ty, kind) => TypeId::Range(Box::new(raise_type(ty)), *kind),
         Ty::Iter(ty) => TypeId::Iter(Box::new(raise_type(ty))),
-        Ty::Array(ty, access) => TypeId::Array(Box::new(raise_type(ty)), *access),
+        Ty::Array(ty) => TypeId::Array(Box::new(raise_type(ty))),
         Ty::Map { key, value, access } => TypeId::Map {
             key: Box::new(raise_type(key)),
             value: Box::new(raise_type(value)),

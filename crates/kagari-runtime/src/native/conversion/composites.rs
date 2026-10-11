@@ -4,28 +4,28 @@ use crate::{
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
+        collections::vector::storage::declaration,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
-        storage_type::StorageType,
         types::Type,
     },
     value::{EnumTag, Value},
 };
 use kagari_common::identity::DefinitionPath;
-use kagari_types::{collection::CollectionAccess, language::binding, ty::Ty};
-use std::sync::Arc;
+use kagari_types::{language::binding, ty::Ty};
 
 impl<T: KagariType> KagariType for Vec<T> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Ok(Type::from_semantic(Ty::Array(
-            Box::new(T::kagari_type(catalog)?.abi().clone()),
-            CollectionAccess::Mutable,
-        )))
+        catalog
+            .type_reference(&declaration())?
+            .apply([T::kagari_type(catalog)?])
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
-        if !matches!(expected.ty(), Ty::Array(_, CollectionAccess::Mutable)) {
+        if !matches!(expected.ty(), Ty::NativeObject(nominal)
+            if binding::matches(&nominal.declaration, &declaration(), Some(expected.definitions())) && nominal.arguments.len() == 1)
+        {
             return Err(RuntimeError::module_validation(
-                "Vec conversion requires a mutable array type",
+                "Vec conversion requires a registered Vec type",
             ));
         }
         cx.check_type::<T>(&cx.parameter(expected, 0)?)
@@ -47,11 +47,7 @@ impl<T: IntoKagari> IntoKagari for Vec<T> {
         for item in self {
             values.push(cx.encode_value(&element, item)?);
         }
-        let contract = Arc::new(StorageType::prepare_scoped(element, cx.owner())?);
-        cx.runtime()
-            .gc()
-            .alloc_array_with_contract(contract, values)
-            .map(Value::Array)
+        cx.runtime().allocate_sequence(cx.owner(), expected, values)
     }
 }
 
@@ -61,16 +57,15 @@ impl<T: FromKagari> FromKagari for Vec<T> {
         expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        let Value::Array(array) = value else {
+        let Value::GcHandle(array) = value else {
             return Err(RuntimeError::module_validation(
-                "Vec conversion requires an array",
+                "Vec conversion requires a nominal sequence",
             ));
         };
-        let count = cx
-            .runtime()
-            .gc()
-            .array_len(*array)
-            .ok_or_else(|| RuntimeError::module_validation("Vec conversion array identity"))?;
+        let count =
+            cx.runtime().gc().sequence_len(*array).ok_or_else(|| {
+                RuntimeError::module_validation("Vec conversion sequence identity")
+            })?;
         cx.check_elements(count)?;
         // Snapshot before user-defined child conversion can reenter or mutate an alias.
         let mut snapshot = Vec::new();
@@ -80,9 +75,12 @@ impl<T: FromKagari> FromKagari for Vec<T> {
         for index in 0..count {
             cx.poll()?;
             snapshot.push(
-                cx.runtime().gc().array_get(*array, index).ok_or_else(|| {
-                    RuntimeError::module_validation("Vec conversion array element")
-                })?,
+                cx.runtime()
+                    .gc()
+                    .sequence_get(*array, index)
+                    .ok_or_else(|| {
+                        RuntimeError::module_validation("Vec conversion sequence element")
+                    })?,
             );
         }
         let roots = cx

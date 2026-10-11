@@ -105,7 +105,7 @@ fn operator_output(interface: &NominalTy, receiver: &Ty) -> Option<Ty> {
         return (interface.arguments == [arguments]).then(|| result.as_ref().clone());
     }
     if kind == Protocol::Index
-        && let Ty::Array(element, _) = receiver
+        && let Ty::Array(element) = receiver
     {
         return matches!(interface.arguments.as_slice(), [Ty::Builtin(ty)] if ty.integer_layout().is_some()).then(|| element.as_ref().clone());
     }

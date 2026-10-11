@@ -16,7 +16,6 @@ use crate::{
 use kagari_common::identity::{DefinitionPath, table::DefinitionId};
 use kagari_types::{
     callable::Signature,
-    collection::CollectionAccess,
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
 };
@@ -45,9 +44,8 @@ pub enum Codec {
 }
 
 impl Codec {
-    /// A group selects the sequence storage family. Individual methods select
-    /// read or write access; check() still checks that access against the actual
-    /// declared receiver, so a readonly array cannot acquire a mutable converter.
+    /// Both sequence codecs require a nominal storage declaration. Interface
+    /// values and builtin arrays cannot acquire a concrete sequence converter.
     pub(crate) fn receiver_shape_matches(&self, method: &Self) -> bool {
         self == method
             || matches!(
@@ -78,13 +76,9 @@ impl Codec {
             Self::Object(id) => {
                 matches!(ty, Ty::NativeObject(nominal) if nominal.declaration == *id)
             }
-            Self::Sequence => {
-                matches!(ty, Ty::Array(_, _))
-                    || matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
-            }
-            Self::MutableSequence => {
-                matches!(ty, Ty::Array(_, CollectionAccess::Mutable))
-                    || matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
+            Self::Sequence | Self::MutableSequence => {
+                matches!(ty, Ty::NativeObject(_))
+                    && matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
             }
             Self::Map => {
                 matches!(ty, Ty::Map { .. })

@@ -1,5 +1,6 @@
 //! Mandatory Rust implementations of the compiler-owned language foundation.
 //! The declaration catalog is the single authority for every signature and bound.
+mod arrays;
 mod construction;
 mod enums;
 mod hash;
@@ -9,6 +10,7 @@ mod strings;
 mod tasks;
 mod vectors;
 use crate::{catalog, collections, declarations::StandardDeclarations, namespaces};
+use kagari_common::identity::DefinitionKind;
 use kagari_contract::operations::IterOp;
 use kagari_runtime::{
     error::RuntimeError,
@@ -107,10 +109,16 @@ fn build_module(
             "$foundation_sum" => construction::sum,
             "$foundation_product" => construction::product,
             "$foundation_list_from_iter" => construction::list_from_iter,
+            "$foundation_array_len" => arrays::length,
+            "$foundation_array_is_empty" => arrays::is_empty,
+            "$foundation_array_index" => arrays::index,
+            "$foundation_list_from" => arrays::vector,
+            "$foundation_set_from" => arrays::set,
             "$foundation_list_new" => list_new,
             "$foundation_list_pop" => list_pop,
             "$foundation_list_remove" => list_remove,
-            "$foundation_list_iter"
+            "$foundation_array_iter"
+            | "$foundation_list_iter"
             | "$foundation_map_iter"
             | "$foundation_set_iter"
             | "$foundation_Range_iter"
@@ -162,9 +170,15 @@ fn build_module(
         );
     }
     let collections_module = declaration.identity == namespaces::module("std", "collections");
+    let vector_module = declaration.identity == namespaces::type_owner("Vec");
     let future_module = declaration.identity == namespaces::module("core", "future");
     let task_module = declaration.identity == namespaces::module("core", "task");
     let mut builder = ModuleBuilder::from_declaration(declaration, &catalog, bindings);
+    if vector_module {
+        let id = ModuleDecl::new(namespaces::type_owner("Vec"))
+            .definition(DefinitionKind::AssociatedType, "Vec");
+        builder.bind_storage(&catalog.type_reference(&id)?, NativeStorage::sequence(0))?;
+    }
     if future_module {
         builder.bind_storage(&catalog.future_type()?, NativeStorage::future())?;
     }
@@ -183,7 +197,7 @@ fn invalid() -> RuntimeError {
 }
 
 fn array(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
-    let Value::Array(id) = cx.argument(0)? else {
+    let Value::GcHandle(id) = cx.argument(0)? else {
         return Err(invalid());
     };
     Ok(id)
@@ -219,14 +233,14 @@ fn option_members() -> NativeResult<&'static (VariantRef, VariantRef)> {
 fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     cx.ensure_collection_mutable(id)?;
-    let length = cx.heap().array_len(id).ok_or_else(invalid)?;
+    let length = cx.heap().sequence_len(id).ok_or_else(invalid)?;
     let value = length
         .checked_sub(1)
-        .and_then(|index| cx.heap().array_get(id, index));
+        .and_then(|index| cx.heap().sequence_get(id, index));
     // Allocate the result before committing the write. No callback or safepoint
     // can invalidate this preparation before the removal.
     let result = option(cx, value)?;
-    cx.heap().array_pop(id)?;
+    cx.heap().sequence_pop(id)?;
     Ok(result)
 }
 
@@ -234,8 +248,8 @@ fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     let index = index(cx, 1)?;
     cx.ensure_collection_mutable(id)?;
-    let result = option(cx, cx.heap().array_get(id, index))?;
-    cx.heap().array_remove(id, index)?;
+    let result = option(cx, cx.heap().sequence_get(id, index))?;
+    cx.heap().sequence_remove(id, index)?;
     Ok(result)
 }
 

@@ -276,7 +276,7 @@ pub fn validate_enum_layouts(
                 pending.extend(params);
                 pending.push(result);
             }
-            Ty::Array(ty, _) | Ty::Set(ty, _) | Ty::Iter(ty) | Ty::Range(ty, _) => pending.push(ty),
+            Ty::Array(ty) | Ty::Set(ty, _) | Ty::Iter(ty) | Ty::Range(ty, _) => pending.push(ty),
             Ty::Map { key, value, .. } => {
                 pending.push(key);
                 pending.push(value);

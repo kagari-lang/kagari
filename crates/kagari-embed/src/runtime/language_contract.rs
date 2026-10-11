@@ -7,6 +7,7 @@ use kagari_bytecode::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::DefinitionKind;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -15,16 +16,15 @@ use kagari_runtime::{
     gc::GcHeap,
     host::{HostError, HostFunction},
     module::LoadedModule,
+    native::conversion::context::ConversionContext,
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
     value_semantics::script_equal,
 };
-use kagari_types::{
-    collection::CollectionAccess, host_interface::value_type::HostValueType, scalar::BuiltinType,
-    ty::Ty,
-};
+use kagari_stdlib::namespaces;
+use kagari_types::{declaration::module::ModuleDecl, host_interface::value_type::HostValueType};
 use kagari_vm::{
     error::VmError,
     vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
@@ -118,7 +118,7 @@ struct Case<'a> {
     cancel_at: Option<usize>,
     reflection: bool,
     iterating: bool,
-    array: Option<(&'static [i32], &'static [i32])>,
+    vector: Option<(&'static [i32], &'static [i32])>,
 }
 
 impl<'a> Case<'a> {
@@ -138,7 +138,7 @@ impl<'a> Case<'a> {
             cancel_at: None,
             reflection: false,
             iterating: false,
-            array: None,
+            vector: None,
         }
     }
 
@@ -152,8 +152,8 @@ impl<'a> Case<'a> {
         self
     }
 
-    fn array(mut self, initial: &'static [i32], expected: &'static [i32]) -> Self {
-        self.array = Some((initial, expected));
+    fn vector(mut self, initial: &'static [i32], expected: &'static [i32]) -> Self {
+        self.vector = Some((initial, expected));
         self
     }
 
@@ -175,9 +175,13 @@ impl<'a> Case<'a> {
 
 fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     let observe = kagari_types::host_interface::HostFunctionDeclaration::new(
-        "observe.array",
+        "observe.vector",
         vec![],
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+        HostValueType::Vec(
+            ModuleDecl::new(namespaces::type_owner("Vec"))
+                .definition(DefinitionKind::AssociatedType, "Vec"),
+            Box::new(HostValueType::I32),
+        ),
     );
     use {
         kagari_common::identity::{ModuleIdentity, PackageId},
@@ -211,7 +215,7 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
             .map(|module| Arc::new(module.to_declaration().unwrap()))
             .collect(),
     );
-    if case.array.is_some() {
+    if case.vector.is_some() {
         analysis.set_host_declarations(
             kagari_hir::host::HostDeclarations::new(kagari_types::host_interface::HostInterface {
                 paths: vec![],
@@ -382,9 +386,13 @@ fn run(
     candidate_program: Option<&PreparedProgram>,
 ) {
     let observe = kagari_types::host_interface::HostFunctionDeclaration::new(
-        "observe.array",
+        "observe.vector",
         vec![],
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+        HostValueType::Vec(
+            ModuleDecl::new(namespaces::type_owner("Vec"))
+                .definition(DefinitionKind::AssociatedType, "Vec"),
+            Box::new(HostValueType::I32),
+        ),
     );
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
@@ -434,34 +442,28 @@ fn run(
             },
         ))
         .unwrap();
-    let observed_array = Arc::new(Mutex::new(None));
-    if case.array.is_some() {
-        let capture_array = observed_array.clone();
+    let observed_vector = Arc::new(Mutex::new(None));
+    if case.vector.is_some() {
+        let capture_vector = observed_vector.clone();
         let capture_host = host.clone();
         runtime
             .register_host_function(HostFunction::new(observe, move |_, _| {
                 capture_host.lock().unwrap().calls.push(HostCall {
-                    symbol: "observe.array",
+                    symbol: "observe.vector",
                     args: vec![],
                 });
-                (*capture_array.lock().unwrap())
-                    .ok_or_else(|| HostError::new("array fixture is not initialized"))
+                (*capture_vector.lock().unwrap())
+                    .ok_or_else(|| HostError::new("Vec fixture is not initialized"))
             }))
             .unwrap();
     }
     let loaded = runtime
         .load_verified_program(case.name, module.bytecode().clone())
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
-    let retained = case.array.map(|(initial, _)| {
-        let array = runtime
-            .alloc_array(
-                &loaded,
-                Ty::Builtin(BuiltinType::I32),
-                initial.iter().copied().map(Value::I32).collect(),
-            )
-            .unwrap();
-        let rooted = runtime.root_value(Value::Array(array)).unwrap();
-        *observed_array.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
+    let retained = case.vector.map(|(initial, _)| {
+        let mut conversion = ConversionContext::new(&runtime, &loaded).unwrap();
+        let rooted = conversion.encode(initial.to_vec()).unwrap();
+        *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
     });
     let iteration = case.iterating.then(|| {
@@ -470,7 +472,7 @@ fn run(
             .begin_collection_iteration(
                 &retained
                     .as_ref()
-                    .expect("iteration fixture needs an array")
+                    .expect("iteration fixture needs a Vec")
                     .value(runtime.gc())
                     .unwrap(),
             )
@@ -563,32 +565,35 @@ fn run(
     );
     drop(session);
     drop(iteration);
-    if let Some((_, expected)) = case.array {
+    if let Some((_, expected)) = case.vector {
         assert_eq!(
             vm.runtime().gc().active_roots(),
             1,
             "only the explicit observer root remains"
         );
         vm.runtime().collect_garbage().unwrap();
-        let Value::Array(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
+        let Value::GcHandle(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
         else {
             unreachable!()
         };
         assert_eq!(
-            vm.runtime().gc().array_snapshot(array),
+            vm.runtime().gc().sequence_snapshot(array),
             Some(expected.iter().copied().map(Value::I32).collect()),
             "{} ({route:?}): post-execution heap state",
             case.name
         );
     }
     if case.iterating {
-        let Value::Array(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
+        let Value::GcHandle(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
         else {
             unreachable!()
         };
-        vm.runtime().gc().array_push(array, Value::I32(99)).unwrap();
+        vm.runtime()
+            .gc()
+            .sequence_push(array, Value::I32(99))
+            .unwrap();
         assert_eq!(
-            vm.runtime().gc().array_pop(array).unwrap(),
+            vm.runtime().gc().sequence_pop(array).unwrap(),
             Some(Value::I32(99)),
             "released guard must permit structural mutation"
         );
@@ -602,11 +607,11 @@ fn run(
             args: vec![(*message).into()],
         })
         .collect::<Vec<_>>();
-    if case.array.is_some() {
+    if case.vector.is_some() {
         expected_calls.insert(
             0,
             HostCall {
-                symbol: "observe.array",
+                symbol: "observe.vector",
                 args: vec![],
             },
         );
@@ -751,7 +756,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     for case in [
         Case::new("enum-unit-call-rejected", "enum Event { Empty } fn main() -> Event { Event::Empty() }", Expected::Diagnostic("KG_TYPE_INVALID_CALL_TARGET")),
         Case::new("enum-value-members", "enum Event { Empty, Data(i32, String) } fn main() -> bool { Event::Empty == Event::Empty && Event::Data(7, \"x\") == Event::Data(7, \"x\") && Event::Data(7, \"x\") != Event::Data(8, \"x\") }", Expected::Value(|_| Value::Bool(true))),
-        Case::new("enum-alias-members", "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a.push(2); x == Event::Data(a) && x != Event::Data([1, 2]) }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum-alias-members", "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a[0] = 2; x == Event::Data(a) && x != Event::Data([2]) }", Expected::Value(|_| Value::Bool(true))),
         Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(|_| Value::Bool(true))).effects(&["first", "second"], &["first", "second"]),
     ] {
         run_routes(&case);
@@ -764,30 +769,30 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     .effects(&["first", "rejected"], &["first"]);
     reject.reject_call = Some(2);
     for case in [
-        Case::new("heap-overflow-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[1] = 42; a[0] += 1; }", Expected::ScriptTrap("integer overflow")).array(&[2147483647, 0], &[2147483647, 42]),
-        Case::new("heap-removed-target-not-recreated", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a.clear(); print(\"removed\"); 2 } else { 0 }; }", Expected::IndexTrap).array(&[1], &[]).effects(&["removed"], &["removed"]),
-        Case::new("heap-out-of-bounds-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[0] = 42; a[9] = 2; }", Expected::IndexTrap).array(&[1], &[42]),
-        Case::new("heap-compound-reads-rhs-write", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a[0] = 10; 2 } else { 0 }; }", Expected::Value(|_| Value::Unit)).array(&[1], &[12]),
+        Case::new("heap-overflow-preserves-earlier-write", "use observe as test; fn main() { val a = test::vector(); a[1] = 42; a[0] += 1; }", Expected::ScriptTrap("integer overflow")).vector(&[2147483647, 0], &[2147483647, 42]),
+        Case::new("heap-removed-target-not-recreated", "use observe as test; fn main() { val a = test::vector(); a[0] += if true { a.clear(); print(\"removed\"); 2 } else { 0 }; }", Expected::IndexTrap).vector(&[1], &[]).effects(&["removed"], &["removed"]),
+        Case::new("heap-out-of-bounds-preserves-earlier-write", "use observe as test; fn main() { val a = test::vector(); a[0] = 42; a[9] = 2; }", Expected::IndexTrap).vector(&[1], &[42]),
+        Case::new("heap-compound-reads-rhs-write", "use observe as test; fn main() { val a = test::vector(); a[0] += if true { a[0] = 10; 2 } else { 0 }; }", Expected::Value(|_| Value::Unit)).vector(&[1], &[12]),
     ] {
         run_routes(&case);
     }
     let mut heap_reject = Case::new(
         "heap-host-rejection-preserves-earlier-write",
-        "use observe as test; fn main() { val a = test::array(); a[0] = 42; print(\"committed\"); a[0] += if true { print(\"rejected\"); 2 } else { 0 }; }",
+        "use observe as test; fn main() { val a = test::vector(); a[0] = 42; print(\"committed\"); a[0] += if true { print(\"rejected\"); 2 } else { 0 }; }",
         Expected::HostFailure,
-    ).array(&[1], &[42]).effects(&["committed", "rejected"], &["committed"]);
-    heap_reject.reject_call = Some(3); // Array provider, committed log, rejected log.
+    ).vector(&[1], &[42]).effects(&["committed", "rejected"], &["committed"]);
+    heap_reject.reject_call = Some(3); // Vec provider, committed log, rejected log.
     let mut heap_cancel = Case::new(
         "heap-cancellation-preserves-earlier-write",
-        "use observe as test; fn main() { val a = test::array(); a[0] = 42; a[0] += if true { print(\"cancel\"); 2 } else { 0 }; print(\"unreachable\"); }",
+        "use observe as test; fn main() { val a = test::vector(); a[0] = 42; a[0] += if true { print(\"cancel\"); 2 } else { 0 }; print(\"unreachable\"); }",
         Expected::Cancelled,
-    ).array(&[1], &[42]).effects(&["cancel"], &["cancel"]);
+    ).vector(&[1], &[42]).effects(&["cancel"], &["cancel"]);
     heap_cancel.cancel_call = Some(2);
     let mut heap_loop_cancel = Case::new(
         "heap-loop-cancellation-preserves-earlier-write",
-        "use observe as test; fn main() { val a = test::array(); a[0] = 42; print(\"committed\"); a[0] += spin(); } fn spin() -> i32 { loop {} }",
+        "use observe as test; fn main() { val a = test::vector(); a[0] = 42; print(\"committed\"); a[0] += spin(); } fn spin() -> i32 { loop {} }",
         Expected::Cancelled,
-    ).array(&[1], &[42]).effects(&["committed"], &["committed"]);
+    ).vector(&[1], &[42]).effects(&["committed"], &["committed"]);
     heap_loop_cancel.cancel_at = Some(100);
     for case in [heap_reject, heap_cancel, heap_loop_cancel] {
         run_routes(&case);
@@ -800,14 +805,14 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         "a.clear()",
     ] {
         let source = format!(
-            "use observe as test; fn main() {{ val a = test::array(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
+            "use observe as test; fn main() {{ val a = test::vector(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
         );
         let mut case = Case::new(
             "host-iteration-rejects-script-structural-write",
             &source,
             Expected::ScriptTrap("structural modification during iteration"),
         )
-        .array(&[1, 2], &[42, 2])
+        .vector(&[1, 2], &[42, 2])
         .effects(&["before"], &["before"]);
         case.iterating = true;
         run_routes(&case);
@@ -854,7 +859,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("shadowed-generic-return", "impl<T> [T] { fn wrong<T>(self, value: T) -> T { self[0] } } fn main() {}", Expected::Diagnostic("KG_TYPE_RETURN_TYPE_MISMATCH")),
         Case::new("generic-values", "fn echo<T>(x: T) -> T { x } fn pass<U>(x: U) -> U { echo(x) } fn main() -> (i32, bool, String) { (pass(7), pass(true), echo(\"ok\")) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), heap.alloc_string("ok".into()).unwrap()]).unwrap())),
         Case::new("generic-recursion", "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }", Expected::Value(|_| Value::I32(7))),
-        Case::new("generic-array-elements", "fn first<T>(xs: Vec<T>) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), heap.alloc_string("ok".into()).unwrap()]).unwrap())),
+        Case::new("generic-array-elements", "fn first<T>(xs: [T]) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), heap.alloc_string("ok".into()).unwrap()]).unwrap())),
         Case::new("generic-equality", "fn same<T: PartialEq>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::Bool(true), Value::Bool(false)]).unwrap())),
         Case::new("generic-static-trait", "trait Get { fn get(self) -> i32; } struct P { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } fn read<T: Get>(value: T) -> i32 { value.get() } fn wrap<U: Get>(value: U) -> i32 { read(value) } fn main() -> i32 { wrap(P { n: 42 }) }", Expected::Value(|_| Value::I32(42))),
         Case::new("interface-dynamic-call", "trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } } fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }", Expected::Value(|_| Value::I32(42))),
@@ -894,11 +899,11 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(|_| Value::I32(32))).effects(&["right", "left"], &["right", "left"]),
         Case::new("string-len-counts-utf8-bytes", "fn main() -> usize { \"aé文\".len() }", Expected::Value(|_| Value::U64(6))),
         Case::new("iter-array-option", "fn main() -> (usize, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)]).unwrap())),
-        Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = [7]; val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)]).unwrap())),
+        Case::new("pop-empty-option", "fn main() -> (i32, bool, usize) { val a = Vec::from([7]); val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }", Expected::Value(|heap| heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)]).unwrap())),
         Case::new("user-print-is-direct-call", "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(41) }", Expected::Value(|_| Value::I32(42))),
         Case::new("user-type-of-is-direct-call", "fn type_of(n: i32) -> i32 { n + 2 } fn main() -> i32 { type_of(40) }", Expected::Value(|_| Value::I32(42))),
         Case::new("local-print-is-not-a-helper", "fn main() { val print = 1; print(2); }", Expected::Diagnostic("KG_TYPE_INVALID_CALL_TARGET")),
-        Case::new("method-receiver-before-argument", "fn receiver() -> Vec<i32> { print(\"receiver\"); [1] } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(|_| Value::Unit)).effects(&["receiver", "argument"], &["receiver", "argument"]),
+        Case::new("method-receiver-before-argument", "fn receiver() -> Vec<i32> { print(\"receiver\"); Vec::from([1]) } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(|_| Value::Unit)).effects(&["receiver", "argument"], &["receiver", "argument"]),
         Case::new("compound-reads-current-local", "fn main() -> i32 { var n = 1; n += if true { n = 10; 2 } else { 0 }; n }", Expected::Value(|_| Value::I32(12))),
         Case::new("compound-captures-index", "fn main() -> i32 { val a = [1, 2]; var i = 0; a[i] += if true { i = 1; 2 } else { 0 }; a[0] * 10 + a[1] }", Expected::Value(|_| Value::I32(32))),
         Case::new("compound-keeps-root-identity", "fn main() -> i32 { var a = [1]; val old = a; a[0] += if true { a = [100]; 2 } else { 0 }; old[0] * 1000 + a[0] }", Expected::Value(|_| Value::I32(3100))),
@@ -907,13 +912,13 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("reject-assignment-index-type", "fn main() -> i32 { val a = [1]; a[true] += 1; a[0] }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("compound-scalars", "fn main() -> i32 { var n = 10; n += 5; n -= 3; n *= 2; n /= 4; n }", Expected::Value(|_| Value::I32(6))),
         Case::new("assignment-evaluates-target-first", r#"
-            fn root(a: Vec<i32>) -> Vec<i32> { print("root"); a }
+            fn root(a: [i32]) -> [i32] { print("root"); a }
             fn index() -> i32 { print("index"); 0 }
-            fn rhs(a: Vec<i32>) -> i32 { print("rhs"); a[0] = 20; 2 }
+            fn rhs(a: [i32]) -> i32 { print("rhs"); a[0] = 20; 2 }
             fn main() -> i32 { val a = [1]; root(a)[index()] += rhs(a); a[0] }
         "#, Expected::Value(|_| Value::I32(22))).effects(&["root", "index", "rhs"], &["root", "index", "rhs"]),
         Case::new("plain-assignment-evaluates-target-first", r#"
-            fn root(a: Vec<i32>) -> Vec<i32> { print("root"); a }
+            fn root(a: [i32]) -> [i32] { print("root"); a }
             fn index() -> i32 { print("index"); 0 }
             fn rhs() -> i32 { print("rhs"); 42 }
             fn main() -> i32 { val a = [1]; root(a)[index()] = rhs(); a[0] }
@@ -921,14 +926,14 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("nested-location-evaluated-once", r#"
             struct Point { var x: i32 }
             fn index() -> i32 { print("index"); 0 }
-            fn rhs(a: Vec<Point>) -> i32 { print("rhs"); a[0] = Point { x: 20 }; 2 }
+            fn rhs(a: [Point]) -> i32 { print("rhs"); a[0] = Point { x: 20 }; 2 }
             fn main() -> i32 { val a = [Point { x: 1 }]; a[index()].x += rhs(a); a[0].x }
         "#, Expected::Value(|_| Value::I32(22))).effects(&["index", "rhs"], &["index", "rhs"]),
         Case::new("rhs-removes-compound-target", r#"
             fn rhs(a: Vec<i32>) -> i32 { a.pop(); print("removed"); 2 }
-            fn main() -> i32 { val a = [1]; a[0] += rhs(a); print("written"); 0 }
+            fn main() -> i32 { val a = Vec::from([1]); a[0] += rhs(a); print("written"); 0 }
         "#, Expected::IndexTrap).effects(&["removed"], &["removed"]),
-        Case::new("rhs-repairs-missing-target", "fn rhs(a: Vec<i32>) -> i32 { a.push(20); 2 } fn main() -> i32 { val a = [1]; a[1] += rhs(a); a[1] }", Expected::Value(|_| Value::I32(22))),
+        Case::new("rhs-repairs-missing-target", "fn rhs(a: Vec<i32>) -> i32 { a.push(20); 2 } fn main() -> i32 { val a = Vec::from([1]); a[1] += rhs(a); a[1] }", Expected::Value(|_| Value::I32(22))),
         Case::new("compound-overflow", "fn main() -> i32 { val a = [2147483647]; a[0] += 1; a[0] }", Expected::ScriptTrap("integer overflow")),
         Case::new("tuple-copy-commit", "fn main() -> i32 { var t = ((1, 2), 3); val old = t; t[0][1] += 40; t[0][1] + old[0][1] }", Expected::Value(|_| Value::I32(44))),
         Case::new("tuple-in-array-commit", "fn main() -> i32 { val a = [(1, 2)]; a[0][1] += 40; a[0][1] }", Expected::Value(|_| Value::I32(42))),
@@ -976,9 +981,9 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("completed_effect_survives_trap", "fn main() { print(\"committed\"); val a = [1]; a[9] = 2; print(\"unreachable\"); }", Expected::IndexTrap).effects(&["committed"], &["committed"]),
         Case::new("const_rebind", "const N: i32 = 1; fn main() { N = 2; }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("missing_name", "fn main() { missing; }", Expected::Diagnostic("KG_RESOLVE_UNKNOWN_NAME")),
-        Case::new("enum_value", "fn main() -> bool { val a = [1]; val b = [1]; a.pop() == b.pop() }", Expected::Value(|_| Value::Bool(true))),
-        Case::new("enum_different_members", "fn main() -> bool { val a = [1, 2]; a.pop() != a.pop() }", Expected::Value(|_| Value::Bool(true))),
-        Case::new("enum_object_identity", "fn main() -> bool { val a = [[1]]; val b = [[1]]; a.pop() != b.pop() }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum_value", "fn main() -> bool { val a = Vec::from([1]); val b = Vec::from([1]); a.pop() == b.pop() }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum_different_members", "fn main() -> bool { val a = Vec::from([1, 2]); a.pop() != a.pop() }", Expected::Value(|_| Value::Bool(true))),
+        Case::new("enum_object_identity", "fn main() -> bool { val a = Vec::from([[1]]); val b = Vec::from([[1]]); a.pop() != b.pop() }", Expected::Value(|_| Value::Bool(true))),
         Case::new("map_alias_through_call", "use std::collections::{HashMap};\nfn change(value: HashMap<String, i32>) -> HashMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b = change(a); val fresh: HashMap<String, i32> = HashMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }", Expected::Value(|_| Value::Bool(true))),
         Case::new("set_alias_through_call", "use std::collections::{HashSet};\nfn change(value: HashSet<String>) -> HashSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: HashSet<String> = HashSet::new(); val b = change(a); val fresh: HashSet<String> = HashSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }", Expected::Value(|_| Value::Bool(true))),
         Case::new("enum_tuple_members_keep_map_identity", "use std::collections::{HashMap};\nenum Packet { Data((HashMap<String, i32>, i32)) } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b: HashMap<String, i32> = HashMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }", Expected::Value(|_| Value::Bool(true))),

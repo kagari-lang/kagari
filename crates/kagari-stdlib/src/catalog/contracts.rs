@@ -136,3 +136,13 @@ pub(super) fn declare(module: &mut ModuleDecl) {
     ]);
     module.traits.push(bounds);
 }
+
+/// The concrete growable list type in the assembly; partitioning assigns its owner.
+pub(super) fn vec_type(item: Ty) -> Ty {
+    Ty::NativeObject(NominalTy {
+        declaration: ModuleDecl::new(super::assembly_identity())
+            .definition(DefinitionKind::AssociatedType, "Vec"),
+        arguments: vec![item],
+        associated_types: Default::default(),
+    })
+}

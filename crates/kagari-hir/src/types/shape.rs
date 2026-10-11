@@ -29,7 +29,7 @@ pub(super) fn validate<I: DefinitionReference>(
             }
             TypeId::Iter(item)
             | TypeId::Range(item, _)
-            | TypeId::Array(item, _)
+            | TypeId::Array(item)
             | TypeId::Set(item, _) => pending.push((item, next)),
             TypeId::Map { key, value, .. } => {
                 pending.push((key, next));

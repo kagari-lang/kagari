@@ -236,11 +236,10 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
     let integer = Ty::Builtin(BuiltinType::I32);
     for access in [ReadOnly, Mutable] {
         for ty in [
-            Ty::Array(Box::new(integer.clone()), access),
             Ty::Set(Box::new(integer.clone()), access),
             Ty::Map {
                 key: Box::new(integer.clone()),
-                value: Box::new(Ty::Array(Box::new(integer.clone()), ReadOnly)),
+                value: Box::new(Ty::Array(Box::new(integer.clone()))),
                 access,
             },
         ] {
@@ -251,11 +250,10 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
             assert_eq!(codec().deserialize::<Ty>(&bytes).unwrap(), ty);
         }
         for host in [
-            HostValueType::Array(Box::new(HostValueType::I32), access),
             HostValueType::Set(Box::new(HostValueType::String), access),
             HostValueType::Map {
                 key: Box::new(HostValueType::String),
-                value: Box::new(HostValueType::Array(Box::new(HostValueType::I32), ReadOnly)),
+                value: Box::new(HostValueType::Array(Box::new(HostValueType::I32))),
                 access,
             },
         ] {
@@ -265,8 +263,17 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
             );
         }
     }
-    let readonly = Ty::Array(Box::new(integer.clone()), ReadOnly);
-    let mutable = Ty::Array(Box::new(integer), Mutable);
+    let array = Ty::from_host_type(&HostValueType::Array(Box::new(HostValueType::I32)));
+    assert_eq!(raise_type(&array).collection_access(), None);
+    assert_eq!(lower_type(&raise_type(&array)), array);
+    assert_eq!(
+        codec()
+            .deserialize::<Ty>(&codec().serialize(&array).unwrap())
+            .unwrap(),
+        array
+    );
+    let readonly = Ty::Set(Box::new(integer.clone()), ReadOnly);
+    let mutable = Ty::Set(Box::new(integer), Mutable);
     assert_ne!(
         codec().serialize(&readonly).unwrap(),
         codec().serialize(&mutable).unwrap()

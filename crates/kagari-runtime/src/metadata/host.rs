@@ -175,12 +175,20 @@ fn intern(
             }
             TypeKind::Tuple
         }
-        HostValueType::Array(element, _) | HostValueType::Set(element, _) => {
+        HostValueType::Array(element) | HostValueType::Set(element, _) => {
             intern(inner, nominal, element)?;
-            if matches!(ty, HostValueType::Array(_, _)) {
+            if matches!(ty, HostValueType::Array(_)) {
                 TypeKind::Array
             } else {
                 TypeKind::Set
+            }
+        }
+        HostValueType::Vec(_, element) | HostValueType::List(_, element) => {
+            intern(inner, nominal, element)?;
+            if matches!(ty, HostValueType::Vec(..)) {
+                TypeKind::Struct
+            } else {
+                TypeKind::Interface
             }
         }
         HostValueType::Map { key, value, .. } => {

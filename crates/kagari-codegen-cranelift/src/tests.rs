@@ -189,7 +189,7 @@ fn cranelift_backend_reports_unsupported_instructions_before_native_entry() {
 fn cranelift_backend_requires_precise_stack_maps_for_gc_values() {
     let error = compile(
         &mut CraneliftBackend::for_host().unwrap(),
-        &mir("fn main() -> Vec<i32> { [1] }"),
+        &mir("fn main() -> [i32] { [1] }"),
     )
     .unwrap_err();
     assert!(error.is_unsupported());

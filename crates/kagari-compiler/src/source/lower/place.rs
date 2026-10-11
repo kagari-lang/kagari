@@ -9,7 +9,7 @@ use kagari_hir::{
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
     language::semantics::ProtocolSemantics,
     resolver::resolved::ResolvedName,
-    types::{TypeId, semantic::lower_nominal_type},
+    types::{NominalType, TypeId, semantic::lower_nominal_type},
 };
 use kagari_mir::{
     ids::LocalId,
@@ -40,6 +40,12 @@ struct Projection {
 enum ProjectionKind {
     Field(AggregateFieldRef),
     Index(MirValue),
+    AppliedIndex {
+        index: MirValue,
+        receiver: TypeId,
+        read: NominalType,
+        write: NominalType,
+    },
     InterfaceIndex {
         index: MirValue,
         read: NominalTy,
@@ -74,7 +80,7 @@ impl FunctionLowerer<'_, '_> {
                 }
             };
             for projection in &prepared.projections {
-                value = self.read_projection(value, projection);
+                value = self.read_projection(value, projection)?;
             }
             let dynamic_args = match self.lower_host_path_arguments(&checked.dynamic_arguments)? {
                 ControlFlow::Break(_) => return Ok(None),
@@ -117,8 +123,9 @@ impl FunctionLowerer<'_, '_> {
                         self.analyzed.typed.type_table.place_type(id),
                         Some(
                             TypeId::Trait(_)
+                                | TypeId::NativeObject(_)
                                 | TypeId::Struct(_)
-                                | TypeId::Array(_, _)
+                                | TypeId::Array(_)
                                 | TypeId::Map { .. }
                                 | TypeId::Set(_, _)
                         )
@@ -232,6 +239,38 @@ impl FunctionLowerer<'_, '_> {
                     });
                     return Ok(Some(place));
                 }
+                if let Some(write) = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .place_index_write(id)
+                    .cloned()
+                {
+                    let read = self
+                        .analyzed
+                        .typed
+                        .type_table
+                        .place_index(id)
+                        .cloned()
+                        .ok_or(MirLoweringError::MissingBinding(
+                            "indexed assignment read contract",
+                        ))?;
+                    let index = self.lower_expr(index)?;
+                    if self.current_block_terminated() {
+                        return Ok(None);
+                    }
+                    place.projections.push(Projection {
+                        kind: ProjectionKind::AppliedIndex {
+                            index,
+                            receiver,
+                            read,
+                            write,
+                        },
+                        ty: self.place_type(id)?,
+                        tuple_base: false,
+                    });
+                    return Ok(Some(place));
+                }
                 if let Some(interface) = self.analyzed.typed.type_table.place_index(id).cloned() {
                     let receiver_ty = self
                         .analyzed
@@ -255,7 +294,7 @@ impl FunctionLowerer<'_, '_> {
                         }
                     };
                     for projection in &place.projections {
-                        value = self.read_projection(value, projection);
+                        value = self.read_projection(value, projection)?;
                     }
                     let index = self.lower_expr(index)?;
                     if self.current_block_terminated() {
@@ -353,7 +392,7 @@ impl FunctionLowerer<'_, '_> {
         let count = place.projections.len();
         for (index, projection) in place.projections.into_iter().enumerate() {
             let next = if index + 1 < count {
-                Some(self.read_projection(base, &projection))
+                Some(self.read_projection(base, &projection)?)
             } else {
                 None
             };
@@ -363,9 +402,10 @@ impl FunctionLowerer<'_, '_> {
             }
         }
         let mut result = if let Some(op) = op {
-            let current = path.last().map_or(root, |(base, projection)| {
-                self.read_projection(*base, projection)
-            });
+            let current = match path.last() {
+                Some((base, projection)) => self.read_projection(*base, projection)?,
+                None => root,
+            };
             let dst = self.alloc_temp(current.ty);
             self.emit(Instruction::Binary {
                 dst,
@@ -388,6 +428,24 @@ impl FunctionLowerer<'_, '_> {
                     field,
                     value: result,
                 }),
+                ProjectionKind::AppliedIndex {
+                    index,
+                    receiver,
+                    write,
+                    ..
+                } => {
+                    let method = self
+                        .planner
+                        .catalog
+                        .trait_(&write.declaration)
+                        .and_then(|contract| {
+                            contract.methods.iter().find(|method| method.name == "set")
+                        })
+                        .ok_or(MirLoweringError::MissingBinding("checked list setter"))?
+                        .id
+                        .clone();
+                    self.lower_applied_operator(write, receiver, &method, &[base, index, result])?;
+                }
                 ProjectionKind::InterfaceIndex { index, write, .. } => {
                     let interface =
                         write.ok_or(MirLoweringError::MissingBinding("writable list interface"))?;
@@ -444,9 +502,29 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    fn read_projection(&mut self, base: MirValue, projection: &Projection) -> MirValue {
+    fn read_projection(
+        &mut self,
+        base: MirValue,
+        projection: &Projection,
+    ) -> Result<MirValue, MirLoweringError> {
+        if let ProjectionKind::AppliedIndex {
+            index,
+            receiver,
+            read,
+            ..
+        } = &projection.kind
+        {
+            let method = self.protocol_method(Protocol::Index, 0)?;
+            return self.lower_applied_operator(
+                read.clone(),
+                receiver.clone(),
+                &method,
+                &[base, *index],
+            );
+        }
         let dst = self.alloc_temp(projection.ty);
         match &projection.kind {
+            ProjectionKind::AppliedIndex { .. } => unreachable!("handled applied projection"),
             ProjectionKind::InterfaceIndex { index, read, .. } => self.emit(Instruction::Call {
                 dst: Some(dst),
                 callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
@@ -471,6 +549,6 @@ impl FunctionLowerer<'_, '_> {
                 index: *index,
             }),
         }
-        dst
+        Ok(dst)
     }
 }

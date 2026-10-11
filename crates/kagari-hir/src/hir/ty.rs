@@ -87,7 +87,7 @@ pub enum TypeKind {
     },
     /// Tuple element type IDs; an empty sequence represents unit syntax.
     Tuple(TypeBuffer),
-    /// Element type for `[T]`; this spelling does not store an array length.
+    /// Element type for builtin `[T]`; the fixed object length is not part of its type.
     Array(TypeRefId),
     /// A function type with explicit parameter and result syntax.
     Function {

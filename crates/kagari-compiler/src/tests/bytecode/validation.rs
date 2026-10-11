@@ -33,9 +33,9 @@ fn rejects_function_fallthrough_before_loading() {
 }
 
 #[test]
-fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
+fn verifier_rejects_vec_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok(
-        "fn main() -> bool { val a = [7]; match a.get(a.len()) { None => true, Some(_) => false } }",
+        "fn main() -> bool { val a = Vec::from([7]); match a.get(a.len()) { None => true, Some(_) => false } }",
     );
     let get = NativeImportId::new(
         module.modules[module.root.index()]

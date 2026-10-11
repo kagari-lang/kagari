@@ -358,7 +358,7 @@ fn main() -> i32 {
 fn executes_source_lowered_set_index_helper() {
     let (runtime, loaded) = load_reflection_test_module(
         r#"
-fn main() -> Vec<i32> {
+fn main() -> [i32] {
     val values = [1, 2];
     set_index(values, 0, 9)
 }

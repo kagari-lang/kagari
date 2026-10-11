@@ -3,7 +3,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
-use kagari_types::{collection::CollectionAccess, ty::Ty};
+use kagari_types::ty::Ty;
 
 #[path = "support/layouts.rs"]
 mod layouts;
@@ -254,22 +254,19 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
             .structures[0]
             .clone(),
     );
-    bytecode.structures[0].fields[0].ty = Ty::Array(
-        Box::new(Ty::Tuple(vec![
-            Ty::Struct(NominalTy {
-                associated_types: Default::default(),
-                declaration: leaf
-                    .module()
-                    .definitions()
-                    .resolve(leaf.layout().declaration)
-                    .unwrap()
-                    .to_path(),
-                arguments: vec![],
-            }),
-            Ty::Builtin(BuiltinType::Bool),
-        ])),
-        CollectionAccess::Mutable,
-    );
+    bytecode.structures[0].fields[0].ty = Ty::Array(Box::new(Ty::Tuple(vec![
+        Ty::Struct(NominalTy {
+            associated_types: Default::default(),
+            declaration: leaf
+                .module()
+                .definitions()
+                .resolve(leaf.layout().declaration)
+                .unwrap()
+                .to_path(),
+            arguments: vec![],
+        }),
+        Ty::Builtin(BuiltinType::Bool),
+    ])));
     let module = runtime
         .load_program(
             "concrete",
@@ -282,7 +279,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let wrapper = module.struct_layout(StructId::new(0)).unwrap();
     let leaf = module.struct_layout(StructId::new(1)).unwrap();
     let valid = Value::Struct(runtime.alloc_struct(leaf, vec![Value::I32(42)]).unwrap());
-    let Ty::Array(element, _) = &wrapper.layout().fields[0].ty else {
+    let Ty::Array(element) = &wrapper.layout().fields[0].ty else {
         panic!("array field")
     };
     let element = (**element).clone();

@@ -275,9 +275,9 @@ use std::num::{TryFromIntError};
 
 fn aggregate<T:Sum<i32>,I:Iterable<Item=i32>>(source:I)->T {T::sum(source)}
 fn main()->i32 {
-    val copied=Vec<i32>::from_iter([2,3,7]);
+    val copied=Vec<i32>::from_iter(Vec::from([2,3,7]));
     val product=i32::product(copied);
-    val total:i32=aggregate([20,22]);
+    val total:i32=aggregate(Vec::from([20,22]));
     val parsed=i32::from_str("42");
     val narrow:Result<i8,TryFromIntError> = total.try_into();
     match parsed {Ok(n)=>match narrow {Ok(k)=>if product==n && i32::from(k)==n {n}else{0},Err(_)=>0},Err(_)=>0}
@@ -314,7 +314,7 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
         "struct X{} impl TryFrom<i32> for X {type Error=String;fn try_from(value:i32)->X{X{}}} fn main(){}",
         "use std::iter::{Sum};\nstruct X{} impl Sum<i32> for X {fn sum<I:Iterable<Item=String>>(source:I)->X{X{}}} fn main(){}",
         "use std::iter::{Product};\nstruct X{} impl Product<i32> for X {fn product(source:i32)->X{X{}}} fn main(){}",
-        "fn main(){val x=Vec<i32>::from_iter([true]);}",
+        "fn main(){val x=Vec<i32>::from_iter(Vec::from([true]));}",
         "fn main()->i32 {i32::sum([true])}",
         "fn main(){val x:Result<i32,String> = i32::try_from(1);}",
     ] {
@@ -338,8 +338,8 @@ fn primitive_construction_preserves_errors_empty_identities_and_fresh_storage() 
 use std::num::{ParseError, TryFromIntError};
 
 fn main()->i32 {
-    val source=[1,2];val copy=Vec<i32>::from_iter(source);copy.push(3);
-    val empty_values:Vec<i32> = [];
+    val source=Vec::from([1,2]);val copy=Vec<i32>::from_iter(source);copy.push(3);
+    val empty_values:Vec<i32> = Vec::from([]);
     if source.len()!=2usize || i32::sum(empty_values)!=0 || i32::product(empty_values)!=1 {return 0;}
     val out=i8::try_from(128);val empty=i32::from_str("");val invalid=bool::from_str("TRUE");
     val narrow:Result<i8,Infallible> = i8::try_from(42i8);
@@ -380,7 +380,7 @@ fn native_aggregation_accepts_readonly_collection_interfaces() {
     execute(
         r#"use std::collections::{List};
 
-fn main()->i32 {val values:List<i32> = [20,22]; i32::sum(values)}
+fn main()->i32 {val values:List<i32> = Vec::from([20,22]); i32::sum(values)}
 "#,
     );
 }
@@ -399,7 +399,7 @@ impl Iterable for Source {
     type Item=i32;type Iter=Cursor;
     fn iter(self)->Cursor {Cursor{values:self.values,index:0usize}}
 }
-fn main()->i32 {i32::sum(Source{values:[20,22]})}
+fn main()->i32 {i32::sum(Source{values:Vec::from([20,22])})}
 "#,
     );
 }

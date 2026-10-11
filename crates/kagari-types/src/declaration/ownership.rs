@@ -53,7 +53,12 @@ impl ReceiverOwners {
                 });
             }
             Ty::Builtin(BuiltinType::String) => NativeTypeConstructor::String,
-            Ty::Array(..) => NativeTypeConstructor::Array,
+            Ty::Array(..) => {
+                return Some(ModuleIdentity {
+                    package: PackageId("kagari-core".into()),
+                    path: vec!["array".into()],
+                });
+            }
             Ty::Map { .. } => NativeTypeConstructor::Map,
             Ty::Set(..) => NativeTypeConstructor::Set,
             Ty::Iter(_) => NativeTypeConstructor::Iter,
@@ -74,7 +79,7 @@ mod tests {
     fn sequence(module: &ModuleDecl) -> TypeDef {
         TypeDef {
             name: "Sequence".into(),
-            kind: TypeDefKind::Native(NativeTypeConstructor::Array),
+            kind: TypeDefKind::Native(NativeTypeConstructor::Set),
             generic_params: vec![GenericParam {
                 owner: module.definition(DefinitionKind::AssociatedType, "Sequence"),
                 position: 0,
@@ -89,7 +94,7 @@ mod tests {
     fn native_family_ownership_comes_from_validated_bindings() {
         let left = ModuleDecl::new(ModuleIdentity::single_file("left.kgr"));
         let right = ModuleDecl::new(ModuleIdentity::single_file("right.kgr"));
-        let receiver = Ty::Array(
+        let receiver = Ty::Set(
             Box::new(Ty::Builtin(BuiltinType::I32)),
             CollectionAccess::Mutable,
         );

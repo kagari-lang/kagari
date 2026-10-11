@@ -85,7 +85,7 @@ fn interface_method_results_use_existing_native_and_inherited_adapters() {
     let (vm, owner) = fixture(
         r#"
         use std::collections::List;
-        pub fn make() -> List<i32> { [20, 22] }
+        pub fn make() -> List<i32> { Vec::from([20, 22]) }
     "#,
         None,
     );

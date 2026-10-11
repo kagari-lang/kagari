@@ -22,7 +22,7 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
             val edges: HashMap<i32, Node> = HashMap::new();
             val node = Node { edges: edges };
             edges.insert(1, node);
-            Some(([node],))
+            Some((Vec::from([node]),))
         }
         fn garbage() -> HashSet<i32> { val set: HashSet<i32> = HashSet::new(); set.insert(1); set }
     "#,
@@ -91,7 +91,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> (HashMap<Option<(Vec<i32>, String)>, i32>, HashSet<Option<(Vec<i32>, String)>>, bool) {
-            val object = [42];
+            val object = Vec::from([42]);
             val key = Some((object, "key"));
             val map: HashMap<Option<(Vec<i32>, String)>, i32> = HashMap::new();
             map.insert(key, 20);
@@ -133,7 +133,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         panic!("tuple payload")
     };
     let parts = runtime.gc().tuple(*parts).unwrap().to_vec();
-    let [Value::Array(object), _] = parts.as_slice() else {
+    let [Value::GcHandle(object), _] = parts.as_slice() else {
         panic!("identity payload")
     };
     let object = *object;
@@ -149,7 +149,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         )
         .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 7);
-    runtime.gc().array_push(object, Value::I32(101)).unwrap();
+    runtime.gc().sequence_push(object, Value::I32(101)).unwrap();
     assert_eq!(
         hash,
         MapKey::from_value(runtime.gc(), &key)
@@ -170,7 +170,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
                 vm.runtime()
                     .gc()
                     .alloc_tuple(vec![
-                        Value::Array(object),
+                        Value::GcHandle(object),
                         vm.runtime().gc().alloc_string("key".into()).unwrap(),
                     ])
                     .unwrap(),
@@ -258,14 +258,14 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
         r#"
         struct Node { val items: Vec<Node> }
         fn main() -> Vec<Node> {
-            val items: Vec<Node> = [];
+            val items: Vec<Node> = Vec::from([]);
             items.push(Node { items: items });
             items
         }
     "#,
         None,
     );
-    let Value::Array(object) = vm
+    let Value::GcHandle(object) = vm
         .execute(&loaded, "main")
         .unwrap()
         .return_value
@@ -275,8 +275,8 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
         panic!("array")
     };
     let runtime = vm.runtime();
-    let preview = format_value(runtime.gc(), &Value::Array(object), true).unwrap();
-    assert!(preview.starts_with("Array@"));
+    let preview = format_value(runtime.gc(), &Value::GcHandle(object), true).unwrap();
+    assert!(preview.starts_with("Vec@"));
     assert_eq!(
         format_value(
             runtime.gc(),
@@ -302,13 +302,13 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
         value = vm.runtime().gc().alloc_tuple(vec![value]).unwrap();
     }
     assert!(format_value(runtime.gc(), &value, true).is_err());
-    assert_eq!(runtime.gc().array_len(object), Some(1));
+    assert_eq!(runtime.gc().sequence_len(object), Some(1));
 }
 
 #[test]
 fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     let mut module = compile_program(
-        "fn init() -> Vec<i32> { [7] } fn main() -> i32 { 42 }",
+        "fn init() -> Vec<i32> { Vec::from([7]) } fn main() -> i32 { 42 }",
         None,
     );
     module.modules[module.root.index()]
@@ -356,7 +356,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
 #[test]
 fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     let (vm, old) = compile(
-        "struct Item { val value: i32 } fn main() -> Vec<Item> { [Item { value: 42 }] }",
+        "struct Item { val value: i32 } fn main() -> Vec<Item> { Vec::from([Item { value: 42 }]) }",
         None,
     );
     let value = vm
@@ -365,7 +365,7 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    let Value::Array(array) = value else {
+    let Value::GcHandle(array) = value else {
         panic!("typed array")
     };
     let root = vm.runtime().root_value(value).unwrap();
@@ -387,10 +387,15 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     assert_eq!(reclaimed, expected);
     assert!(vm.runtime().validate_loaded_module(&old).is_err());
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
-    let item = vm.runtime().gc().array_get(array, 0).unwrap();
-    vm.runtime().gc().array_push(array, item).unwrap();
-    assert!(vm.runtime().gc().array_push(array, Value::I32(7)).is_err());
-    assert_eq!(vm.runtime().gc().array_len(array), Some(2));
+    let item = vm.runtime().gc().sequence_get(array, 0).unwrap();
+    vm.runtime().gc().sequence_push(array, item).unwrap();
+    assert!(
+        vm.runtime()
+            .gc()
+            .sequence_push(array, Value::I32(7))
+            .is_err()
+    );
+    assert_eq!(vm.runtime().gc().sequence_len(array), Some(2));
     assert_eq!(
         vm.execute(&replacement, "main")
             .unwrap()
@@ -411,7 +416,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         fn main() -> Vec<Node> {
             val node = Node { next: None, value: Inner { value: 42 } };
             node.next = Some(node);
-            [node]
+            Vec::from([node])
         }
     "#;
     let (vm, old) = compile(source, None);
@@ -435,7 +440,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let new_root = vm.runtime().root_value(new_value).unwrap();
-    let (Value::Array(old_array), Value::Array(new_array)) = (old_value, new_value) else {
+    let (Value::GcHandle(old_array), Value::GcHandle(new_array)) = (old_value, new_value) else {
         panic!("typed arrays");
     };
     let reclaimed = vm.runtime().collect_garbage().unwrap().reclaimed_modules;
@@ -443,14 +448,30 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         old.members()
             .all(|member| reclaimed.contains(&member.key()))
     );
-    let old_node = vm.runtime().gc().array_get(old_array, 0).unwrap();
-    let new_node = vm.runtime().gc().array_get(new_array, 0).unwrap();
-    assert!(vm.runtime().gc().array_push(old_array, new_node).is_err());
-    assert!(vm.runtime().gc().array_push(new_array, old_node).is_err());
-    assert_eq!(vm.runtime().gc().array_len(old_array), Some(1));
-    assert_eq!(vm.runtime().gc().array_len(new_array), Some(1));
-    vm.runtime().gc().array_push(old_array, old_node).unwrap();
-    vm.runtime().gc().array_push(new_array, new_node).unwrap();
+    let old_node = vm.runtime().gc().sequence_get(old_array, 0).unwrap();
+    let new_node = vm.runtime().gc().sequence_get(new_array, 0).unwrap();
+    assert!(
+        vm.runtime()
+            .gc()
+            .sequence_push(old_array, new_node)
+            .is_err()
+    );
+    assert!(
+        vm.runtime()
+            .gc()
+            .sequence_push(new_array, old_node)
+            .is_err()
+    );
+    assert_eq!(vm.runtime().gc().sequence_len(old_array), Some(1));
+    assert_eq!(vm.runtime().gc().sequence_len(new_array), Some(1));
+    vm.runtime()
+        .gc()
+        .sequence_push(old_array, old_node)
+        .unwrap();
+    vm.runtime()
+        .gc()
+        .sequence_push(new_array, new_node)
+        .unwrap();
     drop((old_root, new_root));
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }

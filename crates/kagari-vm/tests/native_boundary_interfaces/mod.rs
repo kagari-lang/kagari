@@ -248,7 +248,7 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
             for value in values { result += value; }
             result
         }
-        fn main() -> i32 { sum([20, 22]) }
+        fn main() -> i32 { sum(Vec::from([20, 22])) }
         "#,
         None,
     );
@@ -265,7 +265,7 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
 #[test]
 fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     let program = compile_program(
-        "use std::collections::{List};\nfn sum(values: List<i32>) -> i32 { var n = 0; for x in values { n += x; } n } fn main() -> i32 { sum([20, 22]) }",
+        "use std::collections::{List};\nfn sum(values: List<i32>) -> i32 { var n = 0; for x in values { n += x; } n } fn main() -> i32 { sum(Vec::from([20, 22])) }",
         None,
     );
     let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
@@ -352,12 +352,12 @@ fn dynamic_iteration_preserves_gc_roots_and_mutation_guards() {
             for node in view { collect(); sum += node.value; }
             sum
         }
-        fn main() -> i32 { sum([Node { value: 20 }, Node { value: 22 }]) }
+        fn main() -> i32 { sum(Vec::from([Node { value: 20 }, Node { value: 22 }])) }
         fn mutate(values: MutableList<i32>) {
             val view: List<i32> = values;
             for item in view { values.push(item); }
         }
-        fn trap() { mutate([1, 2]); }
+        fn trap() { mutate(Vec::from([1, 2])); }
     "#,
         Some(&module),
     );
@@ -620,10 +620,10 @@ pub(super) fn generic_identity_module() -> NativeModule {
             NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
                 let result = cx.allocate_result()?;
                 let root = cx.heap().root_value(result).unwrap();
-                let Value::Array(id) = result else {
+                let Value::GcHandle(id) = result else {
                     panic!("declared array result");
                 };
-                cx.heap().array_push(id, cx.argument(0)?)?;
+                cx.heap().sequence_push(id, cx.argument(0)?)?;
                 drop(root);
                 Ok(result)
             }),

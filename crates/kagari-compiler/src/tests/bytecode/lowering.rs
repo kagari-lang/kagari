@@ -376,7 +376,7 @@ fn main() -> () {
     assert!(
         function.instructions.iter().any(|instruction| matches!(
             instruction,
-            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. } if bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_list_index")
+            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. } if bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_array_index")
         ))
     );
     assert!(
@@ -537,7 +537,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
-    let mut wrong_index = common::bytecode_ok("fn main() -> Vec<i32> { set_index([1], 0, 2) }");
+    let mut wrong_index = common::bytecode_ok("fn main() -> [i32] { set_index([1], 0, 2) }");
     let call = wrong_index.modules[wrong_index.root.index()].functions[0]
         .instructions
         .iter_mut()
@@ -597,7 +597,7 @@ fn main() -> Point {
 fn lowers_set_index_builtin_to_runtime_helper_call() {
     let bytecode = common::bytecode_ok(
         r#"
-fn main(values: Vec<i32>) -> Vec<i32> {
+fn main(values: [i32]) -> [i32] {
     set_index(values, 0, 9)
 }
 "#,
@@ -695,7 +695,7 @@ fn foundation_calls_lower_to_provider_qualified_native_imports() {
     let bytecode = common::bytecode_ok(
         r#"
 fn main() -> usize {
-    val values = [1, 2];
+    val values = Vec::from([1, 2]);
     values.push(3);
     values.pop();
     values.len()

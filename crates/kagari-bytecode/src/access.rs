@@ -298,10 +298,7 @@ pub(super) fn verify(
                         if !flows(&count, &Ty::Builtin(B::USize)) {
                             return Err(invalid());
                         }
-                        produced = Some((
-                            *dst,
-                            Fact::typed(Ty::Array(Box::new(element.clone()), Access::Mutable)),
-                        ));
+                        produced = Some((*dst, Fact::typed(Ty::Array(Box::new(element.clone())))));
                     }
                 }
                 I::MakeArray {
@@ -323,10 +320,7 @@ pub(super) fn verify(
                                 return Err(invalid());
                             }
                         }
-                        produced = Some((
-                            *dst,
-                            Fact::typed(Ty::Array(Box::new(element.clone()), Access::Mutable)),
-                        ));
+                        produced = Some((*dst, Fact::typed(Ty::Array(Box::new(element.clone())))));
                     }
                 }
                 I::MakeTuple { dst, elements } => {
@@ -410,7 +404,7 @@ pub(super) fn verify(
                 I::ReadAggregateIndex { dst, base, index } => {
                     if let Some(base) = get(*base) {
                         let ty = match base.ty {
-                            Some(Ty::Array(item, _)) => Some(*item),
+                            Some(Ty::Array(item)) => Some(*item),
                             Some(Ty::Tuple(items)) => {
                                 if let Some(index) = constants[index.index()] {
                                     items.get(index).cloned()
@@ -430,7 +424,7 @@ pub(super) fn verify(
                         if base.access == Some(Access::ReadOnly) {
                             return Err(invalid());
                         }
-                        if let (Some(Ty::Array(item, _)), Some(value)) = (&base.ty, get(*value))
+                        if let (Some(Ty::Array(item)), Some(value)) = (&base.ty, get(*value))
                             && !flows(&value, item)
                         {
                             return Err(invalid());
@@ -464,7 +458,7 @@ pub(super) fn verify(
                         }
                         Ty::Builtin(B::String) => Some(Ty::Builtin(B::String)),
                         Ty::Range(item, _)
-                        | Ty::Array(item, _)
+                        | Ty::Array(item)
                         | Ty::Set(item, _)
                         | Ty::Iter(item) => Some((**item).clone()),
                         Ty::Map { key, value, .. } => {
@@ -721,7 +715,7 @@ pub(super) fn verify(
                             if *intrinsic == S::StringPartsJoin {
                                 if facts[0].ty.as_ref().is_some_and(|ty| {
                                     !matches!(ty,
-                                    Ty::Array(item, _) if **item == Ty::Builtin(B::String))
+                                    Ty::Array(item) if **item == Ty::Builtin(B::String))
                                 }) {
                                     return Err(invalid());
                                 }
@@ -853,7 +847,7 @@ pub(super) fn verify(
                             if facts[0].access == Some(Access::ReadOnly) {
                                 return Err(invalid());
                             }
-                            if let Some(Ty::Array(item, _)) = &facts[0].ty
+                            if let Some(Ty::Array(item)) = &facts[0].ty
                                 && !flows(&facts[2], item)
                             {
                                 return Err(invalid());

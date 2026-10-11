@@ -1,5 +1,6 @@
 use crate::types::verify::*;
 use kagari_stdlib::catalog;
+use kagari_types::collection::CollectionAccess;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{Param, conversion::ConversionAdapter},
@@ -141,16 +142,13 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         bounds: Vec::new(),
         params: vec![Param {
             name: "input".into(),
-            ty: Ty::Array(
-                Box::new(Ty::Tuple(vec![
-                    Ty::SelfType(trait_owner.clone()),
-                    Ty::Parameter {
-                        owner: trait_method.clone(),
-                        position: 0,
-                    },
-                ])),
-                CollectionAccess::Mutable,
-            ),
+            ty: Ty::Array(Box::new(Ty::Tuple(vec![
+                Ty::SelfType(trait_owner.clone()),
+                Ty::Parameter {
+                    owner: trait_method.clone(),
+                    position: 0,
+                },
+            ]))),
             mutable: false,
         }],
         return_type: Ty::Builtin(BuiltinType::I32),
@@ -166,16 +164,13 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         bounds: Vec::new(),
         params: vec![Param {
             name: "renamed".into(),
-            ty: Ty::Array(
-                Box::new(Ty::Tuple(vec![
-                    for_type.clone(),
-                    Ty::Parameter {
-                        owner: impl_method.clone(),
-                        position: 0,
-                    },
-                ])),
-                CollectionAccess::Mutable,
-            ),
+            ty: Ty::Array(Box::new(Ty::Tuple(vec![
+                for_type.clone(),
+                Ty::Parameter {
+                    owner: impl_method.clone(),
+                    position: 0,
+                },
+            ]))),
             mutable: false,
         }],
         return_type: Ty::Builtin(BuiltinType::I32),
@@ -224,13 +219,10 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
     ));
     declared.implementation = CallableImplementation::Required;
     let original_param = implemented.params[0].ty.clone();
-    implemented.params[0].ty = Ty::Array(
-        Box::new(Ty::Tuple(vec![
-            for_type.clone(),
-            Ty::Builtin(BuiltinType::Bool),
-        ])),
-        CollectionAccess::Mutable,
-    );
+    implemented.params[0].ty = Ty::Array(Box::new(Ty::Tuple(vec![
+        for_type.clone(),
+        Ty::Builtin(BuiltinType::Bool),
+    ])));
     assert!(!same_method_contract(
         &declared,
         &implemented,
@@ -275,13 +267,10 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         Constraint::Trait(NominalTy {
             associated_types: Default::default(),
             declaration: marker.clone(),
-            arguments: vec![Ty::Array(
-                Box::new(Ty::Parameter {
-                    owner: parameter_owner,
-                    position: 0,
-                }),
-                CollectionAccess::Mutable,
-            )],
+            arguments: vec![Ty::Array(Box::new(Ty::Parameter {
+                owner: parameter_owner,
+                position: 0,
+            }))],
         })
     };
     declared.bounds[0].constraints = vec![applied(trait_method.clone())];
@@ -296,10 +285,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
     let Constraint::Trait(instance) = &mut implemented.bounds[0].constraints[0] else {
         unreachable!()
     };
-    instance.arguments[0] = Ty::Array(
-        Box::new(Ty::Builtin(BuiltinType::Bool)),
-        CollectionAccess::Mutable,
-    );
+    instance.arguments[0] = Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool)));
     assert!(!same_method_contract(
         &declared,
         &implemented,

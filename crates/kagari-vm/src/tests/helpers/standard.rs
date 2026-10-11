@@ -90,11 +90,11 @@ fn main()->(usize,bool,usize,bool){
 }
 
 #[test]
-fn standard_array_mutation_updates_shared_array_handles() {
+fn standard_vec_mutation_updates_shared_sequence_handles() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> usize {
-    val values = [1, 2];
+    val values = Vec::from([1, 2]);
     val alias = values;
     values.push(3);
     alias.len()

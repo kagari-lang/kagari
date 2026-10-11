@@ -158,7 +158,7 @@ impl<I: DefinitionReference> Ty<I> {
                     pending.extend(interface.associated_types.values());
                 }
                 Self::Tuple(types) => pending.extend(types),
-                Self::Array(ty, _) | Self::Set(ty, _) | Self::Range(ty, _) | Self::Iter(ty) => {
+                Self::Array(ty) | Self::Set(ty, _) | Self::Range(ty, _) | Self::Iter(ty) => {
                     pending.push(ty)
                 }
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
@@ -208,7 +208,7 @@ impl<F> Mapper<'_, F> {
                 params: self.many(params, depth + 1)?,
                 result: Box::new(self.ty(result, depth + 1)?),
             },
-            Ty::Array(ty, access) => Ty::Array(Box::new(self.ty(ty, depth + 1)?), *access),
+            Ty::Array(ty) => Ty::Array(Box::new(self.ty(ty, depth + 1)?)),
             Ty::Set(ty, access) => Ty::Set(Box::new(self.ty(ty, depth + 1)?), *access),
             Ty::Map { key, value, access } => Ty::Map {
                 key: Box::new(self.ty(key, depth + 1)?),

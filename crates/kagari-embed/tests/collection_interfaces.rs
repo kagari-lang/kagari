@@ -75,10 +75,10 @@ fn native_collection_views() {
 fn size(xs: List<i32>) -> usize { xs.len() }
 fn change(xs: MutableList<i32>) { xs.push(42); xs[0] += 6; }
 fn main() -> i32 {
-    val xs = [1];
+    val xs = Vec::from([1]);
     change(xs);
     val view: MutableList<i32> = xs;
-    val read: [i32] = view;
+    val read: std::collections::List<i32> = view;
     if !(read[0usize] == 7) { return 0; }
     var total = 0;
     for item in read { total += item; }
@@ -136,19 +136,19 @@ struct Singleton { val value: f64 }
 impl Iterable for Singleton {
     type Item = f64;
     type Iter = CollectionCursor<f64>;
-    fn iter(self) -> CollectionCursor<f64> { [self.value].iter() }
+    fn iter(self) -> CollectionCursor<f64> { Vec::from([self.value]).iter() }
 }
 impl Set<f64> for Singleton {
     fn len(self) -> usize { 1usize }
     fn is_empty(self) -> bool { false }
     fn contains(self, value: f64) -> bool { self.value == value }
 }
-fn first<T>(xs: [T]) -> T { xs[0] }
+fn first<T>(xs: std::collections::List<T>) -> T { xs[0] }
 fn size<C: List<i32>>(xs: C) -> usize { xs.len() }
 fn main() -> i32 {
-    val source = Sequence { items: [7, 35] };
-    val view: [i32] = source;
-    val copy = [view[0], view[1]];
+    val source = Sequence { items: Vec::from([7, 35]) };
+    val view: std::collections::List<i32> = source;
+    val copy = Vec::from([view[0], view[1]]);
     val copied_view: List<i32> = copy;
     if !(!(view === copied_view) && view != copied_view) { return 0; }
     val writable: MutableList<i32> = source;
@@ -182,7 +182,7 @@ fn main() -> i32 {
     val read: Map<Key, i32> = map;
     val lookup = Key { value: 1 };
     if !(read.len() == 1usize && read.get(lookup) == Some(42)) { return 0; }
-    val set: MutableSet<Key> = HashSet::new();
+    val set: MutableSet<Key> = HashSet::from([Key { value: 1 }, Key { value: 1 }]);
     set.insert(Key { value: 1 });
     set.insert(Key { value: 1 });
     if !(set.len() == 1usize && set.contains(lookup)) { return 0; }
@@ -196,10 +196,10 @@ fn main() -> i32 {
 fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
     let engine = KagariEngine::default();
     for source in [
-        "fn main() { val xs: [i32] = [1]; xs[0] = 2; }",
-        "use std::collections::{MutableList};\nfn main() { val xs: MutableList<i32> = [1]; xs[true] = 2; }",
-        "use std::collections::{MutableList};\nfn main() { val xs: MutableList<i32> = [1]; xs[0i32] = 2; }",
-        "use std::collections::{List, MutableList};\nfn main() { val xs: List<i32> = [1]; val ys: MutableList<i32> = xs; }",
+        "fn main() { val xs: std::collections::List<i32> = Vec::from([1]); xs[0] = 2; }",
+        "use std::collections::{MutableList};\nfn main() { val xs: MutableList<i32> = Vec::from([1]); xs[true] = 2; }",
+        "use std::collections::{MutableList};\nfn main() { val xs: MutableList<i32> = Vec::from([1]); xs[0i32] = 2; }",
+        "use std::collections::{List, MutableList};\nfn main() { val xs: List<i32> = Vec::from([1]); val ys: MutableList<i32> = xs; }",
         "use std::collections::{Map};\nfn main() { val xs: Map<i32,i32> = Map::new(); }",
         "use std::collections::{HashSet, Set};\nfn main() { val xs: Set<f64> = HashSet::new(); }",
     ] {
@@ -220,7 +220,7 @@ fn view_identity_survives_upcasts_branches_and_hash_storage() {
 struct Cell { var value: i32 }
 fn readonly(xs: MutableList<Cell>) -> List<Cell> { xs }
 fn main() -> i32 {
-    val raw = [Cell { value: 20 }];
+    val raw = Vec::from([Cell { value: 20 }]);
     val writable: MutableList<Cell> = raw;
     val read: List<Cell> = readonly(writable);
     read[0].value += 22;

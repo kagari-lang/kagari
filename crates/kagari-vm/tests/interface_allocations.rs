@@ -216,7 +216,7 @@ impl List<i32> for Sequence {
     fn is_empty(self) -> bool { self.items.is_empty() }
     fn get(self, index: usize) -> Option<i32> { self.items.get(index) }
 }
-fn make() -> List<i32> { Sequence { items: [3, 1, 2] } }
+fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
 "#,
     );
     let methods = ["reversed", "len"].map(|name| {

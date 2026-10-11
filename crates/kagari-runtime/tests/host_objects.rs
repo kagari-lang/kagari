@@ -45,7 +45,7 @@ fn layouts() {
     val private = Private { hp: 100 };
     val c = Cell { value: p };
     val n = Node { next: None };
-    val bag = Bag { items: [Some(n)], pair: (n, 1) };
+    val bag = Bag { items: Vec::from([Some(n)]), pair: (n, 1) };
 }
 "#;
 

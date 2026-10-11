@@ -304,9 +304,7 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
             },
             Ty::Iter(ty) => Ty::Iter(Box::new(self.visit(ty, depth + 1, replace)?)),
             Ty::Range(ty, kind) => Ty::Range(Box::new(self.visit(ty, depth + 1, replace)?), *kind),
-            Ty::Array(ty, access) => {
-                Ty::Array(Box::new(self.visit(ty, depth + 1, replace)?), *access)
-            }
+            Ty::Array(ty) => Ty::Array(Box::new(self.visit(ty, depth + 1, replace)?)),
             Ty::Set(ty, access) => Ty::Set(Box::new(self.visit(ty, depth + 1, replace)?), *access),
             Ty::Map { key, value, access } => Ty::Map {
                 key: Box::new(self.visit(key, depth + 1, replace)?),

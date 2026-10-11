@@ -15,7 +15,9 @@ use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        TypeDefKind, native::NativeTypeConstructor, verify::validate_native_declarations,
+        TypeDefKind,
+        native::{NativeStorageLayout, NativeTypeConstructor},
+        verify::validate_native_declarations,
     },
     language as traits,
     language::Protocol,
@@ -95,6 +97,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         .unwrap();
     let mut count = 0;
     let mut seen_map = false;
+    let mut seen_vec = false;
     let mut seen_result = false;
     let mut seen_spawn_error = false;
     for declared in snapshot.declaration_snapshot().files() {
@@ -113,7 +116,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         );
         let abi = collect_module_abi(analyzed.to_unverified(&Default::default()).unwrap().facts());
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
-            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum))
+            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { .. })))
         }).collect();
         verify::validate(
             &native,
@@ -127,6 +130,12 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             };
             assert!(ty.fields.is_empty());
             match ty.kind {
+                TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element }) => {
+                    assert_eq!(ty.name, "Vec");
+                    assert_eq!(ty.generic_params.len(), 1);
+                    assert_eq!(element, 0);
+                    seen_vec = true;
+                }
                 TypeDefKind::Native(NativeTypeConstructor::Map) => {
                     assert_eq!(ty.name, "HashMap");
                     assert_eq!(ty.generic_params.len(), 2);
@@ -163,7 +172,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         }
     }
     assert_eq!(count, 20);
-    assert!(seen_map && seen_result && seen_spawn_error);
+    assert!(seen_vec && seen_map && seen_result && seen_spawn_error);
 }
 
 #[test]

@@ -17,7 +17,6 @@ use kagari_runtime::{
     value::{Value, ValueCategory},
 };
 use kagari_types::{
-    collection::CollectionAccess,
     host_interface::{
         type_declaration::{
             HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess, Visibility,
@@ -136,10 +135,9 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
         "Record",
         &[(
             "leaf",
-            Ty::Array(
-                Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
-                CollectionAccess::Mutable,
-            ),
+            Ty::Array(Box::new(Ty::Builtin(
+                kagari_types::scalar::BuiltinType::I32,
+            ))),
             true,
         )],
     );
@@ -288,10 +286,9 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
         "HostBacked",
         &[(
             "path",
-            Ty::Array(
-                Box::new(Ty::Builtin(kagari_types::scalar::BuiltinType::I32)),
-                CollectionAccess::Mutable,
-            ),
+            Ty::Array(Box::new(Ty::Builtin(
+                kagari_types::scalar::BuiltinType::I32,
+            ))),
             true,
         )],
     );

@@ -33,9 +33,9 @@ impl Wake for WakeCount {
 fn async_owned_drive_contract() {
     let program = compile_test_bytecode(
         r#"
-        struct State { var sum: i32, var kept: Vec<i32> }
+        struct State { var sum: i32, var kept: [i32] }
         fn helper(n: i32) -> i32 { n + 1 }
-        fn main() -> Vec<i32> {
+        fn main() -> [i32] {
             val state = State { sum: 0, kept: [1, 2, 3] };
             for value in state.kept { state.sum += helper(value); print("step"); }
             state.kept = [state.sum, state.kept[0]];
@@ -234,7 +234,7 @@ fn async_owned_drive_contract() {
 fn async_owned_drive_contract_iteration_leases() {
     let program = compile_test_bytecode(
         r#"
-        fn make() -> Vec<i32> { [1, 2, 3] }
+        fn make() -> Vec<i32> { Vec::from([1, 2, 3]) }
         fn sum(items: Vec<i32>) -> i32 {
             var sum = 0;
             for value in items { sum += value; print("item"); }
@@ -266,8 +266,8 @@ fn async_owned_drive_contract_iteration_leases() {
         *seen.lock().unwrap() = 0;
         let source = vm.execute(&loaded, "make").unwrap().return_value;
         let value = source.value(vm.runtime().gc()).unwrap();
-        let Value::Array(id) = value else {
-            panic!("source array")
+        let Value::GcHandle(id) = value else {
+            panic!("source Vec")
         };
         let owner = vm
             .start(&loaded, "sum", &[value], ExecutionOptions::default())
@@ -290,9 +290,16 @@ fn async_owned_drive_contract_iteration_leases() {
                 .value(vm.runtime().gc()),
             Some(Value::I32(42))
         );
-        let error = vm.runtime().gc().array_push(id, Value::I32(9)).unwrap_err();
+        let error = vm
+            .runtime()
+            .gc()
+            .sequence_push(id, Value::I32(9))
+            .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
-        vm.runtime().gc().array_set(id, 1, Value::I32(20)).unwrap();
+        vm.runtime()
+            .gc()
+            .sequence_set(id, 1, Value::I32(20))
+            .unwrap();
         match exit {
             0 => {
                 let mut finished = false;
@@ -321,7 +328,7 @@ fn async_owned_drive_contract_iteration_leases() {
                 assert_eq!(vm.runtime().drain_retired_executions().unwrap(), 1);
             }
         }
-        vm.runtime().gc().array_push(id, Value::I32(9)).unwrap();
+        vm.runtime().gc().sequence_push(id, Value::I32(9)).unwrap();
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
         assert_eq!(
             vm.runtime()

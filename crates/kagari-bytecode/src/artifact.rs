@@ -38,9 +38,6 @@ use std::{io, io::Write};
 
 mod limits;
 
-#[cfg(test)]
-use kagari_types::collection::CollectionAccess;
-
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 116;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;

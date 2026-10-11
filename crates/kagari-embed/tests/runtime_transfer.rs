@@ -14,7 +14,7 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
         .compile_to_artifact(
             SourceFile::new(
                 "transfer.kgr",
-                "fn main() -> Vec<i32> { [40] } fn healthy() -> i32 { 42 }",
+                "fn main() -> [i32] { [40] } fn healthy() -> i32 { 42 }",
             ),
             Default::default(),
         )

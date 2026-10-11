@@ -14,7 +14,7 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
-use kagari_types::{collection::CollectionAccess, ty::Ty};
+use kagari_types::ty::Ty;
 use std::slice;
 
 /// A rooted synchronous key lookup; recursive structural mutation remains blocked.
@@ -52,22 +52,20 @@ impl<'call> CallContext<'call> {
         Ok(value)
     }
 
-    /// Admit a call-scoped Vec receiver with its retained element contract and
-    /// declared access. Storage methods still check dynamic leases and bounds.
-    pub fn array_argument(&self, index: usize, writable: bool) -> NativeResult<HeapObjectId> {
+    /// Admit a call-scoped nominal sequence with its retained element contract. Storage methods still check dynamic leases and bounds.
+    pub fn sequence_argument(&self, index: usize) -> NativeResult<HeapObjectId> {
         let signature = self.function.type_signature()?;
         let expected = signature
             .params
             .get(index)
-            .ok_or_else(|| RuntimeError::module_validation("native array argument slot"))?;
-        check_array_argument(self.runtime, self.owner, expected, writable, || {
-            self.argument(index)
-        })
+            .ok_or_else(|| RuntimeError::module_validation("native sequence argument slot"))?;
+        check_sequence_argument(self.runtime, self.owner, expected, || self.argument(index))
     }
 
     /// Copy sequence storage while preserving its checked element contract.
     pub fn clone_sequence(&self, source: HeapObjectId) -> NativeResult<HeapObjectId> {
-        self.heap().clone_array(source)
+        self.heap().ensure_sequence(source)?;
+        self.heap().clone_buffer(source)
     }
 
     /// Check generation and active borrow/lease guards before a structural edit.
@@ -106,31 +104,26 @@ impl<'call> CallContext<'call> {
 }
 
 /// Shared admission for rooted native arguments and closed primitive operands.
-pub(crate) fn check_array_argument(
+pub(crate) fn check_sequence_argument(
     runtime: &Runtime,
     owner: &LoadedModule,
     expected: &TypeArgument,
-    writable: bool,
     argument: impl FnOnce() -> NativeResult<Value>,
 ) -> NativeResult<HeapObjectId> {
-    let Ty::Array(_, access) = expected.ty() else {
+    let Ty::NativeObject(_) = expected.ty() else {
         return Err(RuntimeError::module_validation(
-            "native array argument type",
+            "native sequence argument type",
         ));
     };
-    if writable && *access != CollectionAccess::Mutable {
-        return Err(RuntimeError::module_validation(
-            "collection view is read-only",
-        ));
-    }
     let value = argument()?;
     if !expected.matches(runtime, &value, owner) {
         return Err(RuntimeError::module_validation(
             "native argument differs from its declared type",
         ));
     }
-    let Value::Array(id) = value else {
-        return Err(RuntimeError::module_validation("native array argument"));
+    let Value::GcHandle(id) = value else {
+        return Err(RuntimeError::module_validation("native sequence argument"));
     };
+    runtime.gc().ensure_sequence(id)?;
     Ok(id)
 }

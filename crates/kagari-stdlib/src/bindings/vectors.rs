@@ -94,11 +94,11 @@ fn scoped(arguments: Vec<Codec>, entry: Entry) -> NativeBinding {
 }
 
 fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let id = cx.array_argument(0, false)?;
+    let id = cx.sequence_argument(0)?;
     cx.heap()
-        .array_len(id)
+        .sequence_len(id)
         .map(NativeScalar::encode)
-        .ok_or_else(|| RuntimeError::module_validation("array handle length"))
+        .ok_or_else(|| RuntimeError::module_validation("Vec handle length"))
 }
 
 fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -107,9 +107,9 @@ fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn element(cx: &CallContext<'_>) -> NativeResult<Option<Value>> {
-    let id = cx.array_argument(0, false)?;
+    let id = cx.sequence_argument(0)?;
     let index = usize::decode(cx.argument(1)?)?;
-    cx.heap().array_element(id, index)
+    cx.heap().sequence_element(id, index)
 }
 
 fn get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -117,9 +117,9 @@ fn get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn push(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let id = cx.array_argument(0, true)?;
+    let id = cx.sequence_argument(0)?;
     let value = cx.checked_argument(1)?;
-    cx.heap().array_push(id, value)?;
+    cx.heap().sequence_push(id, value)?;
     Ok(Value::Unit)
 }
 

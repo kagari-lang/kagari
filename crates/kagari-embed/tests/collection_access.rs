@@ -73,8 +73,8 @@ fn constructors_and_live_views() {
         r#"use std::collections::{HashMap, HashSet, Map, Set};
 
 fn main() -> i32 {
-    val a = [1, 2];
-    val r: [i32] = a;
+    val a = Vec::from([1, 2]);
+    val r: std::collections::List<i32> = a;
     a.push(3);
     if r.len() != 3usize { return 0; }
     val m: HashMap<String, i32> = HashMap::new();
@@ -101,16 +101,16 @@ fn access_is_shallow_and_preserved_by_calls_closures_and_branch_joins() {
     execute(
         r#"
 struct Item { var value: i32 }
-struct Shelf { val items: [Item] }
-fn readable<T>(values: Vec<T>) -> [T] { values }
-fn size<T>(values: [T]) -> usize { values.len() }
+struct Shelf { val items: std::collections::List<Item> }
+fn readable<T>(values: Vec<T>) -> std::collections::List<T> { values }
+fn size<T>(values: std::collections::List<T>) -> usize { values.len() }
 fn main() -> i32 {
     val item = Item { value: 1 };
-    val writable = [item];
+    val writable = Vec::from([item]);
     val view = readable(writable);
     val shelf = Shelf { items: writable };
     shelf.items[0].value = 40;
-    val copy = [view[0]];
+    val copy = Vec::from([view[0]]);
     writable[0] = Item { value: 7 };
     if !(copy[0] === item && copy !== view) { return 0; }
     if !(view === writable && view == writable) { return 0; }
@@ -119,7 +119,7 @@ fn main() -> i32 {
     val other = match true { true => writable, false => view };
     val inspect = || size(join) == size(other);
     if !(inspect()) { return 0; }
-    val nested: [Vec<i32>] = [[1]];
+    val nested: std::collections::List<Vec<i32>> = Vec::from([Vec::from([1])]);
     nested[0].push(2);
     copy[0].value + nested[0][1]
 }
@@ -130,27 +130,27 @@ fn main() -> i32 {
 #[test]
 fn readonly_operations_cannot_recover_write_access() {
     let cases = [
-        "fn main() { val a: [i32] = [1]; a.push(2); }",
-        "fn main() { var a: [i32] = [1]; a[0] = 2; }",
-        "fn main() { val a: [i32] = [1]; a[0] += 2; }",
-        "fn main() { val a: [i32] = [1]; Vec::push(a, 2); }",
-        "fn main() { val a: [i32] = [1]; set_index(a, 0, 2); }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); a.push(2); }",
+        "fn main() { var a: std::collections::List<i32> = Vec::from([1]); a[0] = 2; }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); a[0] += 2; }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); Vec::push(a, 2); }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); set_index(a, 0, 2); }",
         "use std::collections::{HashMap, Map};\nfn main() { val a: Map<i32, i32> = HashMap::new(); a.insert(3, 4); }",
         "use std::collections::{HashMap, Map};\nfn main() { val a: Map<i32, i32> = HashMap::new(); HashMap::clear(a); }",
         "use std::collections::{HashSet, Set};\nfn main() { val a: Set<i32> = HashSet::new(); a.remove(1); }",
         "use std::collections::{HashSet, Set};\nfn main() { val a: Set<i32> = HashSet::new(); HashSet::clear(a); }",
-        "fn main() { val a: [i32] = [1]; val b: Vec<i32> = a; }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); val b: Vec<i32> = a; }",
         "use std::collections::{HashMap, Map};\nfn main() { val a: Map<i32, i32> = HashMap::new(); val b: HashMap<i32, i32> = a; }",
         "use std::collections::{HashSet, Set};\nfn main() { val a: Set<i32> = HashSet::new(); val b: HashSet<i32> = a; }",
-        "fn change<T>(a: Vec<T>, v: T) { a.push(v); } fn main() { val a: [i32] = [1]; change(a, 2); }",
-        "fn bad(a: [i32]) -> Vec<i32> { a }",
-        "struct Box { val a: Vec<i32> } fn main() { val a: [i32] = [1]; Box { a } }",
-        "use std::collections::{List};\nfn main() { val a = [[1]]; val b: Vec<List<i32>> = a; }",
-        "use std::collections::{List};\nfn main() { val a = [[1]]; val b: List<List<i32>> = a; }",
-        "fn main() { val a: [i32] = [1]; val change = || a.push(2); change(); }",
-        "fn main() { val a: [i32] = [1]; val b = if true { a } else { [2] }; b.push(3); }",
-        "fn main() { val a: [i32] = [1]; val b = match true { true => [2], false => a }; b.push(3); }",
-        "fn main() { val a = [1]; a = [2]; }",
+        "fn change<T>(a: Vec<T>, v: T) { a.push(v); } fn main() { val a: std::collections::List<i32> = Vec::from([1]); change(a, 2); }",
+        "fn bad(a: std::collections::List<i32>) -> Vec<i32> { a }",
+        "struct Box { val a: Vec<i32> } fn main() { val a: std::collections::List<i32> = Vec::from([1]); Box { a } }",
+        "use std::collections::{List};\nfn main() { val a = Vec::from([Vec::from([1])]); val b: Vec<List<i32>> = a; }",
+        "use std::collections::{List};\nfn main() { val a = Vec::from([Vec::from([1])]); val b: List<List<i32>> = a; }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); val change = || a.push(2); change(); }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); val b = if true { a } else { Vec::from([2]) }; b.push(3); }",
+        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); val b = match true { true => Vec::from([2]), false => a }; b.push(3); }",
+        "fn main() { val a = Vec::from([1]); a = Vec::from([2]); }",
         "use std::collections::{Map};\nfn main() { val a: Map<i32, i32> = std::map::new(); }",
         "use std::collections::{Set};\nfn main() { val a: Set<i32> = std::set::new(); }",
     ];
@@ -172,8 +172,8 @@ fn forged_access_upgrades_are_rejected_before_loading() {
             SourceFile::new(
                 "access-wire.kgr",
                 r#"
-pub fn inspect(values: [i32]) { values.len(); }
-fn main() { val values = [1, 2]; inspect(values); }
+pub fn inspect(values: std::collections::List<i32>) { values.len(); }
+fn main() { val values = Vec::from([1, 2]); inspect(values); }
 "#,
             ),
             Default::default(),
@@ -211,16 +211,15 @@ fn main() { val values = [1, 2]; inspect(values); }
 }
 
 #[test]
-fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() {
+fn host_results_preserve_collection_families_through_artifacts_and_binding_checks() {
     use kagari_runtime::host::HostFunction;
-    use kagari_types::{
-        collection::CollectionAccess,
-        host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
+    use kagari_types::host_interface::{
+        HostFunctionDeclaration, HostInterface, value_type::HostValueType,
     };
     let declaration = HostFunctionDeclaration::new(
         "demo.values",
         vec![],
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::ReadOnly),
+        HostValueType::Array(Box::new(HostValueType::I32)),
     );
     let engine = KagariEngine::default();
     engine
@@ -239,7 +238,7 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
             )
             .is_err()
     );
-    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = [source[0], 2]; copy[0] + copy[1] }"),  Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = Vec::from([source[0], 2]); copy[0] + copy[1] }"),  Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext {
         ..Default::default()
@@ -276,8 +275,14 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
         Value::I32(42)
     );
     let mut changed = declaration;
-    changed.return_type =
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable);
+    let Ty::NativeObject(vector) = kagari_stdlib::declarations::StandardDeclarations::default()
+        .vec(kagari_runtime::native::types::Type::i32())
+        .abi()
+        .clone()
+    else {
+        panic!("nominal Vec");
+    };
+    changed.return_type = HostValueType::Vec(vector.declaration, Box::new(HostValueType::I32));
     let mut mismatched = engine.runtime(context);
     mismatched
         .register_host_function(HostFunction::new(changed, |context, _| {

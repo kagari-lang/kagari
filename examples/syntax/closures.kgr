@@ -32,24 +32,24 @@ fn make_early_return() -> fn() -> i32 {
 }
 
 fn iteration_captures() -> i32 {
-    val callbacks: Vec<fn() -> i32> = [];
-    for number in [10, 20, 12] {
+    val callbacks: Vec<fn() -> i32> = Vec::from([]);
+    for number in Vec::from([10, 20, 12]) {
         callbacks.push(|| number);
     }
     callbacks[0]() + callbacks[1]() + callbacks[2]()
 }
 
 fn shared_object_capture() -> i32 {
-    val values = [40];
+    val values = Vec::from([40]);
     val read = || values[0];
     values[0] = 42;
     read()
 }
 
 fn rebound_object_capture() -> i32 {
-    var values = [40];
+    var values = Vec::from([40]);
     val read = || values[0];
-    values = [42];
+    values = Vec::from([42]);
     read()
 }
 

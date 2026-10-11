@@ -5,7 +5,6 @@ use kagari_contract::language::primitive;
 use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
-    collection::CollectionAccess,
     declaration::{
         FnDecl, Param, TraitDef,
         module::{ImplDecl, ModuleDecl},
@@ -209,7 +208,7 @@ pub(crate) fn text_items_module() -> Arc<ModuleDecl> {
         };
         let item = parameter.as_type();
         let receiver = match family {
-            0 => Ty::Array(Box::new(item), CollectionAccess::Mutable),
+            0 => Ty::Array(Box::new(item)),
             1 => Ty::Trait(library::applied("List", vec![item])),
             2 => Ty::Trait(library::applied("MutableList", vec![item])),
             _ => Ty::Iter(Box::new(item)),

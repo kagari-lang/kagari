@@ -4,7 +4,6 @@ use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::DefinitionKind;
 use kagari_types::{
     callable::CallableImplementation,
-    collection::CollectionAccess,
     declaration::{
         Param,
         module::{ImplDecl, ModuleDecl},
@@ -111,10 +110,9 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             .documentation
             .insert(id.clone(), documentation.into());
         if name == "split" {
-            module.concrete_results.insert(
-                id,
-                Ty::Array(Box::new(string.clone()), CollectionAccess::Mutable),
-            );
+            module
+                .concrete_results
+                .insert(id, contracts::vec_type(string.clone()));
         }
         methods.push(method);
     }

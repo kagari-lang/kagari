@@ -262,7 +262,7 @@ pub enum ExprKind {
     },
     /// Tuple elements such as `(x, y)`, each retained as an expression ID.
     Tuple(ExprBuffer),
-    /// Array literal elements such as `[x, y]`, before library construction selection.
+    /// Builtin fixed-length array elements such as `[x, y]`, before element typing.
     Array(ExprBuffer),
     /// Repeated array construction `[value; count]`.
     ArrayRepeat {

@@ -19,7 +19,6 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::ty::Ty;
 use kagari_vm::{error::VmError, vm::Vm};
 use std::sync::{
     Mutex,
@@ -347,7 +346,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
     declaration.type_parameter("T").unwrap();
     declaration
         .native_storage(NativeStorage::new(move |context| {
-            let values = context.allocate_sequence(
+            let values = context.allocate_array(
                 context.resolve_type(Type::i32().abi())?,
                 vec![Value::I32(42)],
             )?;
@@ -386,7 +385,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
                         // Collection and execution cannot invalidate this scoped Rust borrow.
                         assert!(
                             context
-                                .allocate_sequence(context.resolve_type(Type::i32().abi())?, vec![])
+                                .allocate_array(context.resolve_type(Type::i32().abi())?, vec![])
                                 .unwrap_err()
                                 .message()
                                 .contains("native storage access")
@@ -561,9 +560,9 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
         r#"
         use example::arrays::probe;
         fn main() -> i32 {
-            val empty: Vec<i32> = [];
-            val values = [20, 22];
-            val repeated = [7; 6];
+            val empty: Vec<i32> = Vec::from([]);
+            val values = Vec::from([20, 22]);
+            val repeated = Vec::from([7; 6]);
             if probe(empty) != 0 || probe(repeated) != 42 { return -1; }
             val alias = values;
             if probe(values) == 42 && alias[0] == 22 { 42 } else { -2 }
@@ -644,18 +643,18 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         r#"
         use example::views::{len, transform};
         fn main() -> i32 {
-            val values = [9, 10];
+            val values = Vec::from([9, 10]);
             val alias = values;
-            if len(values) != 2 || len([]) != 0 { return -1; }
+            if len(values) != 2 || len(Vec::new()) != 0 { return -1; }
             if transform(1, values, 2) != 42 { return -2; }
             if alias[0] == 20 && alias[1] == 22 { 42 } else { -3 }
         }
         fn guarded() -> i32 {
-            val values = [1, 2];
+            val values = Vec::from([1, 2]);
             for value in values { transform(1, values, value); }
             0
         }
-        fn healthy() -> i32 { transform(1, [9, 10], 2) }
+        fn healthy() -> i32 { transform(1, Vec::from([9, 10]), 2) }
     "#,
         Some(&module),
     );
@@ -679,9 +678,9 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
 }
 
 #[test]
-fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_elements() {
+fn typed_sequence_bulk_changes_validate_before_committing_and_trace_reference_elements() {
     let (vm, loaded) = compile(
-        "struct Node { val value: i32 } fn values() -> Vec<i32> { [1, 2, 3, 4] } fn nodes() -> Vec<Node> { [Node { value: 42 }] }",
+        "struct Node { val value: i32 } fn values() -> Vec<i32> { Vec::from([1, 2, 3, 4]) } fn nodes() -> Vec<Node> { Vec::from([Node { value: 42 }]) }",
         None,
     );
     let value = vm
@@ -691,86 +690,89 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .value(vm.runtime().gc())
         .expect("retained execution result");
     let rooted = vm.runtime().root_value(value).unwrap();
-    let Value::Array(id) = value else {
+    let Value::GcHandle(id) = value else {
         panic!("array result");
     };
     let heap = vm.runtime().gc();
-    assert!(heap.array_fill(id, Value::Bool(true)).is_err());
+    assert!(heap.sequence_fill(id, Value::Bool(true)).is_err());
     assert_eq!(
-        heap.array_snapshot(id).unwrap(),
+        heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(1), Value::I32(2), Value::I32(3), Value::I32(4)]
     );
-    heap.array_copy_within(id, Bound::Included(0), Bound::Excluded(3), 1)
+    heap.sequence_copy_within(id, Bound::Included(0), Bound::Excluded(3), 1)
         .unwrap();
     assert_eq!(
-        heap.array_snapshot(id).unwrap(),
+        heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(1), Value::I32(1), Value::I32(2), Value::I32(3)]
     );
     let guard = heap.begin_collection_iteration(&value).unwrap();
-    assert!(heap.array_reverse(id).is_err());
-    heap.array_set(id, 0, Value::I32(20)).unwrap();
+    assert!(heap.sequence_reverse(id).is_err());
+    heap.sequence_set(id, 0, Value::I32(20)).unwrap();
     drop(guard);
-    heap.array_reverse(id).unwrap();
-    heap.array_truncate(id, 2).unwrap();
-    heap.array_push(id, Value::I32(7)).unwrap();
+    heap.sequence_reverse(id).unwrap();
+    heap.sequence_truncate(id, 2).unwrap();
+    heap.sequence_push(id, Value::I32(7)).unwrap();
     assert_eq!(
-        heap.array_snapshot(id).unwrap(),
+        heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(3), Value::I32(2), Value::I32(7)]
     );
-    let wrong = vm
-        .runtime()
-        .alloc_array(
-            &loaded,
-            Ty::Builtin(kagari_types::scalar::BuiltinType::Bool),
-            vec![Value::Bool(true); 3],
-        )
-        .unwrap();
-    assert!(heap.array_copy_from(id, wrong).is_err());
+    let wrong_root =
+        kagari_runtime::native::conversion::context::ConversionContext::new(vm.runtime(), &loaded)
+            .unwrap()
+            .encode(vec![true; 3])
+            .unwrap();
+    let Value::GcHandle(wrong) = wrong_root.value(heap).unwrap() else {
+        panic!("Vec<bool>")
+    };
+    assert!(heap.sequence_copy_from(id, wrong).is_err());
     assert_eq!(
-        heap.array_snapshot(id).unwrap(),
+        heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(3), Value::I32(2), Value::I32(7)]
     );
-    heap.array_fill(id, Value::I32(7)).unwrap();
-    heap.array_set(id, 0, Value::I32(2)).unwrap();
-    let mask = vm
-        .runtime()
-        .alloc_array(
-            &loaded,
-            Ty::Builtin(kagari_types::scalar::BuiltinType::Bool),
-            vec![Value::Bool(true), Value::Bool(false), Value::Bool(true)],
-        )
-        .unwrap();
+    heap.sequence_fill(id, Value::I32(7)).unwrap();
+    heap.sequence_set(id, 0, Value::I32(2)).unwrap();
+    let mask_root =
+        kagari_runtime::native::conversion::context::ConversionContext::new(vm.runtime(), &loaded)
+            .unwrap()
+            .encode(vec![true, false, true])
+            .unwrap();
+    let Value::GcHandle(mask) = mask_root.value(heap).unwrap() else {
+        panic!("Vec<bool>")
+    };
     heap.commit_prepared_collection(
         PreparedCollectionCommit::Retain,
-        &[value, Value::Array(mask)],
+        &[value, Value::GcHandle(mask)],
     )
     .unwrap();
     assert_eq!(
-        heap.array_snapshot(id).unwrap(),
+        heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(2), Value::I32(7)]
     );
     let Value::Tuple(parts) = heap
-        .prepare_array_removal(id, Bound::Included(0), Bound::Excluded(1))
+        .prepare_sequence_removal(id, Bound::Included(0), Bound::Excluded(1))
         .unwrap()
     else {
         panic!("prepared removal");
     };
     let parts = vm.runtime().gc().tuple(parts).unwrap().to_vec();
-    let [Value::Array(remaining), Value::Array(removed)] = parts.as_slice() else {
+    let [Value::GcHandle(remaining), Value::GcHandle(removed)] = parts.as_slice() else {
         panic!("prepared range arrays");
     };
     assert_eq!(
-        heap.array_snapshot(*remaining).unwrap(),
+        heap.sequence_snapshot(*remaining).unwrap(),
         vec![Value::I32(7)]
     );
-    assert_eq!(heap.array_snapshot(*removed).unwrap(), vec![Value::I32(2)]);
     assert_eq!(
-        heap.array_snapshot(id).unwrap(),
+        heap.sequence_snapshot(*removed).unwrap(),
+        vec![Value::I32(2)]
+    );
+    assert_eq!(
+        heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(2), Value::I32(7)]
     );
-    heap.array_extend(id, id).unwrap();
+    heap.sequence_extend(id, id).unwrap();
     assert_eq!(
-        heap.array_snapshot(id).unwrap(),
+        heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(2), Value::I32(7), Value::I32(2), Value::I32(7)]
     );
     drop(rooted);
@@ -782,10 +784,10 @@ fn typed_array_bulk_changes_validate_before_committing_and_trace_reference_eleme
         .expect("retained execution result");
     let root = vm.runtime().root_value(nodes).unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::Array(id) = nodes else {
+    let Value::GcHandle(id) = nodes else {
         panic!("string array result");
     };
-    let Some(Value::Struct(child)) = vm.runtime().gc().array_get(id, 0) else {
+    let Some(Value::Struct(child)) = vm.runtime().gc().sequence_get(id, 0) else {
         panic!("traced node");
     };
     let (_, fields) = vm.runtime().gc().struct_snapshot(child).unwrap();
@@ -832,7 +834,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
                 )
                 .unwrap();
             expressions.push(format!(
-                "{name}([]) && {name}([{0}, {0}]) && {name}([{0}; 2])",
+                "{name}(Vec::new()) && {name}(Vec::from([{0}, {0}])) && {name}(Vec::from([{0}; 2]))",
                 $literal
             ));
         }};
@@ -1152,11 +1154,11 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
                 Codec::Scalar(Type::i32().abi().clone()),
                 |cx| {
                     cx.with_payload::<TracedCounter, _>(0, |payload| {
-                        let Value::Array(id) = payload.values else {
+                        let Value::GcHandle(id) = payload.values else {
                             return Err(RuntimeError::module_validation("counter child"));
                         };
                         cx.heap()
-                            .array_get(id, 0)
+                            .sequence_get(id, 0)
                             .ok_or_else(|| RuntimeError::module_validation("counter element"))
                     })
                 },
@@ -1167,8 +1169,8 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     let (vm, loaded) = compile(
         r#"
         use example::provided::{Counter, new, read, missing_payload};
-        fn main() -> Counter { new([42]) }
-        fn healthy() -> i32 { read(new([42])) }
+        fn main() -> Counter { new(Vec::from([42])) }
+        fn healthy() -> i32 { read(new(Vec::from([42]))) }
         fn invalid() -> Counter { missing_payload() }
     "#,
         Some(&module),

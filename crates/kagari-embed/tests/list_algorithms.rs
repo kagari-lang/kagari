@@ -48,7 +48,7 @@ fn vec_algorithms_preserve_copies_aliases_and_order() {
     execute(
         r#"
 fn main() -> bool {
-    val a = [3, 1, 2, 1];
+    val a = Vec::from([3, 1, 2, 1]);
     val b = a.sorted();
     if a[0] != 3 || b[0] != 1 || b[3] != 3 { return false; }
     val alias = a;
@@ -58,7 +58,7 @@ fn main() -> bool {
     if a.len() != 3usize { return false; }
     a.reverse();
     a.retain(|x| x != 2);
-    val c = [1, 2, 1, 3, 2].distinct();
+    val c = Vec::from([1, 2, 1, 3, 2]).distinct();
     a.len() == 2usize && a[0] == 3 && a[1] == 1 && c.len() == 3usize && c[1] == 2
 }
 "#,
@@ -71,7 +71,7 @@ fn interface_methods_accept_comparators_and_keys() {
         r#"use std::collections::{List, MutableList};
 
 fn main() -> bool {
-    val source = [3, 1, 2];
+    val source = Vec::from([3, 1, 2]);
     val list: List<i32> = source;
     val ascending = list.sorted_by_key(|value| value);
     val descending = list.sorted_by(|a, b| b.cmp(a));
@@ -90,7 +90,7 @@ fn unordered_elements_keep_unbounded_list_operations() {
 
 struct Item { val key: i32 }
 fn main() -> bool {
-    val values = [Item { key: 2 }, Item { key: 1 }];
+    val values = Vec::from([Item { key: 2 }, Item { key: 1 }]);
     val list: List<Item> = values;
     val sorted = list.sorted_by_key(|item| item.key);
     sorted[0].key == 1 && list.reversed()[0].key == 1 && values[0].key == 2
@@ -130,7 +130,7 @@ impl MutableList<i32> for Sequence {
     fn set(self, index: usize, value: i32) { self.items[index] = value; }
 }
 fn main() -> bool {
-    val source = Sequence { items: [3, 1, 2, 1] };
+    val source = Sequence { items: Vec::from([3, 1, 2, 1]) };
     val list: List<i32> = source;
     val sorted = list.sorted_by_key(|item| item);
     if sorted[0] != 1 || source.items[0] != 3 { return false; }
@@ -165,12 +165,12 @@ trait Sorter {
 }
 impl Sorter for i32 {}
 fn main() -> bool {
-    val values: List<Item> = [
+    val values: List<Item> = Vec::from([
         Item { key: 2, label: "b", ordinal: 0 },
         Item { key: 1, label: "a", ordinal: 1 },
         Item { key: 2, label: "b", ordinal: 2 },
         Item { key: 1, label: "a", ordinal: 3 }
-    ];
+    ]);
     val calls = Counter { calls: 0 };
     val sorter: Sorter = 0;
     val numeric = sorter.order(values, |item| { calls.calls += 1; item.key });
@@ -187,8 +187,8 @@ fn main() -> bool {
 fn ordering_and_equality_bounds_are_required_at_the_method_call() {
     let engine = KagariEngine::default();
     for source in [
-        "use std::collections::{List};\nstruct Item { val key: i32 } fn main() { val list: List<Item> = [Item { key: 1 }]; list.sorted(); }",
-        "use std::collections::{List};\nfn main() { val list: List<f32> = [1.0f32]; list.distinct(); }",
+        "use std::collections::{List};\nstruct Item { val key: i32 } fn main() { val list: List<Item> = Vec::from([Item { key: 1 }]); list.sorted(); }",
+        "use std::collections::{List};\nfn main() { val list: List<f32> = Vec::from([1.0f32]); list.distinct(); }",
     ] {
         assert!(
             engine
@@ -261,7 +261,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         builder.install(module.finish().unwrap()).unwrap();
         let engine = builder.build().unwrap();
         let source = format!(
-            "use test::cancellation::{{keep, visit}}; fn main() {{ val values = [1,3,2,0]; keep(values); values.{operation}; }}"
+            "use test::cancellation::{{keep, visit}}; fn main() {{ val values = Vec::from([1,3,2,0]); keep(values); values.{operation}; }}"
         );
         let artifact = engine
             .compile_to_artifact(SourceFile::new("cancel.kgr", source), Default::default())
@@ -279,7 +279,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             "KG_RUNTIME_CANCELLED"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 3);
-        let Value::Array(array) = retained
+        let Value::GcHandle(array) = retained
             .lock()
             .unwrap()
             .as_ref()
@@ -287,12 +287,12 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             .value(runtime.runtime().gc())
             .unwrap()
         else {
-            panic!("array")
+            panic!("Vec")
         };
         let mut actual = runtime
             .runtime()
             .gc()
-            .array_snapshot(array)
+            .sequence_snapshot(array)
             .unwrap()
             .into_iter()
             .map(|value| {
@@ -307,7 +307,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         runtime
             .runtime()
             .gc()
-            .array_push(array, Value::I32(99))
+            .sequence_push(array, Value::I32(99))
             .unwrap();
         retained.lock().unwrap().take();
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -352,11 +352,11 @@ trait Sorter {
 }
 impl Sorter for i32 {}
 fn main() -> bool {
-    val source = Sequence { items: [3,1,2] };
+    val source = Sequence { items: Vec::from([3,1,2]) };
     val sorted = source.sorted();
     val list: List<i32> = source;
     val sorter: Sorter = 0;
-    val text: List<String> = Sequence { items: ["b", "a"] };
+    val text: List<String> = Sequence { items: Vec::from(["b", "a"]) };
     sorted[0] == 1 && order(list)[0] == 1 && sorter.order(list)[0] == 1
         && sorter.order(text)[0] == "a" && list.reversed()[0] == 2
 }

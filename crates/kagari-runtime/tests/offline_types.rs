@@ -12,16 +12,13 @@ use kagari_runtime::{
     host::{HostFunction, HostTypeRegistration},
     metadata::TypeKind,
 };
-use kagari_types::{
-    collection::CollectionAccess,
-    host_interface::{
-        HostInterface, HostParameter, HostPassingStyle,
-        type_declaration::{
-            HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
-            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
-        },
-        value_type::HostValueType,
+use kagari_types::host_interface::{
+    HostInterface, HostParameter, HostPassingStyle,
+    type_declaration::{
+        HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
+        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
     },
+    value_type::HostValueType,
 };
 
 #[test]
@@ -118,10 +115,7 @@ fn declarations() -> (HostTypeDeclaration, HostTypeDeclaration) {
     b.fields.push(HostFieldDeclaration::new(
         &b.id,
         "members",
-        HostValueType::Array(
-            Box::new(HostValueType::Opaque(a.id.clone())),
-            CollectionAccess::Mutable,
-        ),
+        HostValueType::Array(Box::new(HostValueType::Opaque(a.id.clone()))),
     ));
     let mut score = HostFieldDeclaration::new(&a.id, "score", HostValueType::I32);
     score.writable = true;

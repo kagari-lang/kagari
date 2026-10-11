@@ -1,5 +1,7 @@
 //! Finite specialization of script scalar layouts, selected from the declared type.
 //! No inference from the first element, no per-element GC roots for primitive data.
+mod allocation;
+
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
@@ -204,11 +206,10 @@ impl NativePayload for SequencePayload {
 }
 
 impl NativeStorage {
-    pub(crate) fn sequence(element: usize) -> Self {
+    pub fn sequence(element: usize) -> Self {
         Self::with_layout(NativeStorageLayout::Sequence { element }, move |context| {
             let item = match context.ty() {
                 Ty::NativeObject(nominal) => nominal.arguments.get(element),
-                Ty::Array(item, _) if element == 0 => Some(item.as_ref()),
                 _ => None,
             }
             .ok_or_else(|| RuntimeError::module_validation("sequence element type"))?;

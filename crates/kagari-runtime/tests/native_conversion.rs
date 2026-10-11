@@ -23,7 +23,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{collection::CollectionAccess, declaration::module::ModuleDecl, ty::Ty};
+use kagari_types::{declaration::module::ModuleDecl, ty::Ty};
 use std::{
     cell::Cell,
     fmt::Debug,
@@ -123,6 +123,21 @@ fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
     assert_eq!(cx.decode::<(bool,)>(&tuple).unwrap(), (true,));
     let invalid = runtime.root_value(Value::I32(256)).unwrap();
     assert!(cx.decode::<u8>(&invalid).is_err());
+    for values in [vec![], vec![Value::I32(42)]] {
+        let array = runtime
+            .alloc_array(
+                &owner,
+                Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
+                values,
+            )
+            .unwrap();
+        let root = runtime.root_value(Value::Array(array)).unwrap();
+        assert!(cx.decode::<Vec<i32>>(&root).is_err());
+        assert!(
+            cx.decode::<kagari_runtime::native::collections::vector::ScriptVec<i32>>(&root)
+                .is_err()
+        );
+    }
     let foreign = Runtime::default().root_value(Value::I32(1)).unwrap();
     assert!(cx.decode::<i32>(&foreign).is_err());
 }
@@ -397,7 +412,7 @@ impl FromKagari for Detached {
         value: &Value,
     ) -> NativeResult<Self> {
         if let Some(outer) = DETACH.take() {
-            cx.runtime().gc().array_clear(outer)?;
+            cx.runtime().gc().sequence_clear(outer)?;
         }
         cx.runtime().collect_garbage()?;
         Vec::<i32>::from_kagari(cx, expected, value).map(Self)
@@ -409,7 +424,7 @@ fn owned_composites_survive_alias_mutation_and_collection_in_child_conversion() 
     let (runtime, owner) = fixture();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let root = cx.encode(vec![vec![1], vec![2]]).unwrap();
-    let Value::Array(array) = root.value(runtime.gc()).unwrap() else {
+    let Value::GcHandle(array) = root.value(runtime.gc()).unwrap() else {
         panic!("array");
     };
     DETACH.set(Some(array));
@@ -417,7 +432,7 @@ fn owned_composites_survive_alias_mutation_and_collection_in_child_conversion() 
         cx.decode::<Vec<Detached>>(&root).unwrap(),
         [Detached(vec![1]), Detached(vec![2])]
     );
-    assert_eq!(runtime.gc().array_len(array), Some(0));
+    assert_eq!(runtime.gc().sequence_len(array), Some(0));
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(root);
 
@@ -533,10 +548,8 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
     .unwrap();
     let mut builder = ModuleBuilder::new("fixture::conversion", &catalog);
     let mut node = builder.define_enum("Node");
-    let children = Type::from_semantic(Ty::Array(
-        Box::new(node.self_type().abi().clone()),
-        CollectionAccess::Mutable,
-    ));
+    let children =
+        kagari_stdlib::declarations::StandardDeclarations::default().vec(node.self_type());
     node.variant("Children", [children]).unwrap();
     node.finish().unwrap();
     let (runtime, owner) = fixture_with(
@@ -548,18 +561,18 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
     let Value::Enum(node) = root.value(runtime.gc()).unwrap() else {
         panic!("Node");
     };
-    let Value::Array(children) = runtime.gc().enum_snapshot(node).unwrap().fields[0] else {
+    let Value::GcHandle(children) = runtime.gc().enum_snapshot(node).unwrap().fields[0] else {
         panic!("children");
     };
-    let child = runtime.gc().array_get(children, 0).unwrap();
-    runtime.gc().array_push(children, child).unwrap();
+    let child = runtime.gc().sequence_get(children, 0).unwrap();
+    runtime.gc().sequence_push(children, child).unwrap();
     assert_eq!(
         cx.decode::<Node>(&root).unwrap(),
         Node(vec![Node(vec![]), Node(vec![])])
     );
     runtime
         .gc()
-        .array_push(children, Value::Enum(node))
+        .sequence_push(children, Value::Enum(node))
         .unwrap();
     let error = cx.decode::<Node>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
@@ -568,14 +581,14 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
     let view = cx.decode::<NodeView>(&root).unwrap();
     assert_eq!(view.0[2].0.value(runtime.gc()), Some(Value::Enum(node)));
     drop(view);
-    runtime.gc().array_remove(children, 2).unwrap();
+    runtime.gc().sequence_remove(children, 2).unwrap();
     assert_eq!(
         cx.decode::<Node>(&root).unwrap(),
         Node(vec![Node(vec![]), Node(vec![])])
     );
     runtime
         .gc()
-        .array_push(children, Value::Enum(node))
+        .sequence_push(children, Value::Enum(node))
         .unwrap();
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);

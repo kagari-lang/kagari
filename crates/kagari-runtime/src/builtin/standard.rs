@@ -10,6 +10,7 @@ use crate::{
     value_semantics,
 };
 use kagari_contract::standard::RuntimePrimitive;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::cmp::Ordering;
 #[cfg(test)]
 mod tests;
@@ -99,8 +100,16 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
             "array.join expects a string array and separator",
         ));
     };
+    if !gc
+        .array_contract(*handle)
+        .is_some_and(|contract| contract.ty == Ty::Builtin(BuiltinType::String))
+    {
+        return Err(BuiltinError::new(
+            "string interpolation requires [String] storage",
+        ));
+    }
     let output = gc
-        .with_array(*handle, |values| {
+        .with_buffer(*handle, |values| {
             let SequenceStorage::Traced(values) = values else {
                 return Err(BuiltinError::new("array.join expects string elements"));
             };

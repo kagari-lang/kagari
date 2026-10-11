@@ -1,5 +1,4 @@
 //! Portable resolved path contracts shared by offline tools and runtime registration.
-#[cfg(test)]
 use crate::collection::CollectionAccess;
 use crate::host_interface::{
     DefinitionPath, HostInterface, HostInterfaceError,
@@ -357,10 +356,10 @@ impl Fingerprint {
 fn read_only_collection(ty: &HostValueType) -> bool {
     matches!(
         ty,
-        HostValueType::Array(_, crate::collection::CollectionAccess::ReadOnly)
-            | HostValueType::Set(_, crate::collection::CollectionAccess::ReadOnly)
+        HostValueType::List(..)
+            | HostValueType::Set(_, CollectionAccess::ReadOnly)
             | HostValueType::Map {
-                access: crate::collection::CollectionAccess::ReadOnly,
+                access: CollectionAccess::ReadOnly,
                 ..
             }
     )
@@ -368,13 +367,24 @@ fn read_only_collection(ty: &HostValueType) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use kagari_common::identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+    };
+
     #[test]
     fn index_contract_cannot_upgrade_readonly_collection_access() {
         let mut index = super::HostIndexSegmentDeclaration {
             slot: 0,
-            collection: super::HostValueType::Array(
+            collection: super::HostValueType::List(
+                DefinitionPath {
+                    module: ModuleIdentity::single_file("collections.kgr"),
+                    path: vec![DefinitionPathSegment {
+                        kind: DefinitionKind::Trait,
+                        name: "List".into(),
+                        occurrence: 0,
+                    }],
+                },
                 Box::new(super::HostValueType::I32),
-                crate::collection::CollectionAccess::ReadOnly,
             ),
             index: super::HostValueType::I32,
             result: super::HostValueType::I32,
@@ -383,10 +393,7 @@ mod tests {
         assert!(index.validate().is_err());
         index.access = super::PathAccess::ReadOnly;
         index.validate().unwrap();
-        index.collection = super::HostValueType::Array(
-            Box::new(super::HostValueType::I32),
-            crate::collection::CollectionAccess::Mutable,
-        );
+        index.collection = super::HostValueType::Array(Box::new(super::HostValueType::I32));
         index.access = super::PathAccess::ReadWrite;
         index.validate().unwrap();
     }
@@ -399,8 +406,7 @@ mod tests {
         let mut root = HostTypeDeclaration::new("game.Inventory");
         root.ownership = HostTypeOwnership::HostRoot;
         root.path_access = PathAccess::ReadWrite;
-        let items_type =
-            HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable);
+        let items_type = HostValueType::Array(Box::new(HostValueType::I32));
         let mut items = HostFieldDeclaration::new(&root.id, "items", items_type.clone());
         items.path_access = PathAccess::ReadWrite;
         items.writable = true;
@@ -463,8 +469,7 @@ mod tests {
             Err(HostInterfaceError::InvalidDeclaration)
         );
         if let HostPathSegmentDeclaration::Index(index) = &mut broken.paths[0].segments[1] {
-            index.collection =
-                HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable);
+            index.collection = HostValueType::Array(Box::new(HostValueType::I32));
             index.index = HostValueType::opaque("game.Missing");
         }
         assert_eq!(

@@ -17,7 +17,7 @@ impl Source for Feed {
 }
 fn shared_main() -> bool {
     val calls = Count { calls: 0 };
-    val source = Cursor::from_array([1, 2, 3]);
+    val source = Cursor::from_array(Vec::from([1, 2, 3]));
     val mapped = map(source, |item| { calls.calls += 1; item * 10 });
     val alias = mapped;
     if calls.calls != 0 { return false; }
@@ -34,7 +34,7 @@ fn non_fused_main() -> bool {
 }
 fn factory() -> Cursor<i32> {
     val bias = Count { calls: 7 };
-    map(Cursor::from_array([1, 2, 3]), |item| item + bias.calls)
+    map(Cursor::from_array(Vec::from([1, 2, 3])), |item| item + bias.calls)
 }
 fn next_input() -> Option<i32> { cursor().next() }
 fn array_factory() -> Cursor<i32> { Cursor::from_array(values()) }
@@ -77,7 +77,7 @@ fn lease_factory() -> Cursor<i32> { lease_probe() }
 fn lease_error_factory() -> Cursor<i32> { lease_factory_error() }
 struct HeapItem { val code: i32 }
 fn heap_main() -> bool {
-    val mapped = map(Cursor::from_array([HeapItem { code: 1 }, HeapItem { code: 2 }]), |item| HeapItem { code: item.code + 10 });
+    val mapped = map(Cursor::from_array(Vec::from([HeapItem { code: 1 }, HeapItem { code: 2 }])), |item| HeapItem { code: item.code + 10 });
     val a = match mapped.next() { Some(item) => item.code, None => 0 };
     val b = match mapped.next() { Some(item) => item.code, None => 0 };
     a == 11 && b == 12 && mapped.next() == None

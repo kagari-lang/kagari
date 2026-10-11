@@ -1,7 +1,7 @@
 # Builtin fixed-length arrays (SA20)
 
-Status: BA01 inventory complete; BA02-BA04 integration is next. The user authorized
-execution of SA20. The
+Status: BA01-BA05 are implemented and locally accepted. Full GitHub CI remains
+open. The
 [roadmap](implementation-roadmap.md#builtin-fixed-length-arrays-sa20) owns queue
 placement; this file owns phase order, acceptance and the progress ledger.
 
@@ -15,7 +15,7 @@ type. `Vec<T>` is a distinct registered library type; List/MutableList remain
 library interfaces. Construct collections explicitly with `Vec::from(array)` and
 `HashSet::from(array)`, retaining `Vec::new()` and `HashSet::new()` for empty ones.
 
-Target examples, not current behavior:
+Implemented behavior:
 
 ```kagari
 fn first(values: [i32]) -> i32 { values[0] }
@@ -56,13 +56,14 @@ structural equality, varargs, macros and a general collection API expansion. Do
 not add a dormant optional-length field or a second factory naming scheme. No
 performance target or speedup is claimed by this semantic separation.
 
-## Current implementation and owners
+## Initial implementation and migration owners
 
-Inspection found that the existing name Array describes growable Vec storage at
-several boundaries. Removing methods from the source surface alone cannot enforce
-fixed length. The migration must separate these identities and their operations.
+This inventory records the pre-migration checkout. Array described growable Vec
+storage at several boundaries. Removing methods from the source surface alone
+could not enforce fixed length; the migration separated these identities and
+operations. The completed representation is recorded in the BA01 decision below.
 
-| Owner | Current coupling and required work |
+| Owner | Initial coupling and required work |
 | --- | --- |
 | [HIR type syntax](../crates/kagari-hir/src/hir/ty.rs), [type resolution](../crates/kagari-hir/src/typeck/ty.rs), [array bridge](../crates/kagari-hir/src/builtin/array_bridge.rs) | Syntax retains only the element type; resolution maps `[T]` to installed List. Resolve it directly to builtin Array and remove List-based literal contextualization. Preserve independent List indexing support where still needed. |
 | [HIR semantic types](../crates/kagari-hir/src/types.rs), [shared types](../crates/kagari-types/src/ty.rs), [native application](../crates/kagari-hir/src/native.rs) | `TypeId::Array`/`Ty::Array` carry CollectionAccess; `NativeTypeKind::Vec` maps to that representation. Give Array its own element-only semantic form and use the existing nominal native-storage model for Vec. |
@@ -248,14 +249,14 @@ record that honestly and do not claim native execution from JIT enablement alone
 At final acceptance of the entire migration, run the repository's local structure,
 format, strict Clippy, workspace-test and diff checks once as a final batch. Fix
 failures with focused tests; repeat a full run only to establish acceptance after
-repairs. GitHub CI owns the complete feature/backend matrix. No full build/test
-run is required for this planning-only documentation change.
+repairs. GitHub CI owns the complete feature/backend matrix. The initial planning-only
+documentation checkpoint did not require a full build/test run.
 
 Update [collection semantics](spec/collection-access.md),
 [value semantics](spec/value-semantics.md), [syntax](spec/syntax.md),
 [builtins](spec/builtins.md), [native declarations](spec/standard-declarations.md)
-and affected host/architecture docs during BA05. Current specs remain the record
-of implemented behavior until the migration is integrated. Benchmark programs
+and affected host/architecture docs during BA05. Specifications now describe the
+implemented separation. Benchmark programs
 must preserve their workloads when construction spelling changes; measure any
 claimed performance benefit independently.
 
@@ -263,10 +264,10 @@ claimed performance benefit independently.
 
 - [x] Planning: choose runtime-stored fixed length, define scope and acceptance.
 - [x] BA01: Record concrete representation and consumer inventory.
-- [ ] BA02: Split types and checked operations.
-- [ ] BA03: Enforce runtime and host storage contracts.
-- [ ] BA04: Integrate constructors and migrate callers.
-- [ ] BA05: Complete documentation and final acceptance.
+- [x] BA02: Split types and checked operations.
+- [x] BA03: Enforce runtime and host storage contracts.
+- [x] BA04: Integrate constructors and migrate callers.
+- [x] BA05: Complete documentation and final acceptance.
 
 ### BA01 representation decision and inventory
 
@@ -333,3 +334,202 @@ BA01 is a documentation checkpoint: content/diff checks only; no build or test
 acceptance is claimed. BA02-BA04 remain one coupled checkpoint. No carried
 implementation diagnostics exist yet. Record subsequent failed commands, causes
 and owning phases here; final local acceptance and CI remain outstanding.
+
+### BA02-BA05 integration history
+
+The following entries retain the observations and outstanding work at each
+intermediate checkpoint. Later repairs supersede earlier failure and pending-work
+statements; the final acceptance record below owns the current outcome.
+
+The working tree now separates element-only Array syntax/semantic types from
+nominal Vec registration. Runtime array/sequence admission shares compact buffer
+kernels; nominal sequence codecs, Rust Vec/ScriptVec conversion, checked indexed
+assignment, iteration and ordinary Vec/HashSet array constructors are being
+integrated. Host schemas distinguish fixed Array, explicit nominal Vec and List
+interfaces. This work remains uncommitted until all carried integration failures
+are resolved; the BA02-BA04 checkboxes are deliberately still open.
+
+Observed local checks and repairs:
+
+- `cargo check -p kagari-types` initially reported removed Array access bindings
+  in access/wire traversal (BA02); repaired. Subsequent HIR/stdlib/compiler library
+  checks passed at their respective boundaries, with unused-import warnings still
+  awaiting cleanup. These checks do not establish downstream test acceptance.
+- `cargo check -p kagari-stdlib` exposed the old ScriptVec/primitive access and
+  buffer helper callers (BA03); migrated those owners to nominal sequence
+  admission. Host metadata used a nonexistent Native kind during schema edits;
+  corrected to the existing Struct metadata classification.
+- `cargo test -p kagari-embed --test array_operations` initially exposed the new
+  core array module's documentation inventory, old Vec annotations on repeat
+  literals, and a constructor parameter accidentally named `self`. The latter
+  caused both HIR receiver replacement and MIR `InvalidPublicAbi`; naming the
+  ordinary associated parameter `array` fixed the actual declaration contract.
+- The same array-operations command then passed all 6 tests, including the new
+  fixed-length alias/rebinding and explicit-constructor isolation case. Existing
+  artifact round trips and JIT-enabled preparation are exercised; actual native
+  entry was not established, so this is not a native execution claim.
+
+Outstanding BA02-BA04 work: migrate remaining library callers and host fixtures;
+complete source-free family/layout rejection coverage, schema validation and
+conversion checks; review compact-buffer access and all mutation/lease entrypoints;
+remove obsolete array-access tests/models and temporary diagnostic tooling; run
+focused collection, verifier, runtime, registration and source-free checks. BA05
+specification/example/fixture migration, structural review, final local acceptance
+and full CI are still outstanding. Temporary logs are under `target/sa20/`.
+
+
+Further integration evidence (BA02-BA04, still not accepted):
+
+- Collection-access and collection-interface SDK tests passed (5 each). The
+  nested `List<Vec<i32>>` case initially failed MIR application validation in
+  `core::iter`: concrete native arguments introduced a declaration owner absent
+  from the module dependency closure. Source program assembly now visits the
+  existing complete definition-reference inventory and pins referenced source
+  owners, including generic arguments; host-only identities remain host contracts.
+  This replaces the incomplete callable-only collection without weakening checks.
+- Runtime unit tests passed 155 cases after migrating growth/lease fixtures to
+  nominal sequences and preserving the existing ScriptTrap category for invalid
+  fixed-array handles. Runtime native conversion passed 10 cases, typed host paths
+  passed 20, and GC ownership passed its existing suite. Host schema/type unit
+  tests passed 38; language-contract tests passed 9, including builtin syntax
+  without installed declarations. New low-level Array admission checks are pending.
+- `CallContext` now explicitly distinguishes `allocate_array` and `allocate_vec`;
+  storage factories expose fixed `allocate_array`. The generic scoped sequence
+  allocator belongs to native sequence storage, with standard Vec identity lookup
+  retained in the Rust Vec adapter. Cursor item types come from the admitted
+  sequence element contract, including nonzero storage element positions.
+- The first list-algorithm pass had 7/8 successes; its cancellation test still
+  interpreted Vec as Value::Array. The fixture is migrated without changing the
+  cancellation, partial effects or root-cleanup assertions. VM list and native
+  boundary fixtures still contain old literal, host-schema and representation
+  expectations; their migration and reruns remain BA04 work.
+- Import cleanup briefly left orphan cfg(test) attributes on three production
+  items; those were removed. HIR unit fixture imports that had relied on parent
+  test globs now import surviving CollectionAccess explicitly. Subsequent targeted
+  checks, rather than the failed intermediate builds, determine acceptance.
+- Structural scanning found seven new qualified-path issues, now addressed;
+  a fresh structural check and manual ownership/import review remain required.
+
+
+Final integration and BA05 acceptance in progress:
+
+- VM library collections passed 18 cases and native boundaries passed 160. Host
+  family cases additionally verify valid Array, Vec and List input/results and
+  reject cross-family substitution before callbacks and at return validation.
+- Compiler interface-normalization, ABI and verifier selectors passed. String
+  interpolation exposed a real owner mismatch: its compiler-generated `[String]`
+  temporary requires the intrinsic array contract, not a nominal Vec codec.
+  Restored that contract with element validation; all 6 interpolation tests passed.
+- The fixed-array/nominal-sequence facade, common buffer kernels and growable
+  operations now have distinct GC modules. GC-focused tests passed 24 cases,
+  including forged GcHandle labels, growth/capacity/edit rejection and unchanged
+  contents/resources. Native conversion passed 10 cases, including empty and
+  nonempty fixed-array rejection by Rust Vec and ScriptVec.
+- Existing SDK collection interfaces, iteration, algorithms and registration-source
+  suites passed. All 9 syntax-example tests passed source and artifact execution.
+  Examples now use explicit Vec construction for list algorithms and usize indices
+  for Vec's declared Index implementation; intrinsic Array retains integer indexing.
+  Both expected Vec context and later-use element inference for Vec::from([])
+  are covered by array operations and the existing inference suite.
+- Indexed assignment now captures nominal receivers before index evaluation, as
+  required for shared objects. The existing alias test verifies rebinding a Vec
+  during index evaluation mutates the original object once, not the new binding.
+- Source-free artifact_features passed all 10 cases with regenerated local fixtures,
+  preserving reload loops and testing both Vec/HashSet constructors plus forged
+  Array/Vec native signature rejection. Format/ABI identifiers were not bumped.
+- Removed the temporary AST rewrite example. Structural scanning passed 1030 Rust
+  files with zero violations/exceptions; manual review found no added production
+  glob/re-export/include paths. Full workspace final acceptance is now running.
+  Its first Clippy attempts found obsolete/missing test imports and an unnecessary
+  lifetime; fixes are in progress. No final workspace or CI pass is claimed yet.
+
+- First full-workspace execution (`cargo test --workspace --no-fail-fast`) found
+  remaining fixtures that still paired Vec annotations with array literals or
+  intrinsic host allocations, plus old List-index binding expectations. The
+  affected compiler, enum, callable, reflection, numeric, never and transfer
+  fixtures are being corrected at their existing semantic owners. Async verifier
+  corruption now changes the element type (the removed access marker no longer
+  distinguishes types); the rejection assertion is preserved.
+- This acceptance pass also exposed two actual migration gaps: a terminating
+  assignment receiver must bypass writable-interface selection after its subexpressions
+  are checked, and nominal sequence setter bounds must retain IndexOutOfBounds.
+  Both are repaired. Existing conformance growth/iteration fixtures now explicitly
+  allocate/schema-check nominal Vec; fixed-array contracts remain in their own
+  allocation/alias/constructor suites. All original conformance observations and
+  cleanup assertions remain. Its complete route suite is still running.
+- Clippy now passes across all workspace targets. Source examples for host reentry
+  and collection iteration execute successfully. Final workspace tests are still
+  in progress; later failures and final outcomes belong to this same ledger.
+
+- Empty array arguments originally retained an Unknown contextual element, so
+  Vec::from([]) could lose later-use constraints. Array inference now creates a
+  solver variable when its expected element is Unknown; all 8 SDK inference cases
+  and 21 HIR context cases pass, including conflicting later writes. Nominal type
+  arguments also now participate in recursive standard constraint validation,
+  retaining rejection of Vec<HashMap<f32, i32>> without weakening assertions.
+- The complete observable language-contract suite passed across its source,
+  artifact and JIT/fallback routes. The first full workspace pass completed with
+  20 failing targets; all are tracked fixture migrations or the repaired semantic
+  gaps above. A concurrent dependency rebuild also invalidated a rustdoc input;
+  documentation tests will be rerun after builds settle. Final acceptance will run
+  without concurrent source changes or alternate feature builds.
+
+- Remaining VM owned-drive/GC fixtures now distinguish fixed arrays from retained
+  nominal Vec values. The source-free native-wait fixture installs a minimal
+  canonical Vec provider and records it in artifact dependencies; a typed native
+  read retains the post-await element observation without applying an intrinsic
+  Array opcode to Vec. Cold inputs and the live/dead values are explicitly rooted
+  until execution owns them. All four native-wait cases pass, retaining snapshot,
+  iteration-lease, cancellation and drop-cleanup assertions.
+- Final focused repairs passed: HIR context (21), operator (9) and nominal (7)
+  selectors; SDK type inference (8); runtime execution sessions (11) and host
+  objects (10); VM growing-window GC; and documentation tests. The complete
+  observable language-contract suite also passed again inside the final workspace
+  run. Temporary logs and the full acceptance output remain under `target/sa20/`.
+- Final manual review removed one redundant qualified production call and updated
+  HIR syntax comments. These are import/comment-only corrections. Structure and
+  format checks pass again; no production globs, re-exports, handwritten include
+  paths or structural exceptions were added. Documentation file links pass.
+
+- The second full run (`cargo test --workspace`, `workspace-acceptance.log`)
+  reached the final native-boundary suite with one failure: its direct VecSet
+  primitive test still expected ModuleValidation and the old array-set message.
+  Nominal indexing now uses this same checked setter, whose bounds failure must
+  be IndexOutOfBounds to preserve script indexed-assignment behavior. The fixture
+  now asserts that exact kind, retaining its alias, committed prior write,
+  unchanged failed element, readonly-input and cleanup checks. This is an error
+  classification correction at the common setter, not a relaxed assertion.
+  Owning phases: BA03 admission and BA04 caller assertions. A focused rerun and
+  renewed final workspace acceptance follow; no successful full pass is claimed
+  from the failed run.
+
+
+### BA05 final local acceptance
+
+BA01-BA05 are complete locally. There are no carried build/test failures or new
+structural exceptions. The nominal primitive bounds test passed after its exact
+error-category correction; the subsequent complete workspace run passed with
+1,951 tests, zero failures and two existing ignored tests (114 result groups,
+including documentation tests). All implementation changes are one coupled
+BA02-BA05 checkpoint following the separate BA01 inventory commit.
+
+| Check | Final result |
+| --- | --- |
+| `uv run --locked scripts/check_structure.py` | Passed: 1,030 Rust files, zero violations and zero documented exceptions. |
+| `cargo fmt --all -- --check` | Passed. |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Passed after all Rust edits. |
+| `cargo test --workspace` | Passed; final output in `target/sa20/workspace-accepted.log`. |
+| `cargo test -p kagari-embed --no-default-features --test artifact_features` | Passed: 10 source-free artifact cases; output in `target/sa20/source-free2.log`. |
+| Documentation file-link review and `git diff --check` | Passed. |
+
+Focused boundary checks and the host-reentry/collection-iteration examples also
+passed as recorded above. Specifications, architecture, HIR comments, examples,
+benchmark construction spelling, review status and roadmap now describe the
+implemented Array/Vec distinction. Development fixtures were regenerated without
+format/ABI bumps. No obsolete Vec-to-intrinsic-Array mapping, array growth API,
+compatibility reader or temporary rewrite example remains.
+
+GitHub CI's complete feature/backend matrix has not been run by this task and
+remains open. JIT-enabled preparation may fall back to the interpreter; these
+results do not establish universal native execution or a performance improvement.
+SA18/SA19/SA21 and type-level lengths remain outside this completed migration.

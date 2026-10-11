@@ -8,20 +8,17 @@ use kagari_embed::{
     engine::{KagariEngine, source::ArtifactOptions},
 };
 use kagari_source::source_database::SourceLayer;
-use kagari_types::{
-    collection::CollectionAccess,
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        path::{
-            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-            HostVirtualSegmentDeclaration,
-        },
-        type_declaration::{
-            HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostTypeOwnership,
-            PathAccess,
-        },
-        value_type::HostValueType,
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+    path::{
+        HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+        HostVirtualSegmentDeclaration,
     },
+    type_declaration::{
+        HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostTypeOwnership,
+        PathAccess,
+    },
+    value_type::HostValueType,
 };
 use std::error::Error;
 
@@ -39,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut scores = HostFieldDeclaration::new(
         &player.id,
         "scores",
-        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+        HostValueType::Array(Box::new(HostValueType::I32)),
     );
     scores.path_access = PathAccess::ReadOnly;
     player.fields.push(scores);
@@ -83,10 +80,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             HostPathSegmentDeclaration::Field(player.fields[1].id.clone()),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Array(
-                    Box::new(HostValueType::I32),
-                    CollectionAccess::Mutable,
-                ),
+                collection: HostValueType::Array(Box::new(HostValueType::I32)),
                 index: HostValueType::I32,
                 result: HostValueType::I32,
                 access: PathAccess::ReadOnly,
@@ -134,10 +128,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             "demo.echo",
             vec![HostParameter {
                 name: "value".into(),
-                ty: HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+                ty: HostValueType::Array(Box::new(HostValueType::I32)),
                 passing: HostPassingStyle::Owned,
             }],
-            HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+            HostValueType::Array(Box::new(HostValueType::I32)),
         )],
     };
     // A build process may read these bytes from the binding provider's interface file.
@@ -178,7 +172,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ),
         (
             "main",
-            "use build::api::echo; use build::api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn nested_score(value: api::Player, first: i32, second: i32) -> i32 { value[first][second].selected.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> Vec<i32> { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn nested_score(value: api::Player, first: i32, second: i32) -> i32 { value[first][second].selected.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");

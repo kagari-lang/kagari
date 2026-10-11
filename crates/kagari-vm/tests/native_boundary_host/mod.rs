@@ -3,11 +3,14 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::DefinitionKind;
 use kagari_runtime::{
     Runtime, RuntimeConfig, host::HostFunction, module::LoadedModule, value::Value,
 };
+use kagari_stdlib::{identity, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
+    declaration::module::ModuleDecl,
     host_interface::{
         HostFunctionDeclaration, HostParameter, HostPassingStyle, value_type::HostValueType as Type,
     },
@@ -58,15 +61,17 @@ fn echo(name: &str, ty: Type) -> HostFunctionDeclaration {
 fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let mut runtime = runtime();
     let program = compile_program(
-        r#"use std::collections::{HashMap, HashSet};
+        r#"use std::collections::{HashMap, HashSet, List};
 
-        fn fixtures() -> (Vec<i32>, Vec<bool>, HashMap<String,Vec<i32>>, HashMap<String,Vec<bool>>, HashSet<String>, HashSet<i32>) {
+        fn fixtures() -> ([i32], [bool], HashMap<String,[i32]>, HashMap<String,[bool]>, HashSet<String>, HashSet<i32>, Vec<i32>, List<i32>) {
             val array = [7]; val wrong_array = [true];
-            val map: HashMap<String,Vec<i32>> = HashMap::new(); map.insert("k", array);
-            val wrong_map: HashMap<String,Vec<bool>> = HashMap::new(); wrong_map.insert("k", wrong_array);
+            val map: HashMap<String,[i32]> = HashMap::new(); map.insert("k", array);
+            val wrong_map: HashMap<String,[bool]> = HashMap::new(); wrong_map.insert("k", wrong_array);
             val set: HashSet<String> = HashSet::new(); set.insert("ok");
             val wrong_set: HashSet<i32> = HashSet::new(); wrong_set.insert(7);
-            (array, wrong_array, map, wrong_map, set, wrong_set)
+            val vector = Vec::from(array);
+            val list: List<i32> = vector;
+            (array, wrong_array, map, wrong_map, set, wrong_set, vector, list)
         }
     "#,
         None,
@@ -83,8 +88,18 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         panic!("fixtures")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [array, wrong_array, map, wrong_map, set, wrong_set] = values.as_slice() else {
-        panic!("six fixtures")
+    let [
+        array,
+        wrong_array,
+        map,
+        wrong_map,
+        set,
+        wrong_set,
+        vector,
+        list,
+    ] = values.as_slice()
+    else {
+        panic!("eight fixtures")
     };
     let runtime = vm.runtime_mut();
     let enumeration = |ty, member, fields| {
@@ -124,10 +139,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     };
     let cases = [
         (
-            Type::Tuple(vec![
-                Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
-                Type::String,
-            ]),
+            Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::String]),
             runtime
                 .gc()
                 .alloc_tuple(vec![
@@ -143,16 +155,27 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 ])
                 .unwrap(),
         ),
+        (Type::Array(Box::new(Type::I32)), *array, *wrong_array),
+        (Type::Array(Box::new(Type::I32)), *array, *vector),
         (
-            Type::Array(Box::new(Type::I32), CollectionAccess::Mutable),
+            Type::Vec(
+                ModuleDecl::new(namespaces::type_owner("Vec"))
+                    .definition(DefinitionKind::AssociatedType, "Vec"),
+                Box::new(Type::I32),
+            ),
+            *vector,
             *array,
-            *wrong_array,
+        ),
+        (
+            Type::List(identity::trait_id("List"), Box::new(Type::I32)),
+            *list,
+            *vector,
         ),
         (
             Type::Map {
                 access: CollectionAccess::Mutable,
                 key: Box::new(Type::String),
-                value: Box::new(Type::Array(Box::new(Type::I32), CollectionAccess::Mutable)),
+                value: Box::new(Type::Array(Box::new(Type::I32))),
             },
             *map,
             *wrong_map,
@@ -266,10 +289,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
         .register_host_function(HostFunction::new(
             echo(
                 "host.echo",
-                Type::Tuple(vec![Type::Array(
-                    Box::new(Type::I32),
-                    CollectionAccess::Mutable,
-                )]),
+                Type::Tuple(vec![Type::Array(Box::new(Type::I32))]),
             ),
             move |context, args| {
                 called.fetch_add(1, Ordering::SeqCst);
@@ -387,7 +407,7 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     };
     let mut runtime = runtime();
     let program = compile_program(
-        "use std::collections::{HashMap, HashSet};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
+        "use std::collections::{HashMap, HashSet, List};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
         None,
     );
     let loaded = runtime.load_program("host-storage", program).unwrap();

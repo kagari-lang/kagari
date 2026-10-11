@@ -490,6 +490,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
                     .iter()
                     .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
             )?,
+            place_index_writes: map_hash_entries(
+                self.place_index_writes.len(),
+                self.place_index_writes
+                    .iter()
+                    .map(|(key, value)| Ok((*(key), (value).map_identities(mapper)?))),
+            )?,
             struct_inits: map_hash_entries(
                 self.struct_inits.len(),
                 self.struct_inits
@@ -635,6 +641,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeTable<I> {
             visit(value0)?;
         }
         for value0 in self.place_indexes.values() {
+            (value0).visit_definitions(visit, cancel)?;
+        }
+        for value0 in self.place_index_writes.values() {
             (value0).visit_definitions(visit, cancel)?;
         }
         for value0 in self.struct_inits.values() {

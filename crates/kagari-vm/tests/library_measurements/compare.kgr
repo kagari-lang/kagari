@@ -30,7 +30,7 @@ impl Run for Runner {
 fn runner() -> Run { Runner {} }
 fn merge_sort(values: Vec<i32>, compare: fn(i32,i32) -> Ordering) {
     val size = values.len();
-    var source: Vec<i32> = []; var target: Vec<i32> = [];
+    var source: Vec<i32> = Vec::from([]); var target: Vec<i32> = Vec::from([]);
     var index = 0usize;
     while index < size { source.push(values[index]); target.push(0); index += 1usize; }
     var width = 1usize;

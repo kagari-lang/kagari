@@ -2,7 +2,7 @@ use std::collections::{List};
 // List methods provide sorting; lazy map owns the saved cursor.
 use std::collections;
 fn main()->i32 {
-    val values=[22,20]; values.sort();
+    val values=Vec::from([22,20]); values.sort();
     var calls=0;
     val mapped=collections::map(values,|value|{calls+=1;value});
     if calls!=0 {return 0;}

@@ -174,8 +174,10 @@ The installed `core`/`alloc`/`std` foundation defines all 40 foundation
 traits, primitive/value declarations, standard enums, range forms, String and the
 canonical Vec/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
 These declarations remain available independently of optional libraries.
-`[T]` means List<T>; list literals create Vec. There is no separate
-fixed-length array type or Rust slice promise. Readonly views are shallow.
+`[T]` is a builtin fixed-length array, independent of installed declarations.
+Literal and repeat construction establish its runtime length. Vec is separate
+nominal sequence storage; explicit Vec::from/HashSet::from constructors copy
+array elements into independent collection storage. List views remain shallow.
 HashMap/HashSet require checked Eq + Hash keys and use Rust standard hash storage
 without a traversal-order guarantee. Collection and String behavior lives in
 [collection access](spec/collection-access.md) and [builtins](spec/builtins.md).
@@ -1410,12 +1412,19 @@ names. NativeTypeKind/NativeTypeConstructor retain representation descriptors;
 ordinary new containers use existing nominal NativeStorage registration without
 a new generic type or execution-dispatch variant.
 
-The bounded `builtin::array_bridge` owns existing syntax bindings: `[T]` selects List<T>; `[a, b]`
-constructs the mandatory Vec<T>; `[value; count]` repeats construction without
-putting length in the type. Indexed assignment needs a checked writable member
-contract. Preserve left-to-right once-only evaluation, trap/allocation order and
-completed effects when replacing MakeArray/RepeatArray lowering. These bridges
-must not become a second complete collection catalog.
+Builtin Array typing and MakeArray/RepeatArray lowering own fixed-length syntax
+and element context. Array indexing and indexed assignment carry intrinsic checked
+facts; assignment does not require MutableList. The bounded `builtin::array_bridge`
+retains only independent Array context and installed List indexing roles. Nominal
+Vec and List indexing use checked Index/MutableList contracts. Place lowering
+preserves once-only root/index/RHS evaluation and completed effects.
+
+Runtime-owned Array objects and registered nominal sequences may share compact
+SequenceStorage kernels after family admission. Growth, capacity and detached
+edit leases require nominal sequence storage; builtin array replacement retains
+bounds, owner/generation and callback guards. No public sequence codec or Rust Vec
+conversion accepts an Array handle. String interpolation uses fixed [String]
+temporary storage owned by its compiler/runtime primitive contract.
 
 String literal typing/representation may remain intrinsic while its methods are
 ordinary native-authored implementations. Adding trim or split needs no compiler

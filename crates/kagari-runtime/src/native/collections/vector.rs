@@ -1,4 +1,5 @@
 mod edits;
+pub(crate) mod storage;
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
@@ -7,14 +8,13 @@ use crate::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
-        storage_type::StorageType,
         typed::NativeContext,
         types::Type,
     },
     value::Value,
 };
 use kagari_types::{collection::CollectionAccess, ty::Ty};
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
 /// A retained view with the exact element scope and outer access capability.
 #[derive(Debug)]
@@ -42,12 +42,7 @@ impl<T: KagariType> KagariType for ScriptVec<T> {
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
-        if !matches!(expected.ty(), Ty::Array(_, _)) {
-            return Err(RuntimeError::module_validation(
-                "ScriptVec requires an array type",
-            ));
-        }
-        cx.check_type::<T>(&cx.parameter(expected, 0)?)
+        Vec::<T>::check_type(cx, expected)
     }
 }
 
@@ -61,18 +56,18 @@ impl<T: KagariType> FromKagari for ScriptVec<T> {
     ) -> NativeResult<Self> {
         cx.check_type::<Self>(expected)?;
         cx.check_value(expected, value)?;
-        let (Ty::Array(_, access), Value::Array(_)) = (expected.ty(), value) else {
+        let (Ty::NativeObject(_), Value::GcHandle(_)) = (expected.ty(), value) else {
             return Err(RuntimeError::module_validation("ScriptVec conversion"));
         };
         let element = cx.parameter(expected, 0)?;
         let root = cx
             .runtime()
             .root_value(*value)
-            .ok_or_else(|| RuntimeError::module_validation("array handle retention"))?;
+            .ok_or_else(|| RuntimeError::module_validation("Vec handle retention"))?;
         Ok(Self {
             root,
             element,
-            access: *access,
+            access: CollectionAccess::Mutable,
             mapping: PhantomData,
         })
     }
@@ -85,10 +80,10 @@ impl<T: KagariType> IntoKagari for ScriptVec<T> {
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
         cx.check_type::<Self>(expected)?;
-        let Ty::Array(_, access) = expected.ty() else {
-            unreachable!("checked array type")
+        let Ty::NativeObject(_) = expected.ty() else {
+            unreachable!("checked Vec type")
         };
-        if *access == CollectionAccess::Mutable && self.access != CollectionAccess::Mutable {
+        if self.access != CollectionAccess::Mutable {
             return Err(RuntimeError::module_validation(
                 "read-only collection cannot become mutable",
             ));
@@ -117,26 +112,22 @@ impl NativeContext<'_> {
     ) -> NativeResult<ScriptVec<T>> {
         self.conversion.check_type::<T>(&element)?;
         self.conversion.check_elements(values.len())?;
-        let contract = Arc::new(StorageType::prepare_scoped(
-            element.clone(),
-            self.conversion.owner(),
-        )?);
+        let applied = self.runtime().vec_type(self.conversion.owner(), &element)?;
         let root = self.conversion.argument_scope(|cx| {
             let mut converted = Vec::new();
             converted
                 .try_reserve_exact(values.len())
-                .map_err(|_| RuntimeError::resource_limit("array initializers"))?;
+                .map_err(|_| RuntimeError::resource_limit("Vec initializers"))?;
             for value in values {
                 converted.push(cx.encode_prepared(&element, value)?);
             }
-            let id = cx
+            let value = cx
                 .runtime()
-                .gc()
-                .alloc_array_with_contract(contract.clone(), converted)?;
+                .allocate_sequence(cx.owner(), &applied, converted)?;
             let root = cx
                 .runtime()
-                .root_value(Value::Array(id))
-                .ok_or_else(|| RuntimeError::module_validation("array construction retention"))?;
+                .root_value(value)
+                .ok_or_else(|| RuntimeError::module_validation("Vec construction retention"))?;
             cx.runtime().gc_safepoint()?;
             Ok(root)
         })?;
@@ -170,7 +161,7 @@ impl<T> ScriptVec<T> {
             ));
         }
         match self.root.value(cx.runtime().gc()) {
-            Some(Value::Array(id)) => Ok(id),
+            Some(Value::GcHandle(id)) => Ok(id),
             _ => Err(RuntimeError::module_validation(
                 "foreign or expired collection handle",
             )),
@@ -180,8 +171,8 @@ impl<T> ScriptVec<T> {
     pub fn len(&self, cx: &NativeContext<'_>) -> NativeResult<usize> {
         cx.runtime()
             .gc()
-            .array_len(self.id(cx, false)?)
-            .ok_or_else(|| RuntimeError::module_validation("array handle length"))
+            .sequence_len(self.id(cx, false)?)
+            .ok_or_else(|| RuntimeError::module_validation("Vec handle length"))
     }
 
     pub fn is_empty(&self, cx: &NativeContext<'_>) -> NativeResult<bool> {
@@ -189,11 +180,13 @@ impl<T> ScriptVec<T> {
     }
 
     pub fn clear(&self, cx: &NativeContext<'_>) -> NativeResult<()> {
-        cx.runtime().gc().array_clear(self.id(cx, true)?)
+        cx.runtime().gc().sequence_clear(self.id(cx, true)?)
     }
 
     pub fn truncate(&self, cx: &NativeContext<'_>, length: usize) -> NativeResult<()> {
-        cx.runtime().gc().array_truncate(self.id(cx, true)?, length)
+        cx.runtime()
+            .gc()
+            .sequence_truncate(self.id(cx, true)?, length)
     }
 }
 
@@ -203,20 +196,23 @@ impl<T: FromKagari> ScriptVec<T> {
         cx.poll()?;
         cx.runtime()
             .gc()
-            .array_element(id, index)?
+            .sequence_element(id, index)?
             .map(|value| cx.conversion.decode_prepared(&self.element, &value))
             .transpose()
     }
 
     pub fn pop(&self, cx: &mut NativeContext<'_>) -> NativeResult<Option<T>> {
-        let value = cx.runtime().gc().array_pop(self.id(cx, true)?)?;
+        let value = cx.runtime().gc().sequence_pop(self.id(cx, true)?)?;
         value
             .map(|value| cx.conversion.decode_prepared(&self.element, &value))
             .transpose()
     }
 
     pub fn remove(&self, cx: &mut NativeContext<'_>, index: usize) -> NativeResult<Option<T>> {
-        let value = cx.runtime().gc().array_remove(self.id(cx, true)?, index)?;
+        let value = cx
+            .runtime()
+            .gc()
+            .sequence_remove(self.id(cx, true)?, index)?;
         value
             .map(|value| cx.conversion.decode_prepared(&self.element, &value))
             .transpose()
@@ -233,7 +229,7 @@ impl<T: FromKagari> ScriptVec<T> {
         let _iteration = cx
             .runtime()
             .gc()
-            .begin_collection_iteration(&Value::Array(id))?;
+            .begin_collection_iteration(&Value::GcHandle(id))?;
         let count = self.len(cx)?;
         cx.conversion.check_elements(count)?;
         for index in 0..count {
@@ -251,10 +247,10 @@ impl<T: FromKagari> ScriptVec<T> {
 impl<T: IntoKagari> ScriptVec<T> {
     pub fn set(&self, cx: &mut NativeContext<'_>, index: usize, value: T) -> NativeResult<()> {
         let id = self.id(cx, true)?;
-        cx.runtime().gc().check_array_replacement(id, index)?;
+        cx.runtime().gc().check_sequence_replacement(id, index)?;
         cx.conversion.argument_scope(|cx| {
             let value = cx.encode_prepared(&self.element, value)?;
-            cx.runtime().gc().array_set(id, index, value)
+            cx.runtime().gc().sequence_set(id, index, value)
         })
     }
 
@@ -263,7 +259,7 @@ impl<T: IntoKagari> ScriptVec<T> {
         cx.runtime().gc().ensure_structure_mutable(id)?;
         cx.conversion.argument_scope(|cx| {
             let value = cx.encode_prepared(&self.element, value)?;
-            cx.runtime().gc().array_push(id, value)
+            cx.runtime().gc().sequence_push(id, value)
         })
     }
 
@@ -271,11 +267,11 @@ impl<T: IntoKagari> ScriptVec<T> {
         let id = self.id(cx, true)?;
         cx.runtime().gc().ensure_structure_mutable(id)?;
         if index > self.len(cx)? {
-            return Err(RuntimeError::module_validation("array insert index"));
+            return Err(RuntimeError::module_validation("Vec insert index"));
         }
         cx.conversion.argument_scope(|cx| {
             let value = cx.encode_prepared(&self.element, value)?;
-            cx.runtime().gc().array_insert(id, index, value)
+            cx.runtime().gc().sequence_insert(id, index, value)
         })
     }
 }

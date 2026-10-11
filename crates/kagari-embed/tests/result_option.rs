@@ -324,13 +324,13 @@ fn leave(values: Vec<i32>) -> Option<i32> {
 }
 fn nested(value: Option<Option<i32>>) -> Option<i32> { Some(value??) }
 fn main()->i32 {
-    val values = [1];
+    val values = Vec::from([1]);
     val left = leave(values);
     values.push(2);
     val x: Result<i32, String> = Ok(20);
     val y: Option<Option<i32>> = Some(Some(22));
     val absent=match left {None=>true,Some(_)=>false};
-    if absent && values.len() == [1,2].len() {(match identity(x){Ok(n)=>n,Err(_)=>0}) + (match nested(y){Some(n)=>n,None=>0})}else{0}
+    if absent && values.len() == Vec::from([1,2]).len() {(match identity(x){Ok(n)=>n,Err(_)=>0}) + (match nested(y){Some(n)=>n,None=>0})}else{0}
 }
 "#,
     );

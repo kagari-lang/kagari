@@ -11,7 +11,7 @@ fn typed_bulk_edits_keep_aliases_rooted_and_restore_completed_changes_on_failure
         r#"
         pub struct Item { pub var value: i32 }
         pub fn make() -> Vec<Item> {
-            [Item { value: 1 }, Item { value: 2 }, Item { value: 2 }, Item { value: 3 }]
+            Vec::from([Item { value: 1 }, Item { value: 2 }, Item { value: 2 }, Item { value: 3 }])
         }
     "#,
         None,

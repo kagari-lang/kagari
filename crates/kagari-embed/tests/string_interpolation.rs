@@ -105,14 +105,14 @@ impl Debug for Item {
 }
 fn make(log: Vec<i32>, id: i32) -> Item { log.push(0); Item { log, id } }
 fn main() -> i32 {
-    val log: Vec<i32> = [];
+    val log: Vec<i32> = Vec::from([]);
     val result = { val std = 7; val Display = 8; f"{make(log, 1)}:{make(log, 2):?}" };
     { val passed = result == "1:debug"; if !passed {val zero=0;1/zero;} };
-    { val passed = log.len() == [0, 0, 0, 0].len(); if !passed {val zero=0;1/zero;} };
+    { val passed = log.len() == Vec::from([0, 0, 0, 0]).len(); if !passed {val zero=0;1/zero;} };
     { val passed = log.get(0usize) == Some(0); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get([0].len()) == Some(1); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get([0, 0].len()) == Some(0); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get([0, 0, 0].len()) == Some(9); if !passed {val zero=0;1/zero;} };
+    { val passed = log.get(Vec::from([0]).len()) == Some(1); if !passed {val zero=0;1/zero;} };
+    { val passed = log.get(Vec::from([0, 0]).len()) == Some(0); if !passed {val zero=0;1/zero;} };
+    { val passed = log.get(Vec::from([0, 0, 0]).len()) == Some(9); if !passed {val zero=0;1/zero;} };
     42
 }
 "##,
@@ -128,7 +128,7 @@ fn render(value: Option<i32>, log: Vec<i32>) -> Option<String> {
 }
 fn early() -> String { f"{ { return "early"; } } {{val zero=0;1/zero}}" }
 fn main() -> i32 {
-    val log: Vec<i32> = [];
+    val log: Vec<i32> = Vec::from([]);
     { val passed = render(None, log) == None; if !passed {val zero=0;1/zero;} };
     { val passed = log.is_empty(); if !passed {val zero=0;1/zero;} };
     { val passed = render(Some(1), log) == Some("1 7"); if !passed {val zero=0;1/zero;} };
@@ -159,7 +159,7 @@ fn formatter_traps_keep_the_origin_and_release_execution_roots() {
 
 struct Item { val log: Vec<i32> }
 impl Display for Item { fn display(self)->String { self.log.push(7); val zero=0;1/zero; "" } }
-fn main()->String { val log: Vec<i32> =[]; f"{Item { log }} {{val too_large=2147483647;too_large+1}}" }
+fn main()->String { val log: Vec<i32> =Vec::from([]); f"{Item { log }} {{val too_large=2147483647;too_large+1}}" }
 fn healthy()->i32 {42}
 "#;
     let artifact = engine

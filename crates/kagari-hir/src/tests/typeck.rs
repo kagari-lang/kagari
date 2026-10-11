@@ -10,7 +10,7 @@ use kagari_source::{
     source::SourceFile,
 };
 use kagari_syntax::parser::parse_module;
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
+use kagari_types::scalar::BuiltinType;
 
 mod diagnostics;
 mod standard;

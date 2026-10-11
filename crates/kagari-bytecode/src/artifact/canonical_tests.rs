@@ -4,6 +4,7 @@ use crate::{
     module::{BytecodeFunction, FunctionRecord},
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
+use kagari_types::collection::CollectionAccess;
 use kagari_types::{host_interface::path::HostPathSegmentDeclaration, visibility::Visibility};
 
 #[test]
@@ -422,7 +423,7 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
     };
     let mut deep = Ty::Builtin(BuiltinType::I32);
     for _ in 0..64 {
-        deep = Ty::Array(Box::new(deep), CollectionAccess::Mutable);
+        deep = Ty::Array(Box::new(deep));
     }
     let mut program = valid.clone();
     program.modules[0]
@@ -677,7 +678,7 @@ fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {
     };
     let mut deep = HostValueType::I32;
     for _ in 0..64 {
-        deep = HostValueType::Array(Box::new(deep), CollectionAccess::Mutable);
+        deep = HostValueType::Array(Box::new(deep));
     }
     for ty in [
         HostValueType::Set(Box::new(HostValueType::F32), CollectionAccess::Mutable),

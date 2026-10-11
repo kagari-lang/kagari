@@ -1,11 +1,12 @@
 use std::collections::{List};
-// Compact scalar slots, shared views, and explicitly separate objects.
+// Fixed scalar slots and shared element objects across explicit Vec construction.
 struct Cell {var value:i32}
 fn main()->i32 {
     val values=[7u8;2048];
     if values[2047]!=7u8 {return 0;}
     val cells=[Cell{value:20},Cell{value:22}];
-    val readonly:List<Cell> = cells;
+    val storage = Vec::from(cells);
+    val readonly:List<Cell> = storage;
     cells[0].value=40;
     if readonly[0].value!=40 || cells[1].value!=22 {return 0;}
     val shared=[cells[0],cells[0]];

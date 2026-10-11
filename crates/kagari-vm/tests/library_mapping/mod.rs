@@ -14,8 +14,8 @@ fn map_is_lazy_and_aliases_share_cursor_progress_and_gc_captures() {
         run(r#"
         use std::collections::map;
         fn main() -> bool {
-            val calls = [0]; val offset = [1];
-            val mapped = map([10,20,30], |item| { calls[0] += 1; [item + offset[0]] });
+            val calls = Vec::from([0]); val offset = Vec::from([1]);
+            val mapped = map(Vec::from([10,20,30]), |item| { calls[0] += 1; Vec::from([item + offset[0]]) });
             if calls[0] != 0 { return false; }
             val alias = mapped;
             val first = match mapped.next() { Some(value) => value[0], None => -1 };
@@ -38,7 +38,7 @@ fn break_releases_wrapped_sources_and_dynamic_views_preserve_shared_progress() {
                 r#"
             use std::collections::map;
             fn main() -> i32 {{
-                val values = [10,20,30]; val mapped{annotation} = map(values, |item| item + 1);
+                val values = Vec::from([10,20,30]); val mapped{annotation} = map(values, |item| item + 1);
                 var first = 0; for item in mapped {{ first = item; break; }}
                 val second = match mapped.next() {{ Some(item) => item, None => -1 }};
                 for item in mapped {{ break; }}
@@ -64,7 +64,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     let probe = Probe::new();
     let source = r#"
         use std::collections::map; use test::probe::keep;
-        fn main() { val values = [1,2]; keep(values); for item in map(values, |item| item) { values.push(item); } }
+        fn main() { val values = Vec::from([1,2]); keep(values); for item in map(values, |item| item) { values.push(item); } }
     "#;
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
@@ -79,7 +79,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, "main").unwrap_err();
     assert!(format!("{error:?}").contains("structural modification during iteration"));
-    let Value::Array(array) = probe
+    let Value::GcHandle(array) = probe
         .retained
         .lock()
         .unwrap()
@@ -90,8 +90,11 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     else {
         panic!("array");
     };
-    assert_eq!(vm.runtime().gc().array_len(array), Some(2));
-    vm.runtime().gc().array_push(array, Value::I32(3)).unwrap();
+    assert_eq!(vm.runtime().gc().sequence_len(array), Some(2));
+    vm.runtime()
+        .gc()
+        .sequence_push(array, Value::I32(3))
+        .unwrap();
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
@@ -109,7 +112,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let source = r#"
         use std::collections::map; use test::probe::tick;
         fn make() -> Iterator<Item = i32> {
-            map([10,20], |item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 })
+            map(Vec::from([10,20]), |item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 })
         }
     "#;
     let mut runtime = Runtime::default();
@@ -163,7 +166,7 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
         &mut runtime,
     )
     .unwrap();
-    let loaded = runtime.load_program("map", program("use std::collections::map; fn make() -> Iterator<Item = i32> { map([42], |item| item) }", &[&library])).unwrap();
+    let loaded = runtime.load_program("map", program("use std::collections::map; fn make() -> Iterator<Item = i32> { map(Vec::from([42]), |item| item) }", &[&library])).unwrap();
     let vm = Vm::new(runtime);
     let iterator = vm
         .execute(&loaded, "make")
@@ -202,7 +205,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         struct Holder { var cursor: Option<MapIterator<i32,i32>> }
         fn main() {
             val holder = Holder { cursor: None };
-            val mapped = map([1,2], |item| { match holder.cursor { Some(cursor) => { cursor.next(); }, None => {} }; item });
+            val mapped = map(Vec::from([1,2]), |item| { match holder.cursor { Some(cursor) => { cursor.next(); }, None => {} }; item });
             holder.cursor = Some(mapped); mapped.next();
         }
     "#;
@@ -234,7 +237,7 @@ fn retained_map_uses_its_original_callback_after_reload() {
             module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
-    let source = "use std::collections::map; fn make() -> Iterator<Item = i32> { val offset = [1]; map([10,20], |item| item + offset[0]) }";
+    let source = "use std::collections::map; fn make() -> Iterator<Item = i32> { val offset = Vec::from([1]); map(Vec::from([10,20]), |item| item + offset[0]) }";
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
@@ -305,7 +308,8 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         &foundation_catalog::shared(),
     )
     .unwrap();
-    let text = "use std::collections::map; fn main() { val cursor = map([1], |x| x); cursor. }";
+    let text =
+        "use std::collections::map; fn main() { val cursor = map(Vec::from([1]), |x| x); cursor. }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("completion.kgr", text.into(), SourceLayer::Base)

@@ -169,8 +169,8 @@ pub enum TypeId<I: DefinitionReference = DefinitionPath> {
     Iter(Box<TypeId<I>>),
     /// Range element type and open/inclusive/exclusive shape.
     Range(Box<TypeId<I>>, RangeKind),
-    /// Array/storage element type and declared collection access.
-    Array(Box<TypeId<I>>, CollectionAccess),
+    /// Builtin fixed-length array element type; length belongs to the object.
+    Array(Box<TypeId<I>>),
     /// Map storage with key/value types and access policy.
     Map {
         /// Semantic key type.
@@ -286,18 +286,10 @@ impl TypeId {
                         pending.push(Part::Type(item));
                         pending.push(Part::Text("Iter<"));
                     }
-                    Self::Array(item, access) => {
-                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            ">"
-                        } else {
-                            "]"
-                        }));
+                    Self::Array(item) => {
+                        pending.push(Part::Text("]"));
                         pending.push(Part::Type(item));
-                        pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "Vec<"
-                        } else {
-                            "["
-                        }));
+                        pending.push(Part::Text("["));
                     }
                     Self::Map { key, value, access } => {
                         pending.push(Part::Text(">"));
@@ -541,9 +533,7 @@ impl<I: DefinitionReference> TypeId<I> {
     /// Access is part of type identity; it never changes the underlying object.
     pub fn collection_access(&self) -> Option<CollectionAccess> {
         match self {
-            Self::Array(_, access) | Self::Set(_, access) | Self::Map { access, .. } => {
-                Some(*access)
-            }
+            Self::Set(_, access) | Self::Map { access, .. } => Some(*access),
             _ => None,
         }
     }
@@ -551,7 +541,6 @@ impl<I: DefinitionReference> TypeId<I> {
     /// Only the outer collection access is weakened. Type arguments stay invariant.
     pub fn read_only_view(&self) -> Option<Self> {
         Some(match self {
-            Self::Array(item, _) => Self::Array(item.clone(), ReadOnly),
             Self::Set(item, _) => Self::Set(item.clone(), ReadOnly),
             Self::Map { key, value, .. } => Self::Map {
                 key: key.clone(),
@@ -603,7 +592,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.extend(ty.associated_types.values());
                 }
                 Self::Tuple(types) => pending.extend(types),
-                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
+                Self::Array(ty) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
                     pending.push(ty)
                 }
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
@@ -625,7 +614,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 Self::Host(_) => return true,
                 Self::Tuple(items) => pending.extend(items),
                 Self::Function { .. } => {}
-                Self::Array(item, _)
+                Self::Array(item)
                 | Self::Set(item, _)
                 | Self::Iter(item)
                 | Self::Range(item, _) => pending.push(item),
@@ -661,7 +650,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 }
                 Self::SelfType(_) => return true,
                 Self::Tuple(items) => pending.extend(items),
-                Self::Array(item, _)
+                Self::Array(item)
                 | Self::Set(item, _)
                 | Self::Iter(item)
                 | Self::Range(item, _) => pending.push(item),
@@ -701,7 +690,7 @@ impl<I: DefinitionReference> TypeId<I> {
             Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
             Self::Iter(ty) => Self::Iter(Box::new(map(ty))),
             Self::Range(ty, kind) => Self::Range(Box::new(map(ty)), *kind),
-            Self::Array(ty, access) => Self::Array(Box::new(map(ty)), *access),
+            Self::Array(ty) => Self::Array(Box::new(map(ty))),
             Self::Set(ty, access) => Self::Set(Box::new(map(ty)), *access),
             Self::Map { key, value, access } => Self::Map {
                 key: Box::new(map(key)),
@@ -768,7 +757,7 @@ impl<I: DefinitionReference> TypeId<I> {
 
                 Self::Iter(_) => Self::Iter(Box::new(Self::Unknown)),
                 Self::Range(_, kind) => Self::Range(Box::new(Self::Unknown), *kind),
-                Self::Array(_, access) => Self::Array(Box::new(Self::Unknown), *access),
+                Self::Array(_) => Self::Array(Box::new(Self::Unknown)),
                 Self::Set(_, access) => Self::Set(Box::new(Self::Unknown), *access),
                 Self::Map { access, .. } => Self::Map {
                     key: Box::new(Self::Unknown),
@@ -857,7 +846,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 }
                 (Self::Range(source, _), Self::Range(target, _))
                 | (Self::Iter(source), Self::Iter(target))
-                | (Self::Array(source, _), Self::Array(target, _))
+                | (Self::Array(source), Self::Array(target))
                 | (Self::Set(source, _), Self::Set(target, _)) => {
                     pending.push((source, target, substitute));
                 }
@@ -921,7 +910,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 Self::Tuple(items) => {
                     pending.extend(items);
                 }
-                Self::Array(item, _)
+                Self::Array(item)
                 | Self::Set(item, _)
                 | Self::Iter(item)
                 | Self::Range(item, _) => pending.push(item),
@@ -1002,7 +991,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 | Self::NativeObject(_)
                 | Self::Struct(_)
                 | Self::Enum(_)
-                | Self::Array(_, _)
+                | Self::Array(_)
                 | Self::Map { .. }
                 | Self::Set(_, _) => {}
             }
@@ -1025,7 +1014,7 @@ impl<I: DefinitionReference> TypeId<I> {
                 Self::Tuple(items) => {
                     pending.extend(items);
                 }
-                Self::Array(item, _)
+                Self::Array(item)
                 | Self::Set(item, _)
                 | Self::Iter(item)
                 | Self::Range(item, _) => pending.push(item),
@@ -1070,7 +1059,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values())
                 }
-                Self::Array(element, _)
+                Self::Array(element)
                 | Self::Set(element, _)
                 | Self::Iter(element)
                 | Self::Range(element, _) => pending.push(element),
@@ -1104,7 +1093,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.push((left, right));
                 }
                 (Self::Iter(left), Self::Iter(right))
-                | (Self::Array(left, _), Self::Array(right, _))
+                | (Self::Array(left), Self::Array(right))
                 | (Self::Set(left, _), Self::Set(right, _)) => {
                     pending.push((left, right));
                 }
@@ -1182,7 +1171,7 @@ impl<I: DefinitionReference> TypeId<I> {
                     pending.push((left, right));
                 }
                 (Self::Iter(left), Self::Iter(right))
-                | (Self::Array(left, _), Self::Array(right, _))
+                | (Self::Array(left), Self::Array(right))
                 | (Self::Set(left, _), Self::Set(right, _)) => {
                     pending.push((left, right));
                 }
@@ -1257,7 +1246,7 @@ impl<I: DefinitionReference> TypeId<I> {
             | Self::Function { .. }
             | Self::Iter(_)
             | Self::Range(_, _)
-            | Self::Array(_, _)
+            | Self::Array(_)
             | Self::Map { .. }
             | Self::Set(_, _)
             | Self::NativeObject(_)

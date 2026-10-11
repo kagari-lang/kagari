@@ -660,17 +660,17 @@ fn failed_reload_does_not_invalidate_interpreter_caches() {
 #[test]
 fn heap_mutations_update_runtime_resource_counters() {
     let mut runtime = Runtime::default();
-    let owner = crate::layout_fixtures::allocation_owner(&mut runtime);
-    let array = runtime
-        .alloc_array(
-            &owner,
-            Ty::Builtin(BuiltinType::I32),
-            vec![value::Value::I32(1)],
-        )
+    let owner = crate::layout_fixtures::sequence_owner(&mut runtime);
+    let root = crate::native::conversion::context::ConversionContext::new(&runtime, &owner)
+        .unwrap()
+        .encode(vec![1i32])
         .unwrap();
+    let value::Value::GcHandle(array) = root.value(runtime.gc()).unwrap() else {
+        panic!("Vec")
+    };
     runtime
         .gc()
-        .array_push(array, value::Value::I32(2))
+        .sequence_push(array, value::Value::I32(2))
         .unwrap();
 
     let counters = runtime.resources().counters();

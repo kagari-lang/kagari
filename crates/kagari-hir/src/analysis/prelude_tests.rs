@@ -570,7 +570,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
                 &SourceFile::new(
                     "reflection-completion.kgr",
                     format!(
-                        "struct Box {{ var value: i32 }} fn run(box: Box, array: Vec<i32>) -> i32 {{ {body}; 0 }}"
+                        "struct Box {{ var value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
                     ),
                 ),
                 foundation_catalog::shared(),
@@ -593,7 +593,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
             &SourceFile::new(
                 "reflection-target-completion.kgr",
                 format!(
-                    "struct Box {{ val value: i32 }} fn run(box: Box, array: Vec<i32>) -> i32 {{ {body}; 0 }}"
+                    "struct Box {{ val value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
                 ),
             ),
             foundation_catalog::shared(),

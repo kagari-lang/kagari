@@ -55,7 +55,7 @@ fn assigns_stable_object_identity_and_kind() {
 
         struct Empty { val value: () }
         fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>, Empty) {
-            ([], HashMap::new(), HashSet::new(), Empty { value: () })
+            (Vec::new(), HashMap::new(), HashSet::new(), Empty { value: () })
         }
     "#,
         None,
@@ -71,7 +71,7 @@ fn assigns_stable_object_identity_and_kind() {
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [
-        Value::Array(first),
+        Value::GcHandle(first),
         Value::Map(second),
         Value::Set(third),
         Value::Struct(fourth),
@@ -98,7 +98,7 @@ fn assigns_stable_object_identity_and_kind() {
     assert_eq!(second.index(), 1);
     assert_eq!(third.index(), 2);
     assert_eq!(fourth.index(), 3);
-    assert_eq!(heap.object_kind(first), Some(GcObjectKind::Array));
+    assert_eq!(heap.object_kind(first), Some(GcObjectKind::Native));
     assert_eq!(heap.object_kind(second), Some(GcObjectKind::Map));
     assert_eq!(heap.object_kind(third), Some(GcObjectKind::Set));
     assert_eq!(heap.object_kind(fourth), Some(GcObjectKind::Struct));
@@ -214,7 +214,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
 
         struct Record { val map: HashMap<String, Vec<i32>> }
         fn main() -> (Record, HashSet<String>) {
-            val map: HashMap<String, Vec<i32>> = HashMap::new(); map.insert("leaf", [1]);
+            val map: HashMap<String, Vec<i32>> = HashMap::new(); map.insert("leaf", Vec::from([1]));
             val set: HashSet<String> = HashSet::new(); set.insert("seen");
             (Record { map: map }, set)
         }
@@ -240,7 +240,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     let Value::Map(map) = heap.struct_get_slot(record, &schema, 0).unwrap() else {
         panic!("map")
     };
-    let Value::Array(leaf) = heap
+    let Value::GcHandle(leaf) = heap
         .map_get(map, &heap.alloc_string("leaf".into()).unwrap())
         .unwrap()
     else {
@@ -280,11 +280,11 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
     let (vm, loaded) = compile(
         r#"
         struct Cycle { val array: Vec<Cycle> }
-        fn main() -> Vec<Cycle> { val array: Vec<Cycle> = []; array.push(Cycle { array: array }); array }
+        fn main() -> Vec<Cycle> { val array: Vec<Cycle> = Vec::new(); array.push(Cycle { array: array }); array }
     "#,
         None,
     );
-    let Value::Array(array) = vm
+    let Value::GcHandle(array) = vm
         .execute(&loaded, "main")
         .unwrap()
         .return_value
@@ -294,10 +294,10 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
         panic!("array")
     };
     let heap = vm.runtime().gc();
-    let Value::Struct(record) = heap.array_get(array, 0).unwrap() else {
+    let Value::Struct(record) = heap.sequence_get(array, 0).unwrap() else {
         panic!("record")
     };
-    let _root = heap.root_value(Value::Array(array)).unwrap();
+    let _root = heap.root_value(Value::GcHandle(array)).unwrap();
 
     assert_eq!(heap.trace_roots().unwrap(), vec![array, record]);
 }
@@ -307,7 +307,7 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
     let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
-        fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) { ([], HashMap::new(), HashSet::new()) }
+        fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) { (Vec::new(), HashMap::new(), HashSet::new()) }
     "#,
         None,
     );
@@ -321,24 +321,24 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
         panic!("tuple")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
+    let [Value::GcHandle(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
     let (array, map, set) = (*array, *map, *set);
     let heap = vm.runtime().gc();
-    assert_eq!(heap.array_pop(array).unwrap(), None);
-    assert_eq!(heap.array_remove(array, 0).unwrap(), None);
+    assert_eq!(heap.sequence_pop(array).unwrap(), None);
+    assert_eq!(heap.sequence_remove(array, 0).unwrap(), None);
     assert_eq!(heap.map_remove(map, &Value::I32(1)).unwrap(), None);
     assert!(!heap.set_remove(set, &Value::I32(1)).unwrap());
     assert!(heap.map_remove(map, &Value::F64(1.0)).is_err());
     assert!(heap.set_remove(set, &Value::F64(1.0)).is_err());
-    let guards = [Value::Array(array), Value::Map(map), Value::Set(set)]
+    let guards = [Value::GcHandle(array), Value::Map(map), Value::Set(set)]
         .map(|value| heap.begin_collection_iteration(&value).unwrap());
     let before = heap.stats().current_heap_units;
     for result in [
-        heap.array_pop(array).map(|_| ()),
-        heap.array_remove(array, 0).map(|_| ()),
-        heap.array_clear(array),
+        heap.sequence_pop(array).map(|_| ()),
+        heap.sequence_remove(array, 0).map(|_| ()),
+        heap.sequence_clear(array),
         heap.map_remove(map, &Value::I32(1)).map(|_| ()),
         heap.map_clear(map),
         heap.set_remove(set, &Value::I32(1)).map(|_| ()),
@@ -350,13 +350,13 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
     }
     assert_eq!(heap.stats().current_heap_units, before);
     drop(guards);
-    heap.array_clear(array).unwrap();
+    heap.sequence_clear(array).unwrap();
     heap.map_clear(map).unwrap();
     heap.set_clear(set).unwrap();
     vm.runtime().collect_garbage().unwrap();
-    assert!(heap.array_pop(array).is_err());
-    assert!(heap.array_remove(array, 0).is_err());
-    assert!(heap.array_clear(array).is_err());
+    assert!(heap.sequence_pop(array).is_err());
+    assert!(heap.sequence_remove(array, 0).is_err());
+    assert!(heap.sequence_clear(array).is_err());
     assert!(heap.map_remove(map, &Value::I32(1)).is_err());
     assert!(heap.map_clear(map).is_err());
     assert!(heap.set_remove(set, &Value::I32(1)).is_err());
@@ -396,7 +396,7 @@ fn native_array_helpers_mutate_and_return_options() {
     let (vm, loaded) = compile(
         r#"
         fn main() -> (Vec<i32>, Option<i32>, Option<i32>, usize) {
-            val array = [1]; val length = array.len();
+            val array = Vec::from([1]); val length = array.len();
             array.push(3); array.insert(1, 2);
             val removed = array.remove(1); val missing = array.get(99);
             (array, removed, missing, length)
@@ -415,7 +415,7 @@ fn native_array_helpers_mutate_and_return_options() {
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
     let [
-        Value::Array(array),
+        Value::GcHandle(array),
         Value::Enum(removed),
         Value::Enum(missing),
         Value::U64(length),
@@ -426,7 +426,7 @@ fn native_array_helpers_mutate_and_return_options() {
     let heap = vm.runtime().gc();
     assert_eq!(*length, 1);
     assert_eq!(
-        heap.array_snapshot(*array).unwrap(),
+        heap.sequence_snapshot(*array).unwrap(),
         vec![Value::I32(1), Value::I32(3)]
     );
     let removed = heap.enum_snapshot(*removed).unwrap();
@@ -498,7 +498,7 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
         fn main() -> (Vec<i32>, HashMap<i32,i32>, HashSet<i32>) {
             val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, 2);
             val set: HashSet<i32> = HashSet::new(); set.insert(1);
-            ([1], map, set)
+            (Vec::from([1]), map, set)
         }
     "#,
         None,
@@ -513,20 +513,20 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
         panic!("tuple")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Array(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
+    let [Value::GcHandle(array), Value::Map(map), Value::Set(set)] = values.as_slice() else {
         panic!("handles")
     };
     let (array, map, set) = (*array, *map, *set);
     let heap = vm.runtime().gc();
-    let guards = [Value::Array(array), Value::Map(map), Value::Set(set)]
+    let guards = [Value::GcHandle(array), Value::Map(map), Value::Set(set)]
         .map(|value| heap.begin_collection_iteration(&value).unwrap());
     let before = heap.stats();
     for result in [
-        heap.array_push(array, Value::I32(2)),
-        heap.array_pop(array).map(|_| ()),
-        heap.array_insert(array, 0, Value::I32(2)),
-        heap.array_remove(array, 0).map(|_| ()),
-        heap.array_clear(array),
+        heap.sequence_push(array, Value::I32(2)),
+        heap.sequence_pop(array).map(|_| ()),
+        heap.sequence_insert(array, 0, Value::I32(2)),
+        heap.sequence_remove(array, 0).map(|_| ()),
+        heap.sequence_clear(array),
         heap.map_insert(map, Value::I32(3), Value::I32(4)),
         heap.map_remove(map, &Value::I32(1)).map(|_| ()),
         heap.map_clear(map),
@@ -539,23 +539,23 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
             "structural modification during iteration"
         );
         assert_eq!(heap.stats(), before);
-        assert_eq!(heap.array_snapshot(array).unwrap(), vec![Value::I32(1)]);
+        assert_eq!(heap.sequence_snapshot(array).unwrap(), vec![Value::I32(1)]);
         assert_eq!(
             heap.map_snapshot(map).unwrap(),
             vec![(Value::I32(1), Value::I32(2))]
         );
         assert_eq!(heap.set_snapshot(set).unwrap(), vec![Value::I32(1)]);
     }
-    heap.array_set(array, 0, Value::I32(9)).unwrap();
+    heap.sequence_set(array, 0, Value::I32(9)).unwrap();
     let nested = heap
-        .begin_collection_iteration(&Value::Array(array))
+        .begin_collection_iteration(&Value::GcHandle(array))
         .unwrap();
     drop(nested);
-    assert!(heap.array_push(array, Value::I32(2)).is_err());
+    assert!(heap.sequence_push(array, Value::I32(2)).is_err());
     heap.map_insert(map, Value::I32(1), Value::I32(9)).unwrap();
     assert!(!heap.set_insert(set, Value::I32(1)).unwrap());
     drop(guards);
-    heap.array_push(array, Value::I32(2)).unwrap();
+    heap.sequence_push(array, Value::I32(2)).unwrap();
 }
 
 #[test]

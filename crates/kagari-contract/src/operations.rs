@@ -58,7 +58,7 @@ impl IterOp {
             }
             Self::New => match ty {
                 Ty::Range(_, kind) if kind.has_start() => ValueType::HeapObject,
-                Ty::Array(_, _) | Ty::Map { .. } | Ty::Set(_, _) => ValueType::HeapObject,
+                Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => ValueType::HeapObject,
                 Ty::Builtin(BuiltinType::String) => ValueType::Str,
                 _ => return None,
             },

@@ -412,7 +412,7 @@ impl<'a> BodyChecker<'a> {
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;
-                            if let TypeId::Array(element, _) = current {
+                            if let TypeId::Array(element) = current {
                                 current = *element;
                             } else {
                                 break;
@@ -549,7 +549,7 @@ impl<'a> BodyChecker<'a> {
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;
-                            if let TypeId::Array(element, _) = current {
+                            if let TypeId::Array(element) = current {
                                 current = *element;
                             } else {
                                 break;

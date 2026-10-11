@@ -116,7 +116,7 @@ fn main() -> i32 {
     { val passed = f(1) == 1; if !passed { return 0; } };
     { val passed = consume(counter) == 21; if !passed { return 0; } };
     { val passed = erase(counter)(1) == 22; if !passed { return 0; } };
-    val mapped = collections::map([1, 2], counter);
+    val mapped = collections::map(Vec::from([1, 2]), counter);
     val first = mapped.next(); val second = mapped.next();
     { val passed = first == Some(23) && second == Some(25); if !passed { return 0; } };
     val escaped = make();
@@ -218,7 +218,7 @@ struct Failure {}
 impl Fn<(i32,)> for Failure { type Output=i32;
  fn call(self, args:(i32,))->i32 { val zero = 0; args[0] / zero }
 }
-fn main(){ val mapped = collections::map([1], Failure{}); mapped.next(); }
+fn main(){ val mapped = collections::map(Vec::from([1]), Failure{}); mapped.next(); }
 fn healthy()->i32{42}
 "#,
             ),
@@ -262,7 +262,7 @@ impl Fn<(i32,)> for Increment {
     fn call(self, args: (i32,)) -> i32 { args[0] + 1 }
 }
 fn main() -> i32 {
-    val xs = [3, 1, 2];
+    val xs = Vec::from([3, 1, 2]);
     xs.sort_by(Compare {});
     if xs[0] != 1 || xs[2] != 3 { return 0; }
     val mapped = collections::map(xs, Increment {});

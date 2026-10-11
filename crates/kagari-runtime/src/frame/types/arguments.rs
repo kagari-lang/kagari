@@ -231,9 +231,7 @@ pub(crate) fn type_parameter(ty: &Ty<DefinitionId>, index: usize) -> Option<&Ty<
         | Ty::NativeObject(nominal)
         | Ty::Trait(nominal) => nominal.arguments.get(index),
         Ty::Tuple(items) => items.get(index),
-        Ty::Array(item, _) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _)
-            if index == 0 =>
-        {
+        Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) if index == 0 => {
             Some(item)
         }
         Ty::Map { key, value, .. } => match index {
@@ -259,7 +257,7 @@ fn contains_nominal_layout(ty: &Ty<DefinitionId>) -> bool {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());
             }
-            Ty::Array(ty, _) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
+            Ty::Array(ty) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             _ => {}
         }

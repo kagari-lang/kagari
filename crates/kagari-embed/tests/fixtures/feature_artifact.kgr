@@ -4,7 +4,7 @@ fn main() -> i32 { 42 }
 
 use external::enums;
 fn native_enum_values() -> i32 {
-    val nested = enums::make(enums::make([38], 2), 2);
+    val nested = enums::make(enums::make(Vec::from([38]), 2), 2);
     match enums::roundtrip(nested) {
         enums::Event::Data(inner, outer) => match inner {
             enums::Event::Data(value, sequence) => value[0usize] + sequence + outer,
@@ -22,7 +22,7 @@ fn required_methods() -> i32 {
         || !text.contains("β") || !text.starts_with("  ") || !text.ends_with("  ")
         || text.find("β") != Some(2usize) || text.trim_start() != "β,a  "
         || text.trim_end() != "  β,a" || "β".replace("", "-") != "-β-" { return 0; }
-    val values = [20, 22];
+    val values = Vec::from([20, 22]);
     change(values);
     val copied=Vec<i32>::from_iter(values);
     val total=i32::sum(copied);
@@ -45,9 +45,9 @@ use std::collections::map;
 use external::fixture::hold;
 
 fn library_and_object() -> i32 {
-    val values = [20, 1, 19]; values.sort();
+    val values = Vec::from([20, 1, 19]); values.sort();
     values.sort_by(|a, b| b.cmp(a));
-    val offset = [2];
+    val offset = Vec::from([2]);
     val handler = hold(values, |items| { items[0] += offset[0]; items });
     val shared = handler.apply();
     var sum = 0;
@@ -61,7 +61,7 @@ struct FeaturePayload { val values: Vec<i32> }
 fn carry<T>(value: Carrier<T>) -> Carrier<T> { Carrier::Data(value?) }
 fn stop_carrier(value: Carrier<i32>) -> Carrier<String> { value?; Carrier::Data("unreachable") }
 fn native_propagation_values() -> i32 {
-    val value = FeaturePayload { values: [42] };
+    val value = FeaturePayload { values: Vec::from([42]) };
     val passed = carry(Carrier::Data(value));
     match stop_carrier(Carrier::Stop) {
         Carrier::Stop => match passed { Carrier::Data(item) => item.values[0usize], Carrier::Stop => 0 },
@@ -86,3 +86,16 @@ fn standard_residual_values() -> i32 {
 
 fn origin_residual() -> Result<i32, i32> { Err(42) }
 fn converted_error_origin() -> Result<String, i64> { convert_residual(origin_residual()) }
+
+
+fn fixed_array_construction() -> i32 {
+    var data: [i32] = [20, 22];
+    val alias = data;
+    val vector = Vec::from(data);
+    val unique = std::collections::HashSet::from([20, 20, 22]);
+    alias[0] = 19;
+    data = [0];
+    vector.push(1);
+    if alias.len() != 2usize || data.len() != 1usize || vector.len() != 3usize || unique.len() != 2usize { return 0; }
+    vector[0] + alias[1]
+}

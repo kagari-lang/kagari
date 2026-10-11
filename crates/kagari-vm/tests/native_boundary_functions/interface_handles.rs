@@ -91,7 +91,7 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
         r#"
         use example::interface_handles::retain;
         use std::collections::{List, MutableList};
-        pub fn make() -> List<i32> { val value: List<i32> = [42]; retain(value) }
+        pub fn make() -> List<i32> { val value: List<i32> = Vec::from([42]); retain(value) }
         pub fn read(value: List<i32>) -> i32 { value[0] }
         pub fn write(value: MutableList<i32>) { value[0] = 0; }
     "#,

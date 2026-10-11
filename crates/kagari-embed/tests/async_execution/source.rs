@@ -116,12 +116,12 @@ fn sdk_owned_future_factory_contract() {
     let f = Fixture::source(
         r#"
 use test::async_sdk::request;
-fn events() -> Vec<i32> { [] }
+fn events() -> Vec<i32> { Vec::from([]) }
 fn count(events:Vec<i32>) -> usize { events.len() }
 async fn read() -> i32 { request(10).await }
 fn ordinary(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(1); read() } }
 fn explicit(events:Vec<i32>) -> fn()->Future<i32> { async || { events.push(2); request(20).await } }
-fn reentry(events:Vec<i32>) -> fn()->Future<i32> { || { val items=[3,1,2]; items.retain(|x| { events.push(x); true }); read() } }
+fn reentry(events:Vec<i32>) -> fn()->Future<i32> { || { val items=Vec::from([3,1,2]); items.retain(|x| { events.push(x); true }); read() } }
 fn wrong() -> fn()->i32 { || 7 }
 fn trapped(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(3); val zero=0; val bad=1/zero; read() } }
 fn captured() -> fn()->Future<i32> { val future=read(); || future }
@@ -296,7 +296,7 @@ async fn custom(calls:Calls) -> i32 {
     }
     total
 }
-fn items() -> Vec<i32> { [10,20,30] }
+fn items() -> Vec<i32> { Vec::from([10,20,30]) }
 fn replace(items:Vec<i32>) { items[1]=99; }
 fn append(items:Vec<i32>) { items.push(40); }
 fn view(items:Vec<i32>) -> Iterator<Item=i32> { collections::map(items, |item| item) }
@@ -426,7 +426,7 @@ async fn total(items: Vec<i32>) -> i32 {
     for item in items { sum += apply(fetch, item).await; }
     sum
 }
-fn items() -> Vec<i32> { [10, 20, 30] }
+fn items() -> Vec<i32> { Vec::from([10, 20, 30]) }
 fn replace(items: Vec<i32>) { items[1] = 99; }
 fn append(items: Vec<i32>) { items.push(40); }
 fn size(items: Vec<i32>) -> usize { items.len() }
@@ -434,7 +434,7 @@ async fn lazy(items: Vec<i32>) { items.push(50); }
 fn record(events:Vec<i32>, value:i32) -> i32 { events.push(value); value }
 async fn ordered(first:i32, second:i32) -> i32 { first*10+second }
 fn construct(events:Vec<i32>) -> Future<i32> { ordered(record(events,1),record(events,2)) }
-fn empty() -> Vec<i32> { [] }
+fn empty() -> Vec<i32> { Vec::from([]) }
 fn order(events:Vec<i32>) -> i32 { events[0]*10+events[1] }
 async fn closures() -> i32 {
     var count = 0;

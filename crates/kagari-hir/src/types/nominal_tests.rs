@@ -23,7 +23,6 @@ fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
     };
     let item = TypeId::Generic(parameter.clone());
     for writable in [
-        TypeId::Array(Box::new(item.clone()), Mutable),
         TypeId::Set(Box::new(item.clone()), Mutable),
         TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::String)),
@@ -44,8 +43,8 @@ fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
                 .len(),
             2
         );
-        let nested_writable = TypeId::Array(Box::new(writable.clone()), Mutable);
-        let nested_readable = TypeId::Array(Box::new(readable.clone()), Mutable);
+        let nested_writable = TypeId::Set(Box::new(writable.clone()), Mutable);
+        let nested_readable = TypeId::Set(Box::new(readable.clone()), Mutable);
         assert!(!nested_writable.can_weaken_to(&nested_readable));
         assert!(!nested_writable.can_weaken_to(&nested_readable.read_only_view().unwrap()));
         assert!(nested_writable.conflicts_with(&nested_readable));
@@ -139,10 +138,7 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         let template = make(NominalType {
             associated_types: Default::default(),
             declaration: owner.clone(),
-            arguments: vec![TypeId::Array(
-                Box::new(inner.clone()),
-                CollectionAccess::Mutable,
-            )],
+            arguments: vec![TypeId::Array(Box::new(inner.clone()))],
         });
         assert!(!template.is_concrete());
         assert!(!template.is_unresolved());
@@ -154,10 +150,10 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         .collect();
         let once = template.instantiate(&substitution);
         assert!(!once.is_concrete());
-        assert_eq!(once.display_name(), "Item<Vec<Item<T, i32>>>");
+        assert_eq!(once.display_name(), "Item<[Item<T, i32>]>");
         let twice = once.instantiate(&substitution);
         assert!(twice.is_concrete());
-        assert_eq!(twice.display_name(), "Item<Vec<Item<i32, i32>>>");
+        assert_eq!(twice.display_name(), "Item<[Item<i32, i32>]>");
         let substituted_error =
             template.instantiate(&[(parameter.clone(), TypeId::Error)].into_iter().collect());
         assert!(substituted_error.is_unresolved());
@@ -201,8 +197,8 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
     let mut template = TypeId::Generic(parameter.clone());
     let mut replacement = TypeId::Generic(parameter.clone());
     for _ in 0..10_000 {
-        template = TypeId::Array(Box::new(template), CollectionAccess::Mutable);
-        replacement = TypeId::Array(Box::new(replacement), CollectionAccess::Mutable);
+        template = TypeId::Array(Box::new(template));
+        replacement = TypeId::Array(Box::new(replacement));
     }
     let mut substitution: TypeSubstitution =
         [(parameter.clone(), replacement)].into_iter().collect();
@@ -211,7 +207,7 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
     // recursive derived Clone, equality, or destructor for arbitrary TypeIds.
     fn consume(mut ty: TypeId, depth: usize, parameter: &GenericParameterType) {
         for _ in 0..depth {
-            let TypeId::Array(inner, _) = ty else {
+            let TypeId::Array(inner) = ty else {
                 panic!("missing array layer")
             };
             ty = *inner;
@@ -259,8 +255,8 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
     let mut comparable = TypeId::Builtin(BuiltinType::I32);
     let mut incomparable = TypeId::Host(definition("host.kgr", DefinitionKind::Struct));
     for _ in 0..10_000 {
-        resolved = TypeId::Array(Box::new(resolved), CollectionAccess::Mutable);
-        unresolved = TypeId::Array(Box::new(unresolved), CollectionAccess::Mutable);
+        resolved = TypeId::Array(Box::new(resolved));
+        unresolved = TypeId::Array(Box::new(unresolved));
         comparable = TypeId::Tuple(vec![comparable]);
         incomparable = TypeId::Tuple(vec![incomparable]);
     }
@@ -271,9 +267,9 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
     assert!(comparable.supports_equality());
     assert!(!incomparable.supports_equality());
     let resolved_name = resolved.display_name();
-    assert_eq!(resolved_name.len(), 50_003);
-    assert!(resolved_name.starts_with("Vec<Vec<"));
-    assert!(resolved_name.ends_with(">>"));
+    assert_eq!(resolved_name.len(), 20_003);
+    assert!(resolved_name.starts_with("[["));
+    assert!(resolved_name.ends_with("]]"));
     let comparable_name = comparable.display_name();
     assert_eq!(comparable_name.len(), 20_003);
     assert!(comparable_name.starts_with("((("));
@@ -281,7 +277,7 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
 
     for mut ty in [resolved, unresolved] {
         for _ in 0..10_000 {
-            let TypeId::Array(inner, _) = ty else {
+            let TypeId::Array(inner) = ty else {
                 panic!("missing array layer")
             };
             ty = *inner;

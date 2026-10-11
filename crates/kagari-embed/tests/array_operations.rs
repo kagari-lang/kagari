@@ -73,14 +73,14 @@ fn repeats_evaluate_value_elements_once() {
     fn item(log: Vec<i32>) -> i32 { log.push(1); 7 }
     fn count(log: Vec<i32>) -> usize { log.push(2); 3 }
     fn main() -> i32 {
-        val log = [];
+        val log = Vec::new();
         val values = [item(log); count(log)];
         if !(log.len() == 2usize && log[0] == 1 && log[1] == 2) { return 0; }
         values[0] = 42;
         if values[2] != 7 { return 0; }
         val empty = [item(log); 0];
         if !(empty.is_empty() && log.len() == 3usize) { return 0; }
-        val inferred: Vec<u8> = [1; 4];
+        val inferred: [u8] = [1; 4];
         if inferred[3] != 1u8 { return 0; }
         42
     }
@@ -93,11 +93,18 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
     let engine = KagariEngine::default();
     for source in [
         "fn main() { val a = [0; -1]; }",
+        "fn main() { val a: Vec<i32> = [1]; }",
+        "fn main() { val a: [i32] = Vec::from([1]); }",
+        "fn main() { val a: std::collections::List<i32> = [1]; }",
+        "fn main() { val a = []; }",
+        "fn main() { val a = [1]; a.push(2); }",
+        "fn main() { val a = [1]; a.clear(); }",
+        "fn main() { val a = [1]; a.pop(); }",
         "fn main() { val a = [0; true]; }",
         "fn main() { val a = [0; 1i32]; }",
         "fn main() { val a = [1, 2; 3]; }",
-        "use std::collections::{List};\nfn main() { val a: List<i32> = [0; 2]; a.push(1); }",
-        "use std::collections::{List};\nfn main() { val a: List<i32> = [0; 2]; a[0] = 1; }",
+        "use std::collections::{List};\nfn main() { val a: List<i32> = Vec::from([0; 2]); a.push(1); }",
+        "use std::collections::{List};\nfn main() { val a: List<i32> = Vec::from([0; 2]); a[0] = 1; }",
         "fn main() { val r = true..false; }",
         "fn main() { val r = 1.0..2.0; }",
         "use std::ops::{Range};\nfn wrong(r: Range<bool>) {} fn main() {}",
@@ -160,9 +167,9 @@ fn repeated_arrays_reject_mutable_identity_even_when_nested_or_empty() {
         "val a = [Cell { value: 1 }; 0];",
         "val a = [[1, 2]; 2];",
         "val a = [(Cell { value: 1 }, 7); 2];",
-        "val a: Vec<Option<Cell>> = [None; 2];",
+        "val a: [Option<Cell>] = [None; 2];",
         "val a = [Wrapped::Data(Cell { value: 1 }); 2];",
-        "val a: Vec<Wrapped<Cell>> = [Wrapped::Empty; 2];",
+        "val a: [Wrapped<Cell>] = [Wrapped::Empty; 2];",
         "val a = [|| 1; 2];",
     ] {
         let source = format!(
@@ -188,9 +195,54 @@ fn repeated_value_aggregates_keep_value_semantics() {
     enum Wrapped<T> { Empty, Data(T) }
     fn main() -> i32 {
         val enums = [Wrapped::Data((1, "hello")); 2];
-        val options: Vec<Option<i32>> = [None; 2];
+        val options: [Option<i32>] = [None; 2];
         val strings = ["hello"; 2];
         if enums[0] == enums[1] && options[0] == options[1] && strings[0] == strings[1] { 42 } else { 0 }
+    }
+    "#,
+    );
+}
+
+#[test]
+fn fixed_arrays_preserve_aliases_and_explicit_constructors_copy_storage() {
+    execute(
+        r#"
+    use std::collections::{List, HashSet};
+    struct Cell { var value: i32 }
+    fn first<T>(values: [T]) -> T { values[0] }
+    fn key(counter: Cell) -> i32 { counter.value += 1; 7 }
+    fn main() -> i32 {
+        var array = [1, 2, 2];
+        val alias = array;
+        val vector = Vec::from(array);
+        val unique = HashSet::from(array);
+        alias[0] = 3;
+        vector.push(4);
+        vector[0] += 6;
+        array = [9];
+        val readable: List<i32> = vector;
+        if alias.len() != 3usize || first(alias) != 3 || vector[0] != 7 { return 0; }
+        if readable.len() != 4usize || array.len() != 1usize || unique.len() != 2usize { return 0; }
+        var destination = Vec::from([1]);
+        val original = destination;
+        destination[{ destination = Vec::from([9]); 0usize }] = 42;
+        if original[0] != 42 || destination[0] != 9 { return 0; }
+        val empty: [u8] = [];
+        val empty_vector: Vec<u8> = Vec::from([]);
+        val empty_set: HashSet<u8> = HashSet::from([]);
+        if !empty.is_empty() || !empty_vector.is_empty() || !empty_set.is_empty() { return 0; }
+        val counter = Cell { value: 0 };
+        val deduplicated = HashSet::from([key(counter), key(counter)]);
+        if counter.value != 2 || deduplicated.len() != 1usize { return 0; }
+        if vector[1] != 2 || vector[2] != 2 || vector[3] != 4 { return 0; }
+        val object = Cell { value: 1 };
+        val objects = [object];
+        val copies = Vec::from(objects);
+        copies[0].value = 42;
+        var sum = 0;
+        for value in alias { sum += value; }
+        if sum != 7 { return 0; }
+        objects[0].value
     }
     "#,
     );

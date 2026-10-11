@@ -222,10 +222,9 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeId<I> {
                 Box::new(((field0).as_ref()).map_identities(mapper)?),
                 *(field1),
             ),
-            Self::Array(field0, field1) => TypeId::Array(
-                Box::new(((field0).as_ref()).map_identities(mapper)?),
-                *(field1),
-            ),
+            Self::Array(field0) => {
+                TypeId::Array(Box::new(((field0).as_ref()).map_identities(mapper)?))
+            }
             Self::Map { key, value, access } => TypeId::Map {
                 key: Box::new(((key).as_ref()).map_identities(mapper)?),
                 value: Box::new(((value).as_ref()).map_identities(mapper)?),
@@ -285,7 +284,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for TypeId<I> {
             Self::Range(field0, _) => {
                 ((field0).as_ref()).visit_definitions(visit, cancel)?;
             }
-            Self::Array(field0, _) => {
+            Self::Array(field0) => {
                 ((field0).as_ref()).visit_definitions(visit, cancel)?;
             }
             Self::Map {

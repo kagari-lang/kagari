@@ -460,10 +460,7 @@ mod tests {
             &mut runtime,
             vec![
                 Ty::Builtin(BuiltinType::I32),
-                Ty::Array(
-                    Box::new(Ty::Builtin(BuiltinType::I32)),
-                    kagari_types::collection::CollectionAccess::Mutable,
-                ),
+                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
                 Ty::Builtin(BuiltinType::F64),
             ],
         );

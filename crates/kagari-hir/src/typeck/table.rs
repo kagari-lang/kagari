@@ -209,6 +209,7 @@ pub struct TypeTable<I: DefinitionReference = DefinitionPath> {
     expr_fields: HashMap<ExprId, I>,
     place_fields: HashMap<PlaceId, I>,
     place_indexes: HashMap<PlaceId, NominalType<I>>,
+    place_index_writes: HashMap<PlaceId, NominalType<I>>,
     struct_inits: HashMap<ExprId, ResolvedStructInit<I>>,
     enum_constructors: HashMap<ExprId, ResolvedEnumConstructor<I>>,
     exprs: HashMap<ExprId, TypeId<I>>,
@@ -306,6 +307,10 @@ impl TypeTable {
         self.place_indexes.insert(id, interface);
     }
 
+    pub(crate) fn insert_place_index_write(&mut self, id: PlaceId, interface: NominalType) {
+        self.place_index_writes.insert(id, interface);
+    }
+
     /// Records/replaces the selected associated constant under the matching node ID.
     pub(crate) fn insert_associated_const(&mut self, expr: ExprId, fact: ResolvedAssociatedConst) {
         self.associated_consts.insert(expr, fact);
@@ -350,7 +355,7 @@ impl TypeTable {
             }
 
             keys!(propagations: ExprId, iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
-                place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
+                place_fields: PlaceId, place_indexes: PlaceId, place_index_writes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_variants: PatternId,
                 callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
             for site in result.native_default_calls.values_mut() {
@@ -818,6 +823,11 @@ impl TypeTable {
                 self.place_indexes
                     .insert(new_map.place_id(b), interface.clone());
             }
+
+            if let Some(interface) = old.place_index_writes.get(&old_map.place_id(a)) {
+                self.place_index_writes
+                    .insert(new_map.place_id(b), interface.clone());
+            }
             if let Some(field) = old.place_fields.get(&old_map.place_id(a)) {
                 self.place_fields.insert(new_map.place_id(b), field.clone());
             }
@@ -1001,7 +1011,7 @@ pub(crate) fn match_implementation(
                 pending.push((left, right))
             }
             (TypeId::Iter(left), TypeId::Iter(right))
-            | (TypeId::Array(left, _), TypeId::Array(right, _))
+            | (TypeId::Array(left), TypeId::Array(right))
             | (TypeId::Set(left, _), TypeId::Set(right, _)) => pending.push((left, right)),
             (
                 TypeId::Map {
@@ -1055,6 +1065,7 @@ impl<I: DefinitionReference> Default for TypeTable<I> {
             expr_fields: Default::default(),
             place_fields: Default::default(),
             place_indexes: Default::default(),
+            place_index_writes: Default::default(),
             struct_inits: Default::default(),
             enum_constructors: Default::default(),
             exprs: Default::default(),
@@ -1096,6 +1107,10 @@ impl<I: DefinitionReference> TypeTable<I> {
     /// Returns the recorded index-mutation interface, or `None` when no such fact was recorded.
     pub fn place_index(&self, id: PlaceId) -> Option<&NominalType<I>> {
         self.place_indexes.get(&id)
+    }
+
+    pub fn place_index_write(&self, id: PlaceId) -> Option<&NominalType<I>> {
+        self.place_index_writes.get(&id)
     }
 
     /// Returns the recorded associated family binders and bounds, or `None` when no such fact was recorded.

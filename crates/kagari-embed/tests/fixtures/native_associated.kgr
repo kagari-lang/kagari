@@ -4,29 +4,29 @@ use std::array::Vec;
 use std::option::{Option, Some, None};
 impl Hook for i32 {
     fn check(self) {
-        val scratch = [0];
+        val scratch = Vec::from([0]);
         scratch[0usize];
     }
 }
 impl Hook for Vec<i32> {
     fn check(self) {
-        val scratch = [0];
+        val scratch = Vec::from([0]);
         scratch[0usize];
     }
 }
 fn selected_method_main() -> i32 {
-    val values = [[42]];
+    val values = Vec::from([Vec::from([42])]);
     values.check_first();
     values[0usize][0usize]
 }
 fn read<S: Source>(source: S) -> S::Item { source.head() }
 fn dynamic_main() -> i32 {
-    val source: Source<Item = Vec<i32>> = [[42]];
+    val source: Source<Item = Vec<i32>> = Vec::from([Vec::from([42])]);
     source.head()[0usize]
 }
-fn dynamic_boxed() -> Source<Item = Vec<i32>> { [[42]] }
+fn dynamic_boxed() -> Source<Item = Vec<i32>> { Vec::from([Vec::from([42])]) }
 fn dynamic_empty() -> i32 {
-    val empty: Vec<i32> = [];
+    val empty: Vec<i32> = Vec::from([]);
     val source: Source<Item = i32> = empty;
     source.head()
 }
@@ -35,21 +35,21 @@ impl Source for ScriptSource {
     type Item = Vec<i32>;
     fn head(self) -> Vec<i32> { self.values }
 }
-fn callback_native_main() -> i32 { forward([[42]])[0usize] }
-fn callback_script_main() -> i32 { forward(ScriptSource { values: [42] })[0usize] }
-fn selected_native_main() -> i32 { selected_head([[42]])[0usize] }
-fn selected_script_main() -> i32 { selected_head(ScriptSource { values: [42] })[0usize] }
+fn callback_native_main() -> i32 { forward(Vec::from([Vec::from([42])]))[0usize] }
+fn callback_script_main() -> i32 { forward(ScriptSource { values: Vec::from([42]) })[0usize] }
+fn selected_native_main() -> i32 { selected_head(Vec::from([Vec::from([42])]))[0usize] }
+fn selected_script_main() -> i32 { selected_head(ScriptSource { values: Vec::from([42]) })[0usize] }
 fn selected_native_empty() -> i32 {
-    val empty: Vec<Vec<i32>> = [];
+    val empty: Vec<Vec<i32>> = Vec::from([]);
     selected_head(empty)[0usize]
 }
-fn selected_nested_main() -> i32 { nested_head([[42]]) }
+fn selected_nested_main() -> i32 { nested_head(Vec::from([Vec::from([42])])) }
 fn callback_native_empty() -> i32 {
-    val empty: Vec<Vec<i32>> = [];
+    val empty: Vec<Vec<i32>> = Vec::from([]);
     forward(empty)[0usize]
 }
 fn main() -> i32 {
-    val bag = [[21]];
+    val bag = Vec::from([Vec::from([21])]);
     val first = read(bag);
     val copy = echo::<Vec<Vec<i32>>>(first, bag);
     copy[0usize] + read(bag)[0usize]
@@ -57,11 +57,11 @@ fn main() -> i32 {
 
 fn typed_read<S: TypedSource>(source: S) -> S::Item { source.head() }
 fn typed_empty() -> i32 {
-    val bag: Vec<i32> = [];
+    val bag: Vec<i32> = Vec::from([]);
     typed_read(bag)
 }
 fn typed_main() -> i32 {
-    val bag = [[42]];
+    val bag = Vec::from([Vec::from([42])]);
     val item = typed_read(bag);
     val other = bag.keep(bag);
     match bag.swap(item, 0) {

@@ -32,7 +32,7 @@ fn producer() -> fn()->Future<i32> { async || request(10).await }
 fn immediate() -> fn()->Future<i32> { async || 99 }
 fn observe(task:Task<i32>, extra:i32) -> fn()->Future<i32> { async || { val result:i32=task.await; result + extra } }
 async fn direct(task:Task<i32>) -> i32 { task.await }
-fn tasks() -> Vec<Task<i32>> { [] }
+fn tasks() -> Vec<Task<i32>> { Vec::from([]) }
 fn add(tasks:Vec<Task<i32>>, task:Task<i32>) { tasks.push(task); }
 fn looping(tasks:Vec<Task<i32>>) -> fn()->Future<i32> {
     async || { var total=0; for task in tasks { total += task.await; } total }
@@ -41,7 +41,7 @@ fn indexed(tasks:Vec<Task<i32>>, index:usize) -> fn()->Future<i32> { async || ta
 fn business() -> fn()->Future<Result<i32,i32>> { async || Err(4) }
 fn propagate(task:Task<Result<i32,i32>>) -> fn()->Future<Result<i32,i32>> { async || Ok(task.await? + 1) }
 fn code(value:Result<i32,i32>) -> i32 { match value { Ok(x) => x, Err(e) => -e } }
-async fn empty<T>() -> Vec<T> { [] }
+async fn empty<T>() -> Vec<T> { Vec::from([]) }
 async fn infer_future() -> Vec<i32> { empty().await }
 fn nested() -> fn()->Future<Future<i32>> { async || request(10) }
 fn nested_observer(task:Task<Future<i32>>) -> fn()->Future<Future<i32>> { async || task.await }

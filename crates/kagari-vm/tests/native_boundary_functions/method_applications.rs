@@ -161,7 +161,7 @@ fn nested_inherent_arguments_retain_nominal_results_and_selected_bounds() {
             pub fn first(self) -> T { self.value[0] }
             pub fn read<U: Read>(self, value: U) -> i32 { value.read() }
         }
-        pub fn make() -> Holder<Vec<Item>> { Holder { value: [Item { value: 42 }] } }
+        pub fn make() -> Holder<Vec<Item>> { Holder { value: Vec::from([Item { value: 42 }]) } }
         pub fn evidence() -> i32 { val holder = make(); holder.read(holder.first()) }
     "#;
     let (vm, owner) = fixture(source, None);

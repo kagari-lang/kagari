@@ -247,7 +247,7 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
     use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
     use kagari_types::{scalar::BuiltinType, ty::Ty};
     let owner = common::bytecode_ok(
-        "pub struct Box<T> { var values: Vec<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
+        "pub struct Box<T> { var values: [T] } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
     );
     let mut importer = BytecodeModule {
         identity: ModuleIdentity::single_file("importer.kgr"),
@@ -271,10 +271,8 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
         let mut invalid = owner.clone();
         match mutation {
             0 => {
-                invalid.modules[invalid.root.index()].structures[0].fields[0].ty = Ty::Array(
-                    Box::new(Ty::Builtin(BuiltinType::Bool)),
-                    CollectionAccess::Mutable,
-                )
+                invalid.modules[invalid.root.index()].structures[0].fields[0].ty =
+                    Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool)))
             }
             1 => invalid.modules[invalid.root.index()].structures[0].fields[0].mutable = false,
             2 => {

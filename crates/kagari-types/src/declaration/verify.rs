@@ -554,7 +554,7 @@ fn type_valid_in<I: DefinitionReference>(
                     }
                 }
             }
-            Ty::Array(ty, _) | Ty::Set(ty, _) | Ty::Iter(ty) => pending.push(ty),
+            Ty::Array(ty) | Ty::Set(ty, _) | Ty::Iter(ty) => pending.push(ty),
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
 
             Ty::Struct(nominal)

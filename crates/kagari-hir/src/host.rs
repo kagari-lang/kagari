@@ -752,8 +752,18 @@ impl HostDeclarations {
 pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
     match ty {
         HostValueType::Tuple(types) => TypeId::Tuple(types.iter().map(signature_type).collect()),
-        HostValueType::Array(element, access) => {
-            TypeId::Array(Box::new(signature_type(element)), *access)
+        HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element))),
+        HostValueType::Vec(declaration, item) | HostValueType::List(declaration, item) => {
+            let nominal = NominalType {
+                declaration: declaration.clone(),
+                arguments: vec![signature_type(item)],
+                associated_types: Default::default(),
+            };
+            if matches!(ty, HostValueType::Vec(..)) {
+                TypeId::NativeObject(nominal)
+            } else {
+                TypeId::Trait(nominal)
+            }
         }
         HostValueType::Map { key, value, access } => TypeId::Map {
             key: Box::new(signature_type(key)),

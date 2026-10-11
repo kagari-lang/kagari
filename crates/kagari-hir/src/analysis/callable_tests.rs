@@ -31,7 +31,7 @@ async fn identity<T>(value: T) -> T { return value; }
 async fn nested() -> Future<i32> { identity(1) }
 async fn task_result<T>(task: Task<T>) -> T { task.await }
 async fn nested_task(task: Task<Future<i32>>) -> Future<i32> { task.await }
-async fn empty<T>() -> Vec<T> { [] }
+async fn empty<T>() -> Vec<T> { Vec::from([]) }
 async fn inferred_future() -> Vec<i32> { empty().await }
 async fn diverging() -> i32 { (loop {}).await }
 async fn business(value: Result<i32, i32>) -> Result<i32, i32> {
@@ -645,7 +645,7 @@ fn read(values: List<i32>) -> i32 { 42 }
 fn consume(value: i32) -> i32 { value }
 fn stop() -> ! { loop {} }
 fn run(callback: fn(i32) -> bool) {
-    read([1, 2]);
+    read(Vec::from([1, 2]));
     callback(1);
     consume(stop());
 }

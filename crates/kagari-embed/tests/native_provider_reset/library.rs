@@ -13,7 +13,7 @@ fn foundation_algorithms_are_available_from_normal_engine_construction() {
             SourceFile::new(
                 "memory://sort.kgr",
                 r#"
-        fn main() -> i32 { val values = [3,1,2]; values.sort(); values[0] }
+        fn main() -> i32 { val values = Vec::from([3,1,2]); values.sort(); values[0] }
     "#,
             ),
             Default::default(),
@@ -47,7 +47,7 @@ fn explicit_empty_application_modules_keep_the_foundation() {
             .compile_to_artifact(
                 SourceFile::new(
                     "memory://foundation-sort.kgr",
-                    "fn main() { [2,1].sort(); }"
+                    "fn main() { Vec::from([2,1]).sort(); }"
                 ),
                 Default::default()
             )
@@ -56,7 +56,7 @@ fn explicit_empty_application_modules_keep_the_foundation() {
     let program = engine.compile_to_artifact(SourceFile::new("memory://foundation.kgr", r#"use std::collections::{HashMap, HashSet};
 
         fn main() -> i32 {
-            val values = [20,22]; val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, values[0]);
+            val values = Vec::from([20,22]); val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, values[0]);
             val set: HashSet<i32> = HashSet::new(); set.insert(values[1]);
             if set.contains(22) && map.contains_key(1) { values[0] + values[1] } else { 0 }
         }

@@ -24,9 +24,7 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    collection::CollectionAccess, language::Protocol, range::RangeKind, scalar::BuiltinType,
-};
+use kagari_types::{language::Protocol, range::RangeKind, scalar::BuiltinType};
 use smallvec::SmallVec;
 use std::{
     collections::{HashMap, HashSet},
@@ -908,8 +906,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::ArrayRepeat { value, count } => {
-                let member =
-                    expected.and_then(|ty| array_bridge::element_context(ty, self.declarations));
+                let member = expected.and_then(|ty| array_bridge::element_context(ty));
                 let element = self.infer_expr_with_coercion(*value, env, member);
                 if !self.solving
                     && !types::supports_array_repetition(&element, |instance| {
@@ -955,11 +952,10 @@ impl<'a> BodyChecker<'a> {
                         .with_span(self.lowered.source_map.expr_span(*count)),
                     );
                 }
-                TypeId::Array(Box::new(element), CollectionAccess::Mutable)
+                TypeId::Array(Box::new(element))
             }
             ExprKind::Array(elements) => {
-                let member =
-                    expected.and_then(|ty| array_bridge::element_context(ty, self.declarations));
+                let member = expected.and_then(|ty| array_bridge::element_context(ty));
                 let mut element_ty: Option<TypeId> = None;
                 let mut reachable = true;
                 for expr in elements {
@@ -999,14 +995,12 @@ impl<'a> BodyChecker<'a> {
                         element_ty = Some(ty);
                     }
                 }
-                TypeId::Array(
-                    Box::new(element_ty.unwrap_or_else(|| {
-                        member
-                            .cloned()
-                            .unwrap_or_else(|| self.inference_variable(expr_id, 1))
-                    })),
-                    CollectionAccess::Mutable,
-                )
+                TypeId::Array(Box::new(element_ty.unwrap_or_else(|| {
+                    member
+                        .filter(|ty| !matches!(ty, TypeId::Unknown))
+                        .cloned()
+                        .unwrap_or_else(|| self.inference_variable(expr_id, 1))
+                })))
             }
             ExprKind::Loop { body } => {
                 self.loop_depth += 1;

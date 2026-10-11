@@ -34,9 +34,9 @@ impl<'call> ReceiverCalls<'call> {
 
     pub(super) fn snapshot(&self, cx: &mut CallContext<'_>) -> NativeResult<HeapObjectId> {
         let item = cx.selected_result_parameter(self.next, 0)?;
-        let result = cx.allocate_sequence(item, vec![])?;
+        let result = cx.allocate_vec(item, vec![])?;
         let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
-        let Value::Array(id) = result else {
+        let Value::GcHandle(id) = result else {
             return Err(invalid());
         };
         let cursor = cx.call_values(self.iter, &[cx.argument(0)?])?;
@@ -48,7 +48,7 @@ impl<'call> ReceiverCalls<'call> {
                 return Ok(id);
             };
             let _item = cx.heap().root_value(value).ok_or_else(invalid)?;
-            cx.heap().array_push(id, value)?;
+            cx.heap().sequence_push(id, value)?;
         }
     }
 

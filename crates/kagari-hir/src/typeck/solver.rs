@@ -238,7 +238,7 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
+    use kagari_types::scalar::BuiltinType;
 
     #[test]
     fn later_constraints_resolve_nested_types_without_conflating_recovery() {
@@ -249,17 +249,14 @@ mod tests {
         };
         let a = TypeId::Inference(0);
         let b = TypeId::Inference(1);
-        let array = TypeId::Array(Box::new(b.clone()), CollectionAccess::Mutable);
+        let array = TypeId::Array(Box::new(b.clone()));
         let cancel = CancellationToken::default();
         assert!(solver.constrain(&a, &array, &cancel).unwrap());
         assert!(solver.constrain(&b, &TypeId::Unknown, &cancel).unwrap());
         assert_eq!(solver.resolve(&b), b);
         let integer = TypeId::Builtin(BuiltinType::I32);
         assert!(solver.constrain(&b, &integer, &cancel).unwrap());
-        assert_eq!(
-            solver.resolve(&a),
-            TypeId::Array(Box::new(integer), CollectionAccess::Mutable)
-        );
+        assert_eq!(solver.resolve(&a), TypeId::Array(Box::new(integer)));
     }
 
     #[test]

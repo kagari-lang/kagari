@@ -33,8 +33,8 @@ fn fill(
         .heap()
         .root_value(value)
         .ok_or_else(|| RuntimeError::module_validation("output root"))?;
-    let Value::Array(array) = output.value(cx.heap()).unwrap() else {
-        return Err(RuntimeError::module_validation("array output"));
+    let Value::GcHandle(array) = output.value(cx.heap()).unwrap() else {
+        return Err(RuntimeError::module_validation("Vec output"));
     };
     for index in 0..count {
         let value = callback.call_values(cx, &[Value::U64(index as u64)])?;
@@ -45,7 +45,7 @@ fn fill(
             .ok_or_else(|| RuntimeError::module_validation("callback result root"))?;
         cx.collect_garbage()?;
         cx.heap()
-            .array_push(array, value.value(cx.heap()).unwrap())?;
+            .sequence_push(array, value.value(cx.heap()).unwrap())?;
     }
     Ok(output.value(cx.heap()).unwrap())
 }

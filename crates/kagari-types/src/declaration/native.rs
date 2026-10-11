@@ -48,7 +48,6 @@ impl NativeStorageLayout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum NativeTypeConstructor {
     String,
-    Array,
     Map,
     Set,
     Iter,
@@ -60,7 +59,7 @@ impl NativeTypeConstructor {
         match self {
             Self::String | Self::Range(RangeKind::Full) => 0,
             Self::Map => 2,
-            Self::Array | Self::Set | Self::Iter | Self::Range(_) => 1,
+            Self::Set | Self::Iter | Self::Range(_) => 1,
         }
     }
 

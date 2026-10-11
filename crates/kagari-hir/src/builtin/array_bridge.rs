@@ -1,11 +1,11 @@
-//! Array context and indexing use interfaces supplied by installed declarations.
+//! Intrinsic Array element context and separately installed List indexing roles.
 use crate::{
     declarations::Declarations,
     types::{NominalType, TypeId},
 };
 use kagari_types::collection::CollectionAccess;
 
-/// Borrows the first argument of a registered array-interface type; unrelated/malformed types return `None`.
+/// Borrows the first argument of a registered List interface; unrelated/malformed types return `None`.
 pub fn list_item<'a>(ty: &'a TypeId, declarations: &Declarations) -> Option<&'a TypeId> {
     let TypeId::Trait(interface) = ty else {
         return None;
@@ -18,23 +18,20 @@ pub fn list_item<'a>(ty: &'a TypeId, declarations: &Declarations) -> Option<&'a 
         .flatten()
 }
 
-/// Checks whether a trait application names the installed writable array interface.
+/// Checks whether a trait application names the installed MutableList interface.
 pub fn writable_list(ty: &TypeId, declarations: &Declarations) -> bool {
     matches!(ty, TypeId::Trait(interface) if declarations.array_interfaces.get(&CollectionAccess::Mutable) == Some(&interface.declaration))
 }
 
-pub(crate) fn element_context<'a>(
-    ty: &'a TypeId,
-    declarations: &Declarations,
-) -> Option<&'a TypeId> {
-    if let TypeId::Array(item, _) = ty {
+pub(crate) fn element_context(ty: &TypeId) -> Option<&TypeId> {
+    if let TypeId::Array(item) = ty {
         Some(item)
     } else {
-        list_item(ty, declarations)
+        None
     }
 }
 
-/// Builds the installed readonly/writable array interface for an element type; returns `None` if missing.
+/// Builds the installed List/MutableList interface for an element type; returns `None` if missing.
 pub fn list_interface(
     item: TypeId,
     writable: bool,

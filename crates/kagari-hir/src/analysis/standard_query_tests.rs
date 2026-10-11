@@ -10,6 +10,20 @@ use crate::{
 use kagari_stdlib::{catalog as foundation_catalog, identity as library};
 use kagari_types::{collection::CollectionAccess, language::Protocol};
 
+fn foundation_vec(item: TypeId) -> TypeId {
+    let module = kagari_types::declaration::module::ModuleDecl::new(
+        kagari_stdlib::namespaces::type_owner("Vec"),
+    );
+    TypeId::NativeObject(NominalType {
+        declaration: module.definition(
+            kagari_common::identity::DefinitionKind::AssociatedType,
+            "Vec",
+        ),
+        arguments: vec![item],
+        associated_types: Default::default(),
+    })
+}
+
 fn foundation_interface(name: &str) -> NominalType {
     NominalType {
         declaration: library::trait_id(name),
@@ -35,6 +49,11 @@ mod tests {
             (
                 "fn main() { val values = [0; 4]; values. }",
                 "values. }",
+                vec!["len", "is_empty", "iter"],
+            ),
+            (
+                "fn main() { val values = Vec::from([0; 4]); values. }",
+                "values. }",
                 vec!["len", "get", "push", "clear"],
             ),
         ] {
@@ -54,6 +73,13 @@ mod tests {
                     !candidates
                         .iter()
                         .any(|item| matches!(item.name.as_str(), "start_bound" | "end_bound"))
+                );
+            }
+            if source.contains("val values = [") {
+                assert!(
+                    !candidates
+                        .iter()
+                        .any(|item| matches!(item.name.as_str(), "push" | "pop" | "clear" | "get"))
                 );
             }
             for name in expected {
@@ -290,10 +316,7 @@ mod tests {
         assert!(signature.parameters.is_empty());
         assert_eq!(
             signature.result,
-            TypeId::Array(
-                Box::new(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)),
-                CollectionAccess::Mutable
-            )
+            foundation_vec(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
         );
         let signature = analysis
             .call_signature_at(text.find("len()").unwrap())
@@ -515,9 +538,12 @@ mod interpolation_queries {
             ("[\"one\"].iter().", true),
             // Erased interfaces expose their own declared/inherited methods;
             // importing another trait does not extend the interface surface.
-            ("val xs: List<i32> = [1]; xs.", false),
-            ("val xs: List<String> = [\"one\"]; xs.", false),
-            ("val xs: MutableList<String> = [\"one\"]; xs.", false),
+            ("val xs: List<i32> = Vec::from([1]); xs.", false),
+            ("val xs: List<String> = Vec::from([\"one\"]); xs.", false),
+            (
+                "val xs: MutableList<String> = Vec::from([\"one\"]); xs.",
+                false,
+            ),
         ] {
             let text = format!(
                 "use std::collections::{{List, MutableList}}; use demo::text_items::TextItems; fn main() {{ {body} }}"
@@ -582,7 +608,7 @@ mod collection_access_tests {
         let catalog = &authoring_catalog.facts().aggregates;
         let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receivers = [
-            TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),
+            foundation_vec(integer.clone()),
             TypeId::Map {
                 key: Box::new(integer.clone()),
                 value: Box::new(integer.clone()),
@@ -593,7 +619,9 @@ mod collection_access_tests {
         let mut checked = 0;
         for receiver in receivers {
             let (kinds, arguments) = match &receiver {
-                TypeId::Array(item, _) => (["List", "MutableList"], vec![(**item).clone()]),
+                TypeId::NativeObject(nominal) => {
+                    (["List", "MutableList"], nominal.arguments.clone())
+                }
                 TypeId::Map { key, value, .. } => (
                     ["Map", "MutableMap"],
                     vec![(**key).clone(), (**value).clone()],
@@ -713,8 +741,8 @@ mod collection_access_tests {
     #[test]
     fn readonly_member_completion_excludes_mutators() {
         for (annotation, constructor, mutable, write) in [
-            ("List<i32>", "[1]", false, "push"),
-            ("Vec<i32>", "[1]", true, "push"),
+            ("List<i32>", "Vec::from([1])", false, "push"),
+            ("Vec<i32>", "Vec::from([1])", true, "push"),
             ("Map<i32,i32>", "HashMap::new()", false, "insert"),
             ("HashMap<i32,i32>", "HashMap::new()", true, "insert"),
             ("Set<i32>", "HashSet::new()", false, "insert"),
@@ -778,7 +806,7 @@ mod collection_access_tests {
     fn extension_completion_filters_total_order_requirement() {
         for (element, value, ordered) in [("i32", "1", true), ("f64", "1.0", false)] {
             let text = format!(
-                "use std::collections::{{List}};\nimpl<T: Ord> List<T> {{ fn ordered(self) -> usize {{ self.len() }} }} impl<T: PartialEq> List<T> {{ fn comparable(self) -> usize {{ self.len() }} }} fn main() {{ val values: List<{element}> = [{value}]; values. }}"
+                "use std::collections::{{List}};\nimpl<T: Ord> List<T> {{ fn ordered(self) -> usize {{ self.len() }} }} impl<T: PartialEq> List<T> {{ fn comparable(self) -> usize {{ self.len() }} }} fn main() {{ val values: List<{element}> = Vec::from([{value}]); values. }}"
             );
             let mut sources = SourceDatabase::default();
             let id = sources

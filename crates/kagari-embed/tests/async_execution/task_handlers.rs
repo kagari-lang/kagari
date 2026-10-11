@@ -25,8 +25,8 @@ impl Fn<()> for Fetch {
     type Output = Future<i32>;
     fn call(self, args: ()) -> Future<i32> { self.events.push(3); request(0) }
 }
-fn items() -> Vec<i32> { [10,20] }
-fn events() -> Vec<i32> { [] }
+fn items() -> Vec<i32> { Vec::from([10,20]) }
+fn events() -> Vec<i32> { Vec::from([]) }
 fn len(items: Vec<i32>) -> usize { items.len() }
 fn at(items: Vec<i32>, index: usize) -> i32 { items[index] }
 fn replace(items: Vec<i32>) { items[1]=40; }

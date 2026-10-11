@@ -96,13 +96,13 @@ fn bound_take<T: Take>(value: T, count: Count) -> i32 {
 }
 fn grow<T>(value: T) -> i32 { grow((value, value)) }
 fn index(value: ()) -> i32 { 0 }
-fn matrix(value: ()) -> Vec<Vec<i32>> { [[0]] }
+fn matrix(value: ()) -> [[i32]] { [[0]] }
 "#,
     );
     for &(name, body, _) in cases {
         let body = body.replace("STOP", "(if tick(count) { return 40; } else { return 0; })");
         source.push_str(&format!(
-            "fn run_{name}(count: Count, array: Vec<i32>) -> i32 {{
+            "fn run_{name}(count: Count, array: [i32]) -> i32 {{
                 var tuple = (1, true); {body}
              }}
              fn {name}() -> i32 {{
@@ -151,7 +151,7 @@ fn returning_expressions_stop_calls_and_generic_instantiation() {
         ("bound_argument", "bound_take(count, count)", 52),
         ("helper_argument", "type_of(STOP); 0", 52),
         ("native_receiver", "STOP.sort(); 0", 52),
-        ("native_argument", "[1].sort_by(STOP); 0", 52),
+        ("native_argument", "Vec::from([1]).sort_by(STOP); 0", 52),
         (
             "native_source",
             "collections::map(STOP, |n:i32| { tick(count); n }); 0",
@@ -301,7 +301,7 @@ fn never_preserves_effects_and_releases_resources_on_traps_and_cancellation() {
 fn fail(values: Vec<i32>) -> ! { values.push(20); print("before"); val zero = 0; 1 / zero; loop {} }
 fn later(values: Vec<i32>) -> i32 { print("after"); values.push(99); 99 }
 fn consume(a: i32, b: i32) -> i32 { a + b }
-fn main() -> i32 { val values = [1]; consume(fail(values), later(values)) }
+fn main() -> i32 { val values = Vec::from([1]); consume(fail(values), later(values)) }
 fn forever() -> ! { loop {} }
 fn impossible(value: !) -> i32 { value }
 fn healthy() -> i32 { 42 }
@@ -397,7 +397,7 @@ fn never_containers_and_short_circuiting_keep_normal_paths() {
 
 fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
 fn main() -> i32 {
-    val values: Vec<!> = [];
+    val values: Vec<!> = Vec::from([]);
     val readonly: List<!> = values;
     val missing: Option<!> = None;
     val result: Result<!, i32> = Err(42);

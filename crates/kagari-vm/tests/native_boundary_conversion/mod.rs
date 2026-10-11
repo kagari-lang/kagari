@@ -91,7 +91,7 @@ fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles()
     let (vm, loaded) = source_free_vm(
         r#"
         use example::typed::append;
-        pub fn main() -> Vec<i32> { val values = [1, 2]; append(values); values }
+        pub fn main() -> Vec<i32> { val values = Vec::from([1, 2]); append(values); values }
     "#,
         &module.finish().unwrap(),
     );
@@ -455,10 +455,10 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
         .execute_typed(&loaded, "retain", (vec![20, 22],))
         .unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::Array(id) = retained.0.value(vm.runtime().gc()).unwrap() else {
+    let Value::GcHandle(id) = retained.0.value(vm.runtime().gc()).unwrap() else {
         panic!("array")
     };
-    assert_eq!(vm.runtime().gc().array_get(id, 1), Some(Value::I32(22)));
+    assert_eq!(vm.runtime().gc().sequence_get(id, 1), Some(Value::I32(22)));
     drop(retained);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
@@ -548,10 +548,10 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     drop(result);
     vm.execute(&loaded, "idle").unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::Array(id) = clone.value(vm.runtime().gc()).unwrap() else {
+    let Value::GcHandle(id) = clone.value(vm.runtime().gc()).unwrap() else {
         panic!("array result")
     };
-    assert_eq!(vm.runtime().gc().array_get(id, 0), Some(Value::I32(42)));
+    assert_eq!(vm.runtime().gc().sequence_get(id, 0), Some(Value::I32(42)));
     let other = Runtime::default();
     assert!(clone.value(other.gc()).is_none());
     drop(clone);

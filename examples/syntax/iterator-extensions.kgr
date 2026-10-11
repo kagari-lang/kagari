@@ -1,7 +1,7 @@
 // A library-provided native iterator implements the same language Iterator.
 use std::collections;
 fn main()->i32 {
-    val mapped=collections::map([20,22],|value|value);
+    val mapped=collections::map(Vec::from([20,22]),|value|value);
     val alias=mapped;
     if alias.next()!=Some(20) || mapped.next()!=Some(22){return 0;}
     if mapped.next()!=None || alias.next()!=None {return 0;}

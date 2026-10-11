@@ -37,7 +37,7 @@ fn main() {
         .compile_to_artifact(
             SourceFile::new(
                 "reentry.kgr",
-                "fn main() -> i32 { print(\"make\"); 42 } fn make() -> Vec<i32> { [7, 8] }",
+                "fn main() -> i32 { print(\"make\"); 42 } fn make() -> [i32] { [7, 8] }",
             ),
             Default::default(),
         )

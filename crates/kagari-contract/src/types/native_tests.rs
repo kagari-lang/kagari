@@ -48,7 +48,6 @@ fn declaration(kind: NativeTypeConstructor) -> (ModuleIdentity, TypeDef) {
 fn native_type_templates_validate_arity_owner_and_physical_shape() {
     let constructors = [
         NativeTypeConstructor::String,
-        NativeTypeConstructor::Array,
         NativeTypeConstructor::Map,
         NativeTypeConstructor::Set,
         NativeTypeConstructor::Iter,

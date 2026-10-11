@@ -2,7 +2,7 @@
 use super::HostInterfaceError;
 use crate::{collection::CollectionAccess, language::binding};
 use bincode::Options;
-use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer, de,
     de::{Error as DecodeError, SeqAccess, Visitor},
@@ -25,7 +25,11 @@ pub enum HostValueType<I = DefinitionPath> {
     /// An opaque type is identified by its declaration, never a registry slot.
     Opaque(I),
     Tuple(Vec<HostValueType<I>>),
-    Array(Box<HostValueType<I>>, CollectionAccess),
+    Array(Box<HostValueType<I>>),
+    /// An explicitly identified registered growable sequence.
+    Vec(I, Box<HostValueType<I>>),
+    /// A readonly registered List interface, retaining its nominal declaration.
+    List(I, Box<HostValueType<I>>),
     Map {
         key: Box<HostValueType<I>>,
         value: Box<HostValueType<I>>,
@@ -48,7 +52,10 @@ impl<I: DefinitionReference> HostValueType<I> {
             match ty {
                 Self::Opaque(id) => declarations.push(id),
                 Self::Tuple(elements) => pending.extend(elements),
-                Self::Array(element, _) | Self::Set(element, _) => pending.push(element),
+                Self::Array(element)
+                | Self::Set(element, _)
+                | Self::Vec(_, element)
+                | Self::List(_, element) => pending.push(element),
                 Self::Option(_, element) => pending.push(element),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Result { ok, error, .. } => pending.extend([ok.as_ref(), error.as_ref()]),
@@ -97,13 +104,36 @@ impl<I: DefinitionReference> HostValueType<I> {
                     pending.extend(elements.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Tuple(elements.len() as u32)
                 }
-                Self::Array(element, _) | Self::Set(element, _) => {
+                Self::Vec(declaration, element) | Self::List(declaration, element) => {
+                    if !declaration.within_path_limit() {
+                        return Err(HostInterfaceError::TooLarge);
+                    }
+                    let kind = if matches!(ty, Self::Vec(..)) {
+                        DefinitionKind::AssociatedType
+                    } else {
+                        DefinitionKind::Trait
+                    };
+                    if declaration.authoring_path().is_some_and(|path| {
+                        path.path.len() != 1
+                            || path.path[0].kind != kind
+                            || path.path[0].name.is_empty()
+                            || path.path[0].occurrence != 0
+                    }) {
+                        return Err(HostInterfaceError::InvalidDeclaration);
+                    }
+                    pending.push((element, depth + 1));
+                    match ty {
+                        Self::Vec(_, _) => Node::Vec(declaration.clone()),
+                        _ => Node::List(declaration.clone()),
+                    }
+                }
+                Self::Array(element) | Self::Set(element, _) => {
                     if matches!(ty, Self::Set(_, _)) && !element.hash_key() {
                         return Err(HostInterfaceError::InvalidDeclaration);
                     }
                     pending.push((element, depth + 1));
                     match ty {
-                        Self::Array(_, access) => Node::Array(*access),
+                        Self::Array(_) => Node::Array,
                         Self::Set(_, access) => Node::Set(*access),
                         _ => unreachable!(),
                     }
@@ -173,7 +203,9 @@ enum Node<I = DefinitionPath> {
     String,
     Opaque(I),
     Tuple(u32),
-    Array(CollectionAccess),
+    Array,
+    Vec(I),
+    List(I),
     Map(CollectionAccess),
     Set(CollectionAccess),
     Option(I),
@@ -255,7 +287,13 @@ fn build<I: DefinitionReference, E: de::Error>(
                     .collect::<Result<_, E>>()?,
             )
         }
-        Node::Array(access) => HostValueType::Array(Box::new(build(nodes, depth + 1)?), access),
+        Node::Array => HostValueType::Array(Box::new(build(nodes, depth + 1)?)),
+        Node::Vec(declaration) => {
+            HostValueType::Vec(declaration, Box::new(build(nodes, depth + 1)?))
+        }
+        Node::List(declaration) => {
+            HostValueType::List(declaration, Box::new(build(nodes, depth + 1)?))
+        }
         Node::Set(access) => HostValueType::Set(Box::new(build(nodes, depth + 1)?), access),
         Node::Option(declaration) => {
             HostValueType::Option(declaration, Box::new(build(nodes, depth + 1)?))
@@ -304,13 +342,35 @@ mod tests {
     use super::*;
     use crate::host_interface::{HostFunctionDeclaration, HostInterface};
 
+    fn collection_identity(list: bool) -> kagari_common::identity::DefinitionPath {
+        use kagari_common::identity::{
+            DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        };
+        DefinitionPath {
+            module: ModuleIdentity::single_file("collections.kgr"),
+            path: vec![DefinitionPathSegment {
+                kind: if list {
+                    DefinitionKind::Trait
+                } else {
+                    DefinitionKind::AssociatedType
+                },
+                name: if list { "List" } else { "Vec" }.into(),
+                occurrence: 0,
+            }],
+        }
+    }
+
     #[test]
     fn collection_access_round_trips_and_changes_host_binding_fingerprints() {
         use CollectionAccess::{Mutable, ReadOnly};
         for (writable, readable) in [
             (
-                HostValueType::Array(Box::new(HostValueType::I32), Mutable),
-                HostValueType::Array(Box::new(HostValueType::I32), ReadOnly),
+                HostValueType::Array(Box::new(HostValueType::I32)),
+                HostValueType::Vec(collection_identity(false), Box::new(HostValueType::I32)),
+            ),
+            (
+                HostValueType::Vec(collection_identity(false), Box::new(HostValueType::I32)),
+                HostValueType::List(collection_identity(true), Box::new(HostValueType::I32)),
             ),
             (
                 HostValueType::Set(Box::new(HostValueType::String), Mutable),
@@ -319,12 +379,12 @@ mod tests {
             (
                 HostValueType::Map {
                     key: Box::new(HostValueType::String),
-                    value: Box::new(HostValueType::Array(Box::new(HostValueType::I32), ReadOnly)),
+                    value: Box::new(HostValueType::Array(Box::new(HostValueType::I32))),
                     access: Mutable,
                 },
                 HostValueType::Map {
                     key: Box::new(HostValueType::String),
-                    value: Box::new(HostValueType::Array(Box::new(HostValueType::I32), ReadOnly)),
+                    value: Box::new(HostValueType::Array(Box::new(HostValueType::I32))),
                     access: ReadOnly,
                 },
             ),
@@ -355,7 +415,7 @@ mod tests {
         let ty = HostValueType::Result {
             declaration: binding::result_declaration(),
             ok: Box::new(HostValueType::Tuple(vec![
-                HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+                HostValueType::Array(Box::new(HostValueType::I32)),
                 HostValueType::option(HostValueType::String),
             ])),
             error: Box::new(HostValueType::Map {
@@ -392,7 +452,7 @@ mod tests {
             vec![Node::Tuple(u32::MAX)],
             vec![Node::Map(CollectionAccess::Mutable), Node::F32, Node::I32],
             (0..MAX_DEPTH)
-                .map(|_| Node::Array(CollectionAccess::Mutable))
+                .map(|_| Node::Array)
                 .chain([Node::I32])
                 .collect(),
             (0..=MAX_NODES).map(|_| Node::I32).collect(),
@@ -402,15 +462,11 @@ mod tests {
         }
         let mut ty = HostValueType::I32;
         for _ in 1..MAX_DEPTH {
-            ty = HostValueType::Array(Box::new(ty), CollectionAccess::Mutable);
+            ty = HostValueType::Array(Box::new(ty));
         }
         let bytes = bincode::serialize(&ty).unwrap();
         assert_eq!(bincode::deserialize::<HostValueType>(&bytes).unwrap(), ty);
-        assert!(
-            HostValueType::Array(Box::new(ty), CollectionAccess::Mutable)
-                .validate()
-                .is_err()
-        );
+        assert!(HostValueType::Array(Box::new(ty)).validate().is_err());
         assert!(
             HostValueType::Tuple(vec![HostValueType::<DefinitionPath>::I32; MAX_NODES])
                 .validate()

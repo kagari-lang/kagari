@@ -55,10 +55,7 @@ fn fixture() -> Vec<Ty> {
         Ty::Enum(plain.clone()),
         Ty::NativeObject(plain),
         Ty::Tuple(vec![
-            Ty::Array(
-                Box::new(Ty::Builtin(BuiltinType::I32)),
-                CollectionAccess::ReadOnly,
-            ),
+            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
             Ty::Map {
                 key: Box::new(Ty::Builtin(BuiltinType::String)),
                 value: Box::new(Ty::Set(

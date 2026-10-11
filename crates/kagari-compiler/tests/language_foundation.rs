@@ -26,13 +26,13 @@ fn scalar_language_program_compiles_without_optional_modules() {
 
 #[test]
 fn default_list_native_calls_compile_without_optional_modules() {
-    compile("fn main() -> i32 { val values = [1, 2]; values.push(3); values[0] }");
+    compile("fn main() -> i32 { val values = Vec::from([1, 2]); values.push(3); values[0] }");
 }
 
 #[test]
 fn collection_interface_iteration_compiles_without_optional_modules() {
     compile(
-        "use std::collections::{List};\nfn main() -> i32 { val values: List<i32> = [1, 2]; var total = 0; for item in values { total = total + item; } total }",
+        "use std::collections::{List};\nfn main() -> i32 { val values: List<i32> = Vec::from([1, 2]); var total = 0; for item in values { total = total + item; } total }",
     );
 }
 

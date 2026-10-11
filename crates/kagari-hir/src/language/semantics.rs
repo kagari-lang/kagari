@@ -93,7 +93,7 @@ pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<Ty
         return (interface.arguments == [callable_arguments(params)]).then(|| (**result).clone());
     }
     if kind == Protocol::Index
-        && let TypeId::Array(element, _) = receiver
+        && let TypeId::Array(element) = receiver
         && matches!(
             interface.arguments.as_slice(),
             [TypeId::Builtin(
@@ -305,7 +305,7 @@ pub fn intrinsic_holds(
             TypeId::Enum(_) | TypeId::Host(_) if protocol == Protocol::Debug => {}
             TypeId::NativeObject(_)
             | TypeId::Struct(_)
-            | TypeId::Array(_, _)
+            | TypeId::Array(_)
             | TypeId::Map { .. }
             | TypeId::Set(_, _)
                 if protocol != Protocol::Display => {}

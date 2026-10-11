@@ -30,7 +30,7 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
         r#"
         use std::collections::{HashMap, HashSet};
         pub fn make() -> (HashMap<String, Vec<i32>>, HashSet<i32>) {
-            val map = HashMap::new(); map.insert("a", [20, 22]);
+            val map = HashMap::new(); map.insert("a", Vec::from([20, 22]));
             val set = HashSet::new(); set.insert(7);
             (map, set)
         }
@@ -81,7 +81,7 @@ fn hash_snapshots_root_replaced_values_and_release_iteration_guards() {
         r#"
         use std::collections::{HashMap, HashSet};
         pub fn make() -> (HashMap<i32, Vec<i32>>, HashSet<i32>) {
-            val map = HashMap::new(); map.insert(1, [20]); map.insert(2, [22]);
+            val map = HashMap::new(); map.insert(1, Vec::from([20])); map.insert(2, Vec::from([22]));
             val set = HashSet::new(); set.insert(1); set.insert(2);
             (map, set)
         }

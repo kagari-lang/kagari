@@ -1167,7 +1167,39 @@ fn host_value_matches(
                 }
                 pending.extend(values.iter().copied().zip(types))
             }
-            (Value::Array(id), HostValueType::Array(element, _)) => {
+            (Value::GcHandle(id), HostValueType::Vec(_, element)) => {
+                let Some(contract) = heap.sequence_contract(id) else {
+                    return Ok(false);
+                };
+                let expected =
+                    runtime.portable_type_argument(&contract.owner, &Ty::from_host_type(ty))?;
+                if !expected.matches(runtime, &Value::GcHandle(id), &contract.owner) {
+                    return Ok(false);
+                }
+                let Some(values) = heap.sequence_snapshot(id) else {
+                    return Ok(false);
+                };
+                pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
+            }
+            (Value::Interface(id), HostValueType::List(_, _)) => {
+                let Some(snapshot) = heap.interface_snapshot(id) else {
+                    return Ok(false);
+                };
+                let owner = &snapshot.receiver_table.owner;
+                let expected = runtime.portable_type_argument(owner, &Ty::from_host_type(ty))?;
+                if !expected.matches(runtime, &Value::Interface(id), owner) {
+                    return Ok(false);
+                }
+            }
+            (Value::Array(id), HostValueType::Array(element)) => {
+                let Some(contract) = heap.array_contract(id) else {
+                    return Ok(false);
+                };
+                let expected =
+                    runtime.portable_type_argument(&contract.owner, &Ty::from_host_type(ty))?;
+                if !expected.matches(runtime, &Value::Array(id), &contract.owner) {
+                    return Ok(false);
+                }
                 let Some(values) = heap.array_snapshot(id) else {
                     return Ok(false);
                 };

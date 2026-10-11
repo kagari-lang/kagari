@@ -65,9 +65,16 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self
                     .resolve_readable_place_type(*base, env)
                     .unwrap_or(TypeId::Error);
-                let context = array_bridge::list_item(&base_ty, self.declarations)
-                    .map(|_| TypeId::Builtin(BuiltinType::USize));
+                let context = self
+                    .trait_bounds_for(&base_ty, env)
+                    .into_iter()
+                    .find(|bound| Protocol::from_id(&bound.declaration) == Some(Protocol::Index))
+                    .and_then(|bound| bound.arguments.into_iter().next());
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
+                if base_ty.is_never() {
+                    self.type_table.insert_place(place_id, base_ty.clone());
+                    return Some(base_ty);
+                }
                 if let Some(item) = array_bridge::list_item(&base_ty, self.declarations) {
                     self.type_table.insert_place(place_id, item.clone());
                     self.checked_index_type(*index, &base_ty, &index_ty, *index);
@@ -75,9 +82,30 @@ impl<'a> BodyChecker<'a> {
                         && index_ty == TypeId::Builtin(BuiltinType::USize))
                     .then(|| item.clone());
                 }
+                if !matches!(base_ty, TypeId::Array(_) | TypeId::Tuple(_)) {
+                    let writable =
+                        self.trait_bounds_for(&base_ty, env)
+                            .into_iter()
+                            .find(|bound| {
+                                array_bridge::writable_list(
+                                    &TypeId::Trait(bound.clone()),
+                                    self.declarations,
+                                )
+                            })?;
+                    let mut requested = self.aggregates.language_trait(Protocol::Index)?;
+                    requested.arguments.push(index_ty.clone());
+                    let (read, item) = self.select_operator(&base_ty, requested, env)?;
+                    if index_ty != TypeId::Builtin(BuiltinType::USize) {
+                        return None;
+                    }
+                    self.type_table.insert_place_index(place_id, read);
+                    self.type_table.insert_place_index_write(place_id, writable);
+                    self.type_table.insert_place(place_id, item.clone());
+                    return Some(item);
+                }
                 let ty = self.resolve_index_type(*index, &base_ty);
                 let fact = ty.clone().or_else(|| match &base_ty {
-                    TypeId::Array(element, _) => Some((**element).clone()),
+                    TypeId::Array(element) => Some((**element).clone()),
                     _ => None,
                 });
                 if let Some(fact) = fact {
@@ -148,10 +176,13 @@ impl<'a> BodyChecker<'a> {
                 let base_ty = self
                     .resolve_readable_place_type(*base, env)
                     .unwrap_or(TypeId::Error);
-                let context = array_bridge::list_item(&base_ty, self.declarations)
-                    .map(|_| TypeId::Builtin(BuiltinType::USize));
+                let context = self
+                    .trait_bounds_for(&base_ty, env)
+                    .into_iter()
+                    .find(|bound| Protocol::from_id(&bound.declaration) == Some(Protocol::Index))
+                    .and_then(|bound| bound.arguments.into_iter().next());
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
-                if !matches!(base_ty, TypeId::Array(_, _) | TypeId::Tuple(_))
+                if !matches!(base_ty, TypeId::Array(_) | TypeId::Tuple(_))
                     && let Some(requested) =
                         self.aggregates
                             .language_trait(Protocol::Index)
@@ -387,7 +418,7 @@ impl<'a> BodyChecker<'a> {
         // Keep the diagnostic above, but let downstream member queries recover.
         // A tuple still needs a valid constant index to select a member.
         result.or_else(|| match receiver {
-            TypeId::Array(element, _) => Some((**element).clone()),
+            TypeId::Array(element) => Some((**element).clone()),
             _ => array_bridge::list_item(receiver, self.declarations).cloned(),
         })
     }
@@ -410,7 +441,7 @@ impl<'a> BodyChecker<'a> {
         .ok()?
         {
             return match receiver {
-                TypeId::Array(element, _) => Some((**element).clone()),
+                TypeId::Array(element) => Some((**element).clone()),
                 // No index value exists to select a particular Tuple member.
                 TypeId::Tuple(_) => Some(TypeId::Unknown),
                 _ => None,
@@ -428,7 +459,7 @@ impl<'a> BodyChecker<'a> {
             {
                 array_bridge::list_item(receiver, self.declarations).cloned()
             }
-            TypeId::Array(element, _) => Some((**element).clone()),
+            TypeId::Array(element) => Some((**element).clone()),
             TypeId::Tuple(elements) => self
                 .tuple_index(index_expr)
                 .and_then(|index| elements.get(index).cloned()),

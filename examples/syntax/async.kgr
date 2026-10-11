@@ -13,5 +13,5 @@ async fn total(items: Vec<i32>) -> i32 {
 }
 
 fn work() -> fn() -> Future<i32> {
-    async || total([1, 2, 3]).await
+    async || total(Vec::from([1, 2, 3])).await
 }

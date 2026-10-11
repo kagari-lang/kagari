@@ -12,7 +12,7 @@ fn identity<T>(value: T) -> T {
 
 fn main() -> i32 {
     // Later uses determine the element type without changing evaluation order.
-    val values = [];
+    val values = Vec::from([]);
     values.push(consume(Marker { value: 20 }, true));
     values.push(22);
 

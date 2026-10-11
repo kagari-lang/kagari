@@ -321,7 +321,7 @@ pub(super) fn validate(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(ty, _) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
+            TypeId::Array(ty) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
                 pending.push(ty)
             }
             TypeId::Map { key, value, .. } => {
@@ -644,7 +644,7 @@ pub(super) fn validate_imported_interface_type(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(item, _)
+            TypeId::Array(item)
             | TypeId::Set(item, _)
             | TypeId::Iter(item)
             | TypeId::Range(item, _) => pending.push(item),

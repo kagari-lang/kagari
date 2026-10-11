@@ -14,11 +14,11 @@ impl Echo for Outer {
 }
 impl Echo for i32 {
     type Output = Vec<i32>;
-    fn echo(self) -> Vec<i32> { [self] }
-    fn offset(self, by: i32) -> Vec<i32> { [self + by] }
+    fn echo(self) -> Vec<i32> { Vec::from([self]) }
+    fn offset(self, by: i32) -> Vec<i32> { Vec::from([self + by]) }
 }
 fn generic<T: Echo<Output = U>, U: Echo<Output = i32>>(value: T) -> i32 { echo_twice(value) }
-fn native_main() -> i32 { echo_twice([[42]]) }
+fn native_main() -> i32 { echo_twice(Vec::from([Vec::from([42])])) }
 fn script_main() -> i32 { echo_twice(Outer { value: Inner { value: 42 } }) }
 fn mixed_main() -> i32 { echo_twice(42) }
 fn generic_main() -> i32 { generic(Outer { value: Inner { value: 42 } }) }

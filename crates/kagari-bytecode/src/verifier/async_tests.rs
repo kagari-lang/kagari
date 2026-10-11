@@ -12,7 +12,6 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::{DefinitionKind, ModuleIdentity};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
@@ -21,10 +20,7 @@ use kagari_types::{
 fn program() -> BytecodeProgram {
     let owner = ModuleDecl::new(ModuleIdentity::single_file("await-contract"));
     let id = owner.definition(DefinitionKind::AssociatedType, "Future");
-    let output = Ty::Array(
-        Box::new(Ty::Builtin(BuiltinType::I32)),
-        CollectionAccess::Mutable,
-    );
+    let output = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
     let future = Ty::NativeObject(NominalTy {
         declaration: id.clone(),
         arguments: vec![output.clone()],
@@ -306,13 +302,11 @@ fn async_artifact_validation_contract() {
                     function.metadata.semantic.registers.remove(&0);
                 }
                 3 => {
-                    function.metadata.semantic.registers.insert(
-                        1,
-                        Ty::Array(
-                            Box::new(Ty::Builtin(BuiltinType::I32)),
-                            CollectionAccess::ReadOnly,
-                        ),
-                    );
+                    function
+                        .metadata
+                        .semantic
+                        .registers
+                        .insert(1, Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool))));
                 }
                 4 => {
                     let I::Await { value, .. } = &mut function.instructions[1] else {

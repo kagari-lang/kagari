@@ -13,8 +13,11 @@ fn invalid() -> RuntimeError {
 impl GcHeap {
     pub fn collection_capacity(&self, value: &Value) -> Result<usize, RuntimeError> {
         self.ensure_execution_allowed()?;
+        if let Value::GcHandle(id) = value {
+            self.ensure_sequence(*id)?;
+        }
         match value {
-            Value::Array(id) => self.with_array(*id, SequenceStorage::capacity),
+            Value::GcHandle(id) => self.with_buffer(*id, SequenceStorage::capacity),
             Value::Map(id) => self.with_map(*id, HashMapStorage::capacity),
             Value::Set(id) => self.with_set(*id, HashSetStorage::capacity),
             _ => None,
@@ -24,14 +27,17 @@ impl GcHeap {
 
     pub fn reserve_collection(&self, value: &Value, additional: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        if let Value::GcHandle(id) = value {
+            self.ensure_sequence(*id)?;
+        }
         match value {
-            Value::Array(id) | Value::Map(id) | Value::Set(id) => {
+            Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => {
                 self.ensure_callback_mutable(*id)?
             }
             _ => return Err(invalid()),
         }
         let (length, capacity, units) = match value {
-            Value::Array(id) => self.with_array(*id, |v| (v.len(), v.capacity(), 1)),
+            Value::GcHandle(id) => self.with_buffer(*id, |v| (v.len(), v.capacity(), 1)),
             Value::Map(id) => self.with_map(*id, |v| (v.len(), v.capacity(), 2)),
             Value::Set(id) => self.with_set(*id, |v| (v.len(), v.capacity(), 1)),
             _ => None,
@@ -51,8 +57,8 @@ impl GcHeap {
         let _temporary = self.resources.reserve_temporary_heap(requested)?;
         let allocation = || self.resource_limit("collection capacity");
         match value {
-            Value::Array(id) => {
-                self.with_array_mut(*id, |v| v.try_reserve(additional).map_err(|_| allocation()))
+            Value::GcHandle(id) => {
+                self.with_buffer_mut(*id, |v| v.try_reserve(additional).map_err(|_| allocation()))
             }
             Value::Map(id) => {
                 self.with_map_mut(*id, |v| v.try_reserve(additional).map_err(|_| allocation()))

@@ -880,7 +880,7 @@ fn instantiate(
         },
         TypeId::Range(element, kind) => TypeId::Range(Box::new(child(element)?), *kind),
         TypeId::Iter(element) => TypeId::Iter(Box::new(child(element)?)),
-        TypeId::Array(element, access) => TypeId::Array(Box::new(child(element)?), *access),
+        TypeId::Array(element) => TypeId::Array(Box::new(child(element)?)),
         TypeId::Set(element, access) => TypeId::Set(Box::new(child(element)?), *access),
         TypeId::Map { key, value, access } => TypeId::Map {
             key: Box::new(child(key)?),

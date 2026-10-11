@@ -65,7 +65,7 @@ impl<'call> StorageContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native storage type scope"))
     }
 
-    pub fn allocate_sequence(
+    pub fn allocate_array(
         &self,
         element: TypeArgument,
         elements: Vec<Value>,

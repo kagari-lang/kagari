@@ -13,7 +13,6 @@ use kagari_contract::types::{
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
-    collection::CollectionAccess,
     declaration::{
         AssociatedTypeDef, FnDecl, NativeDeclaration, Param, TraitDef, module::ImplDecl,
         requirement::NativeCallableRequirement,
@@ -641,7 +640,7 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
             constraints: vec![Constraint::Trait(applied.clone())],
         }],
         trait_type: Some(applied.clone()),
-        for_type: Ty::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable),
+        for_type: Ty::Array(Box::new(parameter.as_type())),
         methods: vec![],
     };
     let catalog = ProofCatalog::new(
@@ -660,7 +659,7 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
     )
     .unwrap();
     let mut requirement = fixture.requirement();
-    requirement.receiver = Ty::Array(Box::new(scalar()), CollectionAccess::Mutable);
+    requirement.receiver = Ty::Array(Box::new(scalar()));
     assert!(
         catalog
             .holds(&applied, &requirement.receiver, &[], &cancel)
@@ -678,10 +677,7 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
         selected.instance.arguments,
         vec![requirement.receiver.clone()]
     );
-    requirement.receiver = Ty::Array(
-        Box::new(Ty::Builtin(BuiltinType::Bool)),
-        CollectionAccess::Mutable,
-    );
+    requirement.receiver = Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool)));
     assert!(
         !catalog
             .holds(&applied, &requirement.receiver, &[], &cancel)

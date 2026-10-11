@@ -2,7 +2,10 @@ use crate::source::{
     lower,
     lower::{MirLoweringError, instances::MirLoweringOptions},
 };
-use kagari_common::identity::ModuleIdentity;
+use kagari_common::identity::{
+    ModuleIdentity,
+    mapping::{DefinitionMappingError, DefinitionRecord},
+};
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_hir::{
     program::CheckedProgram, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
@@ -14,10 +17,7 @@ use kagari_mir::{
 };
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_types::{callable::CallableImplementation, ty::GenericParam};
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    iter,
-};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug)]
 pub enum SourceProgramError {
@@ -132,20 +132,35 @@ pub fn lower_program_to_mir(
             modules.push(lowered.into_unverified());
         }
         let mut changed = false;
+        let source_owners: HashSet<_> = modules
+            .iter()
+            .map(|module| module.identity.clone())
+            .collect();
         for module in &mut modules {
-            // A generic body may use a private implementation supplied by its
-            // caller. Pin both invoked methods and non-invoked bound witnesses
-            // even when the defining source module did not import the caller.
+            // Concrete generic arguments and selected witnesses can introduce owners
+            // absent from the defining source's imports. Retain every referenced
+            // source declaration; host identities belong to the host contract table.
             let mut dependencies: BTreeSet<_> = module.dependencies.iter().cloned().collect();
-            for dependency in execution_dependencies(module) {
-                options.cancel.check().map_err(|_| ProgramError {
-                    module: Box::new(root.clone()),
-                    kind: ProgramErrorKind::Cancelled,
+            module
+                .visit_definitions(
+                    &mut |definition| {
+                        if definition.module != module.identity
+                            && source_owners.contains(&definition.module)
+                        {
+                            dependencies.insert(definition.module.clone());
+                        }
+                        Ok(())
+                    },
+                    &options.cancel,
+                )
+                .map_err(|error| ProgramError {
+                    module: Box::new(module.identity.clone()),
+                    kind: if matches!(error, DefinitionMappingError::Cancelled) {
+                        ProgramErrorKind::Cancelled
+                    } else {
+                        ProgramErrorKind::InvalidGraph
+                    },
                 })?;
-                if dependency != module.identity {
-                    dependencies.insert(dependency);
-                }
-            }
             module.dependencies = dependencies.into_iter().collect();
         }
         let materialized: HashSet<_> = modules
@@ -321,20 +336,6 @@ pub fn lower_program_to_mir(
                 .map_err(SourceProgramError::Verification);
         }
     }
-}
-
-fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIdentity> + '_ {
-    let callables = callable_demands(module).map(|instance| instance.declaration.module);
-    let native = module
-        .native_applications()
-        .filter(|contract| contract.host.is_none())
-        .flat_map(|contract| iter::once(contract.instance.declaration.module.clone()));
-    callables.chain(native).chain(
-        module
-            .interface_instances
-            .iter()
-            .map(|instance| instance.declaration.module.clone()),
-    )
 }
 
 fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {

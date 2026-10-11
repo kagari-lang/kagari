@@ -14,7 +14,7 @@ use kagari_runtime::{
     session::{DeterministicInputs, ExecutionPhase},
     value::Value,
 };
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -360,10 +360,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let old_object = runtime
         .alloc_array(
             &baseline,
-            Ty::Array(
-                Box::new(Ty::Builtin(BuiltinType::I32)),
-                CollectionAccess::Mutable,
-            ),
+            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
             vec![Value::Array(old_object)],
         )
         .unwrap();
@@ -372,13 +369,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
         let mut declaration = HostFunctionDeclaration::new(
             symbol,
             vec![],
-            HostValueType::Array(
-                Box::new(HostValueType::Array(
-                    Box::new(HostValueType::I32),
-                    CollectionAccess::Mutable,
-                )),
-                CollectionAccess::Mutable,
-            ),
+            HostValueType::Array(Box::new(HostValueType::Array(Box::new(HostValueType::I32)))),
         );
         declaration.effects.may_allocate = true;
         let retained = root.clone();
@@ -403,10 +394,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
                         .runtime()
                         .alloc_array(
                             &owner,
-                            Ty::Array(
-                                Box::new(Ty::Builtin(BuiltinType::I32)),
-                                CollectionAccess::Mutable,
-                            ),
+                            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
                             vec![inner],
                         )
                         .unwrap(),
@@ -530,10 +518,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
         let local = runtime
             .alloc_array(
                 candidate.module(),
-                Ty::Array(
-                    Box::new(Ty::Builtin(BuiltinType::I32)),
-                    CollectionAccess::Mutable,
-                ),
+                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
                 vec![Value::Array(inner)],
             )
             .unwrap();
@@ -545,7 +530,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
             // A low-level driver can still mutate candidate state between phases.
             runtime
                 .gc()
-                .array_push(local, Value::Array(old_object))
+                .array_set(local, 0, Value::Array(old_object))
                 .unwrap();
             let error = runtime.publish_staged_reload(candidate).unwrap_err();
             assert!(

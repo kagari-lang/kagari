@@ -4,7 +4,6 @@ use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, associated_type_id};
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
-    collection::CollectionAccess,
     declaration::{FnDecl, Param, module::ModuleDecl, requirement::NativeCallableRequirement},
     ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
@@ -329,10 +328,9 @@ fn default(module: &mut ModuleDecl, protocol: RegistrationTrait, item: &Ty, meth
         .apply(&template.return_type, &cancel)
         .expect("default result");
     if protocol == RegistrationTrait::List {
-        module.concrete_results.insert(
-            id.clone(),
-            Ty::Array(Box::new(types[1].clone()), CollectionAccess::Mutable),
-        );
+        module
+            .concrete_results
+            .insert(id.clone(), contracts::vec_type(types[1].clone()));
     }
     module.private_functions.insert(id.clone());
     module

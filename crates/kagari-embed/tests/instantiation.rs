@@ -156,7 +156,7 @@ fn assignment_targets_supply_constructor_context() {
         fn main() -> i32 {
             var local: Marker<i32> = Marker { value: 0 };
             val object = Box { marker: Marker { value: 0 } };
-            val array: Vec<Marker<bool>> = [Marker { value: 0 }];
+            val array: Vec<Marker<bool>> = Vec::from([Marker { value: 0 }]);
             var token: Token<i32> = Token::Empty;
             local = Marker { value: 10 };
             object.marker = Marker { value: 12 };
@@ -175,17 +175,17 @@ fn empty_container_context_reaches_returns_fields_and_arguments() {
         r#"use std::collections::{HashMap, HashSet};
 
         struct Values { val array: Vec<i32>, val map: HashMap<i32, bool>, val set: HashSet<i32> }
-        fn array() -> Vec<i32> { [] }
+        fn array() -> Vec<i32> { Vec::from([]) }
         fn map() -> HashMap<i32, bool> { HashMap::new() }
         fn set() -> HashSet<i32> { HashSet::new() }
         fn empty(a: Vec<i32>, m: HashMap<i32, bool>, s: HashSet<i32>) -> bool {
             a.is_empty() && m.is_empty() && s.is_empty()
         }
         fn main() -> i32 {
-            val value = Values { array: [], map: HashMap::new(), set: HashSet::new() };
+            val value = Values { array: Vec::from([]), map: HashMap::new(), set: HashSet::new() };
             var replacement: HashMap<i32, bool> = map();
             replacement = HashMap::new();
-            if empty([], HashMap::new(), HashSet::new())
+            if empty(Vec::from([]), HashMap::new(), HashSet::new())
                 && empty(array(), map(), set()) && empty(value.array, value.map, value.set)
                 && replacement.is_empty() { 42 } else { 0 }
         }
@@ -370,7 +370,7 @@ fn partial_constructor_member_context_executes_for_structs_and_enums() {
 #[test]
 fn reflective_write_targets_supply_generic_constructor_context() {
     execute_contextual_source(
-        "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: Vec<Marker<i32>> = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
+        "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: [Marker<i32>] = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
         42,
     );
 }
@@ -378,7 +378,7 @@ fn reflective_write_targets_supply_generic_constructor_context() {
 #[test]
 fn container_context_executes_through_native_methods() {
     execute_contextual_source(
-        "use std::collections::{HashMap};\nstruct Marker<T> { val value: i32 } fn main() -> i32 { val values: Vec<Marker<i32>> = []; values.push(Marker { value: 10 }); values.push(Marker { value: 10 }); val map: HashMap<i32, Marker<i32>> = HashMap::new(); map.insert(1, Marker { value: 22 }); values[0].value + values[1].value + (match map.get(1) {Some(v)=>v.value,None=>0}) }",
+        "use std::collections::{HashMap};\nstruct Marker<T> { val value: i32 } fn main() -> i32 { val values: Vec<Marker<i32>> = Vec::from([]); values.push(Marker { value: 10 }); values.push(Marker { value: 10 }); val map: HashMap<i32, Marker<i32>> = HashMap::new(); map.insert(1, Marker { value: 22 }); values[0].value + values[1].value + (match map.get(1) {Some(v)=>v.value,None=>0}) }",
         42,
     );
 }
@@ -421,7 +421,7 @@ fn annotated_const_dependencies_execute_independently_of_declaration_order() {
 #[test]
 fn concrete_nested_struct_fields_execute_on_all_existing_routes() {
     execute_contextual_source(
-        "struct Item { val value: i32 } struct Box<T> { var items: Vec<T> } fn main() -> i32 { val box = Box<Item> { items: [Item { value: 1 }] }; box.items = [Item { value: 42 }]; box.items[0].value }",
+        "struct Item { val value: i32 } struct Box<T> { var items: Vec<T> } fn main() -> i32 { val box = Box<Item> { items: Vec::from([Item { value: 1 }]) }; box.items = Vec::from([Item { value: 42 }]); box.items[0].value }",
         42,
     );
 }

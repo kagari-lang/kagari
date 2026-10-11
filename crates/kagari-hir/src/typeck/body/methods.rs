@@ -474,7 +474,7 @@ impl<'a> BodyChecker<'a> {
         }
         // Arrays support every builtin integer index type. Method selection must
         // apply Index to the actual argument, just like bracket expressions.
-        if matches!(receiver_ty, TypeId::Array(_, _)) && name == "index" && args.len() == 1 {
+        if matches!(receiver_ty, TypeId::Array(_)) && name == "index" && args.len() == 1 {
             let index_ty = self.infer_expr_type(args[0], env);
             let protocol = Protocol::Index;
             let mut requested = self.aggregates.language_trait(protocol)?;

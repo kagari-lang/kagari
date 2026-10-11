@@ -367,7 +367,7 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, loaded) = compile(
-        "use example::fold::fold; fn main() -> i32 { fold([9, 10], |value| (value + 1) * 2) }",
+        "use example::fold::fold; fn main() -> i32 { fold(Vec::from([9, 10]), |value| (value + 1) * 2) }",
         Some(&module),
     );
     assert_eq!(

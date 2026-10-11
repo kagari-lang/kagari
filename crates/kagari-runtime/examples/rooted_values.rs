@@ -4,7 +4,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_runtime::{Runtime, value::Value};
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn main() {
     const LEAVES: usize = 10_000;
@@ -33,11 +33,7 @@ fn main() {
         }
         let value = Value::Array(
             runtime
-                .alloc_array(
-                    &owner,
-                    Ty::Array(Box::new(element), CollectionAccess::Mutable),
-                    leaves,
-                )
+                .alloc_array(&owner, Ty::Array(Box::new(element)), leaves)
                 .unwrap(),
         );
         // A cloned naked Value is not a root. Host state retains this handle.

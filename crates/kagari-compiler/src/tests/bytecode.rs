@@ -15,7 +15,7 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
-use kagari_types::{collection::CollectionAccess, declaration::TypeDefKind};
+use kagari_types::declaration::TypeDefKind;
 
 fn host_trait_test_program(source: &str) -> BytecodeProgram {
     let mut module = common::bytecode_ok(source);

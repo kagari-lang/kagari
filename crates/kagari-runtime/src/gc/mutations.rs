@@ -15,7 +15,7 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {
-    ReplaceArray,
+    ReplaceSequence,
     Retain,
 }
 
@@ -27,14 +27,18 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid prepared collection");
-        let [target, Value::Array(buffer)] = args else {
+        let [target, Value::GcHandle(buffer)] = args else {
             return Err(invalid());
         };
         let id = match target {
-            Value::Array(id) | Value::Map(id) | Value::Set(id) => *id,
+            Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => *id,
             _ => return Err(invalid()),
         };
         self.ensure_execution_allowed()?;
+        self.ensure_sequence(*buffer)?;
+        if matches!(target, Value::GcHandle(_)) {
+            self.ensure_sequence(id)?;
+        }
         self.ensure_structure_mutable(id)?;
         let objects = self.objects.borrow();
         let source = self.readable_object(&objects, id).ok_or_else(invalid)?;
@@ -42,7 +46,7 @@ impl GcHeap {
         else {
             return Err(invalid());
         };
-        if !matches!(buffer_object.ty, Ty::Array(..)) {
+        if !matches!(buffer_object.ty, Ty::NativeObject(_)) {
             return Err(invalid());
         }
         let input_payload = buffer_object.payload::<SequencePayload>()?;
@@ -55,11 +59,11 @@ impl GcHeap {
             .checked_add(1)
             .ok_or_else(invalid)?;
         let allocation = || self.resource_limit("prepared collection storage");
-        let prepared = if operation == PreparedCollectionCommit::ReplaceArray {
+        let prepared = if operation == PreparedCollectionCommit::ReplaceSequence {
             let HeapObject::Native(original) = source else {
                 return Err(invalid());
             };
-            if !matches!(original.ty, Ty::Array(..)) {
+            if !matches!(original.ty, Ty::NativeObject(_)) {
                 return Err(invalid());
             }
             let payload = original.payload::<SequencePayload>()?;
@@ -85,7 +89,7 @@ impl GcHeap {
                 .filter(|index| matches!(input.get(*index), Some(Value::Bool(true))))
                 .count();
             match source {
-                HeapObject::Native(original) if matches!(original.ty, Ty::Array(..)) => {
+                HeapObject::Native(original) if matches!(original.ty, Ty::NativeObject(_)) => {
                     let payload = original.payload::<SequencePayload>()?;
                     if payload.values.len() != input.len() {
                         return Err(invalid());
@@ -162,7 +166,7 @@ impl GcHeap {
     ) -> Result<CollectionIteration, RuntimeError> {
         self.ensure_execution_allowed()?;
         let id = match value {
-            Value::Array(id) if self.object_kind(*id) == Some(GcObjectKind::Array) => *id,
+            Value::GcHandle(id) if self.object_kind(*id) == Some(GcObjectKind::Native) => *id,
             Value::Map(id) if self.object_kind(*id) == Some(GcObjectKind::Map) => *id,
             Value::Set(id) if self.object_kind(*id) == Some(GcObjectKind::Set) => *id,
             _ => {

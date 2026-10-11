@@ -64,7 +64,7 @@ fn run(cx: &mut CallContext<'_>, algorithm: Algorithm, copy: bool) -> NativeResu
     cx.poll()?;
     let source = cx.argument(0)?;
     let mut comparison = Comparison::prepare(cx, algorithm)?;
-    let concrete = matches!(source, Value::Array(_));
+    let concrete = matches!(source, Value::GcHandle(_));
     let operations = if concrete {
         None
     } else {
@@ -75,20 +75,20 @@ fn run(cx: &mut CallContext<'_>, algorithm: Algorithm, copy: bool) -> NativeResu
         )?)
     };
     let target = match source {
-        Value::Array(id) if copy => cx.clone_sequence(id)?,
-        Value::Array(id) => id,
+        Value::GcHandle(id) if copy => cx.clone_sequence(id)?,
+        Value::GcHandle(id) => id,
         _ => operations.as_ref().ok_or_else(invalid)?.snapshot(cx)?,
     };
     let _root = cx
         .heap()
-        .root_value(Value::Array(target))
+        .root_value(Value::GcHandle(target))
         .ok_or_else(invalid)?;
     if !copy && let Some(operations) = &operations {
         return edit_custom(cx, target, operations, algorithm, &mut comparison);
     }
     edit(cx, target, algorithm, &mut comparison)?;
     Ok(if copy {
-        Value::Array(target)
+        Value::GcHandle(target)
     } else {
         Value::Unit
     })
@@ -135,13 +135,13 @@ fn edit_custom(
     algorithm: Algorithm,
     comparison: &mut Comparison<'_>,
 ) -> NativeResult<Value> {
-    let length = cx.heap().array_len(target).ok_or_else(invalid)?;
+    let length = cx.heap().sequence_len(target).ok_or_else(invalid)?;
     if matches!(algorithm, Algorithm::Retain | Algorithm::Dedup) {
         let mut previous: Option<Value> = None;
         let mut kept = 0;
         for index in 0..length {
             cx.poll()?;
-            let value = cx.heap().array_get(target, index).ok_or_else(invalid)?;
+            let value = cx.heap().sequence_get(target, index).ok_or_else(invalid)?;
             let keep = if matches!(algorithm, Algorithm::Retain) {
                 comparison.keep(cx, value)?
             } else if let Some(previous) = &previous {
@@ -163,7 +163,7 @@ fn edit_custom(
             operations.set(
                 cx,
                 index,
-                cx.heap().array_get(target, index).ok_or_else(invalid)?,
+                cx.heap().sequence_get(target, index).ok_or_else(invalid)?,
             )?;
         }
     }

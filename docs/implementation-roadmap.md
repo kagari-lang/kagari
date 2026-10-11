@@ -33,16 +33,17 @@ carried build/test failures; their completion does not establish performance gai
 
 ### Builtin fixed-length arrays (SA20)
 
-Execution is active: BA01 representation and consumer inventory are complete;
-BA02-BA04 are the next coupled integration checkpoint. The [BA01-BA05 execution plan](builtin-array-plan.md)
-owns phase order, acceptance and the progress/error ledger. `[T]` will represent
-a builtin array with construction-time fixed length, without length in its type.
-Literals will construct Array; Vec remains a distinct nominal library collection,
-constructed explicitly with `Vec::from(array)`. HashSet receives the corresponding
-array constructor. The plan covers checked artifacts, runtime/host enforcement and
-caller migration; broader SA18/SA19/SA21 changes remain separate. Current specs
-still describe implemented behavior until integration; no implementation or CI
-acceptance is claimed by this planning checkpoint.
+BA01-BA05 are implemented and locally accepted.
+The [execution plan](builtin-array-plan.md) owns the detailed contracts and
+progress/error ledger. `[T]` is now a builtin array with construction-time fixed
+length, without length in its type. Literals construct Array; nominal Vec remains
+a distinct library collection, constructed explicitly with `Vec::from(array)`.
+`HashSet::from(array)` performs checked Eq/Hash deduplication. Runtime and host
+boundaries enforce the storage distinction, including source-free inputs.
+Workspace tests pass (1,951 passed, zero failures), alongside strict Clippy,
+format/structure checks and 10 source-free artifact tests. No carried local
+failures remain. Broader SA18/SA19/SA21 work remains separate; full CI acceptance
+is still open.
 
 ### Name resolution (SA8, SA2, SA3, CI pending)
 

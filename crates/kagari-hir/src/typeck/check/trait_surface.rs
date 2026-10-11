@@ -425,7 +425,7 @@ pub(super) fn validate_interface_type(
                 diagnostics,
             );
         }
-        TypeId::Array(element, _) | TypeId::Iter(element) | TypeId::Range(element, _) => {
+        TypeId::Array(element) | TypeId::Iter(element) | TypeId::Range(element, _) => {
             validate_interface_type(
                 lowered,
                 declarations,

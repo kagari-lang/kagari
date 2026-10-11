@@ -28,7 +28,7 @@ fn runtime() -> Runtime {
 #[test]
 fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints() {
     let module = compile_test_bytecode(
-        "fn make() -> Vec<i32> { [42] } fn main() -> Vec<i32> { val kept = make(); val other = [1, 2]; kept }",
+        "fn make() -> [i32] { [42] } fn main() -> [i32] { val kept = make(); val other = [1, 2]; kept }",
     );
     for encoded in [false, true] {
         for jit in [false, true] {
@@ -274,14 +274,14 @@ fn growing_execution_windows_keep_outer_values_alive_and_release_them_on_return(
         r#"
 fn descend(n: i32, kept: Vec<i32>) -> Vec<i32> {
     if n == 0 { kept } else {
-        val inner = [n];
+        val inner = Vec::from([n]);
         val returned = descend(n - 1, inner);
         kept.push(returned[0]);
         kept
     }
 }
 fn main() -> i32 {
-    val original = [42];
+    val original = Vec::from([42]);
     val returned = descend(32, original);
     returned[0] + returned[1]
 }

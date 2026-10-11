@@ -20,7 +20,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType, ty::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::{error::VmError, vm::Vm};
 use std::sync::{
     Arc,
@@ -124,32 +124,40 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
 #[test]
 fn vector_primitives_preserve_element_access_aliases_and_bounds() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
-    let vector =
-        |access| Type::from_semantic(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)), access));
+    let vector = || StandardDeclarations::default().vec(Type::i32());
+    let array = || Type::from_semantic(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))));
+    let list = || {
+        StandardDeclarations::default()
+            .list()
+            .apply([Type::i32()])
+            .ty()
+    };
     for (body, receiver, value, result) in [
-        (
-            NativePrimitive::VecIndex,
-            vector(CollectionAccess::Mutable),
-            None,
-            Type::bool(),
-        ),
+        (NativePrimitive::VecIndex, array(), None, Type::i32()),
         (
             NativePrimitive::VecSet,
-            vector(CollectionAccess::ReadOnly),
+            array(),
+            Some(Type::i32()),
+            Type::unit(),
+        ),
+        (NativePrimitive::VecIndex, vector(), None, Type::bool()),
+        (
+            NativePrimitive::VecSet,
+            list(),
             Some(Type::i32()),
             Type::unit(),
         ),
         (
             NativePrimitive::VecSet,
-            vector(CollectionAccess::Mutable),
+            vector(),
             Some(Type::bool()),
             Type::unit(),
         ),
         (
             NativePrimitive::VecSetFluent,
-            vector(CollectionAccess::Mutable),
+            vector(),
             Some(Type::i32()),
-            vector(CollectionAccess::ReadOnly),
+            list(),
         ),
     ] {
         let mut builder = ModuleBuilder::new("example::vector", &catalog);
@@ -175,11 +183,11 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
             "replace_fluent",
             NativePrimitive::VecSetFluent,
             true,
-            vector(CollectionAccess::Mutable),
+            vector(),
         ),
     ] {
         let mut declaration = FunctionDecl::new(name)
-            .parameter("values", vector(CollectionAccess::Mutable))
+            .parameter("values", vector())
             .parameter("index", Type::usize())
             .returns(result);
         if write {
@@ -194,7 +202,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
     let (vm, owner) = fixture(
         r#"
         use example::vector::{read, replace, replace_fluent};
-        pub fn make() -> Vec<i32> { [1, 2] }
+        pub fn make() -> Vec<i32> { Vec::from([1, 2]) }
         pub fn update(values: Vec<i32>) -> i32 {
             val alias = values;
             replace(values, 0, 7);
@@ -219,7 +227,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
         .execute_typed::<_, ()>(&owner, "failed_write", (values.clone(),))
         .unwrap_err();
     assert!(
-        matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ModuleValidation && error.message().contains("array set index"))
+        matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds)
     );
     let error = vm
         .execute_typed::<_, i32>(&owner, "failed_read", (values.clone(),))

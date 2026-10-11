@@ -93,7 +93,8 @@ The core type set includes:
 - unsigned integers: `u8`, `u16`, `u32`, `u64`, `usize`
 - floating-point numbers: `f32`, `f64`
 - `String`
-- `Vec<T>` storage and read-only `List<T>` (abbreviated `[T]`)
+- builtin fixed-length `[T]` arrays
+- registered `Vec<T>` storage and read-only `List<T>` interfaces
 - map interfaces as `Map<K, V>`
 - set interfaces as `Set<T>`
 - tuples
@@ -111,7 +112,9 @@ The semantics do not import Rust ownership or borrowing.
 The complete [collection contracts](collection-access.md) define List/MutableList,
 Map/MutableMap and Set/MutableSet. They are generic bounds and interface types.
 Vec/HashMap/HashSet are the canonical defaults and remain available with
-optional modules disabled. Array literals create Vec; default hash containers
+optional modules disabled. Array literals create fixed-length `[T]`;
+`Vec::from(array)` and `HashSet::from(array)` construct independent collection
+storage explicitly. Default hash containers
 use Rust std::collections and promise no insertion or sorted traversal order.
 Additional container types register storage and ordinary trait impls without
 adding concrete-type dispatch to the compiler or VM.

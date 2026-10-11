@@ -101,15 +101,17 @@ fn source_free_native_bindings_execute_and_release_scopes() {
     let mut runtime = engine(config, Default::default()).runtime(context.clone());
     let mut loaded = runtime.load_program(&program, Default::default()).unwrap();
     for _ in 0..3 {
-        assert_eq!(
-            runtime
-                .execute(&loaded, "required_methods", &[], &context)
-                .unwrap()
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
+        for entry in ["required_methods", "fixed_array_construction"] {
+            assert_eq!(
+                runtime
+                    .execute(&loaded, entry, &[], &context)
+                    .unwrap()
+                    .return_value
+                    .value(runtime.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
+        }
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(
             runtime.runtime().resources().counters().current_call_depth,
@@ -184,15 +186,47 @@ fn source_free_try_carriers_execute_with_selected_residual_calls() {
 
 #[test]
 fn source_free_native_imports_reject_forged_signatures() {
-    let mut program = artifact().program;
-    let import = program
-        .modules
-        .iter_mut()
-        .flat_map(|module| &mut module.native_imports)
-        .find(|import| !import.signature.params.is_empty())
-        .unwrap();
-    import.signature.params.clear();
-    assert!(KbcArtifact::from_program(program, Default::default()).is_err());
+    for corrupt in 0..3 {
+        let mut program = artifact().program;
+        let import = program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.native_imports)
+            .find(|import| match corrupt {
+                0 => !import.signature.params.is_empty(),
+                1 => import
+                    .binding
+                    .path
+                    .last()
+                    .is_some_and(|part| part.name == "$foundation_list_push_fluent"),
+                _ => {
+                    matches!(
+                        import.signature.params.as_slice(),
+                        [kagari_types::ty::Ty::Array(_)]
+                    ) && matches!(
+                        import.signature.result,
+                        kagari_types::ty::Ty::NativeObject(_)
+                    )
+                }
+            })
+            .unwrap();
+        match corrupt {
+            0 => import.signature.params.clear(),
+            1 => {
+                let kagari_types::ty::Ty::NativeObject(nominal) = &import.signature.params[0]
+                else {
+                    panic!("Vec receiver")
+                };
+                import.signature.params[0] =
+                    kagari_types::ty::Ty::Array(Box::new(nominal.arguments[0].clone()));
+            }
+            _ => import.signature.params[0] = import.signature.result.clone(),
+        }
+        assert!(
+            KbcArtifact::from_program(program, Default::default()).is_err(),
+            "forgery {corrupt}"
+        );
+    }
 }
 
 #[test]

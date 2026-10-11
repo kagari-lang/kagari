@@ -16,7 +16,6 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{
-    collection::CollectionAccess,
     host_interface::{
         path::{HostIndexSegmentDeclaration, HostVirtualSegmentDeclaration},
         type_declaration::{

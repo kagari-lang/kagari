@@ -8,7 +8,6 @@ use kagari_embed::{
 };
 use kagari_runtime::{session::ExecutionOptions, value::Value};
 use kagari_source::source::SourceFile;
-use kagari_types::collection::CollectionAccess;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -92,7 +91,7 @@ use std::iter::{CollectionCursor};
 fn sum<C:Iterable<Item=i32>>(values:C)->i32 {var total=0;for value in values {total+=value;}total}
 fn first<I:Iterator<Item=i32>>(values:I)->i32 {match values.next(){Some(x)=>x,None=>0}}
 fn main()->i32 {
-    val a=[20,22]; val iter:CollectionCursor<i32> =a.iter();
+    val a=Vec::from([20,22]); val iter:CollectionCursor<i32> =a.iter();
     if first(iter) != 20 { return 0; }
     if first(iter) != 22 { return 0; }
     if first(iter) != 0 { return 0; }
@@ -102,7 +101,7 @@ fn main()->i32 {
     if total != 42 { return 0; }
     val values:HashSet<i32> =HashSet::new();values.insert(20);values.insert(22);
     if sum(values) != 42 { return 0; }
-    sum([20,22])
+    sum(Vec::from([20,22]))
 }
 "#,
     );
@@ -113,7 +112,7 @@ fn breaking_native_loops_releases_guards_and_allows_resuming() {
     execute(
         r#"
 fn main()->i32 {
-    val a=[20,22]; val iter=a.iter();var total=0;
+    val a=Vec::from([20,22]); val iter=a.iter();var total=0;
     for value in iter {total+=value;break;}
     for value in iter {total+=value;}
     a.push(1);
@@ -130,7 +129,7 @@ fn returning_from_native_loop_releases_its_guard_before_caller_resumes() {
     execute(
         r#"
 fn head(values:Vec<i32>)->i32 {for x in values {return x;}0}
-fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
+fn main()->i32 {val a=Vec::from([20]);val b=head(a);a.push(22);b+a[1]}
 "#,
     );
 }
@@ -149,11 +148,11 @@ fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
             SourceFile::new(
                 "iterator-resources.kgr",
                 r#"
-fn fail()->i32{val a=[20];for x in a {a.push(1);}0}
-fn nested()->i32{val a=[20];for x in a {for y in a {break;}a.push(1);}0}
-fn manual()->i32{val a=[20];val c=a.iter();c.next();a.push(1);0}
-fn trap()->i32{val a=[20];for x in a {return x/0;}0}
-fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
+fn fail()->i32{val a=Vec::from([20]);for x in a {a.push(1);}0}
+fn nested()->i32{val a=Vec::from([20]);for x in a {for y in a {break;}a.push(1);}0}
+fn manual()->i32{val a=Vec::from([20]);val c=a.iter();c.next();a.push(1);0}
+fn trap()->i32{val a=Vec::from([20]);for x in a {return x/0;}0}
+fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
 "#,
             ),
             Default::default(),
@@ -179,14 +178,18 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         assert_eq!(runtime.runtime().gc().active_roots(), 0, "{entry}");
     }
     let rt = runtime.runtime();
-    let array = rt
-        .alloc_array(
-            &loaded,
-            Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(20), Value::I32(22)],
-        )
+    let root = kagari_runtime::native::conversion::context::ConversionContext::new(rt, &loaded)
+        .unwrap()
+        .encode(vec![20i32, 22])
         .unwrap();
-    let root = rt.root_value(Value::Array(array)).unwrap();
+    let Value::GcHandle(array) = root.value(rt.gc()).unwrap() else {
+        panic!("Vec")
+    };
+    let vector_type =
+        kagari_runtime::native::conversion::context::ConversionContext::new(rt, &loaded)
+            .unwrap()
+            .type_for::<Vec<i32>>()
+            .unwrap();
     let item = Ty::Builtin(BuiltinType::I32);
     let ty = Ty::Iter(Box::new(item.clone()));
     let cancellation = kagari_common::cancellation::CancellationToken::default();
@@ -199,12 +202,12 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         .iter_operation(
             &loaded,
             &root.value(rt.gc()).unwrap(),
-            &Ty::Array(Box::new(item), CollectionAccess::Mutable),
+            vector_type.ty(),
             IterOp::New,
         )
         .unwrap();
     let iter = rt.root_value(value).unwrap();
-    assert!(rt.gc().array_push(array, Value::I32(1)).is_err());
+    assert!(rt.gc().sequence_push(array, Value::I32(1)).is_err());
     cancellation.cancel();
     assert!(rt.gc_safepoint().is_err());
     drop(session);
@@ -224,7 +227,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         drop(session);
     }
     // Between root calls guards are released; resumed iterators reject a changed structure.
-    rt.gc().array_push(array, Value::I32(1)).unwrap();
+    rt.gc().sequence_push(array, Value::I32(1)).unwrap();
     let session = rt.begin_execution(&loaded, Default::default()).unwrap();
     assert!(
         rt.iter_operation(&loaded, &iter.value(rt.gc()).unwrap(), &ty, IterOp::Next)
@@ -302,7 +305,7 @@ fn native_iter_type_and_iterable_associated_type_resolve_independently() {
             total
         }
         fn main() -> i32 {
-            val values = Values { items: [20, 22] };
+            val values = Values { items: Vec::from([20, 22]) };
             val items: CollectionCursor<i32> = values.iter();
             sum(items)
         }
@@ -343,7 +346,7 @@ fn iter_creates_fresh_collection_progress_but_preserves_iterator_aliases() {
     execute(
         r#"
 fn main()->i32 {
-    val values=[20,22]; val first=values.iter(); val second=values.iter();
+    val values=Vec::from([20,22]); val first=values.iter(); val second=values.iter();
     val alias=first.iter();
     if first.next() != Some(20) { return 0; }
     if alias.next() != Some(22) { return 0; }
@@ -393,7 +396,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 .binding
                 .path
                 .last()
-                .is_some_and(|part| part.name == "$foundation_list_iter")
+                .is_some_and(|part| part.name == "$foundation_array_iter")
         })
         .unwrap();
     for corrupt in 0..3 {
@@ -423,14 +426,11 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             _ => {
                 program.modules[root].native_imports[import]
                     .signature
-                    .params[0] = Ty::Array(
-                    Box::new(Ty::Enum(kagari_types::ty::NominalTy {
-                        declaration: kagari_types::language::binding::option_declaration(),
-                        arguments: vec![],
-                        associated_types: Default::default(),
-                    })),
-                    CollectionAccess::Mutable,
-                )
+                    .params[0] = Ty::Array(Box::new(Ty::Enum(kagari_types::ty::NominalTy {
+                    declaration: kagari_types::language::binding::option_declaration(),
+                    arguments: vec![],
+                    associated_types: Default::default(),
+                })))
             }
         }
         assert!(verify_program(&program).is_err());

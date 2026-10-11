@@ -41,8 +41,6 @@ pub enum NativeTypeKind<I: DefinitionReference = DefinitionPath> {
     },
     /// Intrinsic String representation with no generic arguments.
     String,
-    /// Existing mutable array storage representation with one element type.
-    Vec,
     /// Existing map storage representation with key and value types.
     HashMap,
     /// Existing set storage representation with one element type.
@@ -77,7 +75,6 @@ impl NativeTypeKind {
                 associated_types: Default::default(),
             }),
             Self::String => TypeId::Builtin(BuiltinType::String),
-            Self::Vec => TypeId::Array(first(), CollectionAccess::Mutable),
             Self::HashMap => TypeId::Map {
                 key: first(),
                 value: Box::new(arguments[1].clone()),

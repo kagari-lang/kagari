@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, List, Map, MutableList, Set};
 fn append(values:MutableList<i32>,value:i32){values.push(value);}
 fn size<C:List<i32>>(values:C)->usize{values.len()}
 fn main()->i32 {
-    val values=[20]; val readonly:List<i32> = values;
+    val values=Vec::from([20]); val readonly:List<i32> = values;
     append(values,22);
     if size(values)!=2usize || readonly.len()!=2usize {return 0;}
     val map=HashMap::new(); map.insert("answer",20); map.insert("answer",42);

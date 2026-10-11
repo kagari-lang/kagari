@@ -3,7 +3,6 @@ use crate::catalog::contracts;
 use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, associated_type_id};
 use kagari_types::{
-    collection::CollectionAccess,
     conversion::checked_conversion_fallible,
     declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
     scalar::BuiltinType,
@@ -66,7 +65,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
     implement(
         module,
         key::applied(RegistrationTrait::FromIterator, vec![item.clone()]),
-        Ty::Array(Box::new(item.clone()), CollectionAccess::Mutable),
+        contracts::vec_type(item.clone()),
         vec![parameter],
         "$foundation_list_from_iter",
     );

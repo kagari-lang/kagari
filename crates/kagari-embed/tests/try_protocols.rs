@@ -152,7 +152,7 @@ fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
     let compiler = engine();
     for source in [
         "use external::try_carrier::Carrier; fn forward(value: Carrier<i32>) -> Carrier<String> { value?; Carrier::Data(\"unused\") } fn main()->i32 { match forward(Carrier::Stop) { Carrier::Stop => 42, Carrier::Data(_) => 0 } }",
-        "use external::try_carrier::Carrier; struct Payload { val value: Vec<i32> } fn forward<T>(value: Carrier<T>) -> Carrier<T> { Carrier::Data(value?) } fn main()->i32 { val value = Payload { value: [42] }; match forward(Carrier::Data(value)) { Carrier::Data(item) => item.value[0usize], Carrier::Stop => 0 } }",
+        "use external::try_carrier::Carrier; struct Payload { val value: Vec<i32> } fn forward<T>(value: Carrier<T>) -> Carrier<T> { Carrier::Data(value?) } fn main()->i32 { val value = Payload { value: Vec::from([42]) }; match forward(Carrier::Data(value)) { Carrier::Data(item) => item.value[0usize], Carrier::Stop => 0 } }",
     ] {
         let artifact = compiler
             .compile_to_artifact(
