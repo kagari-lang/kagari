@@ -169,7 +169,7 @@ impl MemberQuery<'_> {
             let applied = if let Some(interface) = interface {
                 ty.with_self(&interface.declaration, self.receiver)
                     .instantiate(substitution)
-                    .with_associated_types(interface)
+                    .with_associated_types(interface, self.receiver)
             } else {
                 ty.instantiate(substitution)
             };

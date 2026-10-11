@@ -73,7 +73,12 @@ pub fn interface_views<'a>(
             parameters.bind(&parameter.owner, parameter.position, argument);
         }
         let bound = Ty::Trait(parameters.apply_nominal(bound, cancel)?);
-        let bound = resolve_associated_outputs(&bound, parent, cancel)?;
+        let bound = resolve_associated_outputs(
+            &bound,
+            parent,
+            &Ty::SelfType(parent.declaration.clone()),
+            cancel,
+        )?;
         // The caller validates the binder scope. Shared bodies preserve their
         // parameters here just as they do in the surrounding interface type.
         parent.associated_types.insert(iter, bound);
@@ -127,7 +132,12 @@ pub fn trait_closure<'a>(
         path.push(applied.declaration.clone());
         for parent in contract.supertraits.iter().rev() {
             let parent = Ty::Trait(empty.apply_nominal(parent, cancel)?);
-            let parent = resolve_associated_outputs(&parent, &applied, cancel)?;
+            let parent = resolve_associated_outputs(
+                &parent,
+                &applied,
+                &Ty::SelfType(applied.declaration.clone()),
+                cancel,
+            )?;
             let parent = receivers.apply(&parent, cancel)?;
             let parent = parameters.apply(&parent, cancel)?;
             let Ty::Trait(parent) = parent else {

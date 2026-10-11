@@ -317,7 +317,7 @@ impl<'a> BodyChecker<'a> {
                 .return_type
                 .with_self(&contract.id, ty)
                 .instantiate(&substitution)
-                .with_associated_types(&interface),
+                .with_associated_types(&interface, ty),
         );
         Some((interface, result))
     }

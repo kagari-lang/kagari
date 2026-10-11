@@ -211,9 +211,22 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         },
         kagari_stdlib::declarations::StandardDeclarations,
     };
-    for (operation, retained_values) in [
-        ("sort_by(|a,b| { visit(); a.cmp(b) })", vec![0, 1, 2, 3]),
-        ("retain(|value| { visit(); value != 1 })", vec![0, 2, 3]),
+    for (operation, retained_values, preserve_order) in [
+        (
+            "sort_by(|a,b| { visit(); a.cmp(b) })",
+            vec![0, 1, 2, 3],
+            false,
+        ),
+        (
+            "retain(|value| { visit(); value != 1 })",
+            vec![0, 2, 3],
+            false,
+        ),
+        (
+            "filter_map(|value| { visit(); if value == 99 { Some(value) } else { None } }).count()",
+            vec![1, 3, 2, 0],
+            true,
+        ),
     ] {
         let context = ExecutionContext::default();
         let mut module = ModuleBuilder::new(
@@ -302,7 +315,9 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
                 value
             })
             .collect::<Vec<_>>();
-        actual.sort();
+        if !preserve_order {
+            actual.sort();
+        }
         assert_eq!(actual, retained_values);
         runtime
             .runtime()

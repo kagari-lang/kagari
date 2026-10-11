@@ -50,7 +50,7 @@ fn define_type(
         .insert(owner, format!("Language-owned {name} type."));
 }
 
-fn hash_bounds(key: Ty) -> Vec<GenericBound> {
+pub(super) fn hash_bounds(key: Ty) -> Vec<GenericBound> {
     vec![GenericBound {
         ty: key,
         constraints: vec![

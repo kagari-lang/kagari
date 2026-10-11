@@ -352,6 +352,10 @@ fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
         "struct C{} impl Iterator for C {type Item=i32;fn next(self)->Option<i32>{None}} impl Iterable for C {type Item=i32;type Iter=C;fn iter(self)->C {self}}",
         "struct C{} impl Iterator for C {type Item=String;fn next(self)->Option<String>{None}} struct R{} impl Iterable for R {type Item=i32;type Iter=C;fn iter(self)->C{C{}}}",
         "fn take<T:Iterable<Item=String>>(x:T){} fn main(){take([42]);}",
+        "fn main(){[1].chain([true]);}",
+        "fn main(){[1].zip(42);}",
+        "fn main(){[1].filter_map(|x|x);}",
+        "fn main(){[1].for_each(|x|x);}",
     ] {
         assert!(
             KagariEngine::default()
@@ -526,6 +530,87 @@ fn make(calls:Calls)->Range{calls.source+=1;Range{calls}}
 impl Iterable for Range{type Item=i32;type Iter=Counter;fn iter(self)->Counter{self.calls.into+=1;Counter{calls:self.calls}}}
 impl Iterator for Counter{type Item=i32;fn next(self)->Option<i32>{self.calls.next+=1;Some(21)}}
 fn main()->i32{val calls=Calls{source:0,into:0,next:0};var total=0;for x in make(calls){total+=x;if total==42 {break;}}if calls.source != 1 { return 0; }if calls.into != 1 { return 0; }if calls.next != 2 { return 0; }total}
+"#,
+    );
+}
+
+#[test]
+fn paired_adapters_select_both_sources_and_preserve_laziness_and_resumption() {
+    execute(
+        r#"
+use std::collections::List;
+struct Source { val log:Vec<i32>, val id:i32 }
+struct Cursor { val log:Vec<i32>, val id:i32, var step:i32 }
+fn make(log:Vec<i32>,id:i32)->Source { log.push(id); Source {log,id} }
+impl Iterable for Source {
+    type Item=i32; type Iter=Cursor;
+    fn iter(self)->Cursor { self.log.push(self.id+10); Cursor {log:self.log,id:self.id,step:0} }
+}
+impl Iterator for Cursor {
+    type Item=i32;
+    fn next(self)->Option<i32> {
+        self.step+=1; self.log.push(self.id+20);
+        if self.step==1 || self.step==3 {Some(self.step)} else {None}
+    }
+}
+fn pairs<L:Iterable<Item=i32>,R:Iterable>(left:L,right:R)->usize {
+    left.zip(right).enumerate().count()
+}
+fn main()->i32 {
+    val log=Vec::new();
+    val zipped=make(log,1).zip(make(log,2));
+    if log.len()!=4usize || log[0]!=1 || log[1]!=2 || log[2]!=11 || log[3]!=12 {return 0;}
+    val alias=zipped;
+    match alias.next() {Some(pair)=>{if pair[0]!=1 || pair[1]!=1 {return 0;}},None=>{return 0;}};
+    if log[4]!=21 || log[5]!=22 {return 0;}
+    if zipped.next()!=None || log.len()!=7usize {return 0;}
+    if alias.next()!=None || log.len()!=9usize {return 0;}
+    val pulse=Cursor {log:Vec::new(),id:0,step:0};
+    val mapped=pulse.filter_map(|x|if x==3 {Some(Vec::from([42]))} else {None});
+    if mapped.next()!=None {return 0;}
+    match mapped.next() {Some(value)=>{if value[0]!=42 {return 0;}},None=>{return 0;}};
+    val first=Cursor {log:Vec::new(),id:0,step:0};
+    val last=Cursor {log:Vec::new(),id:0,step:0};
+    val chained=first.chain(last);
+    if chained.next()!=Some(1) || chained.next()!=Some(1) || chained.next()!=None || chained.next()!=Some(3) || first.step!=2 {return 0;}
+    val skipped=Cursor {log:Vec::new(),id:0,step:0}.skip(2usize);
+    if skipped.next()!=None || skipped.next()!=None {return 0;}
+    val counted:Iterable<Item=i32,Iter=Cursor> = Source {log:Vec::new(),id:0};
+    val erased:Iterator<Item=String> = ["a","b"].iter();
+    if pairs(counted,erased)!=1usize {return 0;}
+    val list:List<i32> = Vec::from([10,20]);
+    val output:Vec<(usize,(i32,String))> = list.zip(["a","b"]).enumerate().collect();
+    if output[0][0]!=0usize || output[1][0]!=1usize || output[1][1][0]!=20 || output[1][1][1]!="b" {return 0;}
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn short_circuit_terminals_share_progress_and_release_nested_source_scopes() {
+    execute(
+        r#"
+fn main()->i32 {
+    val left=Vec::from([1,2,3]); val right=Vec::from([10,20,30]); val calls=Vec::from([0]);
+    val pipeline:Iterator<Item=(i32,i32)> = left.map(|x|x).zip(right.filter(|x|true));
+    if !pipeline.any(|pair| {calls[0]+=1;pair[0]==2}) || calls[0]!=2 {return 0;}
+    match pipeline.find(|pair|true) {Some(pair)=>{if pair[0]!=3 || pair[1]!=30 {return 0;}},None=>{return 0;}};
+    left.push(4);right.push(40);
+    val values=Vec::from([1,2,3,4]);
+    val cursor=values.skip(1usize);val alias=cursor;
+    if cursor.all(|x| {calls[0]+=1;x<3}) || calls[0]!=4 {return 0;}
+    if alias.next()!=Some(4) {return 0;}
+    for item in alias {break;}
+    values.push(5);
+    val empty:[i32]=[];
+    if empty.any(|x|true) || !empty.all(|x|false) || empty.find(|x|true)!=None || empty.count()!=0usize {return 0;}
+    val output=Vec::new();
+    val unit=values.enumerate().for_each(|pair| {output.push(pair[1]);});
+    if unit!=() || output.len()!=5usize || output[4]!=5 {return 0;}
+    values.push(6);
+    42
+}
 "#,
     );
 }

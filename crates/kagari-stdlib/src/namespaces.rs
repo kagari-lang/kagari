@@ -57,9 +57,9 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
         "ParseError" | "TryFromIntError" => module("core", "num"),
         "ControlFlow" | "Bound" | "Range" | "RangeInclusive" | "RangeFrom" | "RangeTo"
         | "RangeToInclusive" | "RangeFull" => module("core", "ops"),
-        "CollectionCursor" | "MapIterator" | "FilterIterator" | "TakeIterator" => {
-            module("core", "iter")
-        }
+        "CollectionCursor" | "MapIterator" | "FilterIterator" | "TakeIterator"
+        | "FilterMapIterator" | "SkipIterator" | "EnumerateIterator" | "ZipIterator"
+        | "ChainIterator" => module("core", "iter"),
         "HashMap" | "HashSet" => module("std", "collections"),
         _ => panic!("unknown bundled type {name}"),
     }
@@ -75,6 +75,15 @@ pub fn receiver_owner(ty: &Ty) -> Option<ModuleIdentity> {
         Ty::Array(..) => module("core", "array"),
         Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),
         Ty::Iter(_) => module("core", "iter"),
+        Ty::Trait(interface)
+            if interface
+                .declaration
+                .path
+                .last()
+                .is_some_and(|member| member.name == "Iterator") =>
+        {
+            module("core", "iter")
+        }
         Ty::Range(..) => module("core", "ops"),
         _ => return None,
     })

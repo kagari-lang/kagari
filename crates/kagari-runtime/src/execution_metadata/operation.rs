@@ -37,10 +37,9 @@ impl BoundOperation {
         &self,
         required: &NativeCallableRequirement<DefinitionId>,
     ) -> bool {
-        self.requirement == *required
-            || (self.generic.is_some()
-                && self.requirement.receiver == required.receiver
-                && self.requirement.interface == required.interface
-                && self.requirement.member == required.member)
+        self.requirement.receiver == required.receiver
+            && self.requirement.member == required.member
+            && self.associated_interface.satisfies(&required.interface)
+            && (self.generic.is_some() || self.requirement.arguments == required.arguments)
     }
 }

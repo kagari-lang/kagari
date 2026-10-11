@@ -284,7 +284,10 @@ pub(super) fn validate(
                                 ConstraintTarget::Trait(required) => {
                                     let TypeId::Trait(required) =
                                         TypeId::Trait(required.instantiate(&substitution))
-                                            .with_associated_types(instance)
+                                            .with_associated_types(
+                                                instance,
+                                                &TypeId::SelfType(instance.declaration.clone()),
+                                            )
                                     else {
                                         unreachable!()
                                     };
@@ -611,12 +614,20 @@ pub(super) fn validate_imported_interface_type(
                                     .params
                                     .first()
                                     .is_some_and(|param| param.name == "self"),
-                                &method.return_type.with_associated_types(&parent),
+                                &method.return_type.with_associated_types(
+                                    &parent,
+                                    &TypeId::SelfType(parent.declaration.clone()),
+                                ),
                                 method
                                     .params
                                     .iter()
                                     .skip(1)
-                                    .map(|param| param.ty.with_associated_types(&parent))
+                                    .map(|param| {
+                                        param.ty.with_associated_types(
+                                            &parent,
+                                            &TypeId::SelfType(parent.declaration.clone()),
+                                        )
+                                    })
                                     .collect::<Vec<_>>()
                                     .iter(),
                             ) {

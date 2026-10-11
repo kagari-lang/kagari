@@ -317,7 +317,7 @@ impl BodyChecker<'_> {
         let resolve = |ty: &TypeId| {
             self.aggregates.normalize_type(
                 &ty.instantiate(&substitution)
-                    .with_associated_types(interface),
+                    .with_associated_types(interface, receiver),
             )
         };
         Some(ResolvedCall {

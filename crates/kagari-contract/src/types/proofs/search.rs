@@ -9,7 +9,7 @@ use kagari_types::{
         Constraint, GenericBound, NominalTy, Ty, inheritance,
         matching::match_pattern,
         substitution::{
-            MAX_TYPE_NODES, TypeSubstitution, TypeTransformError, resolve_associated_outputs,
+            MAX_TYPE_NODES, TypeSubstitution, TypeTransformError, normalize_projections,
         },
     },
 };
@@ -227,7 +227,51 @@ impl ProofCatalog<'_> {
                     continue;
                 };
                 let bound = substitution.apply(&Ty::Trait(bound.clone()), budget.cancel)?;
-                let Ty::Trait(bound) = resolve_associated_outputs(&bound, contract, budget.cancel)?
+                // Resolve outputs from the projection owner's checked assumption.
+                // For I: Iterable<Item = T>, I::Iter inherits Iterator<Item = T>,
+                // even when the Iter projection names the unqualified contract.
+                let Ty::Trait(bound) = normalize_projections(
+                    &bound,
+                    &|interface, receiver, member, arguments| {
+                        if !arguments.is_empty() {
+                            return Ok(None);
+                        }
+                        if interface.declaration == contract.declaration
+                            && receiver == owner.as_ref()
+                            && let Some(value) = contract.associated_types.get(member)
+                        {
+                            return Ok(Some(value.clone()));
+                        }
+                        let mut selected = None;
+                        for bound in assumptions.iter().filter(|bound| bound.ty == *receiver) {
+                            for constraint in &bound.constraints {
+                                let Constraint::Trait(available) = constraint else {
+                                    continue;
+                                };
+                                for parent in self.ancestry(available, receiver, budget.cancel)? {
+                                    if satisfies(&parent, interface)
+                                        && let Some(value) = parent.associated_types.get(member)
+                                    {
+                                        if selected.as_ref().is_some_and(|old| old != value) {
+                                            return Ok(None);
+                                        }
+                                        selected = Some(value.clone());
+                                    }
+                                }
+                            }
+                        }
+                        Ok(selected.filter(|value| {
+                            value
+                                != &Ty::Projection {
+                                    receiver: Box::new(receiver.clone()),
+                                    interface: Box::new(interface.clone()),
+                                    member: member.clone(),
+                                    arguments: arguments.to_vec(),
+                                }
+                        }))
+                    },
+                    budget.cancel,
+                )?
                 else {
                     unreachable!("associated trait bound");
                 };

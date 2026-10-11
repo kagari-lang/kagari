@@ -285,7 +285,10 @@ impl HostDeclarations {
                             }
                             ConstraintTarget::Trait(required) => {
                                 let TypeId::Trait(required) = TypeId::Trait(required.clone())
-                                    .with_associated_types(&interface)
+                                    .with_associated_types(
+                                        &interface,
+                                        &TypeId::SelfType(interface.declaration.clone()),
+                                    )
                                     .with_self(&trait_signature.id, &receiver)
                                     .instantiate(&substitution)
                                 else {
@@ -323,7 +326,10 @@ impl HostDeclarations {
                             }
                             ConstraintTarget::Trait(required) => {
                                 let TypeId::Trait(required) = TypeId::Trait(required.clone())
-                                    .with_associated_types(&interface)
+                                    .with_associated_types(
+                                        &interface,
+                                        &TypeId::SelfType(interface.declaration.clone()),
+                                    )
                                     .with_self(&trait_signature.id, &receiver)
                                     .instantiate(&substitution)
                                 else {
@@ -371,7 +377,10 @@ impl HostDeclarations {
                         .map(|parameter| {
                             parameter
                                 .ty
-                                .with_associated_types(&interface)
+                                .with_associated_types(
+                                    &interface,
+                                    &TypeId::SelfType(interface.declaration.clone()),
+                                )
                                 .with_self(&trait_signature.id, &receiver)
                                 .instantiate(&substitution)
                         })
@@ -400,7 +409,10 @@ impl HostDeclarations {
                     }
                     let expected_return = method
                         .return_type
-                        .with_associated_types(&interface)
+                        .with_associated_types(
+                            &interface,
+                            &TypeId::SelfType(interface.declaration.clone()),
+                        )
                         .with_self(&trait_signature.id, &receiver)
                         .instantiate(&substitution);
                     let actual_return = signature_type(&host_method.return_type);

@@ -1,8 +1,9 @@
 //! Base implementations use ordinary native declarations and selected callbacks.
-use crate::catalog::contracts;
+use crate::catalog::{contracts, defaults};
 use crate::catalog::{key, key::RegistrationTrait};
 use kagari_common::identity::{DefinitionKind, associated_type_id};
 use kagari_types::{
+    collection::CollectionAccess,
     conversion::checked_conversion_fallible,
     declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
     scalar::BuiltinType,
@@ -70,6 +71,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         "$foundation_list_from_iter",
     );
     iteration_calls(module, item);
+    hash_constructors(module);
 }
 
 fn checked_conversions(module: &mut ModuleDecl) {
@@ -158,4 +160,83 @@ fn iteration_calls(module: &mut ModuleDecl, item: Ty) {
             },
         ],
     );
+}
+
+fn hash_constructors(module: &mut ModuleDecl) {
+    for map in [false, true] {
+        let owner = module.implementation_id(module.implementations.len());
+        let parameters: Vec<_> = (0..if map { 2 } else { 1 })
+            .map(|position| GenericParam {
+                owner: owner.clone(),
+                position,
+            })
+            .collect();
+        let key_type = parameters[0].as_type();
+        let value = if map {
+            Some(parameters[1].as_type())
+        } else {
+            None
+        };
+        let item = value.as_ref().map_or_else(
+            || key_type.clone(),
+            |value| Ty::Tuple(vec![key_type.clone(), value.clone()]),
+        );
+        let receiver = value.as_ref().map_or_else(
+            || Ty::Set(Box::new(key_type.clone()), CollectionAccess::Mutable),
+            |value| Ty::Map {
+                key: Box::new(key_type.clone()),
+                value: Box::new(value.clone()),
+                access: CollectionAccess::Mutable,
+            },
+        );
+        implement(
+            module,
+            key::applied(RegistrationTrait::FromIterator, vec![item.clone()]),
+            receiver.clone(),
+            parameters,
+            if map {
+                "$foundation_map_from_iter"
+            } else {
+                "$foundation_set_from_iter"
+            },
+        );
+        module.implementations.last_mut().unwrap().bounds = defaults::hash_bounds(key_type.clone());
+        iteration_calls(module, item);
+        let method = ModuleDecl::method_id(&owner, "from_iter");
+        let iteration = module.callable_requirements.remove(&method).unwrap();
+        let mut requirements: Vec<_> = [
+            (RegistrationTrait::Hash, "hash"),
+            (RegistrationTrait::PartialEq, "eq"),
+        ]
+        .into_iter()
+        .map(|(protocol, name)| {
+            let interface = key::applied(protocol, vec![]);
+            NativeCallableRequirement {
+                receiver: key_type.clone(),
+                member: ModuleDecl::method_id(&interface.declaration, name),
+                interface,
+                arguments: vec![],
+            }
+        })
+        .collect();
+        let interface = key::applied(
+            if map {
+                RegistrationTrait::MutableMap
+            } else {
+                RegistrationTrait::MutableSet
+            },
+            value.map_or_else(
+                || vec![key_type.clone()],
+                |value| vec![key_type.clone(), value],
+            ),
+        );
+        requirements.push(NativeCallableRequirement {
+            receiver,
+            member: ModuleDecl::method_id(&interface.declaration, "insert"),
+            interface,
+            arguments: vec![],
+        });
+        requirements.extend(iteration);
+        module.callable_requirements.insert(method, requirements);
+    }
 }

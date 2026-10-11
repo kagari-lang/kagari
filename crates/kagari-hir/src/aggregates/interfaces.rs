@@ -47,8 +47,8 @@ impl AggregateCatalog {
                 .cloned()
                 .zip(parent.arguments.iter().cloned())
                 .collect();
-            let erased =
-                TypeId::Trait(bound.instantiate(&substitution)).with_associated_types(parent);
+            let erased = TypeId::Trait(bound.instantiate(&substitution))
+                .with_associated_types(parent, &TypeId::SelfType(parent.declaration.clone()));
             if erased.contains_self_type() || erased.contains_projection() {
                 continue;
             }

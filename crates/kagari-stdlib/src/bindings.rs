@@ -113,6 +113,9 @@ fn build_module(
             "$foundation_from_str" => construction::from_str,
             "$foundation_sum" => construction::sum,
             "$foundation_product" => construction::product,
+            "$foundation_map_from_iter" | "$foundation_set_from_iter" => {
+                construction::hash_from_iter
+            }
             "$foundation_list_from_iter" => construction::list_from_iter,
             "$foundation_array_len" => arrays::length,
             "$foundation_array_is_empty" => arrays::is_empty,
@@ -192,7 +195,16 @@ fn build_module(
         builder.bind_storage(&catalog.task_scope_type()?, NativeStorage::task_scope())?;
     }
     if iterator_module {
-        for name in ["MapIterator", "FilterIterator", "TakeIterator"] {
+        for name in [
+            "MapIterator",
+            "FilterIterator",
+            "TakeIterator",
+            "FilterMapIterator",
+            "SkipIterator",
+            "EnumerateIterator",
+            "ZipIterator",
+            "ChainIterator",
+        ] {
             let id = ModuleDecl::new(namespaces::type_owner(name))
                 .definition(DefinitionKind::AssociatedType, name);
             builder.bind_storage(&catalog.type_reference(&id)?, iterable::storage())?;

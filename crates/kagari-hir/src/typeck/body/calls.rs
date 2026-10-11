@@ -370,7 +370,7 @@ impl<'a> BodyChecker<'a> {
                             &parameter
                                 .ty
                                 .instantiate(&substitution)
-                                .with_associated_types(interface),
+                                .with_associated_types(interface, receiver),
                         )
                     })
                     .collect(),

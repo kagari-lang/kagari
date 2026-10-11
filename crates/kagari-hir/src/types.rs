@@ -213,13 +213,23 @@ impl TypeId {
     /// Resolve known outputs and retain the applied interface for other projections.
     /// A bound's sibling output constraints are part of the context supplied to
     /// inherited members, even when the requested output remains abstract.
-    pub fn with_associated_types(&self, interface: &NominalType) -> Self {
+    pub fn with_associated_types(&self, interface: &NominalType, owner: &TypeId) -> Self {
         associated::normalize(self, &|projected, receiver, member, arguments| {
-            if !arguments.is_empty() || projected.declaration != interface.declaration {
+            if !arguments.is_empty()
+                || projected.declaration != interface.declaration
+                || receiver != owner
+            {
                 return None;
             }
             if let Some(output) = interface.associated_types.get(member) {
-                return Some(output.clone());
+                return (output
+                    != &Self::Projection {
+                        receiver: Box::new(receiver.clone()),
+                        interface: Box::new(projected.clone()),
+                        member: member.clone(),
+                        arguments: vec![],
+                    })
+                    .then(|| output.clone());
             }
             (projected != interface).then(|| Self::Projection {
                 receiver: Box::new(receiver.clone()),

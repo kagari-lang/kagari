@@ -566,6 +566,17 @@ impl<'a> InstancePlanner<'a> {
                 arguments: arguments.iter().map(lower_type).collect(),
             });
             self.require_iterator_view(declaration, arguments, span)?;
+            if let Some(contract) = self.catalog.implementation_signature(declaration) {
+                let substitution = contract
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(arguments.iter().cloned())
+                    .collect();
+                let receiver = contract.for_type.instantiate(&substitution);
+                let interface = contract.trait_type.instantiate(&substitution);
+                self.require_parent_interfaces(&receiver, &interface, span)?;
+            }
             if declaration.module == *self.module.lowered.source.module_identity()
                 && let Some(contract) = self.catalog.implementation_signature(declaration)
             {

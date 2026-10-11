@@ -50,7 +50,7 @@ impl InstancePlanner<'_> {
         {
             let source = ty
                 .instantiate(&substitution)
-                .with_associated_types(interface);
+                .with_associated_types(interface, receiver);
             let result = lower_type(&self.catalog.normalize_type(&source));
             let source = lower_type(&source);
             if source != result
@@ -99,13 +99,19 @@ impl InstancePlanner<'_> {
             .into_iter()
             .map(|(ty, targets)| {
                 (
-                    ty.with_associated_types(interface),
+                    ty.with_associated_types(
+                        interface,
+                        &TypeId::SelfType(interface.declaration.clone()),
+                    ),
                     targets
                         .into_iter()
                         .map(|target| match target {
                             ConstraintTarget::Trait(required) => {
-                                let TypeId::Trait(required) =
-                                    TypeId::Trait(required).with_associated_types(interface)
+                                let TypeId::Trait(required) = TypeId::Trait(required)
+                                    .with_associated_types(
+                                        interface,
+                                        &TypeId::SelfType(interface.declaration.clone()),
+                                    )
                                 else {
                                     unreachable!()
                                 };
@@ -144,15 +150,65 @@ impl InstancePlanner<'_> {
                         .catalog
                         .trait_(&interface.declaration)
                         .ok_or_else(invalid)?;
-                    for operation in &contract.methods {
-                        let required = NativeCallableRequirement {
-                            receiver: lower_type(&receiver),
-                            interface: lower_nominal_type(&interface),
-                            member: operation.id.clone(),
+                    let mut sources = vec![(receiver.clone(), interface.clone())];
+                    let mut applied = TypeSubstitution::default();
+                    applied.insert_receiver(interface.declaration.clone(), receiver.clone());
+                    for (parameter, argument) in
+                        contract.generic_params.iter().zip(&interface.arguments)
+                    {
+                        applied.insert(parameter.clone(), argument.clone());
+                    }
+                    for (member, constraints) in &contract.associated_types {
+                        if contract
+                            .associated_type_parameters
+                            .get(member)
+                            .is_some_and(|family| !family.parameters.is_empty())
+                        {
+                            continue;
+                        }
+                        let projected = TypeId::Projection {
+                            receiver: Box::new(receiver.clone()),
+                            interface: Box::new(interface.clone()),
+                            member: member.clone(),
                             arguments: vec![],
-                        };
-                        if !requirements.contains(&required) {
-                            requirements.push(required);
+                        }
+                        .with_associated_types(&interface, &receiver);
+                        for constraint in constraints {
+                            let ConstraintTarget::Trait(required) = constraint else {
+                                continue;
+                            };
+                            let TypeId::Trait(required) =
+                                TypeId::Trait(required.instantiate(&applied))
+                                    .with_associated_types(&interface, &receiver)
+                            else {
+                                unreachable!()
+                            };
+                            let closure = self
+                                .catalog
+                                .trait_closure(&required, &projected, &self.options.cancel)
+                                .map_err(|_| invalid())?;
+                            sources.extend(
+                                closure
+                                    .into_iter()
+                                    .map(|interface| (projected.clone(), interface)),
+                            );
+                        }
+                    }
+                    for (receiver, interface) in sources {
+                        let contract = self
+                            .catalog
+                            .trait_(&interface.declaration)
+                            .ok_or_else(invalid)?;
+                        for operation in &contract.methods {
+                            let required = NativeCallableRequirement {
+                                receiver: lower_type(&receiver),
+                                interface: lower_nominal_type(&interface),
+                                member: operation.id.clone(),
+                                arguments: vec![],
+                            };
+                            if !requirements.contains(&required) {
+                                requirements.push(required);
+                            }
                         }
                     }
                 }

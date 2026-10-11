@@ -30,7 +30,10 @@ fn entry<'a>(
 }
 
 fn function_owner(name: &str) -> ModuleIdentity {
-    if name.starts_with("__default_Iterable_") || name.ends_with("Iterator_next") {
+    if name.starts_with("__default_Iterable_")
+        || name.ends_with("Iterator_next")
+        || name == "$foundation_iterator_identity_iter"
+    {
         return namespaces::module("core", "iter");
     }
     if name.starts_with("$foundation_task_") {

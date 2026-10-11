@@ -116,8 +116,8 @@ impl OperationBindings {
                 let operation = heap.bound_operation(*id)?;
                 (operation.slot == slot
                     && operation.requirement.receiver == *receiver
-                    && operation.requirement.interface == *interface)
-                    .then_some(*id)
+                    && operation.associated_interface.satisfies(interface))
+                .then_some(*id)
             }
             OperationSegment::Receiver(id) => {
                 heap.operation_group(*id)?.slot(receiver, interface, slot)

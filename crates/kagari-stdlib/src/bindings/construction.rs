@@ -125,7 +125,7 @@ pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let Value::GcHandle(id) = result else {
         return Err(invalid());
     };
-    for_each(cx, |cx, value| cx.heap().sequence_push(id, value))?;
+    for_each(cx, 0, |cx, value| cx.heap().sequence_push(id, value))?;
     Ok(result)
 }
 
@@ -154,7 +154,7 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
         BuiltinType::F64 => Value::F64(identity as f64),
         _ => Value::I64(i64::from(identity)),
     };
-    for_each(cx, |_, item| {
+    for_each(cx, 0, |_, item| {
         result = if kind.integer_layout().is_some() {
             numeric::fixed_integer(
                 NumericOperation {
@@ -205,6 +205,7 @@ fn vec_argument(cx: &CallContext<'_>) -> NativeResult<Option<HeapObjectId>> {
 
 fn for_each(
     cx: &mut CallContext<'_>,
+    first: usize,
     mut visit: impl FnMut(&mut CallContext<'_>, Value) -> NativeResult<()>,
 ) -> NativeResult<()> {
     let source = cx.argument(0)?;
@@ -221,8 +222,8 @@ fn for_each(
         }
         return Ok(());
     }
-    let iter = cx.selected_at(0)?;
-    let next = cx.selected_at(1)?;
+    let iter = cx.selected_at(first)?;
+    let next = cx.selected_at(first + 1)?;
     let cursor = cx.call_values(iter, &[source])?;
     let _root = cx.heap().root_value(cursor).ok_or_else(invalid)?;
     let _scope = cx.heap().begin_collection_iteration(&cursor)?;
@@ -274,4 +275,30 @@ fn scalar_vec_aggregate(
     }
 
     integers!(I8:i8,I16:i16,I32:i32,I64:i64,ISize:isize,U8:u8,U16:u16,U32:u32,U64:u64,USize:usize)
+}
+
+pub(super) fn hash_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let result = cx.allocate_result()?;
+    let _root = cx.heap().root_value(result).ok_or_else(invalid)?;
+    let insert = cx.selected_at(2)?;
+    let map = matches!(result, Value::Map(_));
+    for_each(cx, 3, |cx, item| {
+        if map {
+            let Value::Tuple(id) = item else {
+                return Err(invalid());
+            };
+            let (key, value) = {
+                let tuple = cx.heap().tuple(id).ok_or_else(invalid)?;
+                let [key, value] = &*tuple else {
+                    return Err(invalid());
+                };
+                (*key, *value)
+            };
+            cx.call_values(insert, &[result, key, value])?;
+        } else {
+            cx.call_values(insert, &[result, item])?;
+        }
+        Ok(())
+    })?;
+    Ok(result)
 }

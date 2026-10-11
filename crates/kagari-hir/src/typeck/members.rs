@@ -164,7 +164,7 @@ pub(crate) fn interfaces(
                     ConstraintTarget::Trait(value) => {
                         let TypeId::Trait(value) = TypeId::Trait(value.clone())
                             .instantiate(&substitution)
-                            .with_associated_types(&applied)
+                            .with_associated_types(&applied, receiver)
                         else {
                             unreachable!("associated trait bound");
                         };

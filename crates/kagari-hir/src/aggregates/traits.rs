@@ -431,7 +431,7 @@ pub fn trait_inheritance_closure(
         path.push(applied.declaration.clone());
         for parent in supertraits.iter().rev() {
             let TypeId::Trait(parent) = TypeId::Trait(parent.clone())
-                .with_associated_types(&applied)
+                .with_associated_types(&applied, &TypeId::SelfType(applied.declaration.clone()))
                 .with_self(&applied.declaration, receiver)
                 .instantiate(&substitution)
             else {

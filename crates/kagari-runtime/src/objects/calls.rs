@@ -317,7 +317,11 @@ impl Runtime {
         let group = self.bind_table_operations(&binding)?;
         self.gc
             .operation_group(group)
-            .and_then(|group| group.operation(&required))
+            .and_then(|group| {
+                group
+                    .operation(&required)
+                    .or_else(|| group.selected_method(&required))
+            })
             .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))
     }
 }

@@ -1,6 +1,7 @@
 //! Intrinsic defining modules and explicit native constructor bindings.
 use crate::{
     declaration::{TypeDef, TypeDefKind, module::DeclarationError, native::NativeTypeConstructor},
+    language::Protocol,
     scalar::BuiltinType,
     ty::Ty,
 };
@@ -53,6 +54,11 @@ impl ReceiverOwners {
                 });
             }
             Ty::Builtin(BuiltinType::String) => NativeTypeConstructor::String,
+            Ty::Trait(interface)
+                if Protocol::from_id(&interface.declaration) == Some(Protocol::Iterator) =>
+            {
+                return Some(interface.declaration.module.clone());
+            }
             Ty::Array(..) => {
                 return Some(ModuleIdentity {
                     package: PackageId("kagari-core".into()),

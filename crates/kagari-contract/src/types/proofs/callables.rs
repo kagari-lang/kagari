@@ -7,7 +7,10 @@ use crate::{
         callables::{NativeCallableApplication, NativeCallableOrigin},
         result::NativeResultAdapter,
     },
-    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
+    types::{
+        ConcreteFunctionIdentity,
+        proofs::{ProofCatalog, satisfies},
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -101,8 +104,10 @@ impl ProofCatalog<'_> {
         let Some(interface) = table.interface() else {
             return Ok(false);
         };
-        if substitution.apply_nominal(interface, cancel)? != required.interface
-            || substitution.apply(table.receiver(), cancel)? != required.receiver
+        if !satisfies(
+            &substitution.apply_nominal(interface, cancel)?,
+            &required.interface,
+        ) || substitution.apply(table.receiver(), cancel)? != required.receiver
         {
             return Ok(false);
         }
@@ -302,7 +307,14 @@ impl ProofCatalog<'_> {
                 application.arguments = application
                     .arguments
                     .iter()
-                    .map(|ty| resolve_associated_outputs(ty, &requirement.interface, cancel))
+                    .map(|ty| {
+                        resolve_associated_outputs(
+                            ty,
+                            &requirement.interface,
+                            &requirement.receiver,
+                            cancel,
+                        )
+                    })
                     .collect::<Result<_, _>>()?;
                 let Some(resolved) = self.resolve_native_default(&application, cancel)? else {
                     return Ok(None);

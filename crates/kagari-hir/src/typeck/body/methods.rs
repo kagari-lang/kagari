@@ -563,7 +563,7 @@ impl<'a> BodyChecker<'a> {
             .return_type
             .with_self(self_owner, &self_ty)
             .instantiate(&substitution)
-            .with_associated_types(interface);
+            .with_associated_types(interface, &self_ty);
         if let Some(expected) = expected
             && inference::infer(
                 &return_pattern,
@@ -612,7 +612,7 @@ impl<'a> BodyChecker<'a> {
                         .ty
                         .with_self(self_owner, &self_ty)
                         .instantiate(&substitution)
-                        .with_associated_types(interface),
+                        .with_associated_types(interface, &self_ty),
                 )
             })
             .collect::<Vec<_>>();
@@ -653,7 +653,7 @@ impl<'a> BodyChecker<'a> {
                 (
                     ty.with_self(self_owner, &self_ty)
                         .instantiate(&substitution)
-                        .with_associated_types(interface),
+                        .with_associated_types(interface, &self_ty),
                     constraints
                         .iter()
                         .map(|constraint| match constraint {
@@ -665,7 +665,7 @@ impl<'a> BodyChecker<'a> {
                                     &TypeId::Trait(bound.clone())
                                         .with_self(self_owner, &self_ty)
                                         .instantiate(&substitution)
-                                        .with_associated_types(interface),
+                                        .with_associated_types(interface, &self_ty),
                                 ) else {
                                     unreachable!("trait method bound");
                                 };

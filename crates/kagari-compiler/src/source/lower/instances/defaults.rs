@@ -66,7 +66,7 @@ impl InstancePlanner<'_> {
         let normalize = |ty: &TypeId| {
             self.catalog.normalize_type(
                 &ty.instantiate(&substitution)
-                    .with_associated_types(interface),
+                    .with_associated_types(interface, receiver),
             )
         };
         let template_arguments = checked

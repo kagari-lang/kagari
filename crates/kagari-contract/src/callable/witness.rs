@@ -16,7 +16,7 @@ use {
         },
         ty::{
             Constraint, GenericBound, GenericParam, Ty, inheritance,
-            substitution::{TypeSubstitution, TypeTransformError},
+            substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
         },
     },
 };
@@ -169,8 +169,69 @@ pub fn required_operations<'a>(
     lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
     cancel: &CancellationToken,
 ) -> Result<Vec<NativeCallableRequirement>, TypeTransformError> {
-    let mut operations = vec![];
+    // A bound also promises its immediate associated-type contracts. In
+    // particular Iterable supplies the selected next for its Iter projection.
+    let mut expanded = bounds.to_vec();
     for bound in bounds {
+        for constraint in &bound.constraints {
+            let Constraint::Trait(interface) = constraint else {
+                continue;
+            };
+            for interface in inheritance::trait_closure(interface, &bound.ty, cancel, lookup)? {
+                let contract =
+                    lookup(&interface.declaration).ok_or(TypeTransformError::InvalidContract)?;
+                let mut substitution = TypeSubstitution::default();
+                substitution.bind_receiver(&interface.declaration, &bound.ty);
+                for (parameter, argument) in
+                    contract.generic_params.iter().zip(&interface.arguments)
+                {
+                    substitution.bind(&parameter.owner, parameter.position, argument);
+                }
+                for member in &contract.associated_types {
+                    if !member.generic_params.is_empty() || member.bounds.is_empty() {
+                        continue;
+                    }
+                    let apply = |ty: &Ty| {
+                        resolve_associated_outputs(
+                            &substitution.apply(ty, cancel)?,
+                            &interface,
+                            &bound.ty,
+                            cancel,
+                        )
+                    };
+                    let receiver = apply(&Ty::Projection {
+                        receiver: Box::new(Ty::SelfType(interface.declaration.clone())),
+                        interface: Box::new(interface.clone()),
+                        member: member.declaration.clone(),
+                        arguments: vec![],
+                    })?;
+                    let constraints = member
+                        .bounds
+                        .iter()
+                        .map(|constraint| match constraint {
+                            Constraint::Standard(kind) => Ok(Constraint::Standard(*kind)),
+                            Constraint::Trait(required) => {
+                                let Ty::Trait(required) = apply(&Ty::Trait(required.clone()))?
+                                else {
+                                    return Err(TypeTransformError::InvalidContract);
+                                };
+                                Ok(Constraint::Trait(required))
+                            }
+                        })
+                        .collect::<Result<_, _>>()?;
+                    expanded.push(GenericBound {
+                        ty: receiver,
+                        constraints,
+                    });
+                    if expanded.len() > 4096 {
+                        return Err(TypeTransformError::LimitExceeded);
+                    }
+                }
+            }
+        }
+    }
+    let mut operations = vec![];
+    for bound in &expanded {
         for constraint in &bound.constraints {
             let Constraint::Trait(interface) = constraint else {
                 continue;

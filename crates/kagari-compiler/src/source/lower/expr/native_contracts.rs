@@ -299,7 +299,7 @@ impl FunctionLowerer<'_, '_> {
         let instantiate = |ty: &TypeId| {
             self.planner.catalog.normalize_type(
                 &ty.instantiate(&substitution)
-                    .with_associated_types(interface),
+                    .with_associated_types(interface, receiver),
             )
         };
         let params = signature

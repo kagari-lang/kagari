@@ -238,7 +238,7 @@ impl ModuleDecl {
                 let ty = substitution.apply(ty, &cancel).map_err(|error| {
                     DeclarationError(format!("invalid substitution: {error:?}"))
                 })?;
-                resolve_associated_outputs(&ty, &trait_type, &cancel).map_err(|error| {
+                resolve_associated_outputs(&ty, &trait_type, &for_type, &cancel).map_err(|error| {
                     DeclarationError(format!("invalid associated output: {error:?}"))
                 })
             };
@@ -726,9 +726,13 @@ impl ModuleDecl {
                     continue;
                 }
                 let cancel = CancellationToken::default();
-                let parent =
-                    resolve_associated_outputs(&Ty::Trait(parent.clone()), trait_type, &cancel)
-                        .map_err(|_| invalid())?;
+                let parent = resolve_associated_outputs(
+                    &Ty::Trait(parent.clone()),
+                    trait_type,
+                    &Ty::SelfType(trait_type.declaration.clone()),
+                    &cancel,
+                )
+                .map_err(|_| invalid())?;
                 let parent = substitution
                     .apply(&parent, &cancel)
                     .map_err(|_| invalid())?;

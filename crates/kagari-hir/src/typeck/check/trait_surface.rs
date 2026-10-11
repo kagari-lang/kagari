@@ -177,7 +177,10 @@ pub(super) fn validate_trait_surface(
             continue;
         };
         let type_name = display_type_id(&for_ty);
-        if matches!(for_ty, TypeId::Trait(_) | TypeId::Generic(_)) {
+        let erased_iterator_identity = lowered.registered_native_api
+            && Protocol::from_id(&id.declaration) == Some(Protocol::Iterable)
+            && matches!(&for_ty, TypeId::Trait(receiver) if Protocol::from_id(&receiver.declaration) == Some(Protocol::Iterator));
+        if matches!(for_ty, TypeId::Trait(_) | TypeId::Generic(_)) && !erased_iterator_identity {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: trait_name.to_string(),
@@ -290,12 +293,19 @@ pub(super) fn trait_method_interface_compatible(
             .params
             .first()
             .is_some_and(|param| param.name == "self"),
-        &function.return_type.with_associated_types(interface),
+        &function
+            .return_type
+            .with_associated_types(interface, &TypeId::SelfType(interface.declaration.clone())),
         function
             .params
             .iter()
             .skip(1)
-            .map(|param| param.ty.with_associated_types(interface))
+            .map(|param| {
+                param.ty.with_associated_types(
+                    interface,
+                    &TypeId::SelfType(interface.declaration.clone()),
+                )
+            })
             .collect::<Vec<_>>()
             .iter(),
     )

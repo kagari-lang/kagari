@@ -80,7 +80,7 @@ impl AggregateCatalog {
             lower_type(
                 &self.normalize_type(
                     &ty.instantiate(&substitution)
-                        .with_associated_types(interface),
+                        .with_associated_types(interface, receiver),
                 ),
             )
         };

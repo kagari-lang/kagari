@@ -134,10 +134,28 @@ fn associated_outputs_expand_nested_projections_but_preserve_unrelated_owners() 
         associated_types: [(item, Ty::Builtin(BuiltinType::I32))].into(),
         ..interface
     };
-    let input = Ty::Tuple(vec![projected, unrelated.clone()]);
+    let mut other_receiver = projected.clone();
+    let Ty::Projection { receiver, .. } = &mut other_receiver else {
+        unreachable!()
+    };
+    *receiver = Box::new(Ty::Parameter {
+        owner: owner("source"),
+        position: 0,
+    });
+    let input = Ty::Tuple(vec![projected, unrelated.clone(), other_receiver.clone()]);
     assert_eq!(
-        resolve_associated_outputs(&input, &applied, &CancellationToken::default()).unwrap(),
-        Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32), unrelated])
+        resolve_associated_outputs(
+            &input,
+            &applied,
+            &Ty::SelfType(applied.declaration.clone()),
+            &CancellationToken::default()
+        )
+        .unwrap(),
+        Ty::Tuple(vec![
+            Ty::Builtin(BuiltinType::I32),
+            unrelated,
+            other_receiver
+        ])
     );
 }
 
@@ -153,7 +171,12 @@ fn associated_output_cycles_fail_instead_of_recursing_indefinitely() {
     let projected = projection(&interface, &item);
     interface.associated_types.insert(item, projected.clone());
     assert_eq!(
-        resolve_associated_outputs(&projected, &interface, &CancellationToken::default()),
+        resolve_associated_outputs(
+            &projected,
+            &interface,
+            &Ty::SelfType(interface.declaration.clone()),
+            &CancellationToken::default()
+        ),
         Err(TypeTransformError::LimitExceeded)
     );
 }

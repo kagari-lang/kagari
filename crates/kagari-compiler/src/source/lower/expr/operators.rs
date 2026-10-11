@@ -245,7 +245,7 @@ impl FunctionLowerer<'_, '_> {
                 &signature
                     .return_type
                     .instantiate(&substitution)
-                    .with_associated_types(&interface),
+                    .with_associated_types(&interface, &ty),
             );
             let dst = self.alloc_temp(self.value_type(&result)?);
             self.function
@@ -383,7 +383,7 @@ impl FunctionLowerer<'_, '_> {
                 .return_type
                 .with_self(&contract.id, &ty)
                 .instantiate(&substitution)
-                .with_associated_types(&interface),
+                .with_associated_types(&interface, &ty),
         );
         let result_ty = self.value_type(&result)?;
         let callee = if let Some((declaration, mut arguments)) = self

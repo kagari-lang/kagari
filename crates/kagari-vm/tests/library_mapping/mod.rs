@@ -64,7 +64,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     let probe = Probe::new();
     let source = r#"
          use test::probe::keep;
-        fn main() { val values = Vec::from([1,2]); keep(values); for item in values.map(|item| item) { values.push(item); } }
+        fn main() { val values = Vec::from([1,2]); keep(values); for item in [4,5].map(|item| item).zip(values.filter(|item| item > 0)).enumerate() { values.push(item[0] as i32); } }
     "#;
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
@@ -111,8 +111,8 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let probe = Probe::new();
     let source = r#"
          use test::probe::tick;
-        fn make() -> Iterator<Item = i32> {
-            Vec::from([10,20]).map(|item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 })
+        fn make() -> Iterator<Item = (i32,i32)> {
+            Vec::from([100,200]).map(|item| item).zip(Vec::from([10,20]).map(|item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 }))
         }
     "#;
     let mut runtime = Runtime::default();
@@ -142,7 +142,13 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     };
     let result = vm.runtime().gc().enum_snapshot(id).unwrap();
     assert_eq!(result.tag.variant_name(), "Some");
-    assert_eq!(result.fields, vec![Value::I32(21)]);
+    let Value::Tuple(pair) = result.fields[0] else {
+        panic!("pair");
+    };
+    assert_eq!(
+        &*vm.runtime().gc().tuple(pair).unwrap(),
+        &[Value::I32(200), Value::I32(21)]
+    );
     assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
     drop(root);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
@@ -228,7 +234,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
 }
 
 #[test]
-fn retained_map_uses_original_custom_next_and_callback_after_reload() {
+fn retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload() {
     let library = foundation::modules()
         .unwrap()
         .into_iter()
@@ -246,9 +252,10 @@ impl Iterator for Source {
         match value { Some(item)=>Some(item+bias()), None=>None }
     }
 }
-fn make()->Iterator<Item=i32> {
+fn make()->Iterator<Item=(i32,i32)> {
     val offset=Vec::from([1]);
     Source { values:Vec::from([10,20]),position:0usize }.map(|item|item+offset[0])
+        .zip(Source {values:Vec::from([30,40]),position:0usize}.map(|item|item+offset[0]))
 }
 "#;
     let mut runtime = Runtime::default();
@@ -288,9 +295,12 @@ fn make()->Iterator<Item=i32> {
     let Value::Enum(id) = vm.invoke_interface_method(&iterator, &next, &[]).unwrap() else {
         panic!("Option");
     };
+    let Value::Tuple(pair) = vm.runtime().gc().enum_snapshot(id).unwrap().fields[0] else {
+        panic!("pair");
+    };
     assert_eq!(
-        vm.runtime().gc().enum_snapshot(id).unwrap().fields,
-        vec![Value::I32(11)]
+        &*vm.runtime().gc().tuple(pair).unwrap(),
+        &[Value::I32(11), Value::I32(31)]
     );
     let fresh = vm
         .execute(&replacement, "make")
@@ -301,9 +311,12 @@ fn make()->Iterator<Item=i32> {
     let Value::Enum(id) = vm.invoke_interface_method(&fresh, &next, &[]).unwrap() else {
         panic!("Option");
     };
+    let Value::Tuple(pair) = vm.runtime().gc().enum_snapshot(id).unwrap().fields[0] else {
+        panic!("pair");
+    };
     assert_eq!(
-        vm.runtime().gc().enum_snapshot(id).unwrap().fields,
-        vec![Value::I32(210)]
+        &*vm.runtime().gc().tuple(pair).unwrap(),
+        &[Value::I32(210), Value::I32(230)]
     );
     drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();

@@ -155,7 +155,7 @@ pub(crate) fn lower_protocol<'a>(
                 &method
                     .return_type
                     .with_self(&method.owner, &receiver)
-                    .with_associated_types(&interface),
+                    .with_associated_types(&interface, &receiver),
             ),
         )
     } else {

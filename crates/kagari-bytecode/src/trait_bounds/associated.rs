@@ -171,7 +171,7 @@ pub(super) fn associated_bounds_match(
                     Constraint::Trait(required) => {
                         let ty = substitution.apply(&Ty::Trait(required.clone()), cancel)?;
                         let Ty::Trait(required) =
-                            resolve_associated_outputs(&ty, interface, cancel)?
+                            resolve_associated_outputs(&ty, interface, &table.for_type, cancel)?
                         else {
                             return Err(TypeTransformError::InvalidContract);
                         };
@@ -222,7 +222,12 @@ pub(super) fn host_bounds_match(
                 });
             }
             let normalize = |ty: &Ty| {
-                let ty = resolve_associated_outputs(ty, &applied, cancel)?;
+                let ty = resolve_associated_outputs(
+                    ty,
+                    &applied,
+                    &Ty::SelfType(applied.declaration.clone()),
+                    cancel,
+                )?;
                 catalog.normalize(&substitution.apply(&ty, cancel)?, cancel)
             };
             for bound in obligations {

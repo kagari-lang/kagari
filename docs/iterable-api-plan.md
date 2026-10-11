@@ -1,6 +1,6 @@
 # Unified Iterable API execution plan
 
-Status: IA01–IA03 are complete; IA04 implementation is active. The
+Status: IA01–IA04 are complete; IA05 integration and final acceptance are active. The
 [roadmap](implementation-roadmap.md#unified-iterable-api) owns queue placement.
 This file owns the finite API inventory, phase order, acceptance and progress
 ledger. Examples below describe the target API, not currently implemented calls.
@@ -298,7 +298,7 @@ separately. Documentation-only planning needs content/link/diff checks, not buil
 - [x] IA01: Inventory and contract proof.
 - [x] IA02: Lazy transformation foundation and mapping migration.
 - [x] IA03: Terminal construction and reduction.
-- [ ] IA04: Remaining APIs and hash collection construction.
+- [x] IA04: Remaining APIs and hash collection construction.
 - [ ] IA05: Integration and final acceptance.
 
 Planning baseline: `acdcbd32`. No implementation changes or build claims are made
@@ -467,3 +467,60 @@ acceptance and CI remain reserved for IA05.
 
 IA03 structure, formatting, changed-document links and diff checks passed.
 No carried implementation or integration error remains at this checkpoint.
+
+
+### IA04 finite API and paired cursor handoff
+
+- Added filter_map, skip, enumerate, zip, chain, count, find, any, all and
+  for_each as Iterable defaults. The eight opaque adapter declarations contain
+  only item parameters. Construction obtains left/right cursors once in source
+  order and retains their checked next selections. No callback or next is run
+  during construction. Zip advances left before right; chain switches permanently
+  on the first left None. Other adapters preserve resumable-source behavior.
+- Count and enumerate use checked usize addition. Short-circuit terminals root
+  each item and share the same consumer guard scope as fold. Nested pairs and
+  erased cursors recursively protect both sources; scope exit preserves progress.
+- Added ordinary HashSet/HashMap FromIterator implementations through existing
+  checked Hash, PartialEq and insert operations. HashMap consumes pair items and
+  last values replace earlier values. Custom keys, collisions, allocated values,
+  empty destinations and root cleanup are covered at the conversion owner.
+- Paired generic methods exposed receiver-insensitive associated output expansion:
+  left Self::Item was incorrectly used for right I::Item. HIR and portable
+  substitution now explicitly identify the supplying receiver. Bounds/proofs
+  preserve the same receiver ownership and reject unrelated or cyclic outputs.
+- Shared callers now carry immediate associated-type method contracts, including
+  Iterable::Iter's Iterator::next. This supplies the existing cursor operation
+  rather than rediscovering it during native execution. Generic and ordinary
+  callable preparation normalize boxed iteration outputs through one path.
+  Checked selected method tables may supply additional associated facts; runtime
+  lookup retains the selected member/table, validates required outputs and keeps
+  the original operation group. It does not search another implementation or
+  widen member access.
+- Boxed Iterator values have a standard identity Iterable table whose iter
+  returns the same box and whose other entries reuse the existing defaults. This
+  supports generic method witnesses for an already-erased representation;
+  concrete sources keep their closed identity adapters and unboxed cursor types.
+  Only installed native identity Iterable for Iterator is admitted by HIR; script
+  trait-target implementations remain invalid. Receiver ownership remains core::iter.
+- Interface recording also retains checked parent tables needed by hash insert
+  operations. Retention remains runtime metadata edges rather than host root cycles.
+  No extra pipeline methods, storage migration or ABI identifier bump was added.
+
+The initially failing paired generic/interface calls were resolved through the
+above contracts: two-receiver projection errors, absent boxed identity method
+witnesses, missing associated cursor operations and overly exact associated-output
+matching. Temporary diagnostics were removed and validation remains enabled.
+Existing callback-failure and reload tests now use zip: a right callback failure
+commits both advances; retained left/right calls and captures remain pinned after
+reload. Existing loop protection now covers nested paired wrappers. Cancellation
+coverage adds filter_map/count; its assertion preserves original source order
+instead of applying the sort test's bag comparison.
+
+Focused checkpoint evidence: SDK iteration (16), conversions (18), VM mapping (8),
+portable native defaults (13), generic interface defaults (5) and associated-output
+substitution (3) passed. Cancellation callback cleanup (1), checkpoint formatting,
+structure (1,030 Rust files; zero violations/exceptions) and diff checks passed.
+No carried implementation or integration failure remains at the checkpoint. Extreme
+usize count/enumeration overflow is checked at the shared arithmetic operation;
+no infeasible 2^64-pull execution is claimed. Full workspace and source-free final
+acceptance remain IA05 work; CI is unrun.

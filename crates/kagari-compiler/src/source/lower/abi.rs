@@ -616,9 +616,12 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
         let normalize = |ty: &TypeId| {
             abi_type(
                 module,
-                &ty.with_associated_types(&implementation.trait_type)
-                    .with_self(&method.owner, &implementation.for_type)
-                    .instantiate(&substitution),
+                &ty.with_associated_types(
+                    &implementation.trait_type,
+                    &TypeId::SelfType(method.owner.clone()),
+                )
+                .with_self(&method.owner, &implementation.for_type)
+                .instantiate(&substitution),
             )
         };
         let bounds = method

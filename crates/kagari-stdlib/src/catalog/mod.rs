@@ -9,6 +9,7 @@ mod documentation;
 mod enums;
 mod future;
 mod iterable;
+mod iterable_defaults;
 mod key;
 mod list_methods;
 mod partition;

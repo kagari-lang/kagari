@@ -145,9 +145,15 @@ impl<I: DefinitionReference> GenericParam<I> {
 pub fn resolve_associated_outputs<I: DefinitionReference>(
     ty: &Ty<I>,
     interface: &NominalTy<I>,
+    receiver: &Ty<I>,
     cancel: &CancellationToken,
 ) -> Result<Ty<I>, TypeTransformError> {
-    Transform::new(&TypeSubstitution::default(), Some(interface), cancel).run(ty)
+    Transform::new(
+        &TypeSubstitution::default(),
+        Some((interface, receiver)),
+        cancel,
+    )
+    .run(ty)
 }
 
 /// Resolve projections using a caller's already validated dependency contracts.
@@ -184,7 +190,7 @@ pub fn substitute_parameters<'a, I: DefinitionReference + 'a>(
 
 struct Transform<'a, 'b, I> {
     substitution: &'a TypeSubstitution<'b, I>,
-    outputs: Option<&'a NominalTy<I>>,
+    outputs: Option<(&'a NominalTy<I>, &'a Ty<I>)>,
     lookup: Option<&'a ProjectionLookup<'a, I>>,
     parameter_lookup: Option<&'a ParameterLookup<'b, I>>,
     cancel: &'a CancellationToken,
@@ -194,7 +200,7 @@ struct Transform<'a, 'b, I> {
 impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
     fn new(
         substitution: &'a TypeSubstitution<'b, I>,
-        outputs: Option<&'a NominalTy<I>>,
+        outputs: Option<(&'a NominalTy<I>, &'a Ty<I>)>,
         cancel: &'a CancellationToken,
     ) -> Self {
         Self {
@@ -337,8 +343,9 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
                         if let Some(output) = embedded {
                             return self.visit(output, depth + 1, replace);
                         }
-                        if let Some(outputs) = self.outputs
+                        if let Some((outputs, owner)) = self.outputs
                             && interface.declaration == outputs.declaration
+                            && &receiver == owner
                         {
                             if let Some(output) = outputs.associated_types.get(member) {
                                 return self.visit(output, depth + 1, replace);

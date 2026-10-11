@@ -189,8 +189,17 @@ impl InterfaceCallContract {
         if let Some(receiver) = &self.receiver {
             substitution.bind_receiver(&interface.declaration, receiver);
         }
+        let projection_receiver = self
+            .receiver
+            .clone()
+            .unwrap_or_else(|| Ty::SelfType(interface.declaration.clone()));
         let apply = |ty: &Ty| {
-            resolve_associated_outputs(&substitution.apply(ty, cancel)?, interface, cancel)
+            resolve_associated_outputs(
+                &substitution.apply(ty, cancel)?,
+                interface,
+                &projection_receiver,
+                cancel,
+            )
         };
         let mut params = if has_receiver {
             vec![
@@ -207,12 +216,14 @@ impl InterfaceCallContract {
         let mut bounds = substitution.apply_bounds(&contract.bounds, cancel)?;
         bounds.extend(substitution.apply_bounds(&method.bounds, cancel)?);
         for bound in &mut bounds {
-            bound.ty = resolve_associated_outputs(&bound.ty, interface, cancel)?;
+            bound.ty =
+                resolve_associated_outputs(&bound.ty, interface, &projection_receiver, cancel)?;
             for constraint in &mut bound.constraints {
                 if let Constraint::Trait(required) = constraint {
                     let Ty::Trait(resolved) = resolve_associated_outputs(
                         &Ty::Trait(required.clone()),
                         interface,
+                        &projection_receiver,
                         cancel,
                     )?
                     else {

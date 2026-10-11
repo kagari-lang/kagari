@@ -100,6 +100,28 @@ impl OperationGroup {
         })
     }
 
+    /// A checked selected table can provide more associated outputs than a
+    /// caller requested. Return only an unambiguous member from that table.
+    pub(crate) fn selected_method(
+        &self,
+        required: &NativeCallableRequirement<DefinitionId>,
+    ) -> Option<OperationId> {
+        let mut matches = self.entries.iter().enumerate().filter(|(_, operation)| {
+            operation.generic.is_some()
+                && operation.requirement.receiver == required.receiver
+                && operation.requirement.member == required.member
+                && operation
+                    .requirement
+                    .interface
+                    .satisfies(&required.interface)
+        });
+        let (member, _) = matches.next()?;
+        matches.next().is_none().then_some(OperationId {
+            group: self.id,
+            member,
+        })
+    }
+
     pub(crate) fn operation(
         &self,
         required: &NativeCallableRequirement<DefinitionId>,

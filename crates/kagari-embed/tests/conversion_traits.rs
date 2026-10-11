@@ -332,6 +332,9 @@ fn main()->i32 {
 fn construction_contracts_reject_invalid_signatures_and_bounds() {
     for source in [
         "fn main() { val result:i32 = [1,2].collect(); }",
+        "fn main(){[1,2].collect();}",
+        "use std::collections::HashSet; struct Key{} fn main(){val result:HashSet<Key>=[Key{}].collect();}",
+        "use std::collections::HashMap; fn main(){val result:HashMap<i32,i32>=[1,2].collect();}",
         "struct X{} impl Into<i32> for X {fn into(self)->i32 {1}} fn main(){}",
         "struct X{} impl TryInto<i32> for X {type Error=String;fn try_into(self)->Result<i32,String>{Ok(1)}} fn main(){}",
         "use std::str::{FromStr};\nstruct X{} impl FromStr for X {type Err=String;fn from_str(text:i32)->Result<X,String>{Ok(X{})}} fn main(){}",
@@ -478,6 +481,42 @@ fn main()->i32 {
     val folded=erased.fold(Vec::from([0]), |acc,item| Vec::from([acc[0]+item[0]]));
     val untouched=empty.fold(Vec::from([7]),|acc,item| {acc.push(item);acc});
     total+multiplied+folded[0]+zero+one+untouched[0]-5
+}
+"#,
+    );
+}
+
+#[test]
+fn hash_collection_construction_reuses_custom_keys_and_last_value_wins() {
+    execute(
+        r#"
+use core::hash::Hash;
+use std::collections::{HashMap,HashSet};
+struct Key {val number:i32,val calls:Vec<i32>}
+impl PartialEq for Key {
+    fn eq(self,other:Self)->bool {self.calls[1]+=1;self.number==other.number}
+}
+impl Eq for Key {}
+impl Hash for Key {fn hash(self)->i64 {self.calls[0]+=1;7}}
+fn keys<I:Iterable<Item=Key>>(source:I)->HashSet<Key> {source.collect()}
+fn main()->i32 {
+    val calls=Vec::from([0,0]);
+    val a=Key {number:1,calls};val b=Key {number:1,calls};val c=Key {number:2,calls};
+    val source=Vec::from([a,b,c]);
+    val unique=keys(source.map(|key|key));
+    if unique.len()!=2usize || calls[0]!=3 || calls[1]!=2 {return 0;}
+    source.push(c);
+    val mapped:HashMap<Key,Vec<i32>> = [(a,Vec::from([10])),(b,Vec::from([42])),(c,Vec::from([20]))].filter(|pair|true).collect();
+    if mapped.len()!=2usize || calls[0]!=6 || calls[1]!=4 {return 0;}
+    match mapped.get(a) {Some(value)=>{if value[0]!=42 {return 0;}},None=>{return 0;}};
+    val indexed:HashMap<usize,i32> = [10,20].enumerate().collect();
+    if indexed.get(1usize)!=Some(20) {return 0;}
+    val builtin:HashSet<i32> = [1,1,2].collect();
+    val builtin_map:HashMap<i32,i32> = [(1,10),(1,42)].collect();
+    val empty:[(i32,i32)]=[];
+    val empty_map:HashMap<i32,i32> = empty.collect();
+    if builtin.len()!=2usize || builtin_map.get(1)!=Some(42) || !empty_map.is_empty() {return 0;}
+    match mapped.get(b) {Some(value)=>value[0],None=>0}
 }
 "#,
     );

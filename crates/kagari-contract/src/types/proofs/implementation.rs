@@ -165,7 +165,7 @@ impl<'a> Implementation<'a> {
         let apply = |ty: &Ty| {
             let ty = bindings.apply(ty, cancel)?;
             if inherited {
-                resolve_associated_outputs(&ty, &applied, cancel)
+                resolve_associated_outputs(&ty, &applied, &receiver, cancel)
             } else {
                 Ok(ty)
             }

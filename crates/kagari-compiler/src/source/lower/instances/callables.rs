@@ -84,25 +84,8 @@ impl InstancePlanner<'_> {
     ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         let mut operations = vec![];
         for mut required in requirements {
-            // A projection with concrete inputs can already have a selected
-            // implementation. Normalize it before deciding whether to forward.
-            required.receiver =
-                lower_type(&self.catalog.normalize_type(&raise_type(&required.receiver)));
-            let TypeId::Trait(interface) = self
-                .catalog
-                .normalize_type(&TypeId::Trait(raise_nominal_type(&required.interface)))
-            else {
-                return Err(MirLoweringError::MissingBinding(
-                    "normalized operation interface",
-                ));
-            };
-            required.interface = lower_nominal_type(&interface);
-            required.arguments = required
-                .arguments
-                .iter()
-                .map(|ty| lower_type(&self.catalog.normalize_type(&raise_type(ty))))
-                .collect();
-            if !matches!(raise_type(&required.receiver), TypeId::Generic(_))
+            required = self.normalize_callable_requirement(required)?;
+            if required.receiver.is_concrete()
                 && required.arguments.is_empty()
                 && self
                     .catalog
@@ -164,6 +147,50 @@ impl InstancePlanner<'_> {
         Ok(operations)
     }
 
+    fn normalize_callable_requirement(
+        &self,
+        mut required: NativeCallableRequirement,
+    ) -> Result<NativeCallableRequirement, MirLoweringError> {
+        let receiver = self.catalog.normalize_type(&raise_type(&required.receiver));
+        let TypeId::Trait(mut interface) = self
+            .catalog
+            .normalize_type(&TypeId::Trait(raise_nominal_type(&required.interface)))
+        else {
+            return Err(MirLoweringError::MissingBinding(
+                "normalized callable interface",
+            ));
+        };
+        if matches!(receiver, TypeId::Trait(_))
+            && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
+        {
+            for name in ["Item", "Iter"] {
+                if name == "Iter"
+                    && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+                {
+                    continue;
+                }
+                let member = associated_type_id(&interface.declaration, name);
+                if !interface.associated_types.contains_key(&member) {
+                    let output = self.catalog.normalize_type(&TypeId::Projection {
+                        receiver: Box::new(receiver.clone()),
+                        interface: Box::new(interface.clone()),
+                        member: member.clone(),
+                        arguments: vec![],
+                    });
+                    interface.associated_types.insert(member, output);
+                }
+            }
+        }
+        required.receiver = lower_type(&receiver);
+        required.interface = lower_nominal_type(&interface);
+        required.arguments = required
+            .arguments
+            .iter()
+            .map(|ty| lower_type(&self.catalog.normalize_type(&raise_type(ty))))
+            .collect();
+        Ok(required)
+    }
+
     pub(crate) fn select_callables(
         &mut self,
         requirements: Vec<NativeCallableRequirement>,
@@ -172,41 +199,9 @@ impl InstancePlanner<'_> {
         let invalid = || MirLoweringError::MissingBinding("checked callable requirement");
         let mut selected = vec![];
         for mut required in requirements {
-            let receiver = self.catalog.normalize_type(&raise_type(&required.receiver));
-            let TypeId::Trait(mut interface) = self
-                .catalog
-                .normalize_type(&TypeId::Trait(raise_nominal_type(&required.interface)))
-            else {
-                return Err(invalid());
-            };
-            if matches!(receiver, TypeId::Trait(_))
-                && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
-            {
-                for name in ["Item", "Iter"] {
-                    if name == "Iter"
-                        && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
-                    {
-                        continue;
-                    }
-                    let member = associated_type_id(&interface.declaration, name);
-                    if !interface.associated_types.contains_key(&member) {
-                        let output = self.catalog.normalize_type(&TypeId::Projection {
-                            receiver: Box::new(receiver.clone()),
-                            interface: Box::new(interface.clone()),
-                            member: member.clone(),
-                            arguments: vec![],
-                        });
-                        interface.associated_types.insert(member, output);
-                    }
-                }
-            }
-            required.receiver = lower_type(&receiver);
-            required.interface = lower_nominal_type(&interface);
-            required.arguments = required
-                .arguments
-                .iter()
-                .map(|ty| lower_type(&self.catalog.normalize_type(&raise_type(ty))))
-                .collect();
+            required = self.normalize_callable_requirement(required)?;
+            let receiver = raise_type(&required.receiver);
+            let interface = raise_nominal_type(&required.interface);
             let implementation = self
                 .catalog
                 .concrete_interface_implementation(
@@ -350,7 +345,7 @@ impl InstancePlanner<'_> {
                 lower_type(
                     &self.catalog.normalize_type(
                         &ty.instantiate(&substitution)
-                            .with_associated_types(&interface),
+                            .with_associated_types(&interface, &receiver),
                     ),
                 )
             };
