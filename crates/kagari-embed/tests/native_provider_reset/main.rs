@@ -7,8 +7,9 @@ mod support;
 mod library;
 #[path = "../support/native_provider.rs"]
 mod provider;
-use contracts::alter_bindings;
+use contracts::{alter_bindings, altered_binding};
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::types::PublicItem;
 use kagari_embed::{
     context::ExecutionContext,
@@ -30,7 +31,7 @@ fn engine(config: EngineConfig) -> KagariEngine {
     }
 }
 
-fn artifact(source: &str) -> KbcArtifact {
+fn artifact(source: &str) -> DefinitionMetadata<KbcArtifact> {
     engine(EngineConfig::default())
         .compile_to_artifact(
             SourceFile::new(
@@ -43,7 +44,8 @@ fn artifact(source: &str) -> KbcArtifact {
 }
 
 fn execute(source: &str) {
-    let bytes = artifact(source).to_bytes().unwrap();
+    let artifact = artifact(source);
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
     let program = PreparedProgram::from_artifact(
         KbcArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
@@ -144,17 +146,23 @@ fn main() -> i32 {
 #[test]
 fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
     for change in 0..3 {
-        let mut original = artifact("fn main() -> usize { [1, 2].len() }");
-        alter_bindings(&mut original, |id| match change {
-            0 => id.module.package.0.push_str("-unknown"),
-            1 => id.path.last_mut().unwrap().name.push_str("-unknown"),
-            _ => id.path.last_mut().unwrap().name = "$foundation_list_new".into(),
+        let context = DefinitionContext::new().unwrap();
+        let mut original = artifact("fn main() -> usize { [1, 2].len() }")
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        alter_bindings(&mut original, |id| {
+            *id = altered_binding(&context, *id, change)
         });
         // Consistent unsigned contract assertions remain structurally checkable.
-        let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
-        let program =
-            PreparedProgram::from_artifact(forged, &Default::default(), &Default::default())
-                .unwrap();
+        let forged =
+            KbcArtifact::from_program(original.program, Default::default(), &context).unwrap();
+        let program = PreparedProgram::from_artifact(
+            DefinitionMetadata::checked(context.snapshot(), forged, &Default::default()).unwrap(),
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine(EngineConfig::default()).runtime(context);
         assert!(runtime.load_program(&program, Default::default()).is_err());
@@ -175,13 +183,17 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
             function.return_type = Ty::Builtin(BuiltinType::U64);
         }
     }
-    let mut original = artifact("fn main() -> usize { [1, 2].len() }");
+    let context = DefinitionContext::new().unwrap();
+    let mut original = artifact("fn main() -> usize { [1, 2].len() }")
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let definitions = context.snapshot();
     for module in &mut original.program.modules {
         for import in &mut module.native_imports {
-            if import
-                .instance
-                .declaration
-                .path
+            if definitions
+                .resolve(import.instance.declaration)
+                .unwrap()
                 .last()
                 .is_some_and(|part| part.name == "len")
                 && import.signature.result == Ty::Builtin(BuiltinType::USize)
@@ -220,11 +232,11 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
         }
         for function in &mut module.functions {
             if !function.identity.as_ref().is_some_and(|identity| {
-                identity
-                    .declaration
-                    .path
+                definitions
+                    .resolve(identity.declaration)
+                    .unwrap()
                     .last()
-                    .is_some_and(|part| matches!(part.name.as_str(), "len" | "main"))
+                    .is_some_and(|part| matches!(part.name, "len" | "main"))
             }) {
                 continue;
             }
@@ -242,9 +254,13 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     // Alter only len and its caller, leaving count and other defaults intact.
     // usize and u64 share a representation: portable checks accept the forgery,
     // but installation must check the source ABI.
-    let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
-    let program =
-        PreparedProgram::from_artifact(forged, &Default::default(), &Default::default()).unwrap();
+    let forged = KbcArtifact::from_program(original.program, Default::default(), &context).unwrap();
+    let program = PreparedProgram::from_artifact(
+        DefinitionMetadata::checked(context.snapshot(), forged, &Default::default()).unwrap(),
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap();
     let mut runtime = engine(EngineConfig::default()).runtime(Default::default());
     assert!(runtime.load_program(&program, Default::default()).is_err());
     assert_eq!(runtime.runtime().gc().active_roots(), 0);

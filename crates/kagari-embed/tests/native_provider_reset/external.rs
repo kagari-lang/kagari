@@ -50,9 +50,10 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
 
 #[test]
 fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
-    let bytes = artifact(
+    let artifact = artifact(
         "fn main() -> i32 { val values = native::from_fn(2usize, |i| { [21] }); values[0usize][0usize] + values[1usize][0usize] }",
-    ).to_bytes().unwrap();
+    );
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
     let program = PreparedProgram::from_artifact(
         KbcArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),

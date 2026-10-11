@@ -3659,3 +3659,47 @@ host_interfaces (77) and native_provider_reset plus its support (47). Their rema
 124 diagnostics are the previous check's baseline, not a fresh failed run. SI06 owns
 both groups, final dependent/fixture audits and lasting documentation transfer/plan
 retirement. Complete workspace and feature/backend acceptance remains CI scope.
+
+### SI06 scoped Host interfaces and provider-reset consumers
+
+Host interface fixtures retain an authoring DefinitionContext beside editable
+records and publish snapshots at analysis, registration and serialization boundaries.
+Child/imported traits and forged methods are registered explicitly. Loaded method
+queries resolve a single external identity into the loaded table; authored IDs are
+never compared directly with IDs from an independent runtime. Artifact mutation
+imports into a context and drops verification before ordinary verification runs.
+Native provider fixtures retain metadata, propagate builder failures and forge
+binding/result identities through explicit registration without whole-record path
+projection. Existing GC, callback ordering and negative assertions remain intact.
+
+Focused local evidence:
+
+- Six host_interfaces cases pass: invalid_host_associated,
+  rooted_host_interfaces, imported_host_interfaces, host_child_interfaces_upcast,
+  host_associated_outputs_are_checked and interface_method_results_validate.
+  These preserve association validation, precompiled bridges, roots, reentry,
+  generation retention and nested output checks.
+- Seven native_provider_reset cases pass: structural_agreement,
+  a_forged_source_signature, forged_native_result_conversions,
+  concrete_native_results, native_result_conversion_validates,
+  an_embedding_owned_provider and retained_host_lease. They cover source-free
+  adoption, exact binding/signature checks, generic result conversion, checked
+  callbacks and payload teardown. Other target cases remain CI scope.
+- `cargo clippy -p kagari-embed --lib --test host_interfaces
+  --test native_provider_reset --message-format=short -- -D warnings` passes.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass after correcting one formatting-only difference. Manual review
+  covers snapshot timing, scope ownership, immutable reads, normal imports and
+  unchanged behavioral assertions.
+
+The next package test-target Clippy attempt exposes 363 diagnostics in additional
+consumers reached after the preceding groups compile: offline_nominal (225),
+embedding_api (39), collection_access (23), trait_inheritance (17), associated_types
+(16), shared native_enums support (11), iteration_traits (8), async_execution and its
+modules (16), cranelift_preparation (3), native_enums (3), and shared execution support
+(2). These are old API consumers, not a production library error. Reproduce with
+`cargo clippy -p kagari-embed --lib --tests --message-format=short -- -D warnings`;
+SI06 owns their migration and selected execution checks. The shared provider also
+requires the final standalone-consumer audit. No package-wide tests were executed.
+Lasting documentation transfer, final dependent/fixture audit and plan retirement
+remain required. Exhaustive workspace/features/backend acceptance remains CI scope.

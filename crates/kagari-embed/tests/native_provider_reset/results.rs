@@ -1,4 +1,5 @@
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -22,16 +23,17 @@ fn engine() -> KagariEngine {
     let mut module = ModuleBuilder::new(
         "example::results",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let singleton = module
         .define_function(FunctionDecl::new("singleton"))
         .unwrap();
     module
         .function(&singleton, |f| {
             let t = f.type_parameter("T")?.ty();
-            f.parameter("value", t.clone());
-            f.returns(language.list().apply([t.clone()]).ty());
-            f.produces(language.vec(t));
+            f.parameter("value", t.clone())?;
+            f.returns(language.list().apply([t.clone()])?.ty())?;
+            f.produces(language.vec(t)?)?;
             Ok(())
         })
         .unwrap();
@@ -45,12 +47,12 @@ fn engine() -> KagariEngine {
         .unwrap();
     let wrong = module
         .define_function(
-            FunctionDecl::new("wrong").returns(language.list().apply([Type::i32()]).ty()),
+            FunctionDecl::new("wrong").returns(language.list().apply([Type::i32()]).unwrap().ty()),
         )
         .unwrap();
     module
         .function(&wrong, |f| {
-            f.produces(language.vec(Type::i32()));
+            f.produces(language.vec(Type::i32())?)?;
             Ok(())
         })
         .unwrap();
@@ -60,14 +62,14 @@ fn engine() -> KagariEngine {
             NativeBinding::new([], Codec::Value, |_| Ok(Value::I32(42))),
         )
         .unwrap();
-    let mut factory = module.define_trait("Factory");
+    let mut factory = module.define_trait("Factory").unwrap();
     let one = factory.define_method(MethodDecl::instance("one")).unwrap();
     factory
         .method(&one, |f| {
             let t = f.type_parameter("T")?.ty();
-            f.parameter("value", t.clone());
-            f.returns(language.list().apply([t.clone()]).ty());
-            f.produces(language.vec(t));
+            f.parameter("value", t.clone())?;
+            f.returns(language.list().apply([t.clone()])?.ty())?;
+            f.produces(language.vec(t)?)?;
             Ok(())
         })
         .unwrap();
@@ -93,7 +95,7 @@ fn engine() -> KagariEngine {
     }
 }
 
-fn artifact(engine: &KagariEngine, source: &str) -> KbcArtifact {
+fn artifact(engine: &KagariEngine, source: &str) -> DefinitionMetadata<KbcArtifact> {
     engine
         .compile_to_artifact(
             SourceFile::new("memory://native-result.kgr", source),
@@ -113,13 +115,16 @@ fn concrete_native_results_construct_declared_interfaces_in_generic_calls() {
         let original = artifact(&engine, source);
         assert!(
             original
+                .records()
                 .program
                 .modules
                 .iter()
                 .flat_map(|m| &m.native_imports)
                 .any(|import| import.result_adapter.is_some())
         );
-        let decoded = KbcArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
+        let decoded =
+            KbcArtifact::from_bytes(&original.records().to_bytes(original.definitions()).unwrap())
+                .unwrap();
         let program =
             PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
                 .unwrap();
@@ -148,6 +153,12 @@ fn forged_native_result_conversions_are_rejected() {
         &engine,
         "use example::results::singleton; fn main() -> i32 { singleton(42)[0usize] }",
     );
+    let context = DefinitionContext::new().unwrap();
+    let original = original
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let definitions = context.snapshot();
     for corruption in 0..5 {
         let mut program = original.program.clone();
         let import = program
@@ -156,10 +167,9 @@ fn forged_native_result_conversions_are_rejected() {
             .flat_map(|module| &mut module.native_imports)
             .find(|import| {
                 import.result_adapter.is_some()
-                    && import
-                        .instance
-                        .declaration
-                        .path
+                    && definitions
+                        .resolve(import.instance.declaration)
+                        .unwrap()
                         .last()
                         .is_some_and(|part| part.name == "singleton")
             })
@@ -174,17 +184,24 @@ fn forged_native_result_conversions_are_rejected() {
                 .implementation
                 .arguments
                 .clear(),
-            3 => import
-                .result_adapter
-                .as_mut()
-                .unwrap()
-                .implementation
-                .declaration
-                .path
-                .last_mut()
-                .unwrap()
-                .name
-                .push_str("_missing"),
+            3 => {
+                let id = &mut import
+                    .result_adapter
+                    .as_mut()
+                    .unwrap()
+                    .implementation
+                    .declaration;
+                let parent = definitions.parent(*id).unwrap().unwrap();
+                let segment = definitions.resolve(*id).unwrap().last().unwrap();
+                *id = context
+                    .intern_child(
+                        parent,
+                        segment.kind,
+                        &format!("{}_missing", segment.name),
+                        segment.occurrence,
+                    )
+                    .unwrap();
+            }
             _ => {
                 let selected = import
                     .result_adapter
@@ -201,7 +218,7 @@ fn forged_native_result_conversions_are_rejected() {
             }
         }
         assert!(
-            KbcArtifact::from_program(program, Default::default()).is_err(),
+            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
             "corruption {corruption}"
         );
     }
@@ -233,15 +250,16 @@ fn native_registration_rejects_an_unimplemented_result_interface() {
     let mut module = ModuleBuilder::new(
         "example::bad_result",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let function = module
         .define_function(
-            FunctionDecl::new("wrong").returns(language.list().apply([Type::i32()]).ty()),
+            FunctionDecl::new("wrong").returns(language.list().apply([Type::i32()]).unwrap().ty()),
         )
         .unwrap();
     module
         .function(&function, |f| {
-            f.produces(Type::i32());
+            f.produces(Type::i32())?;
             Ok(())
         })
         .unwrap();

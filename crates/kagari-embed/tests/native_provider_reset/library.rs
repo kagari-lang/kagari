@@ -7,7 +7,7 @@ use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
 fn foundation_algorithms_are_available_from_normal_engine_construction() {
     let engine = KagariEngine::new(Default::default());
     let sources = engine.native_declaration_sources();
-    assert_eq!(sources.len(), foundation_catalog::shared().len());
+    assert_eq!(sources.len(), foundation_catalog::shared().unwrap().len());
     let program = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -40,7 +40,7 @@ fn explicit_empty_application_modules_keep_the_foundation() {
     let engine = KagariEngine::with_native_modules(Default::default(), vec![]).unwrap();
     assert_eq!(
         engine.native_declaration_sources().len(),
-        foundation_catalog::shared().len()
+        foundation_catalog::shared().unwrap().len()
     );
     assert!(
         engine

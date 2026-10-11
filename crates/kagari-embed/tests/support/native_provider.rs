@@ -55,16 +55,17 @@ pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
     let mut module = ModuleBuilder::new(
         "external::fixture",
         &language.catalog().expect("explicit standard providers"),
-    );
+    )
+    .unwrap();
     let function = module
         .define_function(FunctionDecl::new("from_fn"))
         .unwrap();
     module
         .function(&function, |function| {
             let item = function.type_parameter("T")?;
-            function.parameter("count", Type::usize());
-            function.parameter("callback", Type::function([Type::usize()], item.ty()));
-            function.returns(language.vec(item.ty()));
+            function.parameter("count", Type::usize())?;
+            function.parameter("callback", Type::function([Type::usize()], item.ty())?)?;
+            function.returns(language.vec(item.ty())?)?;
             Ok(())
         })
         .unwrap();
@@ -98,7 +99,7 @@ impl Drop for Handler {
 }
 
 fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> NativeResult<()> {
-    let mut declaration = module.define_type("Handler");
+    let mut declaration = module.define_type("Handler")?;
     declaration.type_parameter("T")?;
     declaration.native_storage(NativeStorage::payload::<Handler>())?;
     let handler = declaration.finish()?;
@@ -121,9 +122,9 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
     let hold = module.define_function(FunctionDecl::new("hold"))?;
     module.function(&hold, |function| {
         let item = function.type_parameter("T")?.ty();
-        function.parameter("value", item.clone());
-        function.parameter("callback", Type::function([item.clone()], item.clone()));
-        function.returns(handler.apply([item])?);
+        function.parameter("value", item.clone())?;
+        function.parameter("callback", Type::function([item.clone()], item.clone())?)?;
+        function.returns(handler.apply([item])?)?;
         Ok(())
     })?;
     module.bind(
