@@ -9,6 +9,223 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Workspace test-cost audit, 2026-10-11
+
+The user explicitly requested one complete workspace audit after the targeted
+sample below. This is a one-off diagnostic, not a change to the CI-only policy
+for routine full-suite validation. No tests, assertions, production code or Cargo
+profiles were changed, and no failed/final sweep was repeated.
+
+Command: `cargo test --workspace --no-fail-fast --timings --color never`.
+Source baseline: `35de1818`; working changes were documentation and CI policy.
+Environment matches the sample below: Windows x86_64 MSVC, i9-12900K (16 cores /
+24 logical CPUs), 63.7 GiB RAM, rustc 1.99.0 (b940084d7, LLVM 23.1.1), Cargo 1.99.0.
+Workspace test profile uses opt-level=1 and debug info, default target directory,
+default build/test parallelism and existing incremental artifacts. This workspace
+selection rebuilt several targets; it is neither a cold build nor an unchanged
+warm rerun. No other agent build/test/probe ran concurrently. The earlier sample
+used serial tests; its wall times must not be mixed into this ranking.
+
+| Measurement | Result |
+| --- | --- |
+| Complete command wall time | 2,210.66 s (36 min 50.66 s) |
+| Start through Cargo's build-finished message | 179.50 s (2 min 59.50 s) |
+| Remaining wall time | 2,031.17 s (33 min 51.17 s) |
+| Sum of harness-reported test execution times | 2,009.15 s |
+| Executed scope | 18 workspace members, 97 test executables and 16 doctest groups |
+| Results | 1,952 passed, 0 failed, 2 ignored; Cargo exit 0 |
+
+The gap between remaining wall time and harness totals includes process startup
+and rustdoc preparation outside reported execution intervals. Cargo executes test
+targets sequentially while each harness uses its default parallelism. Timings
+come from one run; they identify expensive targets, not statistically established
+performance changes. This covers the default workspace selection, not all feature
+combinations, ignored manual measurements or the full CI matrix.
+
+The audit covered all 113 targets; the slowest targets and package totals are
+recorded below. Target wall intervals were measured from each Cargo announcement
+to the next announcement (or command exit); doctest preparation can make them
+much larger than harness time. Raw measurements are not part of the repository.
+
+| Slowest targets | Harness time | Passed |
+| --- | --- | --- |
+| kagari-embed / lib: language_contract_routes_preserve_values_diagnostics_and_effects | 366.66 s | 1 |
+| kagari-hir / lib | 204.36 s | 429, plus 1 ignored |
+| kagari-embed / syntax_examples | 171.92 s | 9 |
+| kagari-vm / native_boundary | 168.71 s | 160 |
+| kagari-vm / lib | 94.47 s | 118 |
+| kagari-compiler / lib | 86.83 s | 174 |
+| kagari-embed / native_provider_reset | 56.30 s | 18 |
+| kagari-stdlib / documentation | 41.24 s | 1 |
+| kagari-embed / offline_nominal | 40.93 s | 12 |
+| kagari-embed / source_modules | 38.62 s | 30 |
+| kagari-lua-benchmark / binary unit tests | 37.53 s | 1 |
+| kagari-embed / default_methods | 35.82 s | 32 |
+| kagari-embed / standard_traits | 35.76 s | 20 |
+| kagari-vm / prepared_execution | 33.45 s | 7 |
+| kagari-embed / instantiation | 31.21 s | 25 |
+
+The first six targets account for 54.4% of summed harness time. By package,
+kagari-embed accounts for 1,270.15 s (63.2%), kagari-vm 320.15 s (15.9%),
+kagari-hir 206.62 s (10.3%) and kagari-compiler 92.56 s (4.6%). In contrast,
+runtime's 156 library tests take 1.04 s, syntax's 81 library tests 0.02 s and
+bytecode's 32 library tests 0.12 s. Test counts alone do not explain elapsed time.
+
+### Concrete follow-up candidates
+
+1. [SDK language contract](../crates/kagari-embed/src/runtime/language_contract.rs):
+   one test contains a large serial collection of scenarios (146 Case::new source
+   sites, not a claimed executed-case count). Successful scenarios traverse Source,
+   Artifact, Jit and ArtifactJit routes. It already shares compilation/prepared
+   inputs across routes; do not propose removing that duplication as if it still
+   existed. Review distinct route coverage, prepared declaration reuse and
+   individually filterable cases while retaining fresh mutable runtime state.
+2. [Syntax examples](../crates/kagari-embed/tests/syntax_examples.rs): 45 examples
+   inside one test each create an engine and compile a program, then execute
+   direct/serialized artifacts. Default test parallelism cannot parallelize this
+   inner loop. Preserve example validity and artifact coverage while reviewing
+   repeated immutable setup and selective execution.
+3. [Old ABI rejection](../crates/kagari-compiler/src/tests/bytecode/artifacts.rs):
+   rejects_previous_runtime_abis_even_when_loader_requests_them loops over 28 old
+   versions and recompiles the same `fn main() -> i32 { 1 }` in each iteration.
+   The full-run log reports this individual case exceeding 60 s. Prepare the
+   invariant program once when fixing this path; independently preserve each
+   metadata mutation/rejection assertion. No exact standalone case time was
+   measured during this parallel run.
+4. [Provider cancellation](../crates/kagari-embed/tests/native_provider_reset/main.rs):
+   cancellation_boundaries_unwind_nested_provider_callbacks constructs an engine
+   and runtime for each cancellation point, stopping after normal completion or
+   the 200-point bound. The program is already prepared outside the loop. Audit
+   engine/declaration reuse independently of necessary per-attempt runtime state.
+5. [Stdlib documentation](../crates/kagari-stdlib/tests/documentation.rs): one test
+   deduplicates documentation examples and analyzes them sequentially. Review
+   reuse of checked provider inputs without dropping documentation coverage.
+
+The HIR and VM aggregate targets also require targeted attribution before changing
+their tests. Libtest reported some cases running over 60 s, including HIR completion
+and generic-recovery matrices, import graph cancellation, VM native cancellation
+and retained selected calls. These are wall-time warnings under concurrent tests,
+not a precise per-case CPU ranking. Do not remove boundary coverage merely because
+its name appears in a slow target. The benchmark crate's 37.53 s is an ordinary
+test over empty/single-element workload inputs, not a `cargo bench` run.
+
+Cargo build timings separately identify the HIR library test build at 178.80 s,
+compiler library tests at 127.50 s, bytecode library tests at 126.72 s, VM library
+tests at 101.40 s and runtime library tests at 78.49 s. These build units overlap
+and their times cannot be summed into wall time. Bytecode's expensive test build
+and 0.12 s execution particularly illustrate why build/execution need separation.
+
+Measurement method: timestamp Cargo's merged output for the command above,
+separate the build-finished boundary, and record each harness summary. Cargo's
+--timings flag generates build timing data on the machine running the command.
+The temporary wrapper only captured output and timestamps, preserving default
+parallelism. Its source and raw logs are not distributed; the tables preserve
+the observed results, not a portable raw-data archive. No complete individual-test
+timing is claimed. Use targeted follow-up measurements for proposed changes;
+routine full sweeps remain with CI.
+
+## Targeted test-cost audit, 2026-10-11
+
+This is a diagnostic sample, not a workspace timing or a global ranking. No full
+suite was run. Baseline: `35de1818`, with documentation/CI-policy edits only.
+Machine: Windows x86_64 MSVC, Intel Core i9-12900K (16 cores / 24 logical CPUs),
+63.7 GiB RAM. Toolchain: rustc 1.99.0 (b940084d7, LLVM 23.1.1). Existing default
+target cache; workspace test profile inherits dev opt-level=1 with debug info;
+default package features and Cargo build parallelism. No environment overrides
+for build jobs, target directory, test threads, Rust flags or profile optimization
+were present. No other agent build/test/benchmark ran concurrently with sampling.
+
+Five integration targets were selected from source inspection: example batches,
+collection execution matrices and allocation loops. Build them separately from
+execution to distinguish Rust build time from work performed inside the tests:
+
+```text
+cargo test -p kagari-embed --test syntax_examples --test collection_interfaces --no-run --message-format=json
+cargo test -p kagari-vm --test interface_allocations --test library_collections --test native_allocations --no-run --message-format=json
+```
+
+The two incremental build commands took 7.78 s and 9.28 s wall time, respectively.
+These are warm-cache observations, not cold-build estimates. Each emitted test
+executable was then run once, from its crate directory, with `--test-threads=1`.
+Suite time includes process startup/exit; individual times are approximate deltas
+between completed libtest output lines, with startup included in the first case.
+Serial execution attributes costs but does not predict normal parallel test wall
+time. Do not sum these results into an estimate for the whole repository.
+
+| Target | Passing cases | Serial execution wall time |
+| --- | --- | --- |
+| kagari-embed / syntax_examples | 9 | 159.96 s |
+| kagari-vm / library_collections | 18 | 43.95 s |
+| kagari-embed / collection_interfaces | 5 | 25.13 s |
+| kagari-vm / interface_allocations | 3 | 7.46 s |
+| kagari-vm / native_allocations | 2 | 3.88 s |
+
+All 37 selected cases passed. Reproduce individual hotspots with package/target
+and exact test-name filters; do not turn this diagnostic inventory into a routine
+acceptance checklist. Raw logs and the temporary measurement helper are not
+distributed; the method and measured results are recorded here.
+
+The largest measured case was
+`standalone_language_examples_execute_from_source_and_artifact` at 141.36 s,
+approximately 88% of its target's serial time. The
+[example loop](../crates/kagari-embed/tests/syntax_examples.rs) runs 45 sources
+inside one test, constructing a fresh engine for each and executing both direct
+and serialized artifacts. This inner loop stays serial even when libtest runs
+different tests concurrently. Other measured examples:
+
+- `list_failures::active_iteration_rejects_list_edits_and_releases_the_guard_on_failure`:
+  6.76 s in library_collections.
+- `hash_collection_interfaces_use_custom_key_protocols`: 6.73 s.
+- `user_containers_implement_the_same_storage_independent_contracts`: 6.04 s.
+- `callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots`:
+  5.52 s in library_collections.
+- `inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_methods`:
+  4.16 s in interface_allocations.
+- `warmed_scalar_and_contiguous_i32_boundaries_add_no_allocations`: 2.40 s,
+  including its 100,000 scalar calls and three 1,000-call bulk cases. Large loop
+  counts alone did not identify the largest elapsed-time costs in this sample.
+
+A separate disposable Rust probe linked the exact embed/source rlibs from the
+first build, using rustc opt-level=1 and the existing dependency directory. Probe
+build/link time was 2.41 s, excluded from the following measurements. Its input
+was `fn main() -> i32 { 42 }`; each operation was timed with Instant. Three fresh
+engines and then three uniquely named sources on one reused engine were measured
+sequentially, without forced GC or JIT. Fresh-engine ranges:
+
+| Operation | Wall-time range across three samples |
+| --- | --- |
+| KagariEngine::default | 0.700-1.401 s |
+| compile_to_artifact | 1.199-1.437 s |
+| artifact serialize + decode | 0.029-0.040 s |
+| PreparedProgram::from_artifact | 0.402-0.511 s |
+| engine.runtime | 0.230-0.259 s |
+| runtime.load_program | 0.005-0.007 s |
+| runtime.execute | 0.016-0.106 ms |
+
+The temporary probe source and raw samples are not distributed. Its procedure
+calls the listed APIs in order, drops the returned execution result,
+then drops loaded module/runtime/program and engine with separate timing. This
+is a scale diagnostic, not a precise interpreter throughput benchmark. Reusing
+the engine removes another engine construction, but compile_to_artifact still
+took 1.416-1.473 s on the three reused-engine inputs: engine reuse alone does not
+remove the remaining compilation/preparation cost.
+
+Source inspection explains repeated work, but does not yet attribute the time
+inside those stages. [Engine declaration preparation](../crates/kagari-embed/src/engine/declarations.rs)
+renders/prepares/checks installed declarations; each fresh engine enters that
+path. [Collection interface tests](../crates/kagari-embed/tests/collection_interfaces.rs)
+exercise direct, serialized and JIT-enabled routes with GC threshold 1. Similar
+helpers exist in default_methods, type_inference and trait_inheritance; these
+other targets were not timed and are candidates, not measured hotspots.
+
+The next optimization review should separate ordinary semantic coverage from
+the smaller set proving serialization/backend/GC boundaries, investigate repeated
+immutable declaration and artifact preparation, and review the 45-case example
+batch's isolation requirements. Preserve distinct source-free/backend/ownership
+coverage and avoid sharing mutable engines globally or skipping validation merely
+to shorten tests. No tests, runtime code, assertions or profiles were changed by
+this audit. Complete test acceptance remains with CI.
+
 ## Execution architecture evaluation (HP06), 2026-10-10
 
 HP00–HP06 implementation and final local correctness checks are complete. All 16

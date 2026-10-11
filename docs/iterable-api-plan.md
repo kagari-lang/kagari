@@ -40,7 +40,10 @@ optimization, replayable query objects, `flat_map`/`flatten`, `try_*`, grouping,
 windows/chunks and set algebra. These are not acceptance requirements. There is
 no performance target or claim that adapter allocation/dispatch is free.
 
-## Existing implementation and ownership
+## Original implementation baseline and ownership
+
+The table records the pre-IA work inventory at 35de1818, not outstanding work.
+IA01-IA05 completion and actual validation are recorded in the ledger below.
 
 | Owner | Current behavior and required work |
 | --- | --- |
@@ -232,6 +235,12 @@ adapter fusion or specialization merely on an assumed performance benefit.
 
 ## Migration and phases
 
+The separate [native collections plan](native-collections-plan.md) is queued on
+the completed IA05 baseline at 9cd90557. It owns Vec/HashMap/HashSet storage and
+base-cursor migration, reusing implemented defaults, retained selected-call slots,
+consumer scopes and destination construction. Nominal source protection and
+dynamic storage gaps belong to NC; they do not reopen this completed API scope.
+
 Replace std::collections::map and its Vec-only implementation directly when the
 new method path lands. Migrate examples, tests, generated source expectations,
 tooling navigation and artifact producers in the same coherent checkpoint. Keep
@@ -278,20 +287,27 @@ JIT-enabled execution is not proof every operation ran natively.
 
 At implementation checkpoints review imports, ownership, visibility, effective
 LOC and re-exports, then run `uv run --locked scripts/check_structure.py` and
-`git diff --check`. Run formatting and affected contract tests. Batch full
-workspace checks at IA05, not after every phase:
+`git diff --check`. Run formatting, scoped Clippy and affected contract tests.
+Subsequent follow-ups use targeted tests plus a small regression set for directly
+affected boundaries; record the selection and results in the ledger. Batch repairs
+and rerun failed/affected cases only, completing skipped coverage within that scope.
+Do not run workspace suites locally or reconstruct them through package commands.
+
+The current policy leaves full validation to CI. The historical IA05 ledger
+below preserves the checks actually run under its user-directed procedure:
 
 ```text
 uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --no-fail-fast
 cargo test -p kagari-embed --no-default-features --test artifact_features
 git diff --check
 ```
 
-GitHub CI owns complete feature/backend acceptance. Record actual local results
-separately. Documentation-only planning needs content/link/diff checks, not builds.
+GitHub CI owns complete feature/backend acceptance. Record targeted local results
+and pending CI separately. Documentation-only planning needs content/link/diff
+checks, not builds.
 
 ## Progress and error ledger
 

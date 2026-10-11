@@ -31,7 +31,11 @@ parallel migration documents.
   implementation and local acceptance are complete; full CI remains open.
 - [Unified Iterable API execution plan](iterable-api-plan.md): agreed default
   method ownership, lazy adapters, terminal operations and collection contracts;
-  implementation has not started.
+  implementation and local acceptance are complete; full CI remains open.
+- [Library-owned native collections execution plan](native-collections-plan.md):
+  migrate Vec/HashMap/HashSet to ordinary native extensions with checked storage,
+  retained calls and external collection acceptance; queued on the completed
+  Iterable baseline, with NC01-NC06 not started.
 - [Runnable examples](../examples/README.md).
 - [HIR reading guide](architecture/hir.md) and the completed
   [HIR](hir-documentation-plan.md) / [syntax](syntax-documentation-plan.md)

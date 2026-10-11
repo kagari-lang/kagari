@@ -206,13 +206,24 @@ soundness. Run the checker's `--self-test` suite when changing it.
   contract-test set and lightweight checks. Reuse subsystem/conformance tests; do not
   run full workspace suites, even split across commands, at incremental checkpoints.
   Documentation-only edits need content/link/diff checks, not workspace builds.
-- Local full-workspace validation is allowed only after an entire large task (such
-  as a multi-phase feature/migration), not a single intermediate phase. Batch it at
-  final acceptance; fix failures with focused tests and repeat the full run only to
-  establish acceptance, never after every fix or after unchanged successful checks.
-- GitHub CI owns complete architecture and feature/backend acceptance. This policy
-  overrides both older blanket bans on local full runs and unconditional full-suite
-  lists. Report focused local checks, final local runs and CI status separately.
+- Full-workspace tests and complete feature/backend validation belong to CI. Do not
+  run them locally, including at the end of a large task or as many package commands
+  that collectively reproduce a full sweep. Final acceptance is not an exception.
+- Local validation selects tests for the changed behavior plus a small regression
+  set for directly affected contracts/dependents. Use package, target and test-name
+  filters; scope Clippy/builds similarly. For cross-cutting changes, select
+  representative boundary coverage and leave the exhaustive matrix to CI. Record
+  the selection rationale and uncovered CI scope in the active plan.
+- After failures, batch related repairs and rerun failing/affected cases only.
+  Complete skipped tests within the selected scope; a build failure or early exit
+  does not count them as passed. Use `--no-fail-fast` when running multiple selected
+  test targets to collect independent failures in one run.
+- Previously passing checks remain evidence for unaffected code. Do not rerun them
+  for a fresh all-green transcript or restart the validation sequence after a local
+  repair. Broaden coverage only when new changes or failures identify more impact.
+- This policy overrides older plans' local full-workspace acceptance commands.
+  Report focused local results, known failures and pending CI separately; never
+  claim complete acceptance from targeted tests or treat unrun CI as passed.
 - Use workspace Cargo profiles, the default `target` and default build parallelism.
   Use `uv run python` for Python. Put temporary logs/measurements under ignored
   `target/`; retain conclusions, reproduction commands and known errors in the active
@@ -221,15 +232,15 @@ soundness. Run the checker's `--self-test` suite when changing it.
   cache state and workload; separate compilation/execution and make only measured
   speed claims.
 
-CI checks below may also serve local final acceptance of a completed large task;
-they are not a routine iteration checklist. A local pass does not establish CI or
-its full feature/backend matrix passed.
+The following complete validation sequence belongs to CI, not local final
+acceptance. Structure, formatting and diff checks remain lightweight local checks
+where required above; local Cargo checks use only the selected affected scope.
 
 ```text
 uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --no-fail-fast
 git diff --check
 ```
 

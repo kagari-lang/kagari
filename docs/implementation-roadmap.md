@@ -53,6 +53,23 @@ request; all 113 default-workspace test/doc targets are covered without claiming
 a single uninterrupted workspace run. CI and its full feature/backend matrix
 remain unrun.
 
+### Library-owned native collections
+
+The [execution plan](native-collections-plan.md) records NC01-NC06; implementation
+has not started. Its baseline is 9cd90557 with IA01-IA05 locally complete. Reuse
+the implemented defaults, adapters, retained selected-call slots, consumer scopes
+and Vec/HashMap/HashSet FromIterator implementations. NC01 identifies remaining
+dynamic-storage, nominal source-protection and constructor/host evidence gaps;
+it does not repeat Iterable API implementation.
+
+Migrate Vec, HashMap and HashSet to ordinary nominal native objects. Libraries own
+storage, algorithms and trait implementations; runtime supplies checked dynamic
+access, GC/accounting, source guards and pinned calls. Remove concrete collection
+type/value/layout special cases and migrate host adapters, executable contracts
+and source-free consumers. Public-API-only external fixtures establish extensibility.
+Builtin Array and the full SA21 migration remain separate. No implementation,
+performance or CI acceptance is claimed at this planning checkpoint.
+
 ### Builtin fixed-length arrays (SA20)
 
 BA01-BA05 are implemented and locally accepted.
@@ -71,8 +88,8 @@ The subsequent SA20 review repaired generic assignment root capture and native
 iterator consumption by `sum`, `product` and `Vec::from_iter`. All 22 affected
 array/conversion cases are verified through the focused suites and reruns
 recorded in the execution plan; the earlier workspace acceptance was not repeated.
-Generalizing the `map` API is queued in the separate
-[Iterable API plan](iterable-api-plan.md).
+The subsequent [Iterable API plan](iterable-api-plan.md) completed the generalized
+`map` API and related adapters/terminals; its full CI acceptance remains open.
 
 ### Name resolution (SA8, SA2, SA3, CI pending)
 

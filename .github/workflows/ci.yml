@@ -55,7 +55,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
       - name: Run host-driven async example
         run: cargo run --locked -p kagari-embed --no-default-features --features source --example async_tasks
