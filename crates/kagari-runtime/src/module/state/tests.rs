@@ -6,10 +6,11 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-fn program(ty: ValueType, mutable: bool) -> BytecodeProgram {
+fn program(ty: ValueType, mutable: bool) -> DefinitionMetadata<BytecodeProgram> {
     let function = BytecodeFunction {
         id: FunctionRef::new(0),
         name: "main".into(),
@@ -22,27 +23,32 @@ fn program(ty: ValueType, mutable: bool) -> BytecodeProgram {
         instructions: vec![BytecodeInstruction::Return(None)],
         ..Default::default()
     };
-    BytecodeProgram {
-        root: ModuleRef::new(0),
-        modules: vec![BytecodeModule {
-            types: vec![ValueType::Unit, ValueType::HeapObject, ty],
-            module_slots: vec![BytecodeModuleSlot {
-                name: "state".into(),
-                ty,
-                mutable,
+    DefinitionMetadata::checked(
+        DefinitionContext::new().unwrap().snapshot(),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                types: vec![ValueType::Unit, ValueType::HeapObject, ty],
+                module_slots: vec![BytecodeModuleSlot {
+                    name: "state".into(),
+                    ty,
+                    mutable,
+                }],
+                function_table: vec![FunctionRecord {
+                    id: function.id,
+                    identity: None,
+                    name: function.name.clone(),
+                    params: vec![],
+                    return_type: ValueType::Unit,
+                    effects: Default::default(),
+                }],
+                functions: vec![function],
+                ..Default::default()
             }],
-            function_table: vec![FunctionRecord {
-                id: function.id,
-                identity: None,
-                name: function.name.clone(),
-                params: vec![],
-                return_type: ValueType::Unit,
-                effects: Default::default(),
-            }],
-            functions: vec![function],
-            ..Default::default()
-        }],
-    }
+        },
+        &Default::default(),
+    )
+    .unwrap()
 }
 
 fn array(runtime: &Runtime, owner: &LoadedModule, value: i32) -> Value {

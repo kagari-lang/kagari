@@ -21,7 +21,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
 use kagari_hir::analysis::AnalysisDatabase;
@@ -40,7 +39,7 @@ fn load_source(source: &str, module: Option<&NativeModule>) -> (Runtime, LoadedM
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     if let Some(module) = module {
-        analysis.set_native_modules(vec![Arc::new(module.to_declaration().unwrap())]);
+        analysis.set_native_modules(vec![Arc::new(module.to_declaration())]);
     }
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
@@ -59,8 +58,9 @@ fn load_source(source: &str, module: Option<&NativeModule>) -> (Runtime, LoadedM
 #[test]
 fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cycle() {
     for teardown in [false, true] {
-        let mut module = ModuleBuilder::new("example::defaults", &DeclarationCatalog::default());
-        let mut declaration = module.define_trait("Read");
+        let mut module =
+            ModuleBuilder::new("example::defaults", &DeclarationCatalog::default()).unwrap();
+        let mut declaration = module.define_trait("Read").unwrap();
         let read = declaration
             .define_method(MethodDecl::instance("read").returns(Type::i32()))
             .unwrap();
@@ -69,23 +69,19 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             .unwrap();
         let required = declaration.operation(&read).unwrap();
         let selected = declaration
-            .method(&twice, |method| Ok(method.requires(required)))
+            .method(&twice, |method| method.requires(required))
             .unwrap();
         declaration
             .bind_default_with(
                 twice,
-                NativeBinding::new(
-                    vec![Codec::Value],
-                    Codec::Scalar(Type::i32().abi().clone()),
-                    move |cx| {
-                        let receiver = cx.argument(0)?;
-                        let target = cx.selected(&selected)?;
-                        let Value::I32(value) = cx.call_values(target, &[receiver])? else {
-                            return Err(RuntimeError::module_validation("checked Read result"));
-                        };
-                        Ok(Value::I32(value * 2))
-                    },
-                ),
+                NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
+                    let receiver = cx.argument(0)?;
+                    let target = cx.selected(&selected)?;
+                    let Value::I32(value) = cx.call_values(target, &[receiver])? else {
+                        return Err(RuntimeError::module_validation("checked Read result"));
+                    };
+                    Ok(Value::I32(value * 2))
+                }),
             )
             .unwrap();
         declaration.finish().unwrap();
@@ -444,7 +440,7 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
         let mut operations = OperationBindings::default();
         operations.receiver(&runtime.gc, group).unwrap();
         let arguments = runtime
-            .resolve_type_arguments::<DefinitionId>(&loaded, &[Ty::Builtin(BuiltinType::I32)])
+            .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
             .unwrap();
         let method = runtime
             .prepare_interface_method_slot(&value, &interface, 0, &arguments, operations)

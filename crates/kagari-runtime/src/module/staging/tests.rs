@@ -6,13 +6,19 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use std::thread;
 
-fn program() -> BytecodeProgram {
-    BytecodeProgram {
-        root: ModuleRef::new(0),
-        modules: vec![BytecodeModule::default()],
-    }
+fn program() -> DefinitionMetadata<BytecodeProgram> {
+    DefinitionMetadata::checked(
+        DefinitionContext::new().unwrap().snapshot(),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        },
+        &Default::default(),
+    )
+    .unwrap()
 }
 
 fn stage(runtime: &mut Runtime, baseline: &LoadedModule) -> StagedReload {

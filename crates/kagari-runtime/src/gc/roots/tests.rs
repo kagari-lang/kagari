@@ -4,6 +4,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::thread;
 
@@ -129,9 +130,16 @@ fn root_leases_outlive_runtime_without_owning_its_storage() {
 
 #[test]
 fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
-    let program = || BytecodeProgram {
-        root: ModuleRef::new(0),
-        modules: vec![BytecodeModule::default()],
+    let program = || {
+        DefinitionMetadata::checked(
+            DefinitionContext::new().unwrap().snapshot(),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+            &Default::default(),
+        )
+        .unwrap()
     };
     let mut runtime = Runtime::default();
     let old = runtime.load_program("metadata-root", program()).unwrap();
@@ -169,9 +177,16 @@ fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
 
 #[test]
 fn rejected_metadata_replacement_keeps_the_original_program_reachable() {
-    let program = || BytecodeProgram {
-        root: ModuleRef::new(0),
-        modules: vec![BytecodeModule::default()],
+    let program = || {
+        DefinitionMetadata::checked(
+            DefinitionContext::new().unwrap().snapshot(),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            },
+            &Default::default(),
+        )
+        .unwrap()
     };
     let mut runtime = Runtime::default();
     let old = runtime.load_program("roots", program()).unwrap();

@@ -16,6 +16,7 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+    metadata::DefinitionMetadata,
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
@@ -26,10 +27,15 @@ fn module() -> (Runtime, LoadedModule) {
     let module = runtime
         .load_program(
             "windows",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                runtime.host().definitions(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     (runtime, module)

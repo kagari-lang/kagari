@@ -3242,3 +3242,48 @@ Focused local evidence:
 
 Runtime/SDK/VM test consumers, final contract-document transfer and plan retirement
 remain outstanding. This fixture checkpoint does not claim unrun workspace CI.
+
+
+### SI06 runtime fixture ownership entrypoints
+
+Shared runtime layout fixtures now register fixed IDs in an explicit authoring
+context and return scoped programs to Runtime loading. Nominal input types are
+validated against the runtime's published HostRegistry snapshot and imported into
+that authoring context; private runtime writers are not exposed to integration
+fixtures. Native sequence fixtures retain their module declaration metadata and
+use the current fallible builders. The gc_ownership target reuses the shared
+allocation-owner fixture and scopes its retained Host callback declaration.
+
+Migrated the runtime staging, retention, module-state, GC metadata-root and frame
+window fixture entrypoints to DefinitionMetadata. Module-record fixtures retain
+lowered metadata through reload, explicitly split/recombine the scope for edited
+layout facts, and inspect detached records through their envelope. Native method
+application fixtures use fallible builders, Exact(Type) codecs and fixed type
+argument resolution. These changes preserve runtime-owned normalization and leave
+runtime publication/verification logic unchanged.
+
+Focused local evidence and carried errors:
+
+- `cargo test -p kagari-runtime --test gc_ownership --no-fail-fast
+  --message-format=short --
+  foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounting
+  shared_host_callbacks_can_retain_checked_root_leases`: both pass. This covers
+  the shared nominal/enum allocation fixture across independent runtimes plus Host
+  callback roots retained across collection. Four unrelated target cases remain
+  outside this local selection.
+- `cargo clippy -p kagari-runtime --test gc_ownership --message-format=short --
+  -D warnings` passes, including compilation of the shared layout helpers.
+- `cargo test -p kagari-runtime --lib module::staging::tests:: --no-fail-fast
+  --message-format=short` remains a carried build failure. The latest attempt has
+  130 errors, down from 175 before this batch; no selected staging test ran. There
+  are no diagnostics in the changed unit fixture files or shared layout support.
+  Remaining owners are root runtime artifact/reload tests, module snapshot tests,
+  Host path registration tests in GC/reflection/value, and old native builder,
+  codec and payload consumers. Complete the pending staging selection after those
+  consumers build; do not treat the passing integration cases as their evidence.
+- Structure checks 1086 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Manual review covers scope provenance, independent runtime
+  adoption, snapshot retention and test-only import/visibility boundaries.
+
+The runtime unit build, remaining SDK/VM consumers and final documentation cleanup
+remain required SI06 work. Full-workspace/backend validation remains reserved for CI.

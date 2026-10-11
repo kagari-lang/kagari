@@ -1,31 +1,25 @@
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::HostFunction,
+    value::Value,
+    value_semantics::{identity_equal, script_equal},
+};
+use kagari_types::{
+    host_interface::{HostFunctionDeclaration, value_type::HostValueType},
+    scalar::BuiltinType,
+    ty::Ty,
+};
+use layouts::allocation_owner;
+
 #[path = "support/layouts.rs"]
 mod layouts;
-use kagari_bytecode::{
-    module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef},
-};
-use kagari_runtime::{
-    Runtime, error::RuntimeErrorKind, module::LoadedModule, value::Value,
-    value_semantics::script_equal,
-};
-use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn runtime_is_send() {
     fn assert_send<T: Send>() {}
     assert_send::<Runtime>();
-}
-
-fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
-    runtime
-        .load_program(
-            "allocation-owner",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
-        )
-        .unwrap()
 }
 
 #[test]
@@ -200,10 +194,6 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 
 #[test]
 fn shared_host_callbacks_can_retain_checked_root_leases() {
-    use {
-        kagari_runtime::{RuntimeConfig, host::HostFunction},
-        kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType},
-    };
     let mut runtime = Runtime::new(RuntimeConfig {
         ..Default::default()
     });
@@ -216,9 +206,14 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
         )
         .unwrap();
     let retained = runtime.root_value(Value::Array(object)).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let declaration =
+        HostFunctionDeclaration::new(&context, "host.retained", vec![], HostValueType::Bool)
+            .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("host.retained", vec![], HostValueType::Bool),
+            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                .unwrap(),
             move |cx, _| {
                 Ok(Value::Bool(
                     retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
@@ -236,7 +231,6 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
 
 #[test]
 fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
-    use kagari_runtime::value_semantics::identity_equal;
     let mut first = Runtime::default();
     let first_owner = allocation_owner(&mut first);
     let mut second = Runtime::default();

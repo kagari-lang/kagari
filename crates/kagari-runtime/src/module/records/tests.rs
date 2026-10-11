@@ -16,6 +16,7 @@ use kagari_bytecode::{
     instruction::{EnumId, StructId},
     program::BytecodeProgram,
 };
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -25,22 +26,20 @@ use kagari_types::{
 };
 use std::{slice, thread};
 
-fn fixture() -> (Runtime, LoadedModule, BytecodeProgram) {
-    let mut builder = ModuleBuilder::new("test::probe", &DeclarationCatalog::default());
+fn fixture() -> (Runtime, LoadedModule, DefinitionMetadata<BytecodeProgram>) {
+    let mut builder = ModuleBuilder::new("test::probe", &DeclarationCatalog::default()).unwrap();
     let function = builder
         .define_function(FunctionDecl::new("read").returns(Type::i32()))
         .unwrap();
     builder
         .bind_with(
             function,
-            NativeBinding::new(vec![], Codec::Scalar(Type::i32().abi().clone()), |_| {
-                Ok(Value::I32(3))
-            }),
+            NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(3))),
         )
         .unwrap();
     let provider = builder.finish().unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(provider.to_declaration().unwrap())]);
+    analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -178,6 +177,7 @@ fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_cac
             !loaded
                 .to_unverified(&Default::default())
                 .unwrap()
+                .records()
                 .functions
                 .is_empty()
         );
@@ -420,7 +420,8 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
 
 #[test]
 fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions() {
-    let (runtime, previous, mut code) = fixture();
+    let (runtime, previous, code) = fixture();
+    let (definitions, mut code) = code.into_parts();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let source = code.root.index();
     let target = (0..code.modules.len())
@@ -465,7 +466,7 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
         .unwrap()
         .clone();
     let linked_argument = Ty::Struct(NominalTy {
-        declaration: structure.declaration.clone(),
+        declaration: structure.declaration,
         arguments: args.to_vec(),
         associated_types: Default::default(),
     });
@@ -478,7 +479,11 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
     code.modules[target].structures.push(struct_template);
     code.modules[target].enumerations.push(enum_template);
     let candidate = runtime
-        .stage_reload_program(&previous, "records", code)
+        .stage_reload_program(
+            &previous,
+            "records",
+            DefinitionMetadata::checked(definitions, code, &Default::default()).unwrap(),
+        )
         .unwrap();
     let loaded = runtime.publish_staged_reload(candidate).unwrap();
     let other = loaded.members().nth(target).unwrap();
