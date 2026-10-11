@@ -6,7 +6,7 @@ use crate::{
     standard::RuntimePrimitive,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_types::host_interface::HostFunctionDeclaration;
 
 mod intrinsics;
@@ -114,7 +114,7 @@ pub fn verify_native_call(
 
 pub fn verify_host_call(
     dst: Option<ValueType>,
-    declaration: &HostFunctionDeclaration<DefinitionId>,
+    declaration: &HostFunctionDeclaration,
     args: &[ValueType],
     definitions: &DefinitionTable,
 ) -> Result<(), ContractError> {

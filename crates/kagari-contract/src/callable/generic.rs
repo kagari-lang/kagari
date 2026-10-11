@@ -2,10 +2,7 @@
 use crate::types::ConcreteFunctionIdentity;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionKind,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::{DefinitionKind, table::DefinitionTable},
 };
 use kagari_types::{
     declaration::verify::{native_bounds_valid, types_in_scope},
@@ -14,8 +11,8 @@ use kagari_types::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericBody {
-    pub parameters: Vec<GenericParam<DefinitionId>>,
-    pub bounds: Vec<GenericBound<DefinitionId>>,
+    pub parameters: Vec<GenericParam>,
+    pub bounds: Vec<GenericBound>,
 }
 
 impl GenericBody {
@@ -49,7 +46,7 @@ impl GenericBody {
 
     pub fn types_valid<'a>(
         &self,
-        types: impl IntoIterator<Item = &'a Ty<DefinitionId>>,
+        types: impl IntoIterator<Item = &'a Ty>,
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {

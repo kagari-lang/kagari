@@ -2822,3 +2822,79 @@ parameters and obsolete common rebinding/projection APIs remain SI06 work, as do
 the recorded compiler/runtime/contract and canonical library-test fixture repairs.
 No unchanged failing library-test target is counted as passing. Full feature and
 backend acceptance remains CI work; the goal is not complete.
+
+
+### SI06 fixed shared types, Native declarations and Host contracts
+
+All shared kagari-types semantic models now contain DefinitionId directly: Ty,
+NominalTy, binders/constraints, Native declarations and modules, callable selectors
+and signatures, Host interfaces, value types, members and paths. Their identity
+representation parameters and direct semantic Serde implementations are removed.
+Explicit DefinitionReferences and RemapDefinitions implementations preserve every
+field, unique key, count check and cancellation point. Type conversion/reference
+collection helpers are private; external consumers use the fixed capabilities.
+Production compiler/HIR, contract, executable, runtime/VM, codegen and standard
+library consumers use the fixed models, including foundation partition/adoption.
+
+The bounded flat type and Host wire records retain their shared shape traversal;
+private node helpers remain codec-local and do not rebind any semantic model.
+Unconditional ID path-limit checks and the unreachable authoring-path branches are
+removed. Table construction/decoding still bounds paths; Host validate_in still
+checks every scoped nominal leaf, constructor kind, exact Option/Result identity
+and collection access. Depth, node counts, hash-key rules and canonical associated
+key/value pairing remain in their established owners. No process-local ID gains a
+Serde implementation. Canonical bytes and version identifiers are unchanged.
+
+Enum Hash tags now encode the existing fixed NominalTyRecord instead of rebinding
+the semantic nominal type to file references. This preserves the table, nominal
+arguments/bindings and variant identity tag fields. Host path-only Option/Result
+constructors and unused language constructors are removed. The remaining Option/
+Result helpers and integer-method result query require a retained table and report
+a missing core declaration with None, rather than creating a path-valued type.
+
+Shared type fixtures register directly in a context and compare complete records
+after explicit import, replacing whole-model path projections. Canonical ordering
+still exercises reversed allocation, associated key/value pairing and unrelated
+identities. The duplicate generic-Serde composite roundtrip is consolidated into
+the complete PortableTypes identity case; malformed flat nodes and noncanonical
+bindings remain at the wire owner. Host metadata integration uses real KHI bytes;
+its duplicate file-reference/kind corruption cases are covered by the already
+selected private-wire and scoped Host validation cases. Foreign metadata,
+cancellation, repeated adoption and retained ownership assertions remain.
+
+Focused local evidence:
+
+- Scoped library Clippy/fix covers types, contract, HIR, MIR, bytecode, compiler,
+  runtime, VM and Cranelift. Standard-library partition's remaining old visitor/
+  remapper calls surfaced during offline Host compilation and were migrated; its
+  library Clippy check then passed. These select directly affected library targets
+  without package-wide or backend/feature sweeps.
+- `cargo test -p kagari-types --lib host_interface:: --no-fail-fast
+  --message-format=short`: all 17 Host boundary/codec cases pass.
+- `cargo test -p kagari-types --lib ty:: --no-fail-fast --message-format=short`:
+  all 16 type identity, wire, access and substitution cases pass.
+- `cargo test -p kagari-types --lib declaration::verify::scoped_tests::
+  --no-fail-fast --message-format=short`: all four scoped declaration cases pass.
+- `cargo test -p kagari-types --test host_metadata --no-fail-fast
+  --message-format=short`: both explicit metadata/KHI adoption cases pass.
+- `cargo test -p kagari-runtime --test offline_host --no-fail-fast
+  --message-format=short`: all eight cases pass against rebuilt dependencies.
+- Final `cargo clippy -p kagari-types --lib --tests --message-format=short --
+  -D warnings` passes after repairing the owner's old fixtures and stale imports.
+  The initial library-test compilation reported 43 path/generic-Serde fixture
+  errors and the metadata integration compilation reported 20 obsolete projection
+  errors; all are resolved before the reported behavioral checks.
+
+- Reused temporary public-API probes pass against rebuilt libraries. Source-free
+  MIR/bytecode correspondence, foreign/later-reference rejection, explicit adoption,
+  Native mismatch and cancellation are preserved. Captured-closure snapshots,
+  source release before decoding and canonical enum Hash tags under independent
+  compilation/variant reordering also pass.
+
+Manual review checks semantic field coverage, same-ID remapping, codec ownership,
+associated binding order, ID Copy changes, imports and visibility. Structure checks
+1086 Rust files with zero violations/exceptions; formatting and diff checks pass.
+Common DefinitionReference/DefinitionRecord/Rebind, metadata path/portable projections and
+legacy query helpers still require removal. Recorded compiler/runtime/contract
+library-test and remaining example/integration fixtures remain open SI06 work.
+Full backend/feature acceptance is reserved for CI; the goal is not complete.

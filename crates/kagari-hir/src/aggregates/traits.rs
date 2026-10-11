@@ -97,7 +97,7 @@ pub struct TraitSignature {
     /// Declared storage-interface access role, when supplied by registration.
     pub storage_access: Option<CollectionAccess>,
     /// Registered conversion adapter policy, if this trait has one.
-    pub conversion_adapter: Option<ConversionAdapter<DefinitionId>>,
+    pub conversion_adapter: Option<ConversionAdapter>,
     /// Associated family identity to its own binders and constraints.
     pub associated_type_parameters: BTreeMap<DefinitionId, AssociatedTypeParameters>,
     /// Canonical associated constant identities to their contracts.

@@ -8,7 +8,6 @@ use crate::{
     value::{MapKey, Value},
     value_check::matches_type,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::operations::StringIterKind;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -42,7 +41,7 @@ impl PendingItem {
 #[derive(Debug)]
 pub(super) struct NativeIter {
     pub(super) source: Value,
-    pub(super) item_type: Ty<DefinitionId>,
+    pub(super) item_type: Ty,
     pub(super) item_contract: StorageType,
     pub(super) position: u128,
     pub(super) string: Option<StringTraversal>,
@@ -136,8 +135,8 @@ impl GcHeap {
     fn new_iter_with(
         &self,
         source: &Value,
-        ty: &Ty<DefinitionId>,
-        traversal: Option<(Ty<DefinitionId>, StringTraversal)>,
+        ty: &Ty,
+        traversal: Option<(Ty, StringTraversal)>,
         owner: &LoadedModule,
         scope: Option<IterTypeScope<'_>>,
     ) -> Result<Value, RuntimeError> {
@@ -221,7 +220,7 @@ impl GcHeap {
     pub(crate) fn new_string_iter(
         &self,
         source: &Value,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         kind: StringIterKind,
         owner: &LoadedModule,
     ) -> Result<Value, RuntimeError> {
@@ -245,7 +244,7 @@ impl GcHeap {
     pub(crate) fn advance_iter_with<R>(
         &self,
         value: &Value,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         finish: impl FnOnce(Option<Value>) -> Result<R, RuntimeError>,
     ) -> Result<R, RuntimeError> {
         self.ensure_execution_allowed()?;

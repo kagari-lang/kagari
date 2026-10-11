@@ -4,7 +4,6 @@ use crate::{
     frame::types::{TypeEnvironment, arguments::ScopedSignature},
     gc::{GcHeap, interfaces::InterfaceResultBinding},
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::callable::Signature;
 use std::{
     cell::Ref,
@@ -13,7 +12,7 @@ use std::{
 
 #[derive(Debug)]
 pub(crate) struct MethodApplication {
-    pub(crate) signature: Signature<DefinitionId>,
+    pub(crate) signature: Signature,
     pub(crate) scoped_signature: Option<ScopedSignature>,
     pub(crate) environment: Option<TypeEnvironment>,
     pub(crate) result_adapter: Option<InterfaceResultBinding>,

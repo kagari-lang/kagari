@@ -16,10 +16,10 @@ use std::{collections::BTreeMap, sync::Arc};
 pub struct DeclarationCatalog {
     /// Authoring-only Markdown; excluded from executable contract comparisons.
     pub(crate) documentation: Arc<BTreeMap<DefinitionId, String>>,
-    pub(crate) types: Arc<DefinitionMap<TypeDef<DefinitionId>>>,
-    pub(crate) traits: Arc<DefinitionMap<TraitDef<DefinitionId>>>,
-    pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration<DefinitionId>>>,
-    pub(crate) implementations: Arc<DefinitionMap<ImplDecl<DefinitionId>>>,
+    pub(crate) types: Arc<DefinitionMap<TypeDef>>,
+    pub(crate) traits: Arc<DefinitionMap<TraitDef>>,
+    pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration>>,
+    pub(crate) implementations: Arc<DefinitionMap<ImplDecl>>,
 }
 
 impl Default for DeclarationCatalog {

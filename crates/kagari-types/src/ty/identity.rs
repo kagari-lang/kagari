@@ -7,8 +7,8 @@ use crate::ty::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{
             DefinitionId, DefinitionTable, DefinitionTableBuilder, DefinitionTableError,
             wire::{MAX_PORTABLE_IDENTITY_RECORDS, PortableDefinitionTable},
@@ -75,13 +75,11 @@ impl From<DefinitionMappingError> for IdentityTransformError {
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for Ty<I> {
-    type Rebind<J: DefinitionReference> = Ty<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for Ty {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Ty<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Ty, DefinitionMappingError> {
         let cancel = mapper.cancellation().clone();
         self.map_definitions(
             &mut |id| mapper.reference(id).map_err(IdentityTransformError::from),
@@ -89,10 +87,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Ty<I> {
         )
         .map_err(DefinitionMappingError::from)
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for Ty {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         for id in self
@@ -105,14 +105,14 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Ty<I> {
     }
 }
 
-impl<I: DefinitionReference> Ty<I> {
+impl Ty {
     /// Convert every owner/member reference, preserving ordered type arguments.
     /// The mapper must resolve its source context and validate the target scope.
-    pub fn map_definitions<J: DefinitionReference>(
+    fn map_definitions(
         &self,
-        convert: &mut impl FnMut(&I) -> Result<J, IdentityTransformError>,
+        convert: &mut impl FnMut(&DefinitionId) -> Result<DefinitionId, IdentityTransformError>,
         cancel: &CancellationToken,
-    ) -> Result<Ty<J>, IdentityTransformError> {
+    ) -> Result<Ty, IdentityTransformError> {
         if !self.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded.into());
         }
@@ -124,10 +124,10 @@ impl<I: DefinitionReference> Ty<I> {
         .ty(self, 1)
     }
 
-    pub fn definition_references(
+    fn definition_references(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<Vec<&I>, IdentityTransformError> {
+    ) -> Result<Vec<&DefinitionId>, IdentityTransformError> {
         if !self.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded.into());
         }
@@ -181,13 +181,9 @@ struct Mapper<'a, F> {
 }
 
 impl<F> Mapper<'_, F> {
-    fn ty<I: DefinitionReference, J: DefinitionReference>(
-        &mut self,
-        ty: &Ty<I>,
-        depth: usize,
-    ) -> Result<Ty<J>, IdentityTransformError>
+    fn ty(&mut self, ty: &Ty, depth: usize) -> Result<Ty, IdentityTransformError>
     where
-        F: FnMut(&I) -> Result<J, IdentityTransformError>,
+        F: FnMut(&DefinitionId) -> Result<DefinitionId, IdentityTransformError>,
     {
         self.cancel
             .check()
@@ -237,24 +233,16 @@ impl<F> Mapper<'_, F> {
         })
     }
 
-    fn many<I: DefinitionReference, J: DefinitionReference>(
-        &mut self,
-        types: &[Ty<I>],
-        depth: usize,
-    ) -> Result<Vec<Ty<J>>, IdentityTransformError>
+    fn many(&mut self, types: &[Ty], depth: usize) -> Result<Vec<Ty>, IdentityTransformError>
     where
-        F: FnMut(&I) -> Result<J, IdentityTransformError>,
+        F: FnMut(&DefinitionId) -> Result<DefinitionId, IdentityTransformError>,
     {
         types.iter().map(|ty| self.ty(ty, depth)).collect()
     }
 
-    fn nominal<I: DefinitionReference, J: DefinitionReference>(
-        &mut self,
-        ty: &NominalTy<I>,
-        depth: usize,
-    ) -> Result<NominalTy<J>, IdentityTransformError>
+    fn nominal(&mut self, ty: &NominalTy, depth: usize) -> Result<NominalTy, IdentityTransformError>
     where
-        F: FnMut(&I) -> Result<J, IdentityTransformError>,
+        F: FnMut(&DefinitionId) -> Result<DefinitionId, IdentityTransformError>,
     {
         let mut associated_types = BTreeMap::new();
         for (member, output) in &ty.associated_types {
@@ -286,13 +274,13 @@ pub struct PortableTypes {
 #[derive(Debug, Clone)]
 pub struct DecodedTypes {
     pub definitions: DefinitionTable,
-    pub types: Vec<Ty<DefinitionId>>,
+    pub types: Vec<Ty>,
 }
 
 impl PortableTypes {
     pub fn encode(
         definitions: &DefinitionTable,
-        types: &[Ty<DefinitionId>],
+        types: &[Ty],
         cancel: &CancellationToken,
     ) -> Result<Self, IdentityTransformError> {
         if types.len() > MAX_PORTABLE_IDENTITY_RECORDS {
@@ -339,7 +327,7 @@ impl DecodedTypes {
         &self,
         target: &mut DefinitionTableBuilder,
         cancel: &CancellationToken,
-    ) -> Result<Vec<Ty<DefinitionId>>, IdentityTransformError> {
+    ) -> Result<Vec<Ty>, IdentityTransformError> {
         let mut references = HashSet::new();
         for ty in &self.types {
             references.extend(ty.definition_references(cancel)?.into_iter().copied());

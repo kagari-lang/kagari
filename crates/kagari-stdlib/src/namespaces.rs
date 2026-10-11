@@ -1,8 +1,5 @@
 //! Canonical declaration ownership and public package spelling of the bundled library.
-use kagari_common::identity::{
-    ModuleIdentity, PackageId,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::{ModuleIdentity, PackageId, table::DefinitionTable};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 pub fn module(package: &str, path: &str) -> ModuleIdentity {
@@ -68,10 +65,7 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
     }
 }
 
-pub fn receiver_owner(
-    ty: &Ty<DefinitionId>,
-    definitions: &DefinitionTable,
-) -> Option<ModuleIdentity> {
+pub fn receiver_owner(ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleIdentity> {
     Some(match ty {
         Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => definitions
             .resolve(nominal.declaration)

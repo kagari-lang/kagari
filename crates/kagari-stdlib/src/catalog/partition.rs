@@ -8,8 +8,9 @@ use kagari_common::{
     identity::{
         DefinitionKind, ModuleIdentity,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionRecord},
-        table::{DefinitionId, DefinitionTable},
+        mapping::DefinitionMapper,
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionTable,
     },
 };
 use kagari_types::{
@@ -86,7 +87,7 @@ fn function_owner(name: &str) -> ModuleIdentity {
 }
 
 fn bounds(
-    bounds: &mut Vec<GenericBound<DefinitionId>>,
+    bounds: &mut Vec<GenericBound>,
     definitions: &DefinitionTable,
 ) -> Result<(), DeclarationError> {
     *bounds = GenericBound::normalize(
@@ -98,10 +99,7 @@ fn bounds(
     Ok(())
 }
 
-fn function(
-    function: &mut FnDecl<DefinitionId>,
-    definitions: &DefinitionTable,
-) -> Result<(), DeclarationError> {
+fn function(function: &mut FnDecl, definitions: &DefinitionTable) -> Result<(), DeclarationError> {
     bounds(&mut function.bounds, definitions)
 }
 
@@ -142,7 +140,7 @@ pub(super) fn finish(
     let mut references = HashSet::new();
     let cancel = CancellationToken::default();
     assembly
-        .visit_definitions(
+        .visit_definition_ids(
             &mut |id| {
                 references.insert(*id);
                 Ok(())
@@ -192,7 +190,7 @@ pub(super) fn finish(
         identities.insert(id, target);
     }
     let mapped = assembly
-        .map_identities(&mut DefinitionMapper::new(
+        .remap_definitions(&mut DefinitionMapper::new(
             &mut |id| Ok(identities[id]),
             &cancel,
         ))
@@ -390,7 +388,7 @@ pub(super) fn finish(
         }
         let mut dependencies = Vec::new();
         module
-            .visit_definitions(
+            .visit_definition_ids(
                 &mut |id| {
                     let owner = definitions.resolve(*id)?.module();
                     if owner != &module.identity {

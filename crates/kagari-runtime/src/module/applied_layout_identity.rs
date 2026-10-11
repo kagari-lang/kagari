@@ -8,7 +8,6 @@ use crate::{
         layout_scope::LayoutScope,
     },
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::Ty;
 use std::{hash::Hash, sync::Arc};
@@ -37,7 +36,7 @@ impl<L: Clone + Eq + Hash> IdentityIndex<L> {
         &mut self,
         owner: &LoadedModule,
         shape: Arc<L>,
-        arguments: &[Ty<DefinitionId>],
+        arguments: &[Ty],
         scope: Option<&LayoutScope>,
         linked: Option<LayoutIdentity>,
     ) -> Option<LayoutIdentity> {

@@ -7,21 +7,17 @@ use crate::{
     value::Value,
     value_check::matches_view,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 
 #[derive(Debug)]
 pub(crate) struct StorageType {
-    pub(crate) ty: Ty<DefinitionId>,
+    pub(crate) ty: Ty,
     pub(crate) owner: LoadedModule,
     scope: Option<TypeArgument>,
 }
 
 impl StorageType {
-    pub(crate) fn prepare(
-        ty: Ty<DefinitionId>,
-        owner: &LoadedModule,
-    ) -> Result<Self, RuntimeError> {
+    pub(crate) fn prepare(ty: Ty, owner: &LoadedModule) -> Result<Self, RuntimeError> {
         Self::checked(Self {
             ty,
             owner: owner.clone(),

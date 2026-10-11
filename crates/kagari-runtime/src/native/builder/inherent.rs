@@ -23,11 +23,11 @@ pub struct InherentMethodsBuilder {
     pub(crate) owner: DefinitionId,
     pub(crate) receiver: Type,
     pub(crate) receiver_codec: Option<Codec>,
-    pub(crate) methods: BTreeMap<DefinitionId, FnDecl<DefinitionId>>,
+    pub(crate) methods: BTreeMap<DefinitionId, FnDecl>,
     pub(crate) documentation: BTreeMap<DefinitionId, String>,
     pub(crate) method_parameters: BTreeMap<DefinitionId, Vec<String>>,
-    pub(crate) requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement<DefinitionId>>>,
-    pub(crate) concrete_results: BTreeMap<DefinitionId, Ty<DefinitionId>>,
+    pub(crate) requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
+    pub(crate) concrete_results: BTreeMap<DefinitionId, Ty>,
     pub(crate) bindings: BTreeMap<DefinitionId, NativeBinding>,
 }
 

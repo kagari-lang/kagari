@@ -104,7 +104,7 @@ pub(crate) enum HostSourcePathStep {
 #[derive(Debug)]
 pub struct HostDeclarations {
     revision: u64,
-    interface: HostInterface<DefinitionId>,
+    interface: HostInterface,
     definitions: DefinitionTable,
     signatures: Vec<HostSignature>,
     origins: HashMap<DefinitionId, HostDeclarationOrigin>,
@@ -116,14 +116,12 @@ pub struct HostDeclarations {
 }
 
 impl HostDeclarations {
-    pub(crate) fn type_declarations(&self) -> &[HostTypeDeclaration<DefinitionId>] {
+    pub(crate) fn type_declarations(&self) -> &[HostTypeDeclaration] {
         &self.interface.types
     }
 
     /// Projects a declared host trait implementation into an applied HIR nominal interface.
-    pub fn trait_type(
-        implementation: &HostTraitImplementationDeclaration<DefinitionId>,
-    ) -> NominalType {
+    pub fn trait_type(implementation: &HostTraitImplementationDeclaration) -> NominalType {
         NominalType {
             declaration: implementation.trait_id,
             arguments: implementation
@@ -144,7 +142,7 @@ impl HostDeclarations {
         &self,
         trait_type: &NominalType,
         receiver: &TypeId,
-    ) -> Option<&HostTraitImplementationDeclaration<DefinitionId>> {
+    ) -> Option<&HostTraitImplementationDeclaration> {
         let TypeId::Host(id) = receiver else {
             return None;
         };
@@ -155,7 +153,7 @@ impl HostDeclarations {
     }
 
     fn matches_trait_application(
-        implementation: &HostTraitImplementationDeclaration<DefinitionId>,
+        implementation: &HostTraitImplementationDeclaration,
         trait_type: &NominalType,
     ) -> bool {
         Self::trait_type(implementation).satisfies(trait_type)
@@ -681,7 +679,7 @@ impl HostDeclarations {
     }
 
     /// Borrows a function declaration only if revision and index belong to this input.
-    pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration<DefinitionId>> {
+    pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.functions.get(id.index))
             .flatten()
@@ -739,13 +737,7 @@ impl HostDeclarations {
         &self,
         root: &DefinitionId,
         steps: &[HostSourcePathStep],
-    ) -> Result<
-        (
-            HostPathDeclaration<DefinitionId>,
-            HostPathContract<DefinitionId>,
-        ),
-        &'static str,
-    > {
+    ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
         let mut matches = self.interface.paths.iter().filter(|path| {
             if &path.root != root || path.segments.len() != steps.len() {
                 return false;
@@ -789,14 +781,14 @@ impl HostDeclarations {
     }
 
     /// Borrows a type declaration only if revision and index belong to this input.
-    pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration<DefinitionId>> {
+    pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration> {
         (id.revision == self.revision)
             .then(|| self.interface.types.get(id.index))
             .flatten()
     }
 
     /// Finds a field using its retained definition parent; foreign or absent IDs return `None`.
-    pub fn field(&self, id: &DefinitionId) -> Option<&HostFieldDeclaration<DefinitionId>> {
+    pub fn field(&self, id: &DefinitionId) -> Option<&HostFieldDeclaration> {
         let owner = self.definitions.parent(*id).ok()??;
         self.type_declaration(self.nominal_type(&owner)?)?
             .fields
@@ -805,7 +797,7 @@ impl HostDeclarations {
     }
 }
 
-pub(crate) fn signature_type(ty: &HostValueType<DefinitionId>) -> TypeId {
+pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
     match ty {
         HostValueType::Tuple(types) => TypeId::Tuple(types.iter().map(signature_type).collect()),
         HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element))),

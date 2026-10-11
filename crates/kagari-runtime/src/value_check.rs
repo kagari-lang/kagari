@@ -7,23 +7,17 @@ use crate::{
     numeric,
     value::{EnumTag, Value},
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
 
-pub(crate) fn matches_type(
-    heap: &GcHeap,
-    value: &Value,
-    ty: &Ty<DefinitionId>,
-    owner: &LoadedModule,
-) -> bool {
+pub(crate) fn matches_type(heap: &GcHeap, value: &Value, ty: &Ty, owner: &LoadedModule) -> bool {
     matches_view(heap, value, TypeView::new(ty, owner, None))
 }
 
 pub(crate) fn matches_type_in(
     heap: &GcHeap,
     value: &Value,
-    ty: &Ty<DefinitionId>,
+    ty: &Ty,
     owner: &LoadedModule,
     environment: Option<&TypeBindings>,
 ) -> bool {

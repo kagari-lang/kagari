@@ -3,7 +3,7 @@ use crate::catalog::{
     contracts, identities,
     key::{self, RegistrationTrait},
 };
-use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     declaration::{
         TraitDef,
@@ -13,7 +13,7 @@ use kagari_types::{
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
 
-fn projection(ids: &DefinitionContext, name: &str) -> Result<Ty<DefinitionId>, DeclarationError> {
+fn projection(ids: &DefinitionContext, name: &str) -> Result<Ty, DeclarationError> {
     let owner = key::identity(ids, RegistrationTrait::Try)?;
     Ok(Ty::Projection {
         receiver: Box::new(Ty::SelfType(owner)),
@@ -23,9 +23,7 @@ fn projection(ids: &DefinitionContext, name: &str) -> Result<Ty<DefinitionId>, D
     })
 }
 
-pub(super) fn traits(
-    ids: &DefinitionContext,
-) -> Result<Vec<TraitDef<DefinitionId>>, DeclarationError> {
+pub(super) fn traits(ids: &DefinitionContext) -> Result<Vec<TraitDef>, DeclarationError> {
     let mut residual = contracts::contract(ids, RegistrationTrait::FromResidual, &["R"])?;
     let mut from_residual = contracts::method(
         "from_residual",
@@ -70,7 +68,7 @@ fn generic_parameters(
     ids: &DefinitionContext,
     module: &ModuleDecl,
     count: usize,
-) -> Result<Vec<GenericParam<DefinitionId>>, DeclarationError> {
+) -> Result<Vec<GenericParam>, DeclarationError> {
     let owner = identities::implementation(ids, module.implementations.len())?;
     Ok((0..count)
         .map(|position| GenericParam { owner, position })
@@ -175,9 +173,9 @@ fn implement(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
     kind: RegistrationTrait,
-    interface: NominalTy<DefinitionId>,
-    receiver: Ty<DefinitionId>,
-    parameters: Vec<GenericParam<DefinitionId>>,
+    interface: NominalTy,
+    receiver: Ty,
+    parameters: Vec<GenericParam>,
     name: &str,
 ) -> Result<(), DeclarationError> {
     let contract = module

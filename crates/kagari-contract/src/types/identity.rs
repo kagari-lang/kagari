@@ -4,7 +4,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
-        table::DefinitionId,
     },
 };
 
@@ -27,7 +26,7 @@ pub fn collect(
     module: &ModuleIdentity,
     items: &[PublicItem],
     contracts: &[TraitContract],
-    hosts: &[HostTypeDeclaration<DefinitionId>],
+    hosts: &[HostTypeDeclaration],
     context: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<(), DefinitionMappingError> {

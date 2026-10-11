@@ -3,7 +3,7 @@ use crate::catalog::{
     contracts::{enum_type, method, unit},
     identities,
 };
-use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -63,8 +63,8 @@ fn storage(
     ids: &DefinitionContext,
     _module: &ModuleDecl,
     name: &str,
-    arguments: Vec<Ty<DefinitionId>>,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+    arguments: Vec<Ty>,
+) -> Result<Ty, DeclarationError> {
     Ok(Ty::NativeObject(NominalTy {
         declaration: identities::definition(ids, DefinitionKind::AssociatedType, name)?,
         arguments,

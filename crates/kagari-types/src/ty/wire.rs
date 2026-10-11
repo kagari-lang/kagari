@@ -15,20 +15,13 @@ use crate::{
 
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        reference::DefinitionReference,
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+    identity::table::{
+        DefinitionId,
+        wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
-use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
-    de::{Error as DeError, SeqAccess, Visitor},
-    ser::Error,
-};
-use std::{collections::BTreeMap, fmt, fmt::Formatter, marker::PhantomData, vec::IntoIter};
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, vec::IntoIter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum Node<I> {
@@ -78,7 +71,7 @@ impl WireType {
     /// Encode scoped types using the artifact's canonical file table.
     /// Returns identity, bounded shape or cancellation errors.
     pub fn encode(
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, IdentityTransformError> {
@@ -96,7 +89,7 @@ impl WireType {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<Ty<DefinitionId>, IdentityTransformError> {
+    ) -> Result<Ty, IdentityTransformError> {
         let mut nodes = self.nodes.into_iter();
         let ty = build(
             &mut nodes,
@@ -111,10 +104,10 @@ impl WireType {
     }
 }
 
-fn ordered_bindings<'a, I, J: Ord>(
-    bindings: &'a BTreeMap<I, Ty<I>>,
-    convert: &mut impl FnMut(&I) -> Result<J, IdentityTransformError>,
-) -> Result<Vec<(J, &'a Ty<I>)>, IdentityTransformError> {
+fn ordered_bindings<'a, J: Ord>(
+    bindings: &'a BTreeMap<DefinitionId, Ty>,
+    convert: &mut impl FnMut(&DefinitionId) -> Result<J, IdentityTransformError>,
+) -> Result<Vec<(J, &'a Ty)>, IdentityTransformError> {
     let mut result = bindings
         .iter()
         .map(|(id, ty)| Ok((convert(id)?, ty)))
@@ -126,18 +119,18 @@ fn ordered_bindings<'a, I, J: Ord>(
     Ok(result)
 }
 
-impl<I: DefinitionReference> Ty<I> {
+impl Ty {
     pub fn within_wire_limits(&self) -> bool {
         self.wire_nodes().is_ok()
     }
 
-    fn wire_nodes(&self) -> Result<Vec<Node<I>>, IdentityTransformError> {
-        self.wire_nodes_with(&mut |id| Ok(id.clone()), None)
+    fn wire_nodes(&self) -> Result<Vec<Node<DefinitionId>>, IdentityTransformError> {
+        self.wire_nodes_with(&mut |id| Ok(*id), None)
     }
 
     fn wire_nodes_with<J: Ord>(
         &self,
-        convert: &mut impl FnMut(&I) -> Result<J, IdentityTransformError>,
+        convert: &mut impl FnMut(&DefinitionId) -> Result<J, IdentityTransformError>,
         cancel: Option<&CancellationToken>,
     ) -> Result<Vec<Node<J>>, IdentityTransformError> {
         let mut pending = vec![(self, 1usize)];
@@ -150,27 +143,12 @@ impl<I: DefinitionReference> Ty<I> {
                 return Err(TypeTransformError::LimitExceeded.into());
             }
             let node = match ty {
-                Self::Host(id) => {
-                    if !id.within_path_limit() {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
-                    Node::Host(convert(id)?)
-                }
-                Self::SelfType(id) => {
-                    if !id.within_path_limit() {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
-                    Node::SelfType(convert(id)?)
-                }
-                Self::Parameter { owner, position } => {
-                    if !owner.within_path_limit() {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
-                    Node::Parameter {
-                        owner: convert(owner)?,
-                        position: *position,
-                    }
-                }
+                Self::Host(id) => Node::Host(convert(id)?),
+                Self::SelfType(id) => Node::SelfType(convert(id)?),
+                Self::Parameter { owner, position } => Node::Parameter {
+                    owner: convert(owner)?,
+                    position: *position,
+                },
                 Self::Builtin(ty) => Node::Builtin(*ty),
                 Self::Tuple(elements) => {
                     if elements.len() > MAX_NODES {
@@ -212,9 +190,6 @@ impl<I: DefinitionReference> Ty<I> {
                     if !nominal.associated_types.is_empty() {
                         return Err(TypeTransformError::InvalidContract.into());
                     }
-                    if !nominal.declaration.within_path_limit() {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     if nominal.arguments.len() > MAX_NODES {
                         return Err(TypeTransformError::LimitExceeded.into());
                     }
@@ -235,9 +210,6 @@ impl<I: DefinitionReference> Ty<I> {
                     if !ty.associated_types.is_empty() {
                         return Err(TypeTransformError::InvalidContract.into());
                     }
-                    if !ty.declaration.within_path_limit() {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     if ty.arguments.len() > MAX_NODES {
                         return Err(TypeTransformError::LimitExceeded.into());
                     }
@@ -245,15 +217,10 @@ impl<I: DefinitionReference> Ty<I> {
                     Node::Enum(convert(&ty.declaration)?, ty.arguments.len() as u32)
                 }
                 Self::Trait(ty) => {
-                    if !ty.declaration.within_path_limit() {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     if ty.arguments.len() > MAX_NODES {
                         return Err(TypeTransformError::LimitExceeded.into());
                     }
-                    if ty.associated_types.len() > MAX_NODES
-                        || ty.associated_types.keys().any(|id| !id.within_path_limit())
-                    {
+                    if ty.associated_types.len() > MAX_NODES {
                         return Err(TypeTransformError::LimitExceeded.into());
                     }
                     let bindings = ordered_bindings(&ty.associated_types, convert)?;
@@ -271,16 +238,10 @@ impl<I: DefinitionReference> Ty<I> {
                     member,
                     arguments,
                 } => {
-                    if !member.within_path_limit()
-                        || !interface.declaration.within_path_limit()
-                        || arguments.len()
-                            + interface.arguments.len()
-                            + interface.associated_types.len()
-                            > MAX_NODES
-                        || interface
-                            .associated_types
-                            .keys()
-                            .any(|id| !id.within_path_limit())
+                    if arguments.len()
+                        + interface.arguments.len()
+                        + interface.associated_types.len()
+                        > MAX_NODES
                     {
                         return Err(TypeTransformError::LimitExceeded.into());
                     }
@@ -307,57 +268,12 @@ impl<I: DefinitionReference> Ty<I> {
     }
 }
 
-impl<I: DefinitionReference + Serialize> Serialize for Ty<I> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.wire_nodes()
-            .map_err(Error::custom)?
-            .serialize(serializer)
-    }
-}
-
-impl<'de, I: DefinitionReference + Deserialize<'de>> Deserialize<'de> for Ty<I> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct TypeVisitor<I>(PhantomData<I>);
-
-        impl<'de, I: DefinitionReference + Deserialize<'de>> Visitor<'de> for TypeVisitor<I> {
-            type Value = Ty<I>;
-
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a bounded preorder ABI type")
-            }
-
-            fn visit_seq<A: SeqAccess<'de>>(
-                self,
-                mut sequence: A,
-            ) -> Result<Self::Value, A::Error> {
-                if sequence.size_hint().is_some_and(|count| count > MAX_NODES) {
-                    return Err(DeError::custom("ABI type node limit exceeded"));
-                }
-                let mut nodes = Vec::new();
-                while let Some(node) = sequence.next_element::<Node<I>>()? {
-                    if nodes.len() >= MAX_NODES {
-                        return Err(DeError::custom("ABI type node limit exceeded"));
-                    }
-                    nodes.push(node);
-                }
-                let mut nodes = nodes.into_iter();
-                let ty = build(&mut nodes, 1, &mut |id| Ok(id), None).map_err(DeError::custom)?;
-                if nodes.next().is_some() {
-                    return Err(DeError::custom("trailing ABI type nodes"));
-                }
-                Ok(ty)
-            }
-        }
-        deserializer.deserialize_seq(TypeVisitor(PhantomData))
-    }
-}
-
-fn build<I: Clone + Ord, J: DefinitionReference>(
-    nodes: &mut IntoIter<Node<I>>,
+fn build(
+    nodes: &mut IntoIter<Node<PortableDefinitionRef>>,
     depth: usize,
-    convert: &mut impl FnMut(I) -> Result<J, IdentityTransformError>,
+    convert: &mut impl FnMut(PortableDefinitionRef) -> Result<DefinitionId, IdentityTransformError>,
     cancel: Option<&CancellationToken>,
-) -> Result<Ty<J>, IdentityTransformError> {
+) -> Result<Ty, IdentityTransformError> {
     if let Some(cancel) = cancel {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
     }
@@ -410,7 +326,7 @@ fn build<I: Clone + Ord, J: DefinitionReference>(
                 if previous.as_ref().is_some_and(|previous| previous >= &id) {
                     return Err(TypeTransformError::InvalidContract.into());
                 }
-                previous = Some(id.clone());
+                previous = Some(id);
                 let id = convert(id)?;
                 if associated_types
                     .insert(id, build(nodes, depth + 1, convert, cancel)?)
@@ -440,7 +356,7 @@ fn build<I: Clone + Ord, J: DefinitionReference>(
                 if previous.as_ref().is_some_and(|previous| previous >= &id) {
                     return Err(TypeTransformError::InvalidContract.into());
                 }
-                previous = Some(id.clone());
+                previous = Some(id);
                 let id = convert(id)?;
                 if associated_types
                     .insert(id, build(nodes, depth + 1, convert, cancel)?)
@@ -463,13 +379,13 @@ fn build<I: Clone + Ord, J: DefinitionReference>(
     })
 }
 
-fn children<I: Clone + Ord, J: DefinitionReference>(
-    nodes: &mut IntoIter<Node<I>>,
+fn children(
+    nodes: &mut IntoIter<Node<PortableDefinitionRef>>,
     count: u32,
     depth: usize,
-    convert: &mut impl FnMut(I) -> Result<J, IdentityTransformError>,
+    convert: &mut impl FnMut(PortableDefinitionRef) -> Result<DefinitionId, IdentityTransformError>,
     cancel: Option<&CancellationToken>,
-) -> Result<Vec<Ty<J>>, IdentityTransformError> {
+) -> Result<Vec<Ty>, IdentityTransformError> {
     if count as usize > nodes.len() {
         return Err(TypeTransformError::InvalidContract.into());
     }
@@ -495,59 +411,6 @@ mod tests {
     }
 
     #[test]
-    fn abi_type_wire_round_trips_all_composite_shapes() {
-        let id = DefinitionPath {
-            module: ModuleIdentity::single_file("types.kgr"),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Struct,
-                name: "Box".into(),
-                occurrence: 0,
-            }],
-        };
-        let nominal = NominalTy {
-            associated_types: Default::default(),
-            declaration: id.clone(),
-            arguments: vec![Ty::Builtin(BuiltinType::I32)],
-        };
-        let types = vec![
-            Ty::Host(id.clone()),
-            Ty::SelfType(id.clone()),
-            Ty::Parameter {
-                owner: id,
-                position: 0,
-            },
-            Ty::Tuple(vec![
-                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-                Ty::Map {
-                    key: Box::new(Ty::Builtin(BuiltinType::String)),
-                    value: Box::new(Ty::Set(
-                        Box::new(Ty::Builtin(BuiltinType::I64)),
-                        CollectionAccess::Mutable,
-                    )),
-                    access: CollectionAccess::Mutable,
-                },
-            ]),
-            Ty::Function {
-                params: vec![Ty::Builtin(BuiltinType::I32)],
-                result: Box::new(Ty::Builtin(BuiltinType::Bool)),
-            },
-            Ty::Struct(nominal.clone()),
-            Ty::Enum(nominal.clone()),
-            Ty::Trait(nominal),
-            Ty::Enum(crate::ty::NominalTy {
-                declaration: crate::language::binding::option_declaration(),
-                arguments: vec![Ty::Builtin(BuiltinType::Bool)],
-                associated_types: Default::default(),
-            }),
-        ];
-        for ty in types {
-            let bytes = codec().serialize(&ty).unwrap();
-            let decoded: Ty = codec().deserialize(&bytes).unwrap();
-            assert_eq!(decoded, ty);
-        }
-    }
-
-    #[test]
     fn associated_type_wire_preserves_identity_and_rejects_noncanonical_bindings() {
         let trait_id = DefinitionPath {
             module: ModuleIdentity::single_file("associated.kgr"),
@@ -558,27 +421,6 @@ mod tests {
             }],
         };
         let member = kagari_common::identity::associated_type_id(&trait_id, "Item");
-        let interface = NominalTy {
-            declaration: trait_id.clone(),
-            arguments: vec![Ty::Builtin(BuiltinType::Bool)],
-            associated_types: [(
-                member.clone(),
-                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-            )]
-            .into(),
-        };
-        for ty in [
-            Ty::Trait(interface.clone()),
-            Ty::Projection {
-                receiver: Box::new(Ty::SelfType(trait_id.clone())),
-                interface: Box::new(interface),
-                member: member.clone(),
-                arguments: vec![Ty::Builtin(BuiltinType::I32)],
-            },
-        ] {
-            let encoded = codec().serialize(&ty).unwrap();
-            assert_eq!(codec().deserialize::<Ty>(&encoded).unwrap(), ty);
-        }
         let mut definitions = DefinitionTableBuilder::new().unwrap();
         let owner = definitions.intern_path(&trait_id).unwrap();
         let item = definitions.intern_path(&member).unwrap();
@@ -588,10 +430,12 @@ mod tests {
             ))
             .unwrap();
         let encoding = definitions.freeze().encode([owner, item, other]).unwrap();
+        let scoped_owner = owner;
+        let scoped_item = item;
         let owner = encoding.reference(owner).unwrap();
         let item = encoding.reference(item).unwrap();
         let other = encoding.reference(other).unwrap();
-        let decoding = encoding.table.decode().unwrap();
+        let decoding = encoding.table.clone().decode().unwrap();
         for bindings in [
             vec![item, item],
             vec![other, item],
@@ -608,11 +452,11 @@ mod tests {
             }
         }
         let invalid = Ty::Struct(NominalTy {
-            declaration: trait_id,
+            declaration: scoped_owner,
             arguments: Vec::new(),
-            associated_types: [(member, Ty::Builtin(BuiltinType::I32))].into(),
+            associated_types: [(scoped_item, Ty::Builtin(BuiltinType::I32))].into(),
         });
-        assert!(codec().serialize(&invalid).is_err());
+        assert!(WireType::encode(&invalid, &encoding, &Default::default()).is_err());
     }
 
     #[test]
@@ -643,7 +487,7 @@ mod tests {
                 .map(|_| Node::Builtin(BuiltinType::I32))
                 .collect(),
         );
-        let too_wide: Ty<DefinitionId> = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); MAX_NODES]);
+        let too_wide: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); MAX_NODES]);
         assert!(PortableTypes::encode(&empty, &[too_wide], &Default::default()).is_err());
 
         let mut deep = Ty::Builtin(BuiltinType::I32);

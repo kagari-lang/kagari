@@ -28,10 +28,10 @@ use std::{
 pub struct InherentTable {
     pub declaration: DefinitionId,
     pub name: String,
-    pub generic_params: Vec<GenericParam<DefinitionId>>,
-    pub bounds: Vec<GenericBound<DefinitionId>>,
-    pub for_type: Ty<DefinitionId>,
-    pub methods: Vec<FnDecl<DefinitionId>>,
+    pub generic_params: Vec<GenericParam>,
+    pub bounds: Vec<GenericBound>,
+    pub for_type: Ty,
+    pub methods: Vec<FnDecl>,
 }
 
 impl RemapDefinitions for InherentTable {
@@ -79,7 +79,7 @@ impl DefinitionReferences for InherentTable {
 /// A public member table cannot redefine an installed callable's declaration.
 pub fn native_signatures_match(
     items: &[PublicItem],
-    declarations: &[NativeDeclaration<DefinitionId>],
+    declarations: &[NativeDeclaration],
     definitions: &DefinitionTable,
 ) -> bool {
     items.iter().all(|item| {
@@ -111,8 +111,7 @@ pub fn native_signatures_match(
                 .chain(&method.generic_params)
                 .cloned()
                 .collect();
-            let mut bounds =
-                BTreeMap::<Ty<DefinitionId>, BTreeSet<Constraint<DefinitionId>>>::new();
+            let mut bounds = BTreeMap::<Ty, BTreeSet<Constraint>>::new();
             for bound in table.bounds.iter().chain(&method.bounds) {
                 bounds
                     .entry(bound.ty.clone())

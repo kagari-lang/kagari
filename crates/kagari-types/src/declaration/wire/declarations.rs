@@ -17,10 +17,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -37,7 +34,7 @@ impl ConstDefRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &ConstDef<DefinitionId>,
+        value: &ConstDef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -55,7 +52,7 @@ impl ConstDefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<ConstDef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<ConstDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(ConstDef {
             name: self.name,
@@ -84,7 +81,7 @@ impl TypeDefRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &TypeDef<DefinitionId>,
+        value: &TypeDef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -121,7 +118,7 @@ impl TypeDefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<TypeDef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<TypeDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(TypeDef {
             name: self.name,
@@ -163,7 +160,7 @@ impl FieldDefRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &FieldDef<DefinitionId>,
+        value: &FieldDef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -182,7 +179,7 @@ impl FieldDefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<FieldDef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<FieldDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FieldDef {
             visibility: self.visibility,
@@ -206,7 +203,7 @@ impl VariantDefRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &VariantDef<DefinitionId>,
+        value: &VariantDef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -228,7 +225,7 @@ impl VariantDefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<VariantDef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<VariantDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(VariantDef {
             reports_failure: self.reports_failure,
@@ -266,7 +263,7 @@ impl TraitDefRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &TraitDef<DefinitionId>,
+        value: &TraitDef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -318,7 +315,7 @@ impl TraitDefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<TraitDef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<TraitDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(TraitDef {
             associated_consts: self
@@ -373,7 +370,7 @@ impl AssociatedConstDefRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &AssociatedConstDef<DefinitionId>,
+        value: &AssociatedConstDef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -391,7 +388,7 @@ impl AssociatedConstDefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<AssociatedConstDef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<AssociatedConstDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(AssociatedConstDef {
             declaration: decoding.resolve(self.declaration)?,
@@ -417,7 +414,7 @@ impl AssociatedTypeDefRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &AssociatedTypeDef<DefinitionId>,
+        value: &AssociatedTypeDef,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -448,7 +445,7 @@ impl AssociatedTypeDefRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<AssociatedTypeDef<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<AssociatedTypeDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(AssociatedTypeDef {
             generic_params: self
@@ -486,7 +483,7 @@ impl AssociatedTypeFamilyRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &AssociatedTypeFamily<DefinitionId>,
+        value: &AssociatedTypeFamily,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -513,7 +510,7 @@ impl AssociatedTypeFamilyRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<AssociatedTypeFamily<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<AssociatedTypeFamily, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(AssociatedTypeFamily {
             declaration: decoding.resolve(self.declaration)?,

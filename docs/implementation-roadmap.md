@@ -23,12 +23,12 @@ These capabilities are foundations to reuse, not migrations to replay.
 SI01 is complete. Source/HIR, source specialization, MIR verification and bytecode
 assembly now use scoped IDs; SI02-SI04 continue through remaining registration,
 backend and test consumers. This migration precedes native collections.
-HIR's representation generics and whole-analysis rebinding are removed. Shared
-substitution, matching and trait ancestry now use fixed IDs; shared semantic and
-executable model generics and codec-private wire conversion remain in progress.
-KHI envelopes and Host fingerprints now use private wire records and decode directly
-to scoped IDs. Public ABI fingerprints also use fixed wire declaration records;
-MIR/KBC aggregate wire conversion remains open.
+HIR, shared type/declaration/Host/contract and executable model representation
+generics are removed. Shared substitution, matching and trait ancestry use fixed
+IDs. KHI, public ABI, MIR and KBC codecs use fixed wire records and explicit scoped
+decoding; semantic models have no direct Serde codec. Remaining SI06 work removes
+obsolete common reference/rebinding/projection APIs and migrates legacy
+library-test/example consumers before final documentation cleanup.
 Runtime/VM entrypoints and adoption use fixed IDs with retained-prefix checks;
 selected cross-runtime, reload and Native interface/GC boundaries pass locally.
 Use DefinitionId throughout semantic processing; keep authoring/display paths and

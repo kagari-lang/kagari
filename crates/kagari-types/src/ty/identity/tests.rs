@@ -21,23 +21,30 @@ fn path(kind: DefinitionKind, name: &str) -> DefinitionPath {
     }
 }
 
-fn fixture() -> Vec<Ty> {
-    let owner = path(DefinitionKind::Trait, "Collection");
+fn fixture(builder: &mut DefinitionTableBuilder) -> Vec<Ty> {
+    let owner_path = path(DefinitionKind::Trait, "Collection");
+    let owner = builder.intern_path(&owner_path).unwrap();
+    let item = builder
+        .intern_path(&associated_type_id(&owner_path, "Item"))
+        .unwrap();
+    let iter = builder
+        .intern_path(&associated_type_id(&owner_path, "Iter"))
+        .unwrap();
+    let host = builder
+        .intern_path(&path(DefinitionKind::Struct, "Host"))
+        .unwrap();
+    let function = builder
+        .intern_path(&path(DefinitionKind::Function, "run"))
+        .unwrap();
+    let option = builder
+        .intern_path(&crate::language::binding::option_declaration())
+        .unwrap();
     let nominal = NominalTy {
-        declaration: owner.clone(),
-        arguments: vec![Ty::Parameter {
-            owner: owner.clone(),
-            position: 0,
-        }],
+        declaration: owner,
+        arguments: vec![Ty::Parameter { owner, position: 0 }],
         associated_types: [
-            (
-                associated_type_id(&owner, "Item"),
-                Ty::Builtin(BuiltinType::I32),
-            ),
-            (
-                associated_type_id(&owner, "Iter"),
-                Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32))),
-            ),
+            (item, Ty::Builtin(BuiltinType::I32)),
+            (iter, Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32)))),
         ]
         .into(),
     };
@@ -47,11 +54,11 @@ fn fixture() -> Vec<Ty> {
         Ty::Trait(nominal.clone()),
         Ty::Projection {
             arguments: vec![Ty::Builtin(BuiltinType::Bool)],
-            receiver: Box::new(Ty::SelfType(owner.clone())),
+            receiver: Box::new(Ty::SelfType(owner)),
             interface: Box::new(nominal),
-            member: associated_type_id(&owner, "Item"),
+            member: item,
         },
-        Ty::Host(path(DefinitionKind::Struct, "Host")),
+        Ty::Host(host),
         Ty::Struct(plain.clone()),
         Ty::Enum(plain.clone()),
         Ty::NativeObject(plain),
@@ -68,42 +75,16 @@ fn fixture() -> Vec<Ty> {
         ]),
         Ty::Function {
             params: vec![Ty::Parameter {
-                owner: path(DefinitionKind::Function, "run"),
+                owner: function,
                 position: 0,
             }],
             result: Box::new(Ty::Enum(crate::ty::NominalTy {
-                declaration: crate::language::binding::option_declaration(),
+                declaration: option,
                 arguments: vec![Ty::Builtin(BuiltinType::Bool)],
                 associated_types: Default::default(),
             })),
         },
     ]
-}
-
-fn intern(builder: &mut DefinitionTableBuilder, types: &[Ty]) -> Vec<Ty<DefinitionId>> {
-    types
-        .iter()
-        .map(|ty| {
-            ty.map_definitions(
-                &mut |path| builder.intern_path(path).map_err(Into::into),
-                &Default::default(),
-            )
-            .unwrap()
-        })
-        .collect()
-}
-
-fn paths(definitions: &DefinitionTable, types: &[Ty<DefinitionId>]) -> Vec<Ty> {
-    types
-        .iter()
-        .map(|ty| {
-            ty.map_definitions(
-                &mut |id| Ok(definitions.resolve(*id)?.to_path()),
-                &Default::default(),
-            )
-            .unwrap()
-        })
-        .collect()
 }
 
 fn codec() -> impl Options {
@@ -114,9 +95,8 @@ fn codec() -> impl Options {
 
 #[test]
 fn one_type_model_preserves_every_reference_across_portable_and_runtime_contexts() {
-    let authoring = fixture();
     let mut source = DefinitionTableBuilder::new().unwrap();
-    let types = intern(&mut source, &authoring);
+    let types = fixture(&mut source);
     let encoded = PortableTypes::encode(&source.freeze(), &types, &Default::default()).unwrap();
     let bytes = codec().serialize(&encoded).unwrap();
     let cancelled = CancellationToken::default();
@@ -130,7 +110,12 @@ fn one_type_model_preserves_every_reference_across_portable_and_runtime_contexts
         .unwrap()
         .decode(&Default::default())
         .unwrap();
-    assert_eq!(paths(&decoded.definitions, &decoded.types), authoring);
+    assert_eq!(
+        decoded
+            .import_into(&mut source, &Default::default())
+            .unwrap(),
+        types
+    );
     assert_ne!(decoded.definitions.id(), source.freeze().id());
     let mut runtime_a = DefinitionTableBuilder::new().unwrap();
     let mut runtime_b = DefinitionTableBuilder::new().unwrap();
@@ -140,8 +125,20 @@ fn one_type_model_preserves_every_reference_across_portable_and_runtime_contexts
     let second = decoded
         .import_into(&mut runtime_b, &Default::default())
         .unwrap();
-    assert_eq!(paths(&runtime_a.freeze(), &first), authoring);
-    assert_eq!(paths(&runtime_b.freeze(), &second), authoring);
+    for (definitions, imported) in [
+        (runtime_a.freeze(), first.clone()),
+        (runtime_b.freeze(), second.clone()),
+    ] {
+        assert_eq!(
+            DecodedTypes {
+                definitions,
+                types: imported
+            }
+            .import_into(&mut source, &Default::default())
+            .unwrap(),
+            types
+        );
+    }
     assert_ne!(first, second);
     assert_eq!(
         decoded
@@ -153,23 +150,28 @@ fn one_type_model_preserves_every_reference_across_portable_and_runtime_contexts
 
 #[test]
 fn canonical_bytes_ignore_process_scopes_insertion_order_and_unrelated_definitions() {
-    let authoring = fixture();
     let mut first = DefinitionTableBuilder::new().unwrap();
-    let first_types = intern(&mut first, &authoring);
+    let first_types = fixture(&mut first);
     let mut second = DefinitionTableBuilder::new().unwrap();
     second
         .intern_path(&path(DefinitionKind::Function, "unrelated"))
         .unwrap();
     // Reverse identity allocation too, including associated keys within one type.
     let mut references = BTreeSet::new();
-    for ty in &authoring {
-        references.extend(ty.definition_references(&Default::default()).unwrap());
+    let first_table = first.freeze();
+    for ty in &first_types {
+        references.extend(
+            ty.definition_references(&Default::default())
+                .unwrap()
+                .into_iter()
+                .map(|id| first_table.resolve(*id).unwrap().to_path()),
+        );
     }
     for path in references.into_iter().rev() {
-        second.intern_path(path).unwrap();
+        second.intern_path(&path).unwrap();
     }
-    let second_types = intern(&mut second, &authoring);
-    let encode = |builder: &DefinitionTableBuilder, types: &[Ty<DefinitionId>]| {
+    let second_types = fixture(&mut second);
+    let encode = |builder: &DefinitionTableBuilder, types: &[Ty]| {
         codec()
             .serialize(
                 &PortableTypes::encode(&builder.freeze(), types, &Default::default()).unwrap(),
@@ -183,10 +185,10 @@ fn canonical_bytes_ignore_process_scopes_insertion_order_and_unrelated_definitio
 #[test]
 fn foreign_handles_and_out_of_range_wire_references_fail_before_adoption() {
     let mut source = DefinitionTableBuilder::new().unwrap();
-    let types = intern(
-        &mut source,
-        &[Ty::Host(path(DefinitionKind::Struct, "Host"))],
-    );
+    let host = source
+        .intern_path(&path(DefinitionKind::Struct, "Host"))
+        .unwrap();
+    let types = vec![Ty::Host(host)];
     let other = DefinitionTableBuilder::new().unwrap();
     assert_eq!(
         PortableTypes::encode(&other.freeze(), &types, &Default::default()).unwrap_err(),
@@ -215,11 +217,12 @@ fn foreign_handles_and_out_of_range_wire_references_fail_before_adoption() {
 #[test]
 fn identity_conversion_rejects_collapsed_associated_keys_and_honors_cancellation() {
     let mut target = DefinitionTableBuilder::new().unwrap();
+    let source_types = fixture(&mut DefinitionTableBuilder::new().unwrap());
     let only = target
         .intern_path(&path(DefinitionKind::Trait, "Only"))
         .unwrap();
     assert_eq!(
-        fixture()[0]
+        source_types[0]
             .map_definitions(&mut |_| Ok(only), &Default::default())
             .unwrap_err(),
         IdentityTransformError::Type(TypeTransformError::InvalidContract)
@@ -228,7 +231,7 @@ fn identity_conversion_rejects_collapsed_associated_keys_and_honors_cancellation
     cancel.cancel();
     let mut visits = 0;
     assert_eq!(
-        fixture()[0]
+        source_types[0]
             .map_definitions(
                 &mut |_| {
                     visits += 1;
@@ -244,13 +247,13 @@ fn identity_conversion_rejects_collapsed_associated_keys_and_honors_cancellation
 
 #[test]
 fn scoped_binders_share_the_existing_checked_substitution_semantics() {
-    assert_eq!(size_of::<GenericParam<DefinitionId>>(), 16);
+    assert_eq!(size_of::<GenericParam>(), 16);
     let mut definitions = DefinitionTableBuilder::new().unwrap();
     let owner = definitions
         .intern_path(&path(DefinitionKind::Function, "run"))
         .unwrap();
     let binder = GenericParam { owner, position: 0 };
-    let arguments: [Ty<DefinitionId>; 1] = [Ty::Builtin(BuiltinType::I64)];
+    let arguments: [Ty; 1] = [Ty::Builtin(BuiltinType::I64)];
     let substitution = TypeSubstitution::for_owner(&owner, &arguments);
     assert_eq!(
         substitution

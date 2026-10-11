@@ -11,10 +11,7 @@ use crate::{
         proofs::{ProofCatalog, satisfies},
     },
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionId},
-};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::requirement::NativeCallableRequirement,
@@ -29,8 +26,8 @@ impl ProofCatalog<'_> {
     pub fn native_result_matches(
         &self,
         selected: &NativeResultAdapter,
-        result: &Ty<DefinitionId>,
-        assumptions: &[GenericBound<DefinitionId>],
+        result: &Ty,
+        assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let Some(table) = self
@@ -74,8 +71,8 @@ impl ProofCatalog<'_> {
     pub fn shared_method_matches(
         &self,
         selected: &SharedMethodWitness,
-        parameters: &[GenericParam<DefinitionId>],
-        assumptions: &[GenericBound<DefinitionId>],
+        parameters: &[GenericParam],
+        assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let required = &selected.requirement;
@@ -138,10 +135,7 @@ impl ProofCatalog<'_> {
             }))
     }
 
-    pub fn callable_requirement_valid(
-        &self,
-        requirement: &NativeCallableRequirement<DefinitionId>,
-    ) -> bool {
+    pub fn callable_requirement_valid(&self, requirement: &NativeCallableRequirement) -> bool {
         self.contracts
             .get(&requirement.interface.declaration)
             .is_some_and(|contract| {
@@ -159,7 +153,7 @@ impl ProofCatalog<'_> {
 
     pub fn select_callable(
         &self,
-        requirement: &NativeCallableRequirement<DefinitionId>,
+        requirement: &NativeCallableRequirement,
         cancel: &CancellationToken,
     ) -> Result<Option<NativeCallableApplication>, TypeTransformError> {
         let Some(member) = self

@@ -275,9 +275,9 @@ pub struct ResolvedHostPath {
     /// Source-order expressions paired with their declared runtime argument slots.
     pub dynamic_arguments: Vec<(u32, ExprId)>,
     /// Installed path declaration selected by checking.
-    pub declaration: HostPathDeclaration<DefinitionId>,
+    pub declaration: HostPathDeclaration,
     /// Checked access/value contract consumed by lowering.
-    pub contract: HostPathContract<DefinitionId>,
+    pub contract: HostPathContract,
 }
 
 /// A checked assignment path through declared host access.
@@ -288,9 +288,9 @@ pub struct ResolvedHostPlacePath {
     /// Source-order index expressions paired with declared runtime argument slots.
     pub dynamic_arguments: Vec<(u32, ExprId)>,
     /// Installed path declaration selected by mutation checking.
-    pub declaration: HostPathDeclaration<DefinitionId>,
+    pub declaration: HostPathDeclaration,
     /// Checked access/value contract required for mutation.
-    pub contract: HostPathContract<DefinitionId>,
+    pub contract: HostPathContract,
 }
 
 impl TypeTable {

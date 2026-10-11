@@ -3,7 +3,7 @@ use crate::catalog::{
     contracts, identities, iterable_defaults,
     key::{self, RegistrationTrait},
 };
-use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     declaration::{
         Param, TypeDef, TypeDefKind,
@@ -18,8 +18,8 @@ use std::collections::BTreeMap;
 pub(super) fn adapter_type(
     ids: &DefinitionContext,
     name: &str,
-    arguments: Vec<Ty<DefinitionId>>,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+    arguments: Vec<Ty>,
+) -> Result<Ty, DeclarationError> {
     Ok(Ty::NativeObject(NominalTy {
         declaration: identities::definition(ids, DefinitionKind::AssociatedType, name)?,
         arguments,

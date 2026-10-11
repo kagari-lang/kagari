@@ -3,13 +3,14 @@ use crate::ty::{NominalTy, Ty, substitution::TypeTransformError};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMappingError, DefinitionRecord},
+        mapping::DefinitionMappingError,
+        scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
     },
 };
 use std::cmp::Ordering;
 
-impl Ty<DefinitionId> {
+impl Ty {
     /// Compare types using exact definition content rather than numeric handles.
     ///
     /// Both inputs must fit the type depth/node limits and refer exclusively to
@@ -26,7 +27,7 @@ impl Ty<DefinitionId> {
             if !ty.within_wire_limits() {
                 return Err(TypeTransformError::LimitExceeded);
             }
-            ty.visit_definitions(&mut |id| Ok(table.resolve(*id).map(|_| ())?), cancel)
+            ty.visit_definition_ids(&mut |id| Ok(table.resolve(*id).map(|_| ())?), cancel)
                 .map_err(|error| match error {
                     DefinitionMappingError::Cancelled => TypeTransformError::Cancelled,
                     _ => TypeTransformError::InvalidContract,
@@ -51,7 +52,7 @@ impl TypeOrder<'_> {
             .expect("validated type scope")
     }
 
-    fn sequence(&self, left: &[Ty<DefinitionId>], right: &[Ty<DefinitionId>]) -> Ordering {
+    fn sequence(&self, left: &[Ty], right: &[Ty]) -> Ordering {
         left.iter()
             .zip(right)
             .map(|(left, right)| self.ty(left, right))
@@ -59,7 +60,7 @@ impl TypeOrder<'_> {
             .unwrap_or_else(|| left.len().cmp(&right.len()))
     }
 
-    fn nominal(&self, left: &NominalTy<DefinitionId>, right: &NominalTy<DefinitionId>) -> Ordering {
+    fn nominal(&self, left: &NominalTy, right: &NominalTy) -> Ordering {
         self.definition(left.declaration, right.declaration)
             .then_with(|| self.sequence(&left.arguments, &right.arguments))
             .then_with(|| {
@@ -78,7 +79,7 @@ impl TypeOrder<'_> {
             })
     }
 
-    fn ty(&self, left: &Ty<DefinitionId>, right: &Ty<DefinitionId>) -> Ordering {
+    fn ty(&self, left: &Ty, right: &Ty) -> Ordering {
         rank(left)
             .cmp(&rank(right))
             .then_with(|| match (left, right) {
@@ -160,7 +161,7 @@ impl TypeOrder<'_> {
 
 // Preserve the public semantic order of type variants and fields. Numeric ID
 // ordering is suitable for equality-keyed storage, not canonical contracts.
-fn rank(ty: &Ty<DefinitionId>) -> u8 {
+fn rank(ty: &Ty) -> u8 {
     match ty {
         Ty::Projection { .. } => 0,
         Ty::Host(_) => 1,

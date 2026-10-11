@@ -2,7 +2,7 @@ use crate::{
     native_import::{NativeImport, callables::normalize_requirement},
     types::proofs::ProofCatalog,
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::NativeDeclaration,
@@ -11,7 +11,7 @@ use kagari_types::{
 
 pub(super) fn matches_declaration(
     import: &NativeImport,
-    declaration: &NativeDeclaration<DefinitionId>,
+    declaration: &NativeDeclaration,
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {

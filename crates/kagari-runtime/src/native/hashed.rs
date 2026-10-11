@@ -9,7 +9,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::sync::Arc;
@@ -54,7 +53,7 @@ impl NativePayload for SetPayload {
     }
 }
 
-fn builtin_keys(context: &StorageContext<'_>, key: &Ty<DefinitionId>) -> NativeResult<bool> {
+fn builtin_keys(context: &StorageContext<'_>, key: &Ty) -> NativeResult<bool> {
     let hash = context.selected(0)?;
     let equal = context.selected(1)?;
     if hash.params.as_ref() != [key.clone()] || equal.params.as_ref() != [key.clone(), key.clone()]

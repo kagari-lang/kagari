@@ -26,7 +26,7 @@ fn owner(module: &str) -> DefinitionPath {
     }
 }
 
-fn binder(definitions: &DefinitionContext, module: &str) -> GenericParam<DefinitionId> {
+fn binder(definitions: &DefinitionContext, module: &str) -> GenericParam {
     GenericParam {
         owner: definitions.intern(&owner(module)).unwrap(),
         position: 0,

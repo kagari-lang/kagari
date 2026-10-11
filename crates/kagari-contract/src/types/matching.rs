@@ -1,9 +1,6 @@
 //! Match a checked executable interface table through shared semantic rules.
 use crate::types::InterfaceTable;
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_types::{
     declaration::TraitDef,
     language::Protocol,
@@ -16,9 +13,9 @@ use kagari_types::{
 
 pub fn match_implementation<'a>(
     table: &'a InterfaceTable,
-    contract: Option<&TraitDef<DefinitionId>>,
-    interface: &'a NominalTy<DefinitionId>,
-    receiver: &'a Ty<DefinitionId>,
+    contract: Option<&TraitDef>,
+    interface: &'a NominalTy,
+    receiver: &'a Ty,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {

@@ -30,7 +30,7 @@ use std::{
 /// Check host method tables against the defining module's executable trait
 /// contracts, including declarations absent from its public ABI.
 pub fn trait_bindings_match(
-    interface: &HostInterface<DefinitionId>,
+    interface: &HostInterface,
     module: &ModuleIdentity,
     items: &[PublicItem],
     contracts: &[TraitContract],
@@ -66,9 +66,9 @@ pub fn trait_bindings_match(
 }
 
 fn host_trait_matches(
-    implementation: &HostTraitImplementationDeclaration<DefinitionId>,
-    host: &HostTypeDeclaration<DefinitionId>,
-    trait_abi: &TraitDef<DefinitionId>,
+    implementation: &HostTraitImplementationDeclaration,
+    host: &HostTypeDeclaration,
+    trait_abi: &TraitDef,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
@@ -200,12 +200,12 @@ fn host_trait_matches(
 }
 
 fn matches_host_type(
-    expected: &Ty<DefinitionId>,
-    actual: &Ty<DefinitionId>,
+    expected: &Ty,
+    actual: &Ty,
     owner: &DefinitionId,
-    arguments: &[Ty<DefinitionId>],
-    outputs: &BTreeMap<DefinitionId, Ty<DefinitionId>>,
-    receiver: &Ty<DefinitionId>,
+    arguments: &[Ty],
+    outputs: &BTreeMap<DefinitionId, Ty>,
+    receiver: &Ty,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     let mut pending = vec![(expected, actual)];
@@ -291,7 +291,7 @@ pub fn references(
     let mut pending = Vec::new();
     for item in items {
         cancel.check()?;
-        let functions: &[FnDecl<DefinitionId>] = match item {
+        let functions: &[FnDecl] = match item {
             PublicItem::Function(function) => slice::from_ref(function),
             PublicItem::Const(value) => {
                 pending.push(&value.ty);
@@ -350,7 +350,7 @@ pub fn references(
 }
 
 pub fn validate(
-    interface: &HostInterface<DefinitionId>,
+    interface: &HostInterface,
     items: &[PublicItem],
     structures: &[StructLayout],
     enums: &[EnumLayout],
@@ -383,10 +383,10 @@ pub fn validate(
 
 pub fn host_bridge_implementation<'a>(
     table: &InterfaceTable,
-    interface: &'a HostInterface<DefinitionId>,
+    interface: &'a HostInterface,
 ) -> Option<(
-    &'a HostTypeDeclaration<DefinitionId>,
-    &'a HostTraitImplementationDeclaration<DefinitionId>,
+    &'a HostTypeDeclaration,
+    &'a HostTraitImplementationDeclaration,
 )> {
     let Ty::Host(id) = &table.for_type else {
         return None;

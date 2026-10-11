@@ -4,15 +4,11 @@ use crate::{collection::CollectionAccess, host_interface::wire, language::bindin
 use kagari_common::{
     decode_limits::bounded_vec,
     identity::{
-        DefinitionKind, DefinitionPath,
-        reference::DefinitionReference,
+        DefinitionKind,
         table::{DefinitionId, DefinitionTable},
     },
 };
-use serde::{
-    Deserialize, Deserializer, Serialize, Serializer, de, de::Error as DecodeError,
-    ser::Error as EncodeError,
-};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use std::vec::IntoIter;
 
 pub(super) mod codec;
@@ -21,7 +17,7 @@ const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum HostValueType<I = DefinitionPath> {
+pub enum HostValueType {
     Unit,
     Bool,
     I32,
@@ -30,29 +26,29 @@ pub enum HostValueType<I = DefinitionPath> {
     F64,
     String,
     /// An opaque type is identified by its declaration, never a registry slot.
-    Opaque(I),
-    Tuple(Vec<HostValueType<I>>),
-    Array(Box<HostValueType<I>>),
+    Opaque(DefinitionId),
+    Tuple(Vec<HostValueType>),
+    Array(Box<HostValueType>),
     /// An explicitly identified registered growable sequence.
-    Vec(I, Box<HostValueType<I>>),
+    Vec(DefinitionId, Box<HostValueType>),
     /// A readonly registered List interface, retaining its nominal declaration.
-    List(I, Box<HostValueType<I>>),
+    List(DefinitionId, Box<HostValueType>),
     Map {
-        key: Box<HostValueType<I>>,
-        value: Box<HostValueType<I>>,
+        key: Box<HostValueType>,
+        value: Box<HostValueType>,
         access: CollectionAccess,
     },
-    Set(Box<HostValueType<I>>, CollectionAccess),
-    Option(I, Box<HostValueType<I>>),
+    Set(Box<HostValueType>, CollectionAccess),
+    Option(DefinitionId, Box<HostValueType>),
     Result {
-        declaration: I,
-        ok: Box<HostValueType<I>>,
-        error: Box<HostValueType<I>>,
+        declaration: DefinitionId,
+        ok: Box<HostValueType>,
+        error: Box<HostValueType>,
     },
 }
 
-impl<I: DefinitionReference> HostValueType<I> {
-    pub fn nominal_references(&self) -> Vec<&I> {
+impl HostValueType {
+    pub fn nominal_references(&self) -> Vec<&DefinitionId> {
         let mut pending = vec![self];
         let mut declarations = Vec::new();
         while let Some(ty) = pending.pop() {
@@ -80,7 +76,7 @@ impl<I: DefinitionReference> HostValueType<I> {
         self.nodes().map(|_| ())
     }
 
-    fn nodes(&self) -> Result<Vec<Node<I>>, HostInterfaceError> {
+    fn nodes(&self) -> Result<Vec<Node<DefinitionId>>, HostInterfaceError> {
         let mut pending = vec![(self, 1)];
         let mut nodes = Vec::new();
         while let Some((ty, depth)) = pending.pop() {
@@ -95,15 +91,7 @@ impl<I: DefinitionReference> HostValueType<I> {
                 Self::F32 => Node::F32,
                 Self::F64 => Node::F64,
                 Self::String => Node::String,
-                Self::Opaque(id) => {
-                    if !id.within_path_limit() {
-                        return Err(HostInterfaceError::TooLarge);
-                    }
-                    if let Some(path) = id.authoring_path() {
-                        super::validate_host_type_identity(path)?;
-                    }
-                    Node::Opaque(id.clone())
-                }
+                Self::Opaque(id) => Node::Opaque(*id),
                 Self::Tuple(elements) => {
                     if elements.len() > MAX_NODES {
                         return Err(HostInterfaceError::TooLarge);
@@ -112,26 +100,10 @@ impl<I: DefinitionReference> HostValueType<I> {
                     Node::Tuple(elements.len() as u32)
                 }
                 Self::Vec(declaration, element) | Self::List(declaration, element) => {
-                    if !declaration.within_path_limit() {
-                        return Err(HostInterfaceError::TooLarge);
-                    }
-                    let kind = if matches!(ty, Self::Vec(..)) {
-                        DefinitionKind::AssociatedType
-                    } else {
-                        DefinitionKind::Trait
-                    };
-                    if declaration.authoring_path().is_some_and(|path| {
-                        path.path.len() != 1
-                            || path.path[0].kind != kind
-                            || path.path[0].name.is_empty()
-                            || path.path[0].occurrence != 0
-                    }) {
-                        return Err(HostInterfaceError::InvalidDeclaration);
-                    }
                     pending.push((element, depth + 1));
                     match ty {
-                        Self::Vec(_, _) => Node::Vec(declaration.clone()),
-                        _ => Node::List(declaration.clone()),
+                        Self::Vec(_, _) => Node::Vec(*declaration),
+                        _ => Node::List(*declaration),
                     }
                 }
                 Self::Array(element) | Self::Set(element, _) => {
@@ -146,17 +118,8 @@ impl<I: DefinitionReference> HostValueType<I> {
                     }
                 }
                 Self::Option(declaration, element) => {
-                    if declaration
-                        .authoring_path()
-                        .is_some_and(|path| path != &binding::option_declaration())
-                    {
-                        return Err(HostInterfaceError::InvalidDeclaration);
-                    }
-                    if !declaration.within_path_limit() {
-                        return Err(HostInterfaceError::TooLarge);
-                    }
                     pending.push((element, depth + 1));
-                    Node::Option(declaration.clone())
+                    Node::Option(*declaration)
                 }
                 Self::Map { key, value, access } => {
                     if !key.hash_key() {
@@ -171,18 +134,9 @@ impl<I: DefinitionReference> HostValueType<I> {
                     ok,
                     error,
                 } => {
-                    if declaration
-                        .authoring_path()
-                        .is_some_and(|path| path != &binding::result_declaration())
-                    {
-                        return Err(HostInterfaceError::InvalidDeclaration);
-                    }
-                    if !declaration.within_path_limit() {
-                        return Err(HostInterfaceError::TooLarge);
-                    }
                     pending.push((error, depth + 1));
                     pending.push((ok, depth + 1));
-                    Node::Result(declaration.clone())
+                    Node::Result(*declaration)
                 }
             });
             if nodes.len() + pending.len() > MAX_NODES {
@@ -193,7 +147,7 @@ impl<I: DefinitionReference> HostValueType<I> {
     }
 }
 
-impl HostValueType<DefinitionId> {
+impl HostValueType {
     /// Check a scoped host type after bounded wire-shape validation. Every nominal
     /// leaf must resolve in this table and retain its declared constructor kind.
     pub(super) fn validate_in(
@@ -260,14 +214,6 @@ enum Node<I> {
     Result(I),
 }
 
-impl<I: DefinitionReference + Serialize> Serialize for HostValueType<I> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.nodes()
-            .map_err(EncodeError::custom)?
-            .serialize(serializer)
-    }
-}
-
 fn read_nodes<'de, D, I>(deserializer: D) -> Result<Vec<Node<I>>, D::Error>
 where
     D: Deserializer<'de>,
@@ -276,22 +222,10 @@ where
     bounded_vec(deserializer, MAX_NODES, "host type node")
 }
 
-impl<'de, I: DefinitionReference + Deserialize<'de>> Deserialize<'de> for HostValueType<I> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let mut nodes = read_nodes(deserializer)?.into_iter();
-        let ty = build::<I, D::Error>(&mut nodes, 1)?;
-        if nodes.next().is_some() {
-            return Err(DecodeError::custom("trailing host type nodes"));
-        }
-        ty.validate().map_err(DecodeError::custom)?;
-        Ok(ty)
-    }
-}
-
-fn build<I: DefinitionReference, E: de::Error>(
-    nodes: &mut IntoIter<Node<I>>,
+fn build<E: de::Error>(
+    nodes: &mut IntoIter<Node<DefinitionId>>,
     depth: usize,
-) -> Result<HostValueType<I>, E> {
+) -> Result<HostValueType, E> {
     if depth > MAX_DEPTH {
         return Err(E::custom("host type depth limit"));
     }
@@ -343,22 +277,6 @@ fn build<I: DefinitionReference, E: de::Error>(
 }
 
 impl HostValueType {
-    /// Host Option carriers reference the installed nominal core declaration.
-    pub fn option(element: Self) -> Self {
-        Self::Option(binding::option_declaration(), Box::new(element))
-    }
-
-    /// Host Result carriers reference the installed nominal core declaration.
-    pub fn result(ok: Self, error: Self) -> Self {
-        Self::Result {
-            declaration: binding::result_declaration(),
-            ok: Box::new(ok),
-            error: Box::new(error),
-        }
-    }
-}
-
-impl HostValueType<DefinitionId> {
     pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
         self.validate_in(definitions)?;
         wire::fingerprint(b"kagari-host-value-v1\0", self, definitions)

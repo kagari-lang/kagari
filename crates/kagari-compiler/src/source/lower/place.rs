@@ -1,6 +1,6 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionKind, table::DefinitionId};
+use kagari_common::identity::DefinitionKind;
 use kagari_contract::{
     callable::interface::InterfaceCallContract, numeric::NumericOperation, operations::BinaryOp,
 };
@@ -52,8 +52,8 @@ enum ProjectionKind {
     },
     InterfaceIndex {
         index: MirValue,
-        read: NominalTy<DefinitionId>,
-        write: Option<NominalTy<DefinitionId>>,
+        read: NominalTy,
+        write: Option<NominalTy>,
     },
 }
 

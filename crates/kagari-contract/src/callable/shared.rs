@@ -7,10 +7,7 @@ use crate::{
     },
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::verify::types_in_scope,
@@ -23,16 +20,16 @@ use kagari_types::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedCall {
     pub instance: ConcreteFunctionIdentity,
-    pub implementation: CallableImplementation<DefinitionId>,
-    pub arguments: Vec<Ty<DefinitionId>>,
-    pub signature: Signature<DefinitionId>,
+    pub implementation: CallableImplementation,
+    pub arguments: Vec<Ty>,
+    pub signature: Signature,
     pub operations: Vec<OperationWitness>,
 }
 
 impl SharedCall {
     pub fn structurally_valid(
         &self,
-        parameters: &[GenericParam<DefinitionId>],
+        parameters: &[GenericParam],
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {
@@ -65,10 +62,10 @@ impl SharedCall {
     pub fn check(
         &self,
         body: &GenericBody,
-        signature: &Signature<DefinitionId>,
+        signature: &Signature,
         catalog: &ProofCatalog<'_>,
-        parameters: &[GenericParam<DefinitionId>],
-        assumptions: &[GenericBound<DefinitionId>],
+        parameters: &[GenericParam],
+        assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let definitions = catalog.definitions();

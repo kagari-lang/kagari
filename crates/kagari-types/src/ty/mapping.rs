@@ -4,69 +4,69 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_entries,
-            map_sequence,
+            DefinitionMapper, DefinitionMappingError, check_cancel, map_entries, map_sequence,
         },
-        reference::DefinitionReference,
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for NominalTy<I> {
-    type Rebind<J: DefinitionReference> = NominalTy<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for NominalTy {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NominalTy {
             declaration: mapper.reference(&self.declaration)?,
-            arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
+            arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
             associated_types: map_entries(
                 self.associated_types.len(),
                 self.associated_types.iter().map(|(key, value)| {
-                    Ok((mapper.reference(key)?, (value).map_identities(mapper)?))
+                    Ok((mapper.reference(key)?, (value).remap_definitions(mapper)?))
                 }),
             )?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for NominalTy {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for (key0, value0) in &self.associated_types {
             check_cancel(cancel)?;
             visit(key0)?;
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for GenericParam<I> {
-    type Rebind<J: DefinitionReference> = GenericParam<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for GenericParam {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(GenericParam {
             owner: mapper.reference(&self.owner)?,
             position: self.position,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for GenericParam {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -75,58 +75,60 @@ impl<I: DefinitionReference> DefinitionRecord<I> for GenericParam<I> {
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for GenericBound<I> {
-    type Rebind<J: DefinitionReference> = GenericBound<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for GenericBound {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(GenericBound {
-            ty: self.ty.map_identities(mapper)?,
-            constraints: map_sequence(&self.constraints, |value| (value).map_identities(mapper))?,
+            ty: self.ty.remap_definitions(mapper)?,
+            constraints: map_sequence(&self.constraints, |value| {
+                (value).remap_definitions(mapper)
+            })?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for GenericBound {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.ty.visit_definitions(visit, cancel)?;
+        self.ty.visit_definition_ids(visit, cancel)?;
         for value0 in &self.constraints {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for Constraint<I> {
-    type Rebind<J: DefinitionReference> = Constraint<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for Constraint {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Standard(field0) => Constraint::Standard(*(field0)),
-            Self::Trait(field0) => Constraint::Trait((field0).map_identities(mapper)?),
+            Self::Trait(field0) => Constraint::Trait((field0).remap_definitions(mapper)?),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for Constraint {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
             Self::Standard(_) => {}
             Self::Trait(field0) => {
-                (field0).visit_definitions(visit, cancel)?;
+                (field0).visit_definition_ids(visit, cancel)?;
             }
         }
         Ok(())

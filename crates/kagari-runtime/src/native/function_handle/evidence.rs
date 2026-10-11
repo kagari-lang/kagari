@@ -17,7 +17,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, NativeImportId},
     module::CallableTarget,
 };
-use kagari_common::identity::{DefinitionPath, table::DefinitionId};
+use kagari_common::identity::DefinitionPath;
 use kagari_contract::{callable::shared::SharedCall, ids::FunctionRef};
 use kagari_types::ty::Ty;
 use std::{slice, sync::Arc};
@@ -33,8 +33,8 @@ pub(super) struct EntryEvidence {
     pub(super) owner: LoadedModule,
     pub(super) key: EvidenceKey,
     pub(super) signature: Arc<ScopedSignature>,
-    params: Vec<Ty<DefinitionId>>,
-    result: Ty<DefinitionId>,
+    params: Vec<Ty>,
+    result: Ty,
     shared: Option<(LoadedModule, SharedCall)>,
 }
 
@@ -51,7 +51,7 @@ impl EntryEvidence {
                 .resolve(id)
                 .is_ok_and(|id| id.to_path() == *declaration)
         };
-        let same_arguments = |owner: &LoadedModule, types: &[Ty<DefinitionId>]| {
+        let same_arguments = |owner: &LoadedModule, types: &[Ty]| {
             types.len() == arguments.len()
                 && types.iter().zip(arguments).all(|(ty, argument)| {
                     ty.is_concrete()
@@ -169,8 +169,8 @@ impl EntryEvidence {
         runtime: &Runtime,
         owner: &LoadedModule,
         target: CallableTarget,
-        params: Vec<Ty<DefinitionId>>,
-        result: Ty<DefinitionId>,
+        params: Vec<Ty>,
+        result: Ty,
     ) -> NativeResult<Self> {
         let signature = Arc::new(ScopedSignature {
             params: runtime.resolve_type_arguments(owner, &params)?,

@@ -15,7 +15,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
@@ -91,7 +90,7 @@ impl ExecutionStack<'_> {
         runtime: &Runtime,
         value: Value,
         destination: Register,
-        future: &Ty<DefinitionId>,
+        future: &Ty,
     ) -> NativeResult<()> {
         self.validate_runtime(runtime)?;
         self.discard_dead_await_slots(runtime)?;

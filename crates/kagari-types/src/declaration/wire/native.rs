@@ -12,10 +12,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -34,7 +31,7 @@ impl NativeDeclarationRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &NativeDeclaration<DefinitionId>,
+        value: &NativeDeclaration,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -63,7 +60,7 @@ impl NativeDeclarationRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<NativeDeclaration<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<NativeDeclaration, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeDeclaration {
             concrete_result: self
@@ -95,7 +92,7 @@ impl NativeCallableRequirementRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &NativeCallableRequirement<DefinitionId>,
+        value: &NativeCallableRequirement,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -120,7 +117,7 @@ impl NativeCallableRequirementRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<NativeCallableRequirement<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<NativeCallableRequirement, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeCallableRequirement {
             receiver: self.receiver.decode(decoding, cancel)?,
@@ -147,7 +144,7 @@ impl SignatureRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &Signature<DefinitionId>,
+        value: &Signature,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -170,7 +167,7 @@ impl SignatureRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<Signature<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<Signature, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(Signature {
             params: self

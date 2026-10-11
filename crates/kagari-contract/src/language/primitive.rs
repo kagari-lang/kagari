@@ -22,9 +22,9 @@ use std::collections::BTreeMap;
 
 pub fn applied(
     kind: Protocol,
-    arguments: Vec<Ty<DefinitionId>>,
+    arguments: Vec<Ty>,
     definitions: &DefinitionTable,
-) -> Result<NominalTy<DefinitionId>, TypeTransformError> {
+) -> Result<NominalTy, TypeTransformError> {
     Ok(NominalTy {
         declaration: definitions
             .lookup(&language::identity(kind))
@@ -35,12 +35,12 @@ pub fn applied(
 }
 
 pub fn requirements(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     cancel: &CancellationToken,
-    contract: Option<&TraitDef<DefinitionId>>,
+    contract: Option<&TraitDef>,
     definitions: &DefinitionTable,
-) -> Result<Option<Vec<GenericBound<DefinitionId>>>, TypeTransformError> {
+) -> Result<Option<Vec<GenericBound>>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
@@ -87,13 +87,13 @@ pub fn requirements(
 }
 
 pub fn associated_output(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     member: &DefinitionId,
     cancel: &CancellationToken,
-    contract: Option<&TraitDef<DefinitionId>>,
+    contract: Option<&TraitDef>,
     definitions: &DefinitionTable,
-) -> Result<Option<Ty<DefinitionId>>, TypeTransformError> {
+) -> Result<Option<Ty>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
@@ -120,10 +120,10 @@ pub fn associated_output(
 }
 
 fn operator_output(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     definitions: &DefinitionTable,
-) -> Option<Ty<DefinitionId>> {
+) -> Option<Ty> {
     let kind = Protocol::from_reference(&interface.declaration, Some(definitions))?;
     if kind == Protocol::Fn
         && let Ty::Function { params, result } = receiver
@@ -170,10 +170,10 @@ fn operator_output(
 }
 
 pub fn identity_iterator(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     definitions: &DefinitionTable,
-) -> Option<NominalTy<DefinitionId>> {
+) -> Option<NominalTy> {
     if Protocol::from_reference(&interface.declaration, Some(definitions))
         != Some(Protocol::Iterable)
         || !interface.arguments.is_empty()

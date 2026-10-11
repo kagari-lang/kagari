@@ -24,7 +24,7 @@ struct ReceiverMethods {
 pub(crate) struct OperationGroup {
     id: OperationGroupId,
     entries: Vec<BoundOperation>,
-    index: HashMap<NominalTy<DefinitionId>, HashMap<Ty<DefinitionId>, ReceiverMethods>>,
+    index: HashMap<NominalTy, HashMap<Ty, ReceiverMethods>>,
 }
 
 impl OperationGroup {
@@ -38,10 +38,7 @@ impl OperationGroup {
     }
 
     pub(crate) fn new(entries: Vec<BoundOperation>, id: OperationGroupId) -> Self {
-        let mut index: HashMap<
-            NominalTy<DefinitionId>,
-            HashMap<Ty<DefinitionId>, ReceiverMethods>,
-        > = HashMap::new();
+        let mut index: HashMap<NominalTy, HashMap<Ty, ReceiverMethods>> = HashMap::new();
         for (position, operation) in entries.iter().enumerate() {
             let methods = index
                 .entry(operation.requirement.interface.clone())
@@ -75,18 +72,14 @@ impl OperationGroup {
         })
     }
 
-    fn methods(
-        &self,
-        receiver: &Ty<DefinitionId>,
-        interface: &NominalTy<DefinitionId>,
-    ) -> Option<&ReceiverMethods> {
+    fn methods(&self, receiver: &Ty, interface: &NominalTy) -> Option<&ReceiverMethods> {
         self.index.get(interface)?.get(receiver)
     }
 
     pub(crate) fn slot(
         &self,
-        receiver: &Ty<DefinitionId>,
-        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty,
+        interface: &NominalTy,
         slot: u32,
     ) -> Option<OperationId> {
         let position = self
@@ -104,7 +97,7 @@ impl OperationGroup {
     /// caller requested. Return only an unambiguous member from that table.
     pub(crate) fn selected_method(
         &self,
-        required: &NativeCallableRequirement<DefinitionId>,
+        required: &NativeCallableRequirement,
     ) -> Option<OperationId> {
         let mut matches = self.entries.iter().enumerate().filter(|(_, operation)| {
             operation.generic.is_some()
@@ -122,10 +115,7 @@ impl OperationGroup {
         })
     }
 
-    pub(crate) fn operation(
-        &self,
-        required: &NativeCallableRequirement<DefinitionId>,
-    ) -> Option<OperationId> {
+    pub(crate) fn operation(&self, required: &NativeCallableRequirement) -> Option<OperationId> {
         let position = self
             .methods(&required.receiver, &required.interface)?
             .members

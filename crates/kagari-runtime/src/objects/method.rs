@@ -9,14 +9,13 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty};
 
 #[derive(Clone)]
 pub(crate) struct BoundReceiver {
     receiver: Value,
-    concrete_type: Ty<DefinitionId>,
-    interface: NominalTy<DefinitionId>,
+    concrete_type: Ty,
+    interface: NominalTy,
 }
 
 impl RootedInterfaceMethod {
@@ -52,11 +51,11 @@ impl RootedInterfaceMethod {
         &self.bound_receiver.receiver
     }
 
-    pub fn concrete_type(&self) -> &Ty<DefinitionId> {
+    pub fn concrete_type(&self) -> &Ty {
         &self.bound_receiver.concrete_type
     }
 
-    pub fn interface_type(&self) -> &NominalTy<DefinitionId> {
+    pub fn interface_type(&self) -> &NominalTy {
         &self.bound_receiver.interface
     }
 
@@ -77,14 +76,11 @@ impl RootedInterfaceMethod {
         Ok(self.view(runtime)?.target())
     }
 
-    pub fn parameter_types(
-        &self,
-        runtime: &Runtime,
-    ) -> Result<Vec<Ty<DefinitionId>>, RuntimeError> {
+    pub fn parameter_types(&self, runtime: &Runtime) -> Result<Vec<Ty>, RuntimeError> {
         Ok(self.view(runtime)?.parameter_types().to_vec())
     }
 
-    pub fn return_type(&self, runtime: &Runtime) -> Result<Ty<DefinitionId>, RuntimeError> {
+    pub fn return_type(&self, runtime: &Runtime) -> Result<Ty, RuntimeError> {
         Ok(self.view(runtime)?.return_type().clone())
     }
 }

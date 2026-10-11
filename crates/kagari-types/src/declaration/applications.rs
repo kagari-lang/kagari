@@ -20,7 +20,7 @@ pub struct ApplicationValidator<'a, F, G> {
 
 impl<'a, 'declaration, F, G> ApplicationValidator<'a, F, G>
 where
-    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef<DefinitionId>>,
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef>,
     G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
     pub fn new(cancel: &'a CancellationToken, lookup: F, nominal: G) -> Self {
@@ -33,8 +33,8 @@ where
 
     pub fn trait_application_contract(
         &self,
-        applied: &NominalTy<DefinitionId>,
-    ) -> Result<&'declaration TraitDef<DefinitionId>, TypeTransformError> {
+        applied: &NominalTy,
+    ) -> Result<&'declaration TraitDef, TypeTransformError> {
         self.cancel
             .check()
             .map_err(|_| TypeTransformError::Cancelled)?;
@@ -53,7 +53,7 @@ where
         Ok(record)
     }
 
-    pub fn validate_type(&self, ty: &Ty<DefinitionId>) -> Result<(), TypeTransformError> {
+    pub fn validate_type(&self, ty: &Ty) -> Result<(), TypeTransformError> {
         let mut pending = vec![ty];
         let mut remaining = MAX_TYPE_NODES;
         while let Some(ty) = pending.pop() {
@@ -138,24 +138,18 @@ where
     }
 
     /// The nominal itself may be an aggregate; callers validate its kind locally.
-    pub fn nominal_arguments(
-        &self,
-        ty: &NominalTy<DefinitionId>,
-    ) -> Result<(), TypeTransformError> {
+    pub fn nominal_arguments(&self, ty: &NominalTy) -> Result<(), TypeTransformError> {
         self.types(ty.arguments.iter().chain(ty.associated_types.values()))
     }
 
-    pub fn trait_application(
-        &self,
-        ty: &NominalTy<DefinitionId>,
-    ) -> Result<(), TypeTransformError> {
+    pub fn trait_application(&self, ty: &NominalTy) -> Result<(), TypeTransformError> {
         self.trait_application_contract(ty)?;
         self.nominal_arguments(ty)
     }
 
     pub fn types<'ty>(
         &self,
-        types: impl IntoIterator<Item = &'ty Ty<DefinitionId>>,
+        types: impl IntoIterator<Item = &'ty Ty>,
     ) -> Result<(), TypeTransformError> {
         for ty in types {
             self.validate_type(ty)?;
@@ -163,10 +157,7 @@ where
         Ok(())
     }
 
-    fn constraints(
-        &self,
-        constraints: &[Constraint<DefinitionId>],
-    ) -> Result<(), TypeTransformError> {
+    fn constraints(&self, constraints: &[Constraint]) -> Result<(), TypeTransformError> {
         for constraint in constraints {
             if let Constraint::Trait(applied) = constraint {
                 self.trait_application(applied)?;
@@ -175,7 +166,7 @@ where
         Ok(())
     }
 
-    pub fn bounds(&self, bounds: &[GenericBound<DefinitionId>]) -> Result<(), TypeTransformError> {
+    pub fn bounds(&self, bounds: &[GenericBound]) -> Result<(), TypeTransformError> {
         for bound in bounds {
             self.validate_type(&bound.ty)?;
             self.constraints(&bound.constraints)?;
@@ -183,7 +174,7 @@ where
         Ok(())
     }
 
-    pub fn function(&self, function: &FnDecl<DefinitionId>) -> Result<(), TypeTransformError> {
+    pub fn function(&self, function: &FnDecl) -> Result<(), TypeTransformError> {
         if let CallableImplementation::NativeDefault(application) = &function.implementation {
             self.types(&application.arguments)?;
         }
@@ -192,10 +183,7 @@ where
         self.validate_type(&function.return_type)
     }
 
-    pub fn trait_definition(
-        &self,
-        record: &TraitDef<DefinitionId>,
-    ) -> Result<(), TypeTransformError> {
+    pub fn trait_definition(&self, record: &TraitDef) -> Result<(), TypeTransformError> {
         self.bounds(&record.bounds)?;
         for parent in &record.supertraits {
             self.trait_application(parent)?;

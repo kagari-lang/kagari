@@ -34,7 +34,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{slice, sync::Arc};
@@ -119,8 +118,8 @@ pub struct LinkedCallable {
     pub(crate) scoped_signature: Option<Arc<ScopedSignature>>,
     pub(crate) owner: CallableOwner,
     pub(crate) target: CallableTarget,
-    pub(crate) params: Box<[Ty<DefinitionId>]>,
-    pub(crate) result: Ty<DefinitionId>,
+    pub(crate) params: Box<[Ty]>,
+    pub(crate) result: Ty,
     pub(crate) primitive: Option<RuntimePrimitive>,
 }
 
@@ -162,7 +161,7 @@ impl LinkedCallable {
 #[derive(Debug, Clone)]
 pub(crate) enum LinkedOperation {
     Ready(LinkedCallable),
-    Forward(NativeCallableRequirement<DefinitionId>),
+    Forward(NativeCallableRequirement),
 }
 
 impl LinkedOperation {
@@ -354,7 +353,7 @@ impl<'call> CallContext<'call> {
 
     /// Resolve a scoped type in this native function's lexical program. Result parameters
     /// must use result_type_parameter() to retain their supplying scopes.
-    pub fn resolve_type(&self, ty: &Ty<DefinitionId>) -> NativeResult<TypeArgument> {
+    pub fn resolve_type(&self, ty: &Ty) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()
@@ -456,7 +455,7 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native argument slot"))
     }
 
-    pub fn argument_type(&self, index: usize) -> NativeResult<&'call Ty<DefinitionId>> {
+    pub fn argument_type(&self, index: usize) -> NativeResult<&'call Ty> {
         self.function
             .signature
             .params
@@ -474,7 +473,7 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native argument scope"))
     }
 
-    pub fn result_type(&self) -> &'call Ty<DefinitionId> {
+    pub fn result_type(&self) -> &'call Ty {
         &self.function.signature.result
     }
 

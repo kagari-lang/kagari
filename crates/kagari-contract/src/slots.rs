@@ -5,10 +5,7 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionKind,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::{DefinitionKind, table::DefinitionTable},
 };
 use kagari_types::{
     declaration::{requirement::NativeCallableRequirement, verify::types_in_scope},
@@ -22,11 +19,11 @@ use std::collections::BTreeMap;
 pub struct SemanticSlots {
     pub generic: Option<GenericBody>,
     /// Applied checked language protocol implemented by this generated function.
-    pub protocol_adapter: Option<NativeCallableRequirement<DefinitionId>>,
-    pub params: BTreeMap<usize, Ty<DefinitionId>>,
-    pub result: Option<Ty<DefinitionId>>,
-    pub locals: BTreeMap<usize, Ty<DefinitionId>>,
-    pub registers: BTreeMap<usize, Ty<DefinitionId>>,
+    pub protocol_adapter: Option<NativeCallableRequirement>,
+    pub params: BTreeMap<usize, Ty>,
+    pub result: Option<Ty>,
+    pub locals: BTreeMap<usize, Ty>,
+    pub registers: BTreeMap<usize, Ty>,
 }
 
 impl SemanticSlots {
@@ -62,7 +59,7 @@ impl SemanticSlots {
         registers: impl IntoIterator<Item = ValueType>,
         result: ValueType,
     ) -> bool {
-        let valid = |representation: ValueType, semantic: Option<&Ty<DefinitionId>>| {
+        let valid = |representation: ValueType, semantic: Option<&Ty>| {
             let generic_semantic =
                 semantic.is_some_and(|ty| semantic_representation(ty) == ValueType::Generic);
             if representation == ValueType::Generic || generic_semantic {

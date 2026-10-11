@@ -6,10 +6,7 @@ use crate::host_interface::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::table::{
-        DefinitionId,
-        wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-    },
+    identity::table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
 };
 use serde::{Deserialize, Serialize, de::value::Error as DecodeError};
 
@@ -20,7 +17,7 @@ pub(in crate::host_interface) struct WireHostValueType {
     nodes: Vec<Node<PortableDefinitionRef>>,
 }
 
-impl Encode for HostValueType<DefinitionId> {
+impl Encode for HostValueType {
     type Wire = WireHostValueType;
 
     fn encode(
@@ -46,7 +43,7 @@ impl WireHostValueType {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostValueType<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostValueType, HostInterfaceError> {
         check_cancel(cancel)?;
         let nodes = self
             .nodes
@@ -57,8 +54,7 @@ impl WireHostValueType {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut nodes = nodes.into_iter();
-        let ty = build::<DefinitionId, DecodeError>(&mut nodes, 1)
-            .map_err(|_| HostInterfaceError::Encoding)?;
+        let ty = build::<DecodeError>(&mut nodes, 1).map_err(|_| HostInterfaceError::Encoding)?;
         if nodes.next().is_some() {
             return Err(HostInterfaceError::Encoding);
         }
@@ -124,7 +120,7 @@ mod tests {
                 .and_then(|wire| wire.decode(&decoding, &CancellationToken::default()));
             assert!(result.is_err());
         }
-        let mut ty = HostValueType::<DefinitionId>::I32;
+        let mut ty = HostValueType::I32;
         for _ in 1..MAX_DEPTH {
             ty = HostValueType::Array(Box::new(ty));
         }
@@ -144,7 +140,7 @@ mod tests {
                 .is_err()
         );
         assert!(
-            HostValueType::Tuple(vec![HostValueType::<DefinitionId>::I32; MAX_NODES])
+            HostValueType::Tuple(vec![HostValueType::I32; MAX_NODES])
                 .encode(&encoding, &CancellationToken::default())
                 .is_err()
         );

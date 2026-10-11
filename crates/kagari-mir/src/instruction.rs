@@ -27,13 +27,13 @@ pub struct MirValue {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggregateFieldRef {
-    pub owner: NominalTy<DefinitionId>,
+    pub owner: NominalTy,
     pub slot: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRef {
-    pub declaration: Option<HostPathDeclaration<DefinitionId>>,
+    pub declaration: Option<HostPathDeclaration>,
     pub contract_fingerprint: u64,
     pub root_ty: ValueType,
     pub result_ty: ValueType,
@@ -46,7 +46,7 @@ pub enum Instruction {
     Await {
         dst: MirValue,
         value: MirValue,
-        future: Ty<DefinitionId>,
+        future: Ty,
     },
     Convert {
         dst: MirValue,
@@ -62,7 +62,7 @@ pub enum Instruction {
     Iter {
         dst: MirValue,
         value: Option<MirValue>,
-        ty: Ty<DefinitionId>,
+        ty: Ty,
         op: IterOp,
     },
     LoadConst {
@@ -112,24 +112,24 @@ pub enum Instruction {
     RangeBound {
         dst: MirValue,
         value: MirValue,
-        range: Ty<DefinitionId>,
-        bound: Ty<DefinitionId>,
+        range: Ty,
+        bound: Ty,
         upper: bool,
     },
     MakeRange {
         dst: MirValue,
         start: Option<MirValue>,
         end: Option<MirValue>,
-        ty: Ty<DefinitionId>,
+        ty: Ty,
     },
     RepeatArray {
-        element: Ty<DefinitionId>,
+        element: Ty,
         dst: MirValue,
         value: MirValue,
         count: MirValue,
     },
     MakeArray {
-        element: Ty<DefinitionId>,
+        element: Ty,
         dst: MirValue,
         elements: ValueBuffer,
     },
@@ -138,7 +138,7 @@ pub enum Instruction {
         dst: MirValue,
         function: InstanceId,
         arguments: ValueBuffer,
-        future: Ty<DefinitionId>,
+        future: Ty,
     },
     MakeClosure {
         dst: MirValue,
@@ -160,36 +160,36 @@ pub enum Instruction {
     UpcastInterface {
         dst: MirValue,
         value: MirValue,
-        source: NominalTy<DefinitionId>,
-        target: NominalTy<DefinitionId>,
+        source: NominalTy,
+        target: NominalTy,
     },
     MakeInterface {
         dst: MirValue,
         value: MirValue,
         implementation: DefinitionId,
-        arguments: Vec<Ty<DefinitionId>>,
+        arguments: Vec<Ty>,
     },
     MakeStruct {
         dst: MirValue,
-        structure: NominalTy<DefinitionId>,
+        structure: NominalTy,
         fields: StructFieldInitBuffer,
     },
     MakeEnum {
         dst: MirValue,
-        enumeration: NominalTy<DefinitionId>,
+        enumeration: NominalTy,
         variant: usize,
         fields: ValueBuffer,
     },
     TestEnumVariant {
         dst: MirValue,
         value: MirValue,
-        enumeration: NominalTy<DefinitionId>,
+        enumeration: NominalTy,
         variant: usize,
     },
     ReadEnumPayload {
         dst: MirValue,
         value: MirValue,
-        enumeration: NominalTy<DefinitionId>,
+        enumeration: NominalTy,
         variant: usize,
         index: usize,
     },
@@ -441,7 +441,7 @@ pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFunctionContract {
     pub declaration: DefinitionId,
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
 }

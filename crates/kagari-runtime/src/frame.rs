@@ -27,7 +27,6 @@ use kagari_bytecode::{
     module::{BytecodeFunction, CallableTarget},
     program::ModuleRef,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::ids::FunctionRef;
 use kagari_types::ty::Ty;
 use std::{
@@ -638,10 +637,7 @@ impl ExecutionFrame {
         self.environment.clone()
     }
 
-    pub fn resolve_type<'a>(
-        &self,
-        ty: &'a Ty<DefinitionId>,
-    ) -> Result<Cow<'a, Ty<DefinitionId>>, RuntimeError> {
+    pub fn resolve_type<'a>(&self, ty: &'a Ty) -> Result<Cow<'a, Ty>, RuntimeError> {
         if ty.is_concrete() {
             return Ok(Cow::Borrowed(ty));
         }

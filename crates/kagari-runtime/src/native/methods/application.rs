@@ -5,7 +5,6 @@ use crate::{
     frame::types::arguments::TypeArgument,
     native::{binding::NativeResult, methods::InherentMember},
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{Ty, substitution::MAX_TYPE_NODES};
 
 impl InherentMember {
@@ -72,7 +71,7 @@ impl InherentMember {
     }
 }
 
-fn children(ty: &Ty<DefinitionId>) -> Vec<&Ty<DefinitionId>> {
+fn children(ty: &Ty) -> Vec<&Ty> {
     match ty {
         Ty::Struct(ty) | Ty::Enum(ty) | Ty::NativeObject(ty) | Ty::Trait(ty) => ty
             .arguments

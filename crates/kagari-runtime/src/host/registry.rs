@@ -143,7 +143,7 @@ impl HostRegistry {
         Ok(id)
     }
 
-    pub fn interface(&self) -> DefinitionMetadata<HostInterface<DefinitionId>> {
+    pub fn interface(&self) -> DefinitionMetadata<HostInterface> {
         let definitions = self.definitions();
         let mut paths = Vec::new();
         for declaration in self.path_descriptors().map(|path| &path.declaration) {
@@ -187,7 +187,7 @@ impl HostRegistry {
     /// Foreign identities are imported into this registry before binding comparison.
     pub fn link_interface(
         &self,
-        interface: &HostInterface<DefinitionId>,
+        interface: &HostInterface,
         source: &DefinitionTable,
     ) -> Result<Vec<HostFunctionId>, RuntimeError> {
         interface
@@ -375,7 +375,7 @@ impl HostRegistry {
 
     pub(super) fn portable_path_type(
         &self,
-        declaration: &HostValueType<DefinitionId>,
+        declaration: &HostValueType,
         types: &TypeRegistry,
     ) -> Result<TypeId, RuntimeError> {
         let resolved = match declaration {
@@ -519,7 +519,7 @@ impl HostRegistry {
 
     pub(crate) fn register_path(
         &mut self,
-        declaration: &DefinitionMetadata<HostPathDeclaration<DefinitionId>>,
+        declaration: &DefinitionMetadata<HostPathDeclaration>,
         types: &TypeRegistry,
     ) -> Result<HostPathDescriptorId, RuntimeError> {
         let adopted = declaration

@@ -11,13 +11,12 @@ use crate::{
     },
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::{NominalTy, Ty};
 use std::{num::NonZeroUsize, sync::Arc};
 
 type LayoutApplications<Id, Layout> =
-    DescriptorIndex<(Id, Option<NonZeroUsize>), Arc<[Ty<DefinitionId>]>, AppliedLayout<Layout>>;
+    DescriptorIndex<(Id, Option<NonZeroUsize>), Arc<[Ty]>, AppliedLayout<Layout>>;
 
 #[derive(Debug)]
 struct AppliedLayout<L> {
@@ -49,17 +48,14 @@ impl ProgramLayoutCache {
 }
 
 impl LoadedModule {
-    pub(crate) fn find_struct_layout(
-        &self,
-        nominal: &NominalTy<DefinitionId>,
-    ) -> Option<StructLayoutRef> {
+    pub(crate) fn find_struct_layout(&self, nominal: &NominalTy) -> Option<StructLayoutRef> {
         let (owner, id) = self.find_struct_definition(nominal)?;
         owner.applied_struct_layout(id, &nominal.arguments)
     }
 
     pub(crate) fn find_struct_definition(
         &self,
-        nominal: &NominalTy<DefinitionId>,
+        nominal: &NominalTy,
     ) -> Option<(LoadedModule, StructId)> {
         self.members().find_map(|owner| {
             let id = owner
@@ -78,7 +74,7 @@ impl LoadedModule {
 
     pub(crate) fn find_enum_definition(
         &self,
-        nominal: &NominalTy<DefinitionId>,
+        nominal: &NominalTy,
     ) -> Option<(LoadedModule, EnumId)> {
         self.members().find_map(|owner| {
             let id = owner
@@ -95,11 +91,7 @@ impl LoadedModule {
         })
     }
 
-    pub fn applied_struct_layout(
-        &self,
-        id: StructId,
-        arguments: &[Ty<DefinitionId>],
-    ) -> Option<StructLayoutRef> {
+    pub fn applied_struct_layout(&self, id: StructId, arguments: &[Ty]) -> Option<StructLayoutRef> {
         if !arguments.iter().all(Ty::is_concrete) {
             return None;
         }
@@ -132,7 +124,7 @@ impl LoadedModule {
     pub fn applied_enum_variant(
         &self,
         id: EnumId,
-        arguments: &[Ty<DefinitionId>],
+        arguments: &[Ty],
         variant: u32,
     ) -> Option<EnumVariantRef> {
         if !arguments.iter().all(Ty::is_concrete) {
@@ -172,7 +164,7 @@ impl ModuleStore {
         &self,
         owner: &LoadedModule,
         id: StructId,
-        arguments: &[Ty<DefinitionId>],
+        arguments: &[Ty],
         scope: Option<Arc<LayoutScope>>,
     ) -> Option<StructLayoutRef> {
         let cache_key = match &scope {
@@ -246,7 +238,7 @@ impl ModuleStore {
         &self,
         owner: &LoadedModule,
         id: EnumId,
-        arguments: &[Ty<DefinitionId>],
+        arguments: &[Ty],
         variant: u32,
         scope: Option<Arc<LayoutScope>>,
     ) -> Option<EnumVariantRef> {
@@ -334,7 +326,7 @@ impl StructLayoutRef {
         &self.module.bytecode.structures[self.id.index()]
     }
 
-    pub(crate) fn type_expression(&self) -> Ty<DefinitionId> {
+    pub(crate) fn type_expression(&self) -> Ty {
         Ty::Struct(NominalTy {
             declaration: self.layout().declaration,
             arguments: if self.scope.is_some() {
@@ -348,7 +340,7 @@ impl StructLayoutRef {
 
     pub(crate) fn matches_type(
         &self,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
@@ -364,10 +356,7 @@ impl StructLayoutRef {
         .compatible(expected)
     }
 
-    pub(crate) fn field_type(
-        &self,
-        slot: usize,
-    ) -> Option<(&Ty<DefinitionId>, Option<&TypeBindings>)> {
+    pub(crate) fn field_type(&self, slot: usize) -> Option<(&Ty, Option<&TypeBindings>)> {
         let layout = if self.scope.is_some() {
             &self.module.bytecode.structures[self.id.index()]
         } else {
@@ -394,7 +383,7 @@ impl EnumVariantRef {
         })
     }
 
-    fn type_expression(&self) -> Ty<DefinitionId> {
+    fn type_expression(&self) -> Ty {
         Ty::Enum(NominalTy {
             declaration: self.layout().declaration,
             arguments: if self.scope.is_some() {
@@ -410,7 +399,7 @@ impl EnumVariantRef {
 
     pub(crate) fn matches_type(
         &self,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
@@ -455,10 +444,7 @@ impl EnumVariantRef {
         )
     }
 
-    pub(crate) fn payload_type(
-        &self,
-        slot: usize,
-    ) -> Option<(&Ty<DefinitionId>, Option<&TypeBindings>)> {
+    pub(crate) fn payload_type(&self, slot: usize) -> Option<(&Ty, Option<&TypeBindings>)> {
         let layout = if self.scope.is_some() {
             &self.module.bytecode.enumerations[self.id.index()]
         } else {

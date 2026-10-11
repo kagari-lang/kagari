@@ -5,10 +5,7 @@ use crate::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_common::identity::{
-    ModuleIdentity, PackageId,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::{ModuleIdentity, PackageId, table::DefinitionTable};
 use std::collections::BTreeMap;
 
 /// Constructor ownership is supplied by declarations, independent of API names.
@@ -18,8 +15,8 @@ pub struct ReceiverOwners {
 }
 
 impl ReceiverOwners {
-    pub fn from_types<'a, I: 'a>(
-        types: impl IntoIterator<Item = (&'a ModuleIdentity, &'a TypeDef<I>)>,
+    pub fn from_types<'a>(
+        types: impl IntoIterator<Item = (&'a ModuleIdentity, &'a TypeDef)>,
     ) -> Result<Self, DeclarationError> {
         let mut owners = Self::default();
         for (module, declaration) in types {
@@ -46,11 +43,7 @@ impl ReceiverOwners {
 
     /// Resolve receiver ownership in the supplied identity scope. Unknown or
     /// foreign nominal IDs never establish ownership.
-    pub fn owner(
-        &self,
-        ty: &Ty<DefinitionId>,
-        definitions: &DefinitionTable,
-    ) -> Option<ModuleIdentity> {
+    pub fn owner(&self, ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleIdentity> {
         let constructor = match ty {
             Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
                 return definitions
@@ -102,7 +95,7 @@ mod tests {
     };
     use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 
-    fn sequence(module: &ModuleDecl, context: &DefinitionContext) -> TypeDef<DefinitionId> {
+    fn sequence(module: &ModuleDecl, context: &DefinitionContext) -> TypeDef {
         let root = context.intern_root(&module.identity).unwrap();
         TypeDef {
             name: "Sequence".into(),

@@ -792,15 +792,18 @@ all referenced ancestors into the destination context.
 HIR records and shared semantic algorithms use fixed scoped IDs. Reference visitors
 validate retained fields and keys; ID-to-ID remappers rebuild reusable records in
 another context, rejecting collapsed keys and preserving cancellation and limits.
-MIR, bytecode, artifact and shared contract semantic models have no identity
-representation parameter or direct Serde implementation. Their scope visitors and
-ID-to-ID remappers are separate capabilities; vectors compose those capabilities
-without arbitrary representation rebinding. Callable proofs, layouts, Native
-imports and public ABI records use these fixed models. Shared types and Native/Host
-declarations retain legacy parameters during the active
-[Definition ID migration](definition-id-plan.md); remaining work deletes those
-parameters and mapping helpers. Bytecode verification,
-linked executable proofs and Host contract validation use scoped records directly.
+Shared type, Native/Host declaration, contract, MIR, bytecode and artifact models
+have no identity representation parameter or direct semantic Serde implementation.
+Their scope visitors and ID-to-ID remappers are separate capabilities; vectors
+compose those capabilities without arbitrary representation rebinding. Callable
+proofs, layouts, Native imports and public ABI records use these fixed models.
+Flat codec records share bounded traversal without admitting path-based semantic
+models; only explicit wire records serialize file-local references. Type remapping
+helpers are private to the semantic owner. The active
+[Definition ID migration](definition-id-plan.md) still owns removal of obsolete
+common reference/projection APIs and remaining legacy test/example consumers.
+Bytecode verification, linked executable proofs and Host contract validation use
+scoped records directly.
 Bytecode verification checks the complete input reference
 prefix before collecting implicit public declaration names; interning these names
 is separate from validating their ABI. KBC decoding returns scoped unverified

@@ -8,7 +8,6 @@ use crate::{
     native::storage_type::StorageType,
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 use std::{slice, sync::Arc};
 
@@ -16,7 +15,7 @@ impl ExecutionFrame {
     pub fn type_arguments(
         &self,
         runtime: &Runtime,
-        types: &[Ty<DefinitionId>],
+        types: &[Ty],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         runtime.type_arguments(
             self.loaded(),
@@ -29,7 +28,7 @@ impl ExecutionFrame {
     fn element_contract(
         &self,
         runtime: &Runtime,
-        element: &Ty<DefinitionId>,
+        element: &Ty,
     ) -> Result<Arc<StorageType>, RuntimeError> {
         let argument = runtime
             .type_arguments(
@@ -46,7 +45,7 @@ impl ExecutionFrame {
     pub fn alloc_array(
         &self,
         runtime: &Runtime,
-        element: &Ty<DefinitionId>,
+        element: &Ty,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         runtime.validate_heap_payloads(&elements)?;
@@ -58,7 +57,7 @@ impl ExecutionFrame {
     pub fn alloc_array_repeat(
         &self,
         runtime: &Runtime,
-        element: &Ty<DefinitionId>,
+        element: &Ty,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {

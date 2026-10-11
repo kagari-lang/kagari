@@ -187,7 +187,7 @@ struct BytecodeLoweringContext<'a> {
     identity: Option<&'a ModuleIdentity>,
     ir: Option<&'a VerifiedMirModule>,
     interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>>,
-    host_interface: HostInterface<DefinitionId>,
+    host_interface: HostInterface,
     native_imports: Vec<NativeImport>,
     paths: Vec<PathRecord>,
     constants: Vec<ConstantOperand>,
@@ -222,7 +222,7 @@ impl BytecodeLoweringContext<'_> {
     fn interface_ref(
         &mut self,
         implementation: &DefinitionId,
-        arguments: &[Ty<DefinitionId>],
+        arguments: &[Ty],
     ) -> (ModuleRef, InterfaceTableRef) {
         let (module, owner) = if let Some(program) = self.program {
             program
@@ -281,7 +281,7 @@ impl BytecodeLoweringContext<'_> {
         id
     }
 
-    fn structure_id(&self, id: &NominalTy<DefinitionId>) -> StructId {
+    fn structure_id(&self, id: &NominalTy) -> StructId {
         StructId::new(
             self.structures
                 .iter()

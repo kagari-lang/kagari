@@ -94,15 +94,15 @@ pub struct LoweredModule {
     /// Registered array bridge interface identities indexed by access policy.
     pub(crate) native_array_interfaces: BTreeMap<CollectionAccess, DefinitionId>,
     /// Authoritative installed trait contracts indexed by scoped definition identity.
-    pub(crate) registered_traits: BTreeMap<DefinitionId, TraitDef<DefinitionId>>,
+    pub(crate) registered_traits: BTreeMap<DefinitionId, TraitDef>,
     /// Validated native declaration records retained alongside their generated source view.
-    pub(crate) registered_declarations: Vec<NativeDeclaration<DefinitionId>>,
+    pub(crate) registered_declarations: Vec<NativeDeclaration>,
     /// Lowering-local opaque type slots mapped to registered representation descriptors.
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     /// Lowering-local function slots mapped to registered semantic binding descriptors.
     pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
     /// Registered conversion adapters indexed by the generated trait slot.
-    pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter<DefinitionId>>,
+    pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter>,
     /// Collection access policies indexed by registered trait slot.
     pub(crate) native_trait_access: HashMap<TraitId, CollectionAccess>,
     /// Registered receiver/call policies indexed by generated function slot.
@@ -124,7 +124,7 @@ impl LoweredModule {
     }
 
     /// Returns installed declarations in [`Self::registered_native_definitions`]'s scope.
-    pub fn registered_native_declarations(&self) -> &[NativeDeclaration<DefinitionId>] {
+    pub fn registered_native_declarations(&self) -> &[NativeDeclaration] {
         &self.registered_declarations
     }
 

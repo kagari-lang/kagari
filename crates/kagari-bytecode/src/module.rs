@@ -28,9 +28,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default)]
 pub struct BytecodeModule {
     pub dependencies: Vec<ModuleRef>,
-    pub host_interface: HostInterface<DefinitionId>,
+    pub host_interface: HostInterface,
     pub native_imports: Vec<NativeImport>,
-    pub native_declarations: Vec<NativeDeclaration<DefinitionId>>,
+    pub native_declarations: Vec<NativeDeclaration>,
     pub identity: ModuleIdentity,
     pub source_name: String,
     pub module_slots: BytecodeModuleSlotBuffer,
@@ -133,7 +133,7 @@ pub struct InterfaceTableRecord {
     pub view: Option<InterfaceViewRecord>,
     /// Ordered impl arguments. An empty record for a generic template retains
     /// static method instances and cannot be selected by MakeInterface.
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
     pub declaration: DefinitionId,
     pub methods: Vec<InterfaceMethodSlot>,
     /// Preselected ancestor tables, including their receiver argument mappings.
@@ -142,14 +142,14 @@ pub struct InterfaceTableRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceParentRecord {
-    pub interface: NominalTy<DefinitionId>,
+    pub interface: NominalTy,
     pub implementation: ConcreteFunctionIdentity,
     pub view: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceViewRecord {
-    pub interface: NominalTy<DefinitionId>,
+    pub interface: NominalTy,
     /// Only changed return representations have an adapter; raw slots remain exact.
     pub results: Vec<InterfaceResultAdapter>,
 }
@@ -167,7 +167,7 @@ pub struct InterfaceMethodSlot {
     /// Arguments for the target's shared entry, expressed in the table and
     /// method binder scopes. Receiver arguments are captured when boxing;
     /// method arguments are supplied by each call.
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
 }
 
 /// A checked executable entry owned by the module carrying this target.

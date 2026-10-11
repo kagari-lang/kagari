@@ -184,7 +184,7 @@ impl DeclarationCatalog {
     pub(crate) fn insert(
         &mut self,
         id: DefinitionId,
-        contract: TraitDef<DefinitionId>,
+        contract: TraitDef,
     ) -> Result<(), RuntimeError> {
         check_scope(&contract, &self.definitions())?;
         insert_contract(
@@ -198,7 +198,7 @@ impl DeclarationCatalog {
     pub(crate) fn insert_type(
         &mut self,
         id: DefinitionId,
-        contract: TypeDef<DefinitionId>,
+        contract: TypeDef,
     ) -> Result<(), RuntimeError> {
         check_scope(&contract, &self.definitions())?;
         insert_contract(
@@ -211,7 +211,7 @@ impl DeclarationCatalog {
 
     pub(crate) fn insert_declaration(
         &mut self,
-        declaration: NativeDeclaration<DefinitionId>,
+        declaration: NativeDeclaration,
     ) -> Result<(), RuntimeError> {
         check_scope(&declaration, &self.definitions())?;
         insert_contract(
@@ -225,7 +225,7 @@ impl DeclarationCatalog {
     pub(super) fn insert_implementation(
         &mut self,
         id: DefinitionId,
-        implementation: &ImplDecl<DefinitionId>,
+        implementation: &ImplDecl,
     ) -> Result<(), RuntimeError> {
         check_scope(implementation, &self.definitions())?;
         if self.implementations.get_id(id).is_none() && self.implementations.len() >= 4096 {

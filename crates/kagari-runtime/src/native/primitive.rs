@@ -85,7 +85,7 @@ impl LinkedNativeFunction {
 impl NativePrimitive {
     /// The relationship between element, value and result types is part of the
     /// body contract, including in generic declarations before specialization.
-    pub(crate) fn accepts_signature<D: PartialEq + Clone>(self, signature: &Signature<D>) -> bool {
+    pub(crate) fn accepts_signature(self, signature: &Signature) -> bool {
         let params = &signature.params;
         match self {
             Self::StringByteLength => {

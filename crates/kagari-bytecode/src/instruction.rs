@@ -1,6 +1,5 @@
 use crate::{module::CallableTarget, program::ModuleRef};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::{interface::InterfaceCallContract, shared::SharedCall},
     ids::FunctionRef,
@@ -109,7 +108,7 @@ impl StructId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FieldRef {
     pub structure: StructId,
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
     pub slot: u32,
 }
 
@@ -267,7 +266,7 @@ pub enum BytecodeInstruction {
     Await {
         dst: Register,
         value: Register,
-        future: Ty<DefinitionId>,
+        future: Ty,
     },
     Convert {
         dst: Register,
@@ -283,7 +282,7 @@ pub enum BytecodeInstruction {
     Iter {
         dst: Register,
         value: Option<Register>,
-        ty: Ty<DefinitionId>,
+        ty: Ty,
         op: IterOp,
     },
     LoadConst {
@@ -333,24 +332,24 @@ pub enum BytecodeInstruction {
     RangeBound {
         dst: Register,
         value: Register,
-        range: Ty<DefinitionId>,
-        bound: Ty<DefinitionId>,
+        range: Ty,
+        bound: Ty,
         upper: bool,
     },
     MakeRange {
         dst: Register,
         start: Option<Register>,
         end: Option<Register>,
-        ty: Ty<DefinitionId>,
+        ty: Ty,
     },
     RepeatArray {
-        element: Ty<DefinitionId>,
+        element: Ty,
         dst: Register,
         value: Register,
         count: Register,
     },
     MakeArray {
-        element: Ty<DefinitionId>,
+        element: Ty,
         dst: Register,
         elements: Vec<Register>,
     },
@@ -359,7 +358,7 @@ pub enum BytecodeInstruction {
         dst: Register,
         function: FunctionRef,
         arguments: Vec<Register>,
-        future: Ty<DefinitionId>,
+        future: Ty,
     },
     MakeClosure {
         dst: Register,
@@ -381,26 +380,26 @@ pub enum BytecodeInstruction {
     UpcastInterface {
         dst: Register,
         value: Register,
-        source: NominalTy<DefinitionId>,
-        target: NominalTy<DefinitionId>,
+        source: NominalTy,
+        target: NominalTy,
     },
     MakeInterface {
         dst: Register,
         value: Register,
         module: ModuleRef,
         implementation: InterfaceTableRef,
-        arguments: Vec<Ty<DefinitionId>>,
+        arguments: Vec<Ty>,
     },
     MakeStruct {
         dst: Register,
         structure: StructId,
-        arguments: Vec<Ty<DefinitionId>>,
+        arguments: Vec<Ty>,
         fields: Vec<Register>,
     },
     MakeEnum {
         dst: Register,
         enumeration: EnumId,
-        arguments: Vec<Ty<DefinitionId>>,
+        arguments: Vec<Ty>,
         variant: u32,
         fields: Vec<Register>,
     },
@@ -408,14 +407,14 @@ pub enum BytecodeInstruction {
         dst: Register,
         value: Register,
         enumeration: EnumId,
-        arguments: Vec<Ty<DefinitionId>>,
+        arguments: Vec<Ty>,
         variant: u32,
     },
     ReadEnumPayload {
         dst: Register,
         value: Register,
         enumeration: EnumId,
-        arguments: Vec<Ty<DefinitionId>>,
+        arguments: Vec<Ty>,
         variant: u32,
         index: u32,
     },
@@ -478,7 +477,7 @@ pub enum BytecodeInstruction {
 }
 
 impl BytecodeInstruction {
-    pub(crate) fn layout_arguments(&self) -> Option<&[Ty<DefinitionId>]> {
+    pub(crate) fn layout_arguments(&self) -> Option<&[Ty]> {
         match self {
             Self::MakeStruct { arguments, .. }
             | Self::MakeEnum { arguments, .. }

@@ -26,7 +26,7 @@ pub enum Implementation<'a> {
     Interface(&'a InterfaceTable),
     Native {
         declaration: &'a DefinitionId,
-        implementation: &'a ImplDecl<DefinitionId>,
+        implementation: &'a ImplDecl,
     },
 }
 
@@ -37,7 +37,7 @@ impl<'a> From<&'a InterfaceTable> for Implementation<'a> {
 }
 
 impl<'a> Implementation<'a> {
-    pub(super) fn methods(&self) -> &[FnDecl<DefinitionId>] {
+    pub(super) fn methods(&self) -> &[FnDecl] {
         match self {
             Self::Interface(table) => &table.methods,
             Self::Native { implementation, .. } => &implementation.methods,
@@ -51,28 +51,28 @@ impl<'a> Implementation<'a> {
         }
     }
 
-    pub(super) fn parameters(&self) -> &'a [GenericParam<DefinitionId>] {
+    pub(super) fn parameters(&self) -> &'a [GenericParam] {
         match self {
             Self::Interface(table) => &table.generic_params,
             Self::Native { implementation, .. } => &implementation.generic_params,
         }
     }
 
-    pub(super) fn bounds(&self) -> &'a [GenericBound<DefinitionId>] {
+    pub(super) fn bounds(&self) -> &'a [GenericBound] {
         match self {
             Self::Interface(table) => &table.bounds,
             Self::Native { implementation, .. } => &implementation.bounds,
         }
     }
 
-    pub(super) fn receiver(&self) -> &'a Ty<DefinitionId> {
+    pub(super) fn receiver(&self) -> &'a Ty {
         match self {
             Self::Interface(table) => &table.for_type,
             Self::Native { implementation, .. } => &implementation.for_type,
         }
     }
 
-    pub(super) fn interface(&self) -> Option<&'a NominalTy<DefinitionId>> {
+    pub(super) fn interface(&self) -> Option<&'a NominalTy> {
         match self {
             Self::Interface(table) => match &table.trait_type {
                 Ty::Trait(interface) => Some(interface),
@@ -84,7 +84,7 @@ impl<'a> Implementation<'a> {
 
     pub(super) fn pattern(
         &self,
-        contract: Option<&TraitDef<DefinitionId>>,
+        contract: Option<&TraitDef>,
         definitions: &DefinitionTable,
     ) -> Option<ImplementationPattern<'a>> {
         Some(ImplementationPattern {
@@ -96,7 +96,7 @@ impl<'a> Implementation<'a> {
         })
     }
 
-    pub(super) fn families(&self) -> &'a [AssociatedTypeFamily<DefinitionId>] {
+    pub(super) fn families(&self) -> &'a [AssociatedTypeFamily] {
         match self {
             Self::Interface(table) => &table.associated_type_families,
             Self::Native { .. } => &[],
@@ -110,23 +110,23 @@ impl<'a> Implementation<'a> {
     pub(super) fn method(
         &self,
         name: &str,
-        arguments: &[Ty<DefinitionId>],
-        contract: Option<&TraitDef<DefinitionId>>,
+        arguments: &[Ty],
+        contract: Option<&TraitDef>,
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
-    ) -> Result<Option<FnDecl<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Option<FnDecl>, TypeTransformError> {
         self.method_in(name, arguments, contract, &[], definitions, cancel)
     }
 
     pub(super) fn method_in(
         &self,
         name: &str,
-        arguments: &[Ty<DefinitionId>],
-        contract: Option<&TraitDef<DefinitionId>>,
-        parameters: &[GenericParam<DefinitionId>],
+        arguments: &[Ty],
+        contract: Option<&TraitDef>,
+        parameters: &[GenericParam],
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
-    ) -> Result<Option<FnDecl<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Option<FnDecl>, TypeTransformError> {
         if let Self::Interface(table) = self {
             return Ok(table
                 .instantiate(arguments, parameters, definitions)
@@ -180,7 +180,7 @@ impl<'a> Implementation<'a> {
         } else {
             &bindings
         };
-        let apply = |ty: &Ty<DefinitionId>| {
+        let apply = |ty: &Ty| {
             let ty = bindings.apply(ty, cancel)?;
             if inherited {
                 resolve_associated_outputs(&ty, &applied, &receiver, cancel)

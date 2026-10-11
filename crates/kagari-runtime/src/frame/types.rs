@@ -15,7 +15,7 @@ use crate::{
     },
     gc::GcHeap,
 };
-use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     ty::{GenericParam, NominalTy, Ty},
@@ -39,7 +39,7 @@ impl EnvironmentRecord {
 
     pub(crate) fn new(
         definitions: &DefinitionContext,
-        parameters: Vec<GenericParam<DefinitionId>>,
+        parameters: Vec<GenericParam>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
@@ -104,8 +104,8 @@ impl TypeEnvironment {
     pub(crate) fn operation_slot(
         &self,
         heap: &GcHeap,
-        receiver: &Ty<DefinitionId>,
-        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty,
+        interface: &NominalTy,
         slot: u32,
     ) -> Option<OperationId> {
         heap.environment(self.id)?
@@ -116,7 +116,7 @@ impl TypeEnvironment {
     pub(crate) fn operation(
         &self,
         heap: &GcHeap,
-        required: &NativeCallableRequirement<DefinitionId>,
+        required: &NativeCallableRequirement,
     ) -> Option<OperationId> {
         heap.environment(self.id)?
             .operations

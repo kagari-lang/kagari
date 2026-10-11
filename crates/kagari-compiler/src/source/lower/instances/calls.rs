@@ -13,7 +13,7 @@ impl InstancePlanner<'_> {
         &mut self,
         declaration: &DefinitionId,
         arguments: &[TypeId],
-        signature: Signature<DefinitionId>,
+        signature: Signature,
         span: Span,
     ) -> Result<SharedCall, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("shared function declaration");

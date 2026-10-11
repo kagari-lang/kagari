@@ -21,7 +21,7 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_common::{cancellation::Cancelled, identity::table::DefinitionId};
+use kagari_common::cancellation::Cancelled;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     collection::CollectionAccess,
@@ -81,7 +81,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn infer_log_signature(
         &mut self,
-        declaration: &HostFunctionDeclaration<DefinitionId>,
+        declaration: &HostFunctionDeclaration,
         name: &str,
         callee: ExprId,
         args: &[ExprId],
@@ -298,7 +298,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         owner: &TypeId,
         name: &str,
-    ) -> Option<HostFieldDeclaration<DefinitionId>> {
+    ) -> Option<HostFieldDeclaration> {
         let TypeId::Host(id) = owner else {
             return None;
         };

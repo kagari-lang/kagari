@@ -38,12 +38,12 @@ fn declaration(module: &str, name: &str) -> DefinitionPath {
     }
 }
 
-fn applied(module: &str, name: &str, arguments: Vec<Ty>) -> Ty {
-    Ty::Enum(NominalTy {
-        declaration: declaration(module, name),
+fn applied(table: &DefinitionTable, module: &str, name: &str, arguments: Vec<Ty>) -> Option<Ty> {
+    Some(Ty::Enum(NominalTy {
+        declaration: table.lookup(&declaration(module, name))?,
         arguments,
         associated_types: Default::default(),
-    })
+    }))
 }
 
 pub fn option_declaration() -> DefinitionPath {
@@ -62,29 +62,16 @@ pub fn bound_declaration() -> DefinitionPath {
     declaration("ops", "Bound")
 }
 
-/// Iterator.next's declared result constructor.
-pub fn option(item: Ty) -> Ty {
-    applied("option", "Option", vec![item])
+/// Iterator.next's declared result constructor in the supplied scope.
+/// Returns None when the nominal core declaration has not been registered.
+pub fn option(table: &DefinitionTable, item: Ty) -> Option<Ty> {
+    applied(table, "option", "Option", vec![item])
 }
 
-/// Checked conversion result constructor.
-pub fn result(value: Ty, error: Ty) -> Ty {
-    applied("result", "Result", vec![value, error])
-}
-
-/// Comparison protocols' declared result type.
-pub fn ordering() -> Ty {
-    applied("cmp", "Ordering", vec![])
-}
-
-/// RangeBounds' declared endpoint constructor.
-pub fn bound(item: Ty) -> Ty {
-    applied("ops", "Bound", vec![item])
-}
-
-/// Try.branch's ordinary result constructor.
-pub fn control_flow(residual: Ty, output: Ty) -> Ty {
-    applied("ops", "ControlFlow", vec![residual, output])
+/// Checked conversion result constructor in the supplied scope.
+/// Returns None when the nominal core declaration has not been registered.
+pub fn result(table: &DefinitionTable, value: Ty, error: Ty) -> Option<Ty> {
+    applied(table, "result", "Result", vec![value, error])
 }
 
 pub fn control_flow_declaration() -> DefinitionPath {

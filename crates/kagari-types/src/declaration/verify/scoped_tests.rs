@@ -14,11 +14,11 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, associated_type_id,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     map::DefinitionContext,
-    mapping::{DefinitionMapper, DefinitionRecord},
-    metadata::scope_record,
-    table::{DefinitionId, DefinitionTableBuilder},
+    mapping::DefinitionMapper,
+    scoped::{DefinitionReferences, RemapDefinitions},
+    table::DefinitionTableBuilder,
 };
 use std::{collections::BTreeSet, slice};
 
@@ -35,28 +35,33 @@ fn interface() -> DefinitionPath {
 
 #[test]
 fn scoped_validation_preserves_kind_member_and_host_identity_rules() {
-    let declaration = interface();
-    let member = associated_type_id(&declaration, "Item");
+    let context = DefinitionContext::new().unwrap();
+    let declaration = context.intern(&interface()).unwrap();
+    let member = context
+        .intern_child(declaration, DefinitionKind::AssociatedType, "Item", 0)
+        .unwrap();
     let mut nominal = NominalTy {
         declaration,
         arguments: vec![],
         associated_types: [(member, Ty::Builtin(BuiltinType::I32))].into(),
     };
     let mut cases = vec![(Ty::Trait(nominal.clone()), true)];
-    let (mut member, value) = nominal.associated_types.pop_first().unwrap();
-    member.path.last_mut().unwrap().occurrence = 1;
-    nominal.associated_types.insert(member, value);
+    let (_, value) = nominal.associated_types.pop_first().unwrap();
+    let wrong_member = context
+        .intern_child(declaration, DefinitionKind::AssociatedType, "Item", 1)
+        .unwrap();
+    nominal.associated_types.insert(wrong_member, value);
     cases.push((Ty::Trait(nominal), false));
     let host = host_type_identity("game.Entity");
-    cases.push((Ty::Host(host.clone()), true));
+    cases.push((Ty::Host(context.intern(&host).unwrap()), true));
     let mut wrong_host = host;
     wrong_host.path.last_mut().unwrap().kind = DefinitionKind::Function;
-    cases.push((Ty::Host(wrong_host), false));
+    cases.push((Ty::Host(context.intern(&wrong_host).unwrap()), false));
     let mut wrong_nominal = interface();
     wrong_nominal.path.last_mut().unwrap().kind = DefinitionKind::Struct;
     cases.push((
         Ty::Trait(NominalTy {
-            declaration: wrong_nominal,
+            declaration: context.intern(&wrong_nominal).unwrap(),
             arguments: vec![],
             associated_types: Default::default(),
         }),
@@ -64,38 +69,43 @@ fn scoped_validation_preserves_kind_member_and_host_identity_rules() {
     ));
     for (ty, accepted) in cases {
         let cancel = Default::default();
-        let scoped = scope_record(&ty, &cancel).unwrap();
         assert_eq!(
-            types_in_scope([scoped.records()], &[], &cancel, scoped.definitions()),
+            types_in_scope([&ty], &[], &cancel, &context.snapshot()),
             accepted
         );
         let foreign = DefinitionTableBuilder::new().unwrap().freeze();
-        assert!(!types_in_scope([scoped.records()], &[], &cancel, &foreign));
+        assert!(!types_in_scope([&ty], &[], &cancel, &foreign));
     }
 }
 
 #[test]
 fn canonical_type_order_ignores_interning_and_associated_member_order() {
     let cancel = Default::default();
-    let declaration = interface();
-    let first = associated_type_id(&declaration, "A");
-    let last = associated_type_id(&declaration, "Z");
+    let source = DefinitionContext::new().unwrap();
+    let declaration = source.intern(&interface()).unwrap();
+    let first = source
+        .intern_child(declaration, DefinitionKind::AssociatedType, "A", 0)
+        .unwrap();
+    let last = source
+        .intern_child(declaration, DefinitionKind::AssociatedType, "Z", 0)
+        .unwrap();
+    let source_table = source.snapshot();
     let i32_type = Ty::Builtin(BuiltinType::I32);
     let bool_type = Ty::Builtin(BuiltinType::Bool);
     let nominal = |a, z| NominalTy {
-        declaration: declaration.clone(),
+        declaration,
         arguments: vec![Ty::Array(Box::new(i32_type.clone()))],
-        associated_types: [(first.clone(), a), (last.clone(), z)].into(),
+        associated_types: [(first, a), (last, z)].into(),
     };
     let cases = vec![
         Ty::Trait(nominal(i32_type.clone(), bool_type.clone())),
         Ty::Trait(nominal(bool_type.clone(), i32_type.clone())),
         Ty::Parameter {
-            owner: first.clone(),
+            owner: first,
             position: 1,
         },
         Ty::Parameter {
-            owner: last.clone(),
+            owner: last,
             position: 0,
         },
         Ty::Function {
@@ -115,9 +125,9 @@ fn canonical_type_order_ignores_interning_and_associated_member_order() {
     ];
     let mut paths = BTreeSet::new();
     cases
-        .visit_definitions(
+        .visit_definition_ids(
             &mut |id| {
-                paths.insert(id.clone());
+                paths.insert(source_table.resolve(*id)?.to_path());
                 Ok(())
             },
             &cancel,
@@ -129,8 +139,8 @@ fn canonical_type_order_ignores_interning_and_associated_member_order() {
     }
     let table = builder.freeze();
     let scoped = cases
-        .map_identities(&mut DefinitionMapper::new(
-            &mut |path| Ok(table.lookup(path).unwrap()),
+        .remap_definitions(&mut DefinitionMapper::new(
+            &mut |id| Ok(table.lookup(&source_table.resolve(*id)?.to_path()).unwrap()),
             &cancel,
         ))
         .unwrap();
@@ -222,7 +232,7 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
         },
     };
     let table = context.snapshot();
-    let validate = |declaration: &NativeDeclaration<DefinitionId>| {
+    let validate = |declaration: &NativeDeclaration| {
         let result =
             validate_native_declarations(slice::from_ref(declaration), &module, &table, &cancel);
         assert_eq!(

@@ -28,7 +28,7 @@ use std::{collections::BTreeMap, iter, slice, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct NativeModule {
-    declaration: Arc<DefinitionMetadata<ModuleDecl<DefinitionId>>>,
+    declaration: Arc<DefinitionMetadata<ModuleDecl>>,
     bindings: Arc<[Arc<BindingRegistration>]>,
     owned: DeclarationCatalog,
     catalog: DeclarationCatalog,
@@ -210,7 +210,7 @@ impl NativeModule {
         })
     }
 
-    pub fn declaration(&self) -> &ModuleDecl<DefinitionId> {
+    pub fn declaration(&self) -> &ModuleDecl {
         self.declaration.records()
     }
 

@@ -172,8 +172,8 @@ impl RegistrationTrait {
 pub(super) fn applied(
     ids: &DefinitionContext,
     kind: RegistrationTrait,
-    arguments: Vec<Ty<DefinitionId>>,
-) -> Result<NominalTy<DefinitionId>, DeclarationError> {
+    arguments: Vec<Ty>,
+) -> Result<NominalTy, DeclarationError> {
     Ok(NominalTy {
         declaration: identity(ids, kind)?,
         arguments,

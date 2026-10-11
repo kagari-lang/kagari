@@ -3,101 +3,100 @@ use crate::host_interface::{HostFunctionDeclaration, HostInterface, HostParamete
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostParameter<I> {
-    type Rebind<J: DefinitionReference> = HostParameter<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostParameter {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostParameter {
             name: self.name.clone(),
-            ty: self.ty.map_identities(mapper)?,
+            ty: self.ty.remap_definitions(mapper)?,
             passing: self.passing,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostParameter {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.ty.visit_definitions(visit, cancel)?;
+        self.ty.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostFunctionDeclaration<I> {
-    type Rebind<J: DefinitionReference> = HostFunctionDeclaration<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostFunctionDeclaration {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostFunctionDeclaration {
             id: mapper.reference(&self.id)?,
             symbol: self.symbol.clone(),
-            params: map_sequence(&self.params, |value| (value).map_identities(mapper))?,
-            return_type: self.return_type.map_identities(mapper)?,
+            params: map_sequence(&self.params, |value| (value).remap_definitions(mapper))?,
+            return_type: self.return_type.remap_definitions(mapper)?,
             effects: self.effects,
             documentation: self.documentation.clone(),
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostFunctionDeclaration {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.id)?;
         for value0 in &self.params {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
-        self.return_type.visit_definitions(visit, cancel)?;
+        self.return_type.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostInterface<I> {
-    type Rebind<J: DefinitionReference> = HostInterface<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostInterface {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostInterface {
-            paths: map_sequence(&self.paths, |value| (value).map_identities(mapper))?,
-            types: map_sequence(&self.types, |value| (value).map_identities(mapper))?,
-            functions: map_sequence(&self.functions, |value| (value).map_identities(mapper))?,
+            paths: map_sequence(&self.paths, |value| (value).remap_definitions(mapper))?,
+            types: map_sequence(&self.types, |value| (value).remap_definitions(mapper))?,
+            functions: map_sequence(&self.functions, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostInterface {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in &self.paths {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.types {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.functions {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

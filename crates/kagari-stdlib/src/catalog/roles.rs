@@ -4,7 +4,7 @@ use crate::catalog::{
     key::{self, RegistrationTrait},
     propagation,
 };
-use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
     declaration::{TraitDef, module::DeclarationError},
     scalar::BuiltinType,
@@ -16,8 +16,8 @@ fn projection(
     ids: &DefinitionContext,
     kind: RegistrationTrait,
     name: &str,
-    arguments: Vec<Ty<DefinitionId>>,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+    arguments: Vec<Ty>,
+) -> Result<Ty, DeclarationError> {
     let owner = key::identity(ids, kind)?;
     Ok(Ty::Projection {
         receiver: Box::new(Ty::SelfType(owner)),
@@ -36,7 +36,7 @@ fn operator(
     kind: RegistrationTrait,
     name: &str,
     binary: bool,
-) -> Result<TraitDef<DefinitionId>, DeclarationError> {
+) -> Result<TraitDef, DeclarationError> {
     let mut definition = contracts::contract(ids, kind, if binary { &["T0"] } else { &[] })?;
     definition.associated_types.push(contracts::associated(
         ids,
@@ -59,9 +59,7 @@ fn operator(
     Ok(definition)
 }
 
-pub(super) fn declarations(
-    ids: &DefinitionContext,
-) -> Result<Vec<TraitDef<DefinitionId>>, DeclarationError> {
+pub(super) fn declarations(ids: &DefinitionContext) -> Result<Vec<TraitDef>, DeclarationError> {
     let iterator_kind = RegistrationTrait::Iterator;
     let mut iterator = contracts::contract(ids, iterator_kind, &[])?;
     iterator.associated_types.push(contracts::associated(

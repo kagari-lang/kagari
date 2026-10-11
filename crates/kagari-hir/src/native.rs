@@ -25,7 +25,7 @@ pub enum NativeBinding {
     /// Registered recipe for a generated trait forwarding body.
     /// Source lowering also requires [`crate::typeck::table::TypeTable::native_default_call`];
     /// source-free linking independently validates the portable recipe.
-    Default(NativeDefaultApplication<DefinitionId>),
+    Default(NativeDefaultApplication),
 }
 
 /// Installed representation descriptor used to apply native-backed source type declarations.

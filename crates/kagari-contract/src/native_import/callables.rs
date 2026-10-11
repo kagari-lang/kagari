@@ -3,10 +3,7 @@ use crate::{
     effects::EffectSet,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionId},
-};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::requirement::NativeCallableRequirement,
@@ -16,10 +13,10 @@ use kagari_types::{
 use serde::{Deserialize, Serialize};
 
 pub fn normalize_requirement(
-    requirement: &NativeCallableRequirement<DefinitionId>,
+    requirement: &NativeCallableRequirement,
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
-) -> Result<NativeCallableRequirement<DefinitionId>, TypeTransformError> {
+) -> Result<NativeCallableRequirement, TypeTransformError> {
     let definitions = catalog.definitions();
     let Ty::Trait(mut interface) =
         catalog.normalize(&Ty::Trait(requirement.interface.clone()), cancel)?
@@ -82,10 +79,10 @@ pub enum NativeCallableOrigin {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NativeCallableApplication {
     pub origin: NativeCallableOrigin,
-    pub requirement: NativeCallableRequirement<DefinitionId>,
+    pub requirement: NativeCallableRequirement,
     pub instance: ConcreteFunctionIdentity,
-    pub implementation: CallableImplementation<DefinitionId>,
-    pub signature: Signature<DefinitionId>,
+    pub implementation: CallableImplementation,
+    pub signature: Signature,
     /// A common conservative callback boundary, checked independently of claims.
     pub effects: EffectSet,
 }

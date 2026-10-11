@@ -1,8 +1,5 @@
 //! Validate generated protocol functions against carried declarations and bounds.
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionId},
-};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use {
     crate::{
         effects::EffectSet,
@@ -23,9 +20,9 @@ use {
 impl ProofCatalog<'_> {
     pub fn implicit_callable_signature(
         &self,
-        required: &NativeCallableRequirement<DefinitionId>,
+        required: &NativeCallableRequirement,
         cancel: &CancellationToken,
-    ) -> Result<Option<Signature<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Option<Signature>, TypeTransformError> {
         let Some((_, expected)) = adapter_contract(required, &self.definitions) else {
             return Ok(None);
         };
@@ -80,7 +77,7 @@ impl ProofCatalog<'_> {
 
     pub fn callable_matches(
         &self,
-        required: &NativeCallableRequirement<DefinitionId>,
+        required: &NativeCallableRequirement,
         selected: &NativeCallableApplication,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {

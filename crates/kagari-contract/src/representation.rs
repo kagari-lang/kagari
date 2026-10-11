@@ -1,9 +1,8 @@
 //! Lower semantic types and portable host schemas to physical slots.
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::{host_interface::value_type::HostValueType, scalar::BuiltinType, ty::Ty};
 
-pub fn host_representation(ty: &HostValueType<DefinitionId>) -> ValueType {
+pub fn host_representation(ty: &HostValueType) -> ValueType {
     match ty {
         HostValueType::Unit => ValueType::Unit,
         HostValueType::Bool => ValueType::Bool,
@@ -44,7 +43,7 @@ pub fn builtin_representation(ty: BuiltinType) -> ValueType {
 }
 
 /// Lower a semantic type to the physical slot required by checked execution.
-pub fn semantic_representation(ty: &Ty<DefinitionId>) -> ValueType {
+pub fn semantic_representation(ty: &Ty) -> ValueType {
     match ty {
         Ty::Host(_) => ValueType::HostHandle,
         Ty::Builtin(ty) => builtin_representation(*ty),

@@ -19,7 +19,7 @@ mod applications;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EnumLayout {
     pub declaration: DefinitionId,
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
     pub variants: Vec<EnumVariantLayout>,
 }
 
@@ -27,7 +27,7 @@ pub struct EnumLayout {
 pub struct EnumVariantLayout {
     pub reports_failure: bool,
     pub declaration: DefinitionId,
-    pub payload: Vec<Ty<DefinitionId>>,
+    pub payload: Vec<Ty>,
 }
 
 /// Compare executable instances to validated public declarations after substitution.
@@ -137,7 +137,7 @@ fn public_templates<'a>(
     items: &'a [PublicItem],
     kind: TypeDefKind,
     cancel: &CancellationToken,
-) -> Result<HashMap<&'a str, &'a TypeDef<DefinitionId>>, Cancelled> {
+) -> Result<HashMap<&'a str, &'a TypeDef>, Cancelled> {
     cancel.check()?;
     let mut templates = HashMap::new();
     for item in items {
@@ -308,7 +308,7 @@ pub fn validate_enum_layouts(
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructLayout {
     pub declaration: DefinitionId,
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
     pub fields: Vec<StructFieldLayout>,
 }
 
@@ -327,7 +327,7 @@ pub struct StructFieldLayout {
     pub visibility: Visibility,
     pub declaration: DefinitionId,
     pub name: String,
-    pub ty: Ty<DefinitionId>,
+    pub ty: Ty,
     pub mutable: bool,
 }
 

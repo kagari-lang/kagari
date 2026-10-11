@@ -1,5 +1,5 @@
 //! Check default applications against actual registered templates and trait facts.
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::cancellation::CancellationToken;
 
 use crate::types::{
     ConcreteFunctionIdentity,
@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 
 pub struct ResolvedNativeDefault {
     pub instance: ConcreteFunctionIdentity,
-    pub implementation: CallableImplementation<DefinitionId>,
-    pub signature: Signature<DefinitionId>,
+    pub implementation: CallableImplementation,
+    pub signature: Signature,
 }
 
 impl ProofCatalog<'_> {
@@ -125,7 +125,7 @@ impl ProofCatalog<'_> {
     /// used to infer the receiver or another type argument.
     pub fn resolve_native_default(
         &self,
-        application: &NativeDefaultApplication<DefinitionId>,
+        application: &NativeDefaultApplication,
         cancel: &CancellationToken,
     ) -> Result<Option<ResolvedNativeDefault>, TypeTransformError> {
         self.resolve_native_default_in(application, &[], &[], cancel)
@@ -133,9 +133,9 @@ impl ProofCatalog<'_> {
 
     pub fn resolve_native_default_in(
         &self,
-        application: &NativeDefaultApplication<DefinitionId>,
-        parameters: &[GenericParam<DefinitionId>],
-        assumptions: &[GenericBound<DefinitionId>],
+        application: &NativeDefaultApplication,
+        parameters: &[GenericParam],
+        assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<Option<ResolvedNativeDefault>, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;

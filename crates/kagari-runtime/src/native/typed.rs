@@ -16,7 +16,7 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::{metadata::DefinitionMetadata, table::DefinitionId};
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_types::declaration::NativeDeclaration;
 
 /// One synchronous native invocation. Arguments are owned Rust data or retained
@@ -87,7 +87,7 @@ impl NativeBinding {
     /// and binding; every invocation checks concrete Rust mappings before effects.
     /// Ordinary authored registrations should use ModuleBuilder::bind_typed.
     pub fn declared<A: FromKagariArguments, R: IntoKagari>(
-        declaration: &DefinitionMetadata<NativeDeclaration<DefinitionId>>,
+        declaration: &DefinitionMetadata<NativeDeclaration>,
         entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
         + Send
         + Sync

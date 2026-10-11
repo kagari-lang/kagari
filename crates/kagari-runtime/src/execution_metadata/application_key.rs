@@ -12,7 +12,6 @@ use crate::{
     },
     module::{LoadedModule, ModuleKey},
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty};
 use std::sync::Arc;
 
@@ -27,9 +26,9 @@ pub(crate) struct InterfaceMethodIdentity {
     pub(crate) owner: ModuleKey,
     pub(crate) table: usize,
     pub(crate) slot: usize,
-    pub(crate) interface: NominalTy<DefinitionId>,
+    pub(crate) interface: NominalTy,
     pub(crate) result_adapter: Option<AdapterIdentity>,
-    pub(crate) arguments: Vec<Ty<DefinitionId>>,
+    pub(crate) arguments: Vec<Ty>,
     pub(crate) environment: Option<EnvironmentId>,
 }
 
@@ -66,7 +65,7 @@ impl ApplicationArguments {
 pub(crate) struct AdapterIdentity {
     pub(crate) owner: ModuleKey,
     pub(crate) table: usize,
-    pub(crate) arguments: Vec<Ty<DefinitionId>>,
+    pub(crate) arguments: Vec<Ty>,
     pub(crate) environment: Option<EnvironmentId>,
 }
 

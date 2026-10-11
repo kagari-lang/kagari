@@ -15,7 +15,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{instruction::Register, module::CallableTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::ids::FunctionRef;
 use kagari_types::ty::Ty;
 use std::slice;
@@ -26,7 +25,7 @@ impl ExecutionStack<'_> {
         runtime: &Runtime,
         function: FunctionRef,
         values: Vec<Value>,
-        future: &Ty<DefinitionId>,
+        future: &Ty,
     ) -> NativeResult<Value> {
         self.validate_runtime(runtime)?;
         if runtime.execution_options().phase != ExecutionPhase::Ordinary {

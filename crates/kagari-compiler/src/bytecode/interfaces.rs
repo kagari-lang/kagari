@@ -84,8 +84,8 @@ pub(super) fn interface_instances(
 pub(super) fn table_arguments(
     ir: &VerifiedMirModule,
     declaration: &DefinitionId,
-    arguments: &[Ty<DefinitionId>],
-) -> Vec<Ty<DefinitionId>> {
+    arguments: &[Ty],
+) -> Vec<Ty> {
     if arguments.iter().all(Ty::is_concrete) {
         return arguments.to_vec();
     }

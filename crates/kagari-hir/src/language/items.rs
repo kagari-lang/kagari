@@ -121,7 +121,7 @@ pub(crate) fn collect(
 pub(crate) fn validate_shapes(
     declarations: &Declarations,
     aggregates: &AggregateCatalog,
-    expected: &BTreeMap<DefinitionId, TraitDef<DefinitionId>>,
+    expected: &BTreeMap<DefinitionId, TraitDef>,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {

@@ -6,39 +6,36 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel},
-        reference::DefinitionReference,
+        DefinitionKind,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel},
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable},
     },
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + Serialize",
-    deserialize = "I: DefinitionReference + Deserialize<'de>"
-))]
-pub enum ConversionAdapter<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConversionAdapter {
     /// A source receiver is adapted through the destination's checked impl.
     Reverse {
-        origin: I,
-        method: I,
-        error: Option<(I, I)>,
-        result: Option<I>,
+        origin: DefinitionId,
+        method: DefinitionId,
+        error: Option<(DefinitionId, DefinitionId)>,
+        result: Option<DefinitionId>,
     },
     /// A checked forward method/result contract; ordinary implementations own
     /// associated error selection and numeric evaluation.
-    Forward { method: I, error: I, result: I },
+    Forward {
+        method: DefinitionId,
+        error: DefinitionId,
+        result: DefinitionId,
+    },
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
-    type Rebind<J: DefinitionReference> = ConversionAdapter<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for ConversionAdapter {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Reverse {
@@ -71,10 +68,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
             },
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for ConversionAdapter {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -109,12 +108,12 @@ impl<I: DefinitionReference> DefinitionRecord<I> for ConversionAdapter<I> {
     }
 }
 
-impl ConversionAdapter<DefinitionId> {
+impl ConversionAdapter {
     /// Validate the adapter's local declaration shape before linked proofs use it.
     pub fn valid_in(
         &self,
         owner: &DefinitionId,
-        contract: &TraitDef<DefinitionId>,
+        contract: &TraitDef,
         definitions: &DefinitionTable,
     ) -> bool {
         if contract.storage_access.is_some()
@@ -226,12 +225,12 @@ impl ConversionAdapter<DefinitionId> {
     }
 }
 
-impl<I: DefinitionReference> ConversionAdapter<I> {
+impl ConversionAdapter {
     pub fn reverse_requirement(
         &self,
-        interface: &NominalTy<I>,
-        receiver: &Ty<I>,
-    ) -> Option<(NominalTy<I>, Ty<I>)> {
+        interface: &NominalTy,
+        receiver: &Ty,
+    ) -> Option<(NominalTy, Ty)> {
         let Self::Reverse { origin, error, .. } = self else {
             return None;
         };
@@ -239,7 +238,7 @@ impl<I: DefinitionReference> ConversionAdapter<I> {
             return None;
         };
         let mut required = NominalTy {
-            declaration: origin.clone(),
+            declaration: *origin,
             arguments: vec![receiver.clone()],
             associated_types: Default::default(),
         };
@@ -248,17 +247,17 @@ impl<I: DefinitionReference> ConversionAdapter<I> {
             if member != source {
                 return None;
             }
-            required.associated_types.insert(target.clone(), ty.clone());
+            required.associated_types.insert(*target, ty.clone());
         }
         Some((required, target.clone()))
     }
 
     pub fn associated_output(
         &self,
-        interface: &NominalTy<I>,
-        receiver: &Ty<I>,
-        member: &I,
-    ) -> Option<Ty<I>> {
+        interface: &NominalTy,
+        receiver: &Ty,
+        member: &DefinitionId,
+    ) -> Option<Ty> {
         let Self::Reverse {
             origin,
             error: Some((source, target)),
@@ -273,11 +272,11 @@ impl<I: DefinitionReference> ConversionAdapter<I> {
         (member == source && !matches!(receiver, Ty::SelfType(_))).then(|| Ty::Projection {
             receiver: Box::new(destination.clone()),
             interface: Box::new(NominalTy {
-                declaration: origin.clone(),
+                declaration: *origin,
                 arguments: vec![receiver.clone()],
                 associated_types: Default::default(),
             }),
-            member: target.clone(),
+            member: *target,
             arguments: vec![],
         })
     }

@@ -7,14 +7,11 @@ use crate::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
-use kagari_common::identity::{
-    DefinitionKind,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 pub fn adapter_contract(
-    required: &NativeCallableRequirement<DefinitionId>,
+    required: &NativeCallableRequirement,
     definitions: &DefinitionTable,
-) -> Option<(Protocol, Signature<DefinitionId>)> {
+) -> Option<(Protocol, Signature)> {
     let member_id = |name| {
         definitions.lookup_child(
             required.interface.declaration,

@@ -1,4 +1,3 @@
-use kagari_common::identity::table::DefinitionId;
 use {
     crate::{
         language::primitive as intrinsic,
@@ -16,8 +15,8 @@ impl ProofCatalog<'_> {
     pub(super) fn structural(
         &self,
         kind: Protocol,
-        receiver: &Ty<DefinitionId>,
-        assumptions: &[GenericBound<DefinitionId>],
+        receiver: &Ty,
+        assumptions: &[GenericBound],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
@@ -57,7 +56,7 @@ impl ProofCatalog<'_> {
             // Hash defaults cannot silently disagree with that implementation.
             return Ok(false);
         }
-        let members: Vec<&Ty<DefinitionId>> = match receiver {
+        let members: Vec<&Ty> = match receiver {
             Ty::Builtin(ty) => {
                 return Ok(!matches!(kind, Protocol::Eq | Protocol::Hash)
                     || !matches!(ty, BuiltinType::F32 | BuiltinType::F64));
@@ -102,9 +101,9 @@ impl ProofCatalog<'_> {
 
     pub(super) fn standard_constraint(
         &self,
-        actual: &Ty<DefinitionId>,
+        actual: &Ty,
         required: StandardTypeConstraint,
-        assumptions: &[GenericBound<DefinitionId>],
+        assumptions: &[GenericBound],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,

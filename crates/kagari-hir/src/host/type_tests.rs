@@ -22,7 +22,7 @@ use kagari_types::host_interface::{
     },
 };
 
-fn interface(context: &DefinitionContext) -> HostInterface<DefinitionId> {
+fn interface(context: &DefinitionContext) -> HostInterface {
     let left = HostTypeDeclaration::new(context, "left.Item").unwrap();
     let right = HostTypeDeclaration::new(context, "right.Item").unwrap();
     let make =
@@ -770,7 +770,7 @@ fn imported_field_at(
     file: &FileAnalysis,
     offset: usize,
     context: &DefinitionContext,
-) -> Option<HostFieldDeclaration<DefinitionId>> {
+) -> Option<HostFieldDeclaration> {
     file.host_field_at(offset)
         .map(|field| import_facts(field, file.definitions(), context).into_records())
 }

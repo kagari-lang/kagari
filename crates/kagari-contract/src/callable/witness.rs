@@ -31,21 +31,21 @@ use kagari_common::{
 pub enum OperationWitness {
     Selected(Box<NativeCallableApplication>),
     SharedMethod(Box<SharedMethodWitness>),
-    Forward(Box<NativeCallableRequirement<DefinitionId>>),
+    Forward(Box<NativeCallableRequirement>),
 }
 
 /// Select the implementation table once; method-local arguments are supplied by
 /// each checked call into that table's shared entry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedMethodWitness {
-    pub requirement: NativeCallableRequirement<DefinitionId>,
+    pub requirement: NativeCallableRequirement,
     pub implementation: ConcreteFunctionIdentity,
 }
 
 impl OperationWitness {
     pub fn structurally_valid(
         &self,
-        parameters: &[GenericParam<DefinitionId>],
+        parameters: &[GenericParam],
         definitions: &DefinitionTable,
     ) -> bool {
         match self {
@@ -81,7 +81,7 @@ impl OperationWitness {
                     )
             }
             Self::Selected(call) => {
-                let valid = |ty: &Ty<DefinitionId>| {
+                let valid = |ty: &Ty| {
                     ty.within_wire_limits()
                         && types_in_scope([ty], &[], &CancellationToken::default(), definitions)
                 };
@@ -114,8 +114,8 @@ impl OperationWitness {
     pub fn valid(
         &self,
         catalog: &ProofCatalog<'_>,
-        parameters: &[GenericParam<DefinitionId>],
-        assumptions: &[GenericBound<DefinitionId>],
+        parameters: &[GenericParam],
+        assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let definitions = catalog.definitions();
@@ -154,7 +154,7 @@ impl OperationWitness {
 }
 
 impl OperationWitness {
-    pub fn requirement(&self) -> &NativeCallableRequirement<DefinitionId> {
+    pub fn requirement(&self) -> &NativeCallableRequirement {
         match self {
             Self::Selected(selected) => &selected.requirement,
             Self::SharedMethod(selected) => &selected.requirement,
@@ -166,11 +166,11 @@ impl OperationWitness {
 /// Enumerate the member operations guaranteed by these bounds, including
 /// inherited traits. This is declaration work, never executable-body inspection.
 pub fn required_operations<'a>(
-    bounds: &[GenericBound<DefinitionId>],
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
+    bounds: &[GenericBound],
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-) -> Result<Vec<NativeCallableRequirement<DefinitionId>>, TypeTransformError> {
+) -> Result<Vec<NativeCallableRequirement>, TypeTransformError> {
     // A bound also promises its immediate associated-type contracts. In
     // particular Iterable supplies the selected next for its Iter projection.
     let mut expanded = bounds.to_vec();
@@ -193,7 +193,7 @@ pub fn required_operations<'a>(
                     if !member.generic_params.is_empty() || member.bounds.is_empty() {
                         continue;
                     }
-                    let apply = |ty: &Ty<DefinitionId>| {
+                    let apply = |ty: &Ty| {
                         resolve_associated_outputs(
                             &substitution.apply(ty, cancel)?,
                             &interface,
@@ -272,7 +272,7 @@ pub fn required_operations<'a>(
 }
 
 pub fn is_generic_member(
-    requirement: &NativeCallableRequirement<DefinitionId>,
+    requirement: &NativeCallableRequirement,
     catalog: &ProofCatalog<'_>,
 ) -> bool {
     requirement.arguments.is_empty()
@@ -295,11 +295,11 @@ pub fn is_generic_member(
 /// Instantiate a member declaration with a raw constrained receiver, rather
 /// than the boxed interface receiver used by ordinary interface dispatch.
 pub fn requirement_signature(
-    requirement: &NativeCallableRequirement<DefinitionId>,
-    contract: &TraitDef<DefinitionId>,
+    requirement: &NativeCallableRequirement,
+    contract: &TraitDef,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-) -> Result<Signature<DefinitionId>, TypeTransformError> {
+) -> Result<Signature, TypeTransformError> {
     let slot = contract
         .methods
         .iter()
@@ -332,12 +332,12 @@ pub fn requirement_signature(
 }
 
 pub fn requirement_signature_in_scope(
-    requirement: &NativeCallableRequirement<DefinitionId>,
+    requirement: &NativeCallableRequirement,
     catalog: &ProofCatalog<'_>,
-    parameters: &[GenericParam<DefinitionId>],
-    assumptions: &[GenericBound<DefinitionId>],
+    parameters: &[GenericParam],
+    assumptions: &[GenericBound],
     cancel: &CancellationToken,
-) -> Result<Option<Signature<DefinitionId>>, TypeTransformError> {
+) -> Result<Option<Signature>, TypeTransformError> {
     let definitions = catalog.definitions();
     let Some(contract) = catalog.trait_contract(&requirement.interface.declaration) else {
         return Ok(None);

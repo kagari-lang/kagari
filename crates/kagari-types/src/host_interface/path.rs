@@ -1,66 +1,50 @@
 //! Portable resolved path contracts shared by offline tools and runtime registration.
 use crate::collection::CollectionAccess;
 use crate::host_interface::{
-    DefinitionPath, HostInterface, HostInterfaceError,
+    HostInterface, HostInterfaceError,
     type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     value_type::HostValueType,
 };
-use kagari_common::identity::{
-    reference::DefinitionReference,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostPathDeclaration<I = DefinitionPath> {
-    pub root: I,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub segments: Vec<HostPathSegmentDeclaration<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HostPathDeclaration {
+    pub root: DefinitionId,
+    pub segments: Vec<HostPathSegmentDeclaration>,
     pub access: PathAccess,
     pub schema_epoch: u64,
 }
 
-impl HostPathDeclaration<DefinitionId> {
+impl HostPathDeclaration {
     pub fn contract(
         &self,
-        interface: &HostInterface<DefinitionId>,
+        interface: &HostInterface,
         definitions: &DefinitionTable,
-    ) -> Result<HostPathContract<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostPathContract, HostInterfaceError> {
         interface.path_contract(self, definitions)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub enum HostPathSegmentDeclaration<I = DefinitionPath> {
-    Field(I),
-    Index(HostIndexSegmentDeclaration<I>),
-    Virtual(HostVirtualSegmentDeclaration<I>),
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum HostPathSegmentDeclaration {
+    Field(DefinitionId),
+    Index(HostIndexSegmentDeclaration),
+    Virtual(HostVirtualSegmentDeclaration),
 }
 
 /// Portable contract for one dynamic index step; runtime type slots are resolved
 /// only when a host binds the declaration.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostIndexSegmentDeclaration<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HostIndexSegmentDeclaration {
     pub slot: u32,
-    pub collection: HostValueType<I>,
-    pub index: HostValueType<I>,
-    pub result: HostValueType<I>,
+    pub collection: HostValueType,
+    pub index: HostValueType,
+    pub result: HostValueType,
     pub access: PathAccess,
 }
 
-impl HostIndexSegmentDeclaration<DefinitionId> {
+impl HostIndexSegmentDeclaration {
     pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
         if self.slot >= 4096
             || self.access == PathAccess::None
@@ -76,18 +60,14 @@ impl HostIndexSegmentDeclaration<DefinitionId> {
 }
 
 /// Portable contract for a host-defined virtual step.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostVirtualSegmentDeclaration<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HostVirtualSegmentDeclaration {
     pub name: String,
-    pub result: HostValueType<I>,
+    pub result: HostValueType,
     pub access: PathAccess,
 }
 
-impl HostVirtualSegmentDeclaration<DefinitionId> {
+impl HostVirtualSegmentDeclaration {
     pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
         if self.name.is_empty() || self.name.len() > 4096 || self.access == PathAccess::None {
             return Err(HostInterfaceError::InvalidDeclaration);
@@ -97,14 +77,14 @@ impl HostVirtualSegmentDeclaration<DefinitionId> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostPathInput<I = DefinitionPath> {
+pub enum HostPathInput {
     Field {
-        owner: HostValueType<I>,
+        owner: HostValueType,
     },
     Index {
         slot: u64,
-        collection: HostValueType<I>,
-        index: HostValueType<I>,
+        collection: HostValueType,
+        index: HostValueType,
     },
     Virtual {
         name: String,
@@ -112,24 +92,24 @@ pub enum HostPathInput<I = DefinitionPath> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostPathSegmentContract<I = DefinitionPath> {
-    pub input: HostPathInput<I>,
-    pub result: HostValueType<I>,
+pub struct HostPathSegmentContract {
+    pub input: HostPathInput,
+    pub result: HostValueType,
     pub access: PathAccess,
     pub member_fingerprint: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostPathContract<I = DefinitionPath> {
+pub struct HostPathContract {
     pub root_fingerprint: u64,
-    pub result: HostValueType<I>,
+    pub result: HostValueType,
     pub schema_epoch: u64,
     pub access: PathAccess,
 
-    pub segments: Vec<HostPathSegmentContract<I>>,
+    pub segments: Vec<HostPathSegmentContract>,
 }
 
-impl HostPathContract<DefinitionId> {
+impl HostPathContract {
     pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
         if self.segments.is_empty()
             || self.access == PathAccess::None
@@ -185,22 +165,22 @@ impl HostPathContract<DefinitionId> {
     }
 }
 
-impl HostInterface<DefinitionId> {
+impl HostInterface {
     /// Resolve the complete path without invoking runtime bindings.
     pub fn path_contract(
         &self,
-        declaration: &HostPathDeclaration<DefinitionId>,
+        declaration: &HostPathDeclaration,
         definitions: &DefinitionTable,
-    ) -> Result<HostPathContract<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostPathContract, HostInterfaceError> {
         self.validate(definitions)?;
         self.resolve_path(declaration, definitions)
     }
 
     pub(super) fn resolve_path(
         &self,
-        declaration: &HostPathDeclaration<DefinitionId>,
+        declaration: &HostPathDeclaration,
         definitions: &DefinitionTable,
-    ) -> Result<HostPathContract<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostPathContract, HostInterfaceError> {
         if declaration.segments.len() > 256 {
             return Err(HostInterfaceError::TooLarge);
         }
@@ -218,7 +198,7 @@ impl HostInterface<DefinitionId> {
         }
         let mut current = HostValueType::Opaque(root.id);
         let mut segments = Vec::with_capacity(declaration.segments.len());
-        let mut dynamic_parameters = BTreeMap::<u32, HostValueType<DefinitionId>>::new();
+        let mut dynamic_parameters = BTreeMap::<u32, HostValueType>::new();
         for step in &declaration.segments {
             let resolved = match step {
                 HostPathSegmentDeclaration::Field(field_id) => {
@@ -359,7 +339,7 @@ impl Fingerprint {
     }
 }
 
-fn read_only_collection(ty: &HostValueType<DefinitionId>) -> bool {
+fn read_only_collection(ty: &HostValueType) -> bool {
     matches!(
         ty,
         HostValueType::List(..)

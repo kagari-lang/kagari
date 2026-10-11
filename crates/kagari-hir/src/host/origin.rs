@@ -80,13 +80,13 @@ impl HostDeclarationOrigin {
 #[derive(Debug, Clone)]
 pub struct HostInput {
     /// Scoped host callable/type/access declarations; installation validates their contracts.
-    pub interface: DefinitionMetadata<HostInterface<DefinitionId>>,
+    pub interface: DefinitionMetadata<HostInterface>,
     /// Optional navigation sites keyed by IDs present in the retained interface.
     pub origins: HashMap<DefinitionId, HostDeclarationOrigin>,
 }
 
-impl From<DefinitionMetadata<HostInterface<DefinitionId>>> for HostInput {
-    fn from(interface: DefinitionMetadata<HostInterface<DefinitionId>>) -> Self {
+impl From<DefinitionMetadata<HostInterface>> for HostInput {
+    fn from(interface: DefinitionMetadata<HostInterface>) -> Self {
         Self {
             interface,
             origins: HashMap::new(),

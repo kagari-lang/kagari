@@ -11,10 +11,7 @@ use kagari_types::{
 };
 use std::borrow::Cow;
 
-fn parameters(
-    owner: &DefinitionId,
-    arguments: &[Ty<DefinitionId>],
-) -> Option<Vec<GenericParam<DefinitionId>>> {
+fn parameters(owner: &DefinitionId, arguments: &[Ty]) -> Option<Vec<GenericParam>> {
     if arguments.iter().all(Ty::is_concrete) {
         return Some(vec![]);
     }
@@ -31,24 +28,20 @@ fn parameters(
         .collect()
 }
 
-fn accepts(
-    owner: &DefinitionId,
-    template: &[Ty<DefinitionId>],
-    arguments: &[Ty<DefinitionId>],
-) -> bool {
+fn accepts(owner: &DefinitionId, template: &[Ty], arguments: &[Ty]) -> bool {
     template == arguments
         || (template.len() == arguments.len()
             && parameters(owner, template).is_some_and(|parameters| !parameters.is_empty()))
 }
 
 impl StructLayout {
-    pub fn accepts(&self, arguments: &[Ty<DefinitionId>]) -> bool {
+    pub fn accepts(&self, arguments: &[Ty]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
     }
 
     pub fn apply<'a>(
         &'a self,
-        arguments: &[Ty<DefinitionId>],
+        arguments: &[Ty],
         cancel: &CancellationToken,
     ) -> Option<Cow<'a, Self>> {
         if self.arguments == arguments {
@@ -68,13 +61,13 @@ impl StructLayout {
 }
 
 impl EnumLayout {
-    pub fn accepts(&self, arguments: &[Ty<DefinitionId>]) -> bool {
+    pub fn accepts(&self, arguments: &[Ty]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
     }
 
     pub fn apply<'a>(
         &'a self,
-        arguments: &[Ty<DefinitionId>],
+        arguments: &[Ty],
         cancel: &CancellationToken,
     ) -> Option<Cow<'a, Self>> {
         if self.arguments == arguments {

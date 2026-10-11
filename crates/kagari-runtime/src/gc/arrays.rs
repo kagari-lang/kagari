@@ -8,7 +8,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 use std::sync::Arc;
 
@@ -23,7 +22,7 @@ impl GcHeap {
     pub(crate) fn alloc_array(
         &self,
         owner: &LoadedModule,
-        element: Ty<DefinitionId>,
+        element: Ty,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.alloc_array_with_contract(Arc::new(StorageType::prepare(element, owner)?), elements)
@@ -56,7 +55,7 @@ impl GcHeap {
     pub(crate) fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,
-        element: Ty<DefinitionId>,
+        element: Ty,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {

@@ -152,8 +152,7 @@ fn native_lifecycle(
             .unwrap();
         let environments = (0..applications)
             .map(|index| {
-                let ty: Ty<DefinitionId> =
-                    Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); index + 1]);
+                let ty: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); index + 1]);
                 let arguments = runtime.resolve_type_arguments(&owner, &[ty]).unwrap();
                 runtime
                     .alloc_environment(

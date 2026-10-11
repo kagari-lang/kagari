@@ -10,11 +10,11 @@ use std::{borrow::Cow, collections::HashSet, ptr};
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeView<'a> {
-    pub(crate) ty: &'a Ty<DefinitionId>,
+    pub(crate) ty: &'a Ty,
     pub(crate) owner: &'a LoadedModule,
     pub(crate) environment: Option<&'a TypeBindings>,
     application: Option<&'a Application<'a>>,
-    prepared: Option<&'a Ty<DefinitionId>>,
+    prepared: Option<&'a Ty>,
 }
 
 struct Application<'a> {
@@ -24,13 +24,13 @@ struct Application<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TypeIdentity {
-    ty: Ty<DefinitionId>,
+    ty: Ty,
     owners: Vec<(HostRegistryId, ModuleKey)>,
 }
 
 impl<'a> TypeView<'a> {
     pub(crate) fn new(
-        ty: &'a Ty<DefinitionId>,
+        ty: &'a Ty,
         owner: &'a LoadedModule,
         environment: Option<&'a TypeBindings>,
     ) -> Self {
@@ -47,8 +47,8 @@ impl<'a> TypeView<'a> {
     /// contract. Keep the source expression and its lexical provenance for layout
     /// comparison; a closed spelling alone does not identify a nominal generation.
     pub(crate) fn prepared(
-        expression: &'a Ty<DefinitionId>,
-        closed: &'a Ty<DefinitionId>,
+        expression: &'a Ty,
+        closed: &'a Ty,
         owner: &'a LoadedModule,
         environment: Option<&'a TypeBindings>,
     ) -> Self {
@@ -67,7 +67,7 @@ impl<'a> TypeView<'a> {
         })
     }
 
-    fn child(self, ty: &'a Ty<DefinitionId>) -> Self {
+    fn child(self, ty: &'a Ty) -> Self {
         // An arbitrary lexical child has no parallel closed operand. Inherit
         // evidence only when the source itself is the checked closed tree.
         let prepared = self
@@ -119,7 +119,7 @@ impl<'a> TypeView<'a> {
         Some(self)
     }
 
-    pub(crate) fn closed(self) -> Option<Cow<'a, Ty<DefinitionId>>> {
+    pub(crate) fn closed(self) -> Option<Cow<'a, Ty>> {
         if let Some(ty) = self.prepared {
             return Some(Cow::Borrowed(ty));
         }
@@ -221,16 +221,13 @@ impl<'a> TypeView<'a> {
     fn compare_fields(
         self,
         other: Self,
-        closed: &Ty<DefinitionId>,
+        closed: &Ty,
         visited: &mut HashSet<(TypeIdentity, TypeIdentity)>,
     ) -> bool {
         let (Some(left), Some(right)) = (self.application(), other.application()) else {
             return false;
         };
-        let mut compare = |a: &Ty<DefinitionId>,
-                           a_owner: &LoadedModule,
-                           b: &Ty<DefinitionId>,
-                           b_owner: &LoadedModule| {
+        let mut compare = |a: &Ty, a_owner: &LoadedModule, b: &Ty, b_owner: &LoadedModule| {
             TypeView {
                 ty: a,
                 owner: a_owner,
@@ -315,7 +312,7 @@ impl<'a> TypeView<'a> {
             let Some(application) = view.application() else {
                 return false;
             };
-            let mut check = |ty: &Ty<DefinitionId>, owner: &LoadedModule| {
+            let mut check = |ty: &Ty, owner: &LoadedModule| {
                 TypeView {
                     ty,
                     owner,
@@ -361,7 +358,7 @@ impl<'a> TypeView<'a> {
     }
 }
 
-fn nominal(ty: &Ty<DefinitionId>) -> Option<&NominalTy<DefinitionId>> {
+fn nominal(ty: &Ty) -> Option<&NominalTy> {
     match ty {
         Ty::Struct(ty) | Ty::Enum(ty) => Some(ty),
         _ => None,
@@ -369,9 +366,9 @@ fn nominal(ty: &Ty<DefinitionId>) -> Option<&NominalTy<DefinitionId>> {
 }
 
 fn children_match<'a>(
-    left: &'a Ty<DefinitionId>,
-    right: &'a Ty<DefinitionId>,
-    mut test: impl FnMut(&'a Ty<DefinitionId>, &'a Ty<DefinitionId>) -> bool,
+    left: &'a Ty,
+    right: &'a Ty,
+    mut test: impl FnMut(&'a Ty, &'a Ty) -> bool,
 ) -> bool {
     match (left, right) {
         (Ty::Struct(a), Ty::Struct(b))

@@ -67,7 +67,7 @@ impl FileSignatures {
     }
 
     /// Read an offline host type declaration from a checked signature name.
-    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration<DefinitionId>> {
+    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
         match type_reference_target_at(
             &self.prepared.lowered,
             self.prepared.signatures.facts().type_table(),

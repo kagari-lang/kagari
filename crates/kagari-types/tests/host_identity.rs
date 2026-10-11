@@ -6,7 +6,7 @@ use kagari_common::{
         map::{DefinitionContext, DefinitionMap},
         mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTableError},
+        table::DefinitionTableError,
     },
 };
 use kagari_types::host_interface::{
@@ -199,7 +199,7 @@ fn record_import_remaps_values_and_rejects_foreign_references_and_cancellation()
         ))
     ));
     cancel.cancel();
-    let empty: DefinitionMap<HostValueType<DefinitionId>> = DefinitionMap::default();
+    let empty: DefinitionMap<HostValueType> = DefinitionMap::default();
     assert!(matches!(
         empty.import_records(&target, &cancel),
         Err(DefinitionMappingError::Cancelled)

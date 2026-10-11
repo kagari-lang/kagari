@@ -14,7 +14,7 @@ use kagari_common::{
         metadata::DefinitionMetadata,
         scoped::DefinitionReferences,
         table::{
-            DefinitionId, DefinitionTable, DefinitionTableError,
+            DefinitionTable, DefinitionTableError,
             wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionTable},
         },
     },
@@ -96,7 +96,7 @@ where
 }
 
 pub(super) fn encode(
-    interface: &HostInterface<DefinitionId>,
+    interface: &HostInterface,
     definitions: &DefinitionTable,
 ) -> Result<Vec<u8>, HostInterfaceError> {
     let mut canonical = interface.clone();
@@ -136,7 +136,7 @@ pub(super) fn encode(
 
 pub(super) fn decode(
     bytes: &[u8],
-) -> Result<DefinitionMetadata<HostInterface<DefinitionId>>, HostInterfaceError> {
+) -> Result<DefinitionMetadata<HostInterface>, HostInterfaceError> {
     if bytes.len() as u64 > MAX_BYTES {
         return Err(HostInterfaceError::TooLarge);
     }
@@ -173,7 +173,7 @@ pub struct HostInterfaceRecord {
     functions: Vec<WireHostFunctionDeclaration>,
 }
 
-impl Encode for HostInterface<DefinitionId> {
+impl Encode for HostInterface {
     type Wire = HostInterfaceRecord;
 
     fn encode(
@@ -212,7 +212,7 @@ impl HostInterfaceRecord {
     /// # Errors
     /// Returns cancellation, invalid-reference or bounded value-shape errors.
     pub fn encode(
-        interface: &HostInterface<DefinitionId>,
+        interface: &HostInterface,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, HostInterfaceError> {
@@ -235,7 +235,7 @@ impl HostInterfaceRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostInterface<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostInterface, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostInterface {
             paths: self

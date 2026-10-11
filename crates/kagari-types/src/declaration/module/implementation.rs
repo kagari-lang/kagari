@@ -27,8 +27,8 @@ impl ModuleDecl {
     /// does not validate or publish the containing module.
     pub fn implement_trait(
         &mut self,
-        contract: &TraitDef<DefinitionId>,
-        mut implementation: ImplDecl<DefinitionId>,
+        contract: &TraitDef,
+        mut implementation: ImplDecl,
         bindings: &[(&str, DefinitionId)],
         context: &DefinitionContext,
     ) -> Result<(), DeclarationError> {
@@ -92,7 +92,7 @@ impl ModuleDecl {
     /// HIR/portable proofs; this check does not infer an implementation body.
     pub fn validate_trait_implementations(
         &self,
-        contracts: &BTreeMap<DefinitionId, &TraitDef<DefinitionId>>,
+        contracts: &BTreeMap<DefinitionId, &TraitDef>,
         definitions: &DefinitionTable,
     ) -> Result<(), DeclarationError> {
         self.check_implementations(contracts, true, definitions)
@@ -100,7 +100,7 @@ impl ModuleDecl {
 
     fn check_implementations(
         &self,
-        contracts: &BTreeMap<DefinitionId, &TraitDef<DefinitionId>>,
+        contracts: &BTreeMap<DefinitionId, &TraitDef>,
         require_external: bool,
         definitions: &DefinitionTable,
     ) -> Result<(), DeclarationError> {
@@ -211,10 +211,10 @@ impl ModuleDecl {
 
     fn normalized(
         &self,
-        ty: &Ty<DefinitionId>,
-        parameters: &[GenericParam<DefinitionId>],
+        ty: &Ty,
+        parameters: &[GenericParam],
         definitions: &DefinitionTable,
-    ) -> Result<Ty<DefinitionId>, DeclarationError> {
+    ) -> Result<Ty, DeclarationError> {
         let owner = self.implementation_id(0, definitions)?;
         let arguments = parameters
             .iter()
@@ -232,12 +232,12 @@ impl ModuleDecl {
 }
 
 fn implementation_methods(
-    contract: &TraitDef<DefinitionId>,
-    implementation: &ImplDecl<DefinitionId>,
+    contract: &TraitDef,
+    implementation: &ImplDecl,
     owner: DefinitionId,
     bindings: &[(&str, DefinitionId)],
     definitions: &DefinitionTable,
-) -> Result<Vec<FnDecl<DefinitionId>>, DeclarationError> {
+) -> Result<Vec<FnDecl>, DeclarationError> {
     let trait_type = implementation
         .trait_type
         .as_ref()
@@ -311,7 +311,7 @@ fn implementation_methods(
         for (declared, implemented) in method.generic_params.iter().zip(&own_types) {
             substitution.bind(&declared.owner, declared.position, implemented);
         }
-        let resolve = |ty: &Ty<DefinitionId>| {
+        let resolve = |ty: &Ty| {
             let ty = substitution
                 .apply(ty, &cancel)
                 .map_err(|error| DeclarationError(format!("invalid substitution: {error:?}")))?;

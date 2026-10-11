@@ -5,10 +5,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionKind, ModuleIdentity,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::{DefinitionKind, ModuleIdentity, table::DefinitionTable},
 };
 use kagari_types::declaration::verify::{
     Parameters, aggregate_shape_valid, bounds_valid, function_valid, parameters,
@@ -302,7 +299,7 @@ pub fn validate_trait_contracts(
 
 /// Engine defaults are declared once on their canonical protocol. They need no
 /// per-implementation ABI entry, especially when their bounds do not hold here.
-fn required_methods_present(table: &InterfaceTable, interface: &TraitDef<DefinitionId>) -> bool {
+fn required_methods_present(table: &InterfaceTable, interface: &TraitDef) -> bool {
     interface.methods.iter().all(|method| {
         table
             .methods
@@ -313,7 +310,7 @@ fn required_methods_present(table: &InterfaceTable, interface: &TraitDef<Definit
 
 pub fn interface_contract_matches(
     table: &InterfaceTable,
-    interface: &TraitDef<DefinitionId>,
+    interface: &TraitDef,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> bool {
@@ -355,7 +352,7 @@ pub fn interface_contract_matches(
 
 pub fn interface_constants_match(
     table: &InterfaceTable,
-    interface: &TraitDef<DefinitionId>,
+    interface: &TraitDef,
     definitions: &DefinitionTable,
 ) -> bool {
     {
@@ -424,7 +421,7 @@ fn families_valid(
 
 pub fn interface_families_match(
     table: &InterfaceTable,
-    interface: &TraitDef<DefinitionId>,
+    interface: &TraitDef,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> bool {
@@ -479,9 +476,9 @@ pub fn interface_families_match(
 }
 
 fn same_method_contract(
-    declared: &FnDecl<DefinitionId>,
-    implemented: &FnDecl<DefinitionId>,
-    instance: &NominalTy<DefinitionId>,
+    declared: &FnDecl,
+    implemented: &FnDecl,
+    instance: &NominalTy,
     table: &InterfaceTable,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
@@ -491,7 +488,7 @@ fn same_method_contract(
     {
         return false;
     }
-    let normalize = |ty: &Ty<DefinitionId>| {
+    let normalize = |ty: &Ty| {
         normalize_projections(
             ty,
             &|interface, receiver, member, arguments| {
@@ -533,8 +530,8 @@ fn same_method_contract(
 
 pub fn interface_methods_match(
     table: &InterfaceTable,
-    interface: &TraitDef<DefinitionId>,
-    normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
+    interface: &TraitDef,
+    normalize: &impl Fn(&Ty) -> Result<Ty, TypeTransformError>,
     cancel: &CancellationToken,
 ) -> bool {
     let Ty::Trait(instance) = &table.trait_type else {
@@ -561,11 +558,11 @@ pub fn interface_methods_match(
 }
 
 fn method_contract_matches(
-    declared: &FnDecl<DefinitionId>,
-    implemented: &FnDecl<DefinitionId>,
-    instance: &NominalTy<DefinitionId>,
+    declared: &FnDecl,
+    implemented: &FnDecl,
+    instance: &NominalTy,
     table: &InterfaceTable,
-    normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
+    normalize: &impl Fn(&Ty) -> Result<Ty, TypeTransformError>,
     defer_projection: bool,
     cancel: &CancellationToken,
 ) -> bool {
@@ -586,12 +583,12 @@ fn method_contract_matches(
     }
     let mut receiver = TypeSubstitution::default();
     receiver.bind_receiver(&instance.declaration, &table.for_type);
-    let expected = |ty: &Ty<DefinitionId>| {
+    let expected = |ty: &Ty| {
         let ty = receiver.apply(ty, cancel)?;
         let ty = parameters.apply(&ty, cancel)?;
         normalize(&ty)
     };
-    let actual = |ty: &Ty<DefinitionId>| normalize(ty);
+    let actual = |ty: &Ty| normalize(ty);
     let inherited_default = match (&declared.implementation, &implemented.implementation) {
         (
             CallableImplementation::NativeDefault(declared),
@@ -646,11 +643,11 @@ fn method_contract_matches(
             })
 }
 
-type NormalizedBounds = BTreeMap<Ty<DefinitionId>, Vec<Constraint<DefinitionId>>>;
+type NormalizedBounds = BTreeMap<Ty, Vec<Constraint>>;
 
 fn normalized_bounds(
-    function: &FnDecl<DefinitionId>,
-    normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
+    function: &FnDecl,
+    normalize: &impl Fn(&Ty) -> Result<Ty, TypeTransformError>,
 ) -> Option<NormalizedBounds> {
     function
         .bounds

@@ -21,10 +21,7 @@ use kagari_bytecode::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind,
-        map::DefinitionMap,
-        metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTable},
+        DefinitionKind, map::DefinitionMap, metadata::DefinitionMetadata, table::DefinitionTable,
     },
 };
 use kagari_contract::{
@@ -46,14 +43,14 @@ use std::{collections::HashSet, slice, sync::Arc};
 #[derive(Debug, Clone)]
 pub(crate) struct BindingRegistration {
     // The catalog retains the shared append-only scope; each binding does not freeze a prefix.
-    pub(crate) declarations: Vec<NativeDeclaration<DefinitionId>>,
+    pub(crate) declarations: Vec<NativeDeclaration>,
     pub(crate) binding: NativeBinding,
     pub(crate) required_catalog: DeclarationCatalog,
 }
 
 impl BindingRegistration {
     pub(crate) fn checked(
-        declarations: Vec<NativeDeclaration<DefinitionId>>,
+        declarations: Vec<NativeDeclaration>,
         binding: NativeBinding,
         required_catalog: DeclarationCatalog,
     ) -> NativeResult<Self> {

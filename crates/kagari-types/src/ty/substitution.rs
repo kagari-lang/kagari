@@ -20,23 +20,23 @@ pub enum TypeTransformError {
 /// binder layer: a replacement may itself refer to parameters in the caller.
 #[derive(Default)]
 pub struct TypeSubstitution<'a> {
-    parameters: BTreeMap<&'a DefinitionId, BTreeMap<usize, &'a Ty<DefinitionId>>>,
-    receivers: BTreeMap<&'a DefinitionId, &'a Ty<DefinitionId>>,
+    parameters: BTreeMap<&'a DefinitionId, BTreeMap<usize, &'a Ty>>,
+    receivers: BTreeMap<&'a DefinitionId, &'a Ty>,
 }
 
 impl<'a> TypeSubstitution<'a> {
-    pub fn bind(&mut self, owner: &'a DefinitionId, position: usize, value: &'a Ty<DefinitionId>) {
+    pub fn bind(&mut self, owner: &'a DefinitionId, position: usize, value: &'a Ty) {
         self.parameters
             .entry(owner)
             .or_default()
             .insert(position, value);
     }
 
-    pub fn bind_receiver(&mut self, owner: &'a DefinitionId, value: &'a Ty<DefinitionId>) {
+    pub fn bind_receiver(&mut self, owner: &'a DefinitionId, value: &'a Ty) {
         self.receivers.insert(owner, value);
     }
 
-    pub fn for_owner(owner: &'a DefinitionId, arguments: &'a [Ty<DefinitionId>]) -> Self {
+    pub fn for_owner(owner: &'a DefinitionId, arguments: &'a [Ty]) -> Self {
         let mut substitution = Self::default();
         for (position, argument) in arguments.iter().enumerate() {
             substitution.bind(owner, position, argument);
@@ -44,11 +44,7 @@ impl<'a> TypeSubstitution<'a> {
         substitution
     }
 
-    pub fn apply(
-        &self,
-        ty: &Ty<DefinitionId>,
-        cancel: &CancellationToken,
-    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
+    pub fn apply(&self, ty: &Ty, cancel: &CancellationToken) -> Result<Ty, TypeTransformError> {
         Transform::new(self, None, cancel).run(ty)
     }
 
@@ -57,10 +53,10 @@ impl<'a> TypeSubstitution<'a> {
     /// excessive type depth/node counts and cancellation return an error.
     pub fn apply_bounds(
         &self,
-        bounds: &[GenericBound<DefinitionId>],
+        bounds: &[GenericBound],
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
-    ) -> Result<Vec<GenericBound<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Vec<GenericBound>, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         if bounds.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
@@ -94,15 +90,15 @@ impl<'a> TypeSubstitution<'a> {
         GenericBound::normalize(applied, definitions, cancel)
     }
 
-    pub fn parameter(&self, owner: &DefinitionId, position: usize) -> Option<&'a Ty<DefinitionId>> {
+    pub fn parameter(&self, owner: &DefinitionId, position: usize) -> Option<&'a Ty> {
         self.parameters.get(owner)?.get(&position).copied()
     }
 
     pub fn apply_nominal(
         &self,
-        ty: &NominalTy<DefinitionId>,
+        ty: &NominalTy,
         cancel: &CancellationToken,
-    ) -> Result<NominalTy<DefinitionId>, TypeTransformError> {
+    ) -> Result<NominalTy, TypeTransformError> {
         let value = Ty::Trait(Transform::new(self, None, cancel).nominal(ty, 1, true)?);
         if !value.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded);
@@ -113,7 +109,7 @@ impl<'a> TypeSubstitution<'a> {
         Ok(value)
     }
 
-    fn replacement(&self, ty: &Ty<DefinitionId>) -> Option<&'a Ty<DefinitionId>> {
+    fn replacement(&self, ty: &Ty) -> Option<&'a Ty> {
         match ty {
             Ty::Parameter { owner, position } => self.parameters.get(owner)?.get(position).copied(),
             Ty::SelfType(owner) => self.receivers.get(owner).copied(),
@@ -122,8 +118,8 @@ impl<'a> TypeSubstitution<'a> {
     }
 }
 
-impl GenericParam<DefinitionId> {
-    pub fn as_type(&self) -> Ty<DefinitionId> {
+impl GenericParam {
+    pub fn as_type(&self) -> Ty {
         Ty::Parameter {
             owner: self.owner,
             position: self.position,
@@ -134,11 +130,11 @@ impl GenericParam<DefinitionId> {
 /// Resolve associated outputs on an applied interface after parameter substitution.
 /// Unrelated projections remain symbolic; cyclic or oversized expansions fail.
 pub fn resolve_associated_outputs(
-    ty: &Ty<DefinitionId>,
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    ty: &Ty,
+    interface: &NominalTy,
+    receiver: &Ty,
     cancel: &CancellationToken,
-) -> Result<Ty<DefinitionId>, TypeTransformError> {
+) -> Result<Ty, TypeTransformError> {
     Transform::new(
         &TypeSubstitution::default(),
         Some((interface, receiver)),
@@ -149,35 +145,30 @@ pub fn resolve_associated_outputs(
 
 /// Resolve projections using a caller's already validated dependency contracts.
 /// A missing binding stays symbolic; malformed, ambiguous or unbounded proofs fail.
-pub type ProjectionLookup<'a> = dyn Fn(
-        &NominalTy<DefinitionId>,
-        &Ty<DefinitionId>,
-        &DefinitionId,
-        &[Ty<DefinitionId>],
-    ) -> Result<Option<Ty<DefinitionId>>, TypeTransformError>
-    + 'a;
+pub type ProjectionLookup<'a> =
+    dyn Fn(&NominalTy, &Ty, &DefinitionId, &[Ty]) -> Result<Option<Ty>, TypeTransformError> + 'a;
 
 pub fn normalize_projections(
-    ty: &Ty<DefinitionId>,
+    ty: &Ty,
     lookup: &ProjectionLookup<'_>,
     cancel: &CancellationToken,
-) -> Result<Ty<DefinitionId>, TypeTransformError> {
+) -> Result<Ty, TypeTransformError> {
     let substitution = TypeSubstitution::default();
     let mut transform = Transform::new(&substitution, None, cancel);
     transform.lookup = Some(lookup);
     transform.run(ty)
 }
 
-type ParameterLookup<'a> = dyn Fn(&DefinitionId, usize) -> Option<&'a Ty<DefinitionId>> + 'a;
+type ParameterLookup<'a> = dyn Fn(&DefinitionId, usize) -> Option<&'a Ty> + 'a;
 
 /// Apply the same bounded, once-only substitution using an explicit contextual
 /// binder lookup. Runtime frames can retain compact owners without rebuilding
 /// owned-path maps for every substitution.
 pub fn substitute_parameters<'a>(
-    ty: &Ty<DefinitionId>,
+    ty: &Ty,
     lookup: &ParameterLookup<'a>,
     cancel: &CancellationToken,
-) -> Result<Ty<DefinitionId>, TypeTransformError> {
+) -> Result<Ty, TypeTransformError> {
     let substitution = TypeSubstitution::default();
     let mut transform = Transform::new(&substitution, None, cancel);
     transform.parameter_lookup = Some(lookup);
@@ -186,7 +177,7 @@ pub fn substitute_parameters<'a>(
 
 struct Transform<'a, 'b> {
     substitution: &'a TypeSubstitution<'b>,
-    outputs: Option<(&'a NominalTy<DefinitionId>, &'a Ty<DefinitionId>)>,
+    outputs: Option<(&'a NominalTy, &'a Ty)>,
     lookup: Option<&'a ProjectionLookup<'a>>,
     parameter_lookup: Option<&'a ParameterLookup<'b>>,
     cancel: &'a CancellationToken,
@@ -196,7 +187,7 @@ struct Transform<'a, 'b> {
 impl<'a, 'b> Transform<'a, 'b> {
     fn new(
         substitution: &'a TypeSubstitution<'b>,
-        outputs: Option<(&'a NominalTy<DefinitionId>, &'a Ty<DefinitionId>)>,
+        outputs: Option<(&'a NominalTy, &'a Ty)>,
         cancel: &'a CancellationToken,
     ) -> Self {
         Self {
@@ -220,7 +211,7 @@ impl<'a, 'b> Transform<'a, 'b> {
         Ok(())
     }
 
-    fn run(&mut self, ty: &Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError> {
+    fn run(&mut self, ty: &Ty) -> Result<Ty, TypeTransformError> {
         let result = self.visit(ty, 1, true)?;
         if !result.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded);
@@ -230,10 +221,10 @@ impl<'a, 'b> Transform<'a, 'b> {
 
     fn many(
         &mut self,
-        types: &[Ty<DefinitionId>],
+        types: &[Ty],
         depth: usize,
         replace: bool,
-    ) -> Result<Vec<Ty<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Vec<Ty>, TypeTransformError> {
         if types.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
         }
@@ -245,10 +236,10 @@ impl<'a, 'b> Transform<'a, 'b> {
 
     fn nominal(
         &mut self,
-        ty: &NominalTy<DefinitionId>,
+        ty: &NominalTy,
         depth: usize,
         replace: bool,
-    ) -> Result<NominalTy<DefinitionId>, TypeTransformError> {
+    ) -> Result<NominalTy, TypeTransformError> {
         self.step(depth)?;
         if ty.associated_types.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
@@ -264,12 +255,7 @@ impl<'a, 'b> Transform<'a, 'b> {
         })
     }
 
-    fn visit(
-        &mut self,
-        ty: &Ty<DefinitionId>,
-        depth: usize,
-        replace: bool,
-    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
+    fn visit(&mut self, ty: &Ty, depth: usize, replace: bool) -> Result<Ty, TypeTransformError> {
         self.step(depth)?;
         if replace {
             let replacement = if let Ty::Parameter { owner, position } = ty

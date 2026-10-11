@@ -1,6 +1,6 @@
 use crate::{numeric::NumericOperation, representation::semantic_representation};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     declaration::verify::{concrete_type_valid, types_in_scope},
     language::binding,
@@ -46,7 +46,7 @@ pub enum IterOp {
 impl IterOp {
     pub fn contract(
         self,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         definitions: &DefinitionTable,
     ) -> Option<(Option<ValueType>, ValueType)> {
         if !ty.within_wire_limits() || !concrete_type_valid(ty, &Default::default(), definitions) {
@@ -78,7 +78,7 @@ impl IterOp {
 
 /// Validate endpoint presence and physical types using the range's semantic type.
 pub fn range_operands_valid(
-    ty: &Ty<DefinitionId>,
+    ty: &Ty,
     start: Option<ValueType>,
     end: Option<ValueType>,
     definitions: &DefinitionTable,
@@ -92,11 +92,7 @@ pub fn range_operands_valid(
         && end == kind.has_end().then(|| semantic_representation(item))
 }
 
-pub fn range_bound_valid(
-    range: &Ty<DefinitionId>,
-    bound: &Ty<DefinitionId>,
-    table: &DefinitionTable,
-) -> bool {
+pub fn range_bound_valid(range: &Ty, bound: &Ty, table: &DefinitionTable) -> bool {
     let (Ty::Range(item, kind), Ty::Enum(nominal)) = (range, bound) else {
         return false;
     };
@@ -125,7 +121,7 @@ pub enum StringIterKind {
 }
 
 impl StringIterKind {
-    pub fn source_type(self) -> Ty<DefinitionId> {
+    pub fn source_type(self) -> Ty {
         let string = Ty::Builtin(BuiltinType::String);
         Ty::Tuple(match self {
             Self::Split => vec![string.clone(), string],
@@ -134,7 +130,7 @@ impl StringIterKind {
         })
     }
 
-    pub fn item_type(self) -> Ty<DefinitionId> {
+    pub fn item_type(self) -> Ty {
         match self {
             Self::Bytes => Ty::Builtin(BuiltinType::U8),
             Self::CharIndices => Ty::Tuple(vec![
@@ -145,7 +141,7 @@ impl StringIterKind {
         }
     }
 
-    pub fn valid_source(self, ty: &Ty<DefinitionId>) -> bool {
+    pub fn valid_source(self, ty: &Ty) -> bool {
         *ty == self.source_type()
     }
 }

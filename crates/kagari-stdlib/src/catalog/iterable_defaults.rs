@@ -3,7 +3,7 @@ use crate::catalog::{
     contracts, identities,
     key::{self, RegistrationTrait},
 };
-use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
     declaration::{
@@ -18,17 +18,17 @@ use kagari_types::{
 };
 
 struct Source {
-    receiver: Ty<DefinitionId>,
-    item: Ty<DefinitionId>,
-    cursor: Ty<DefinitionId>,
+    receiver: Ty,
+    item: Ty,
+    cursor: Ty,
 }
 
 fn projection(
     ids: &DefinitionContext,
-    receiver: Ty<DefinitionId>,
+    receiver: Ty,
     name: &str,
-    item: Option<Ty<DefinitionId>>,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+    item: Option<Ty>,
+) -> Result<Ty, DeclarationError> {
     let interface = match item {
         Some(item) => contracts::applied_item(ids, RegistrationTrait::Iterable, item)?,
         None => key::applied(ids, RegistrationTrait::Iterable, vec![])?,
@@ -53,7 +53,7 @@ fn destination(name: &str) -> Option<(RegistrationTrait, &str)> {
 fn calls(
     ids: &DefinitionContext,
     source: &Source,
-) -> Result<Vec<NativeCallableRequirement<DefinitionId>>, DeclarationError> {
+) -> Result<Vec<NativeCallableRequirement>, DeclarationError> {
     let mut iterable =
         contracts::applied_item(ids, RegistrationTrait::Iterable, source.item.clone())?;
     iterable.associated_types.insert(
@@ -80,8 +80,8 @@ fn calls(
 pub(super) fn apply(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
-    item: &Ty<DefinitionId>,
-    method: &mut FnDecl<DefinitionId>,
+    item: &Ty,
+    method: &mut FnDecl,
 ) -> Result<(), DeclarationError> {
     let owner = key::identity(ids, RegistrationTrait::Iterable)?;
     let id = identities::definition(
@@ -151,7 +151,7 @@ pub(super) fn apply(
     let cancel = Default::default();
     let item_member = identities::associated(ids, &owner, "Item")?;
     let iter_member = identities::associated(ids, &owner, "Iter")?;
-    let normalize = |ty: &Ty<DefinitionId>| {
+    let normalize = |ty: &Ty| {
         let applied = substitution
             .apply(ty, &cancel)
             .expect("Iterable substitution");

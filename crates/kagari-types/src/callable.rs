@@ -1,13 +1,10 @@
-//! Portable callable implementation identities. Signatures belong to the
+//! Callable implementation selectors with scoped definition identities. Signatures belong to the
 //! declarations lowered from HIR; these identities never reconstruct a signature.
 use crate::ty::{
     Ty,
     substitution::{TypeSubstitution, TypeTransformError},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use serde::{Deserialize, Serialize};
 
 /// Declaration policy is independent of the implementation's provider or entry.
@@ -27,32 +24,23 @@ impl Default for MethodPolicy {
 
 /// A requirement has no executable entry until implementation selection resolves
 /// it. Script bodies and registered Rust entries are executable targets.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub enum CallableImplementation<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CallableImplementation {
     Required,
     Script,
-    Native(I),
+    Native(DefinitionId),
     /// A trait default applies an ordinary registered function template. Its
     /// arguments belong to the enclosing trait/method binder, including Self.
-    NativeDefault(NativeDefaultApplication<I>),
+    NativeDefault(NativeDefaultApplication),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct NativeDefaultApplication<I = DefinitionPath> {
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NativeDefaultApplication {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<Ty>,
 }
 
-impl NativeDefaultApplication<DefinitionId> {
+impl NativeDefaultApplication {
     pub fn apply(
         &self,
         substitution: &TypeSubstitution<'_>,
@@ -73,7 +61,7 @@ impl NativeDefaultApplication<DefinitionId> {
     }
 }
 
-impl CallableImplementation<DefinitionId> {
+impl CallableImplementation {
     pub fn apply(
         &self,
         substitution: &TypeSubstitution<'_>,
@@ -92,13 +80,8 @@ impl CallableImplementation<DefinitionId> {
 mod mapping;
 
 /// Parameter and result semantics, independent of an executable target.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct Signature<I = DefinitionPath> {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub params: Vec<Ty<I>>,
-    pub result: Ty<I>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Signature {
+    pub params: Vec<Ty>,
+    pub result: Ty,
 }

@@ -5,7 +5,6 @@ use kagari_common::{
     identity::{
         map::{DefinitionContext, DefinitionMap},
         scoped::RemapDefinitions,
-        table::DefinitionId,
     },
 };
 use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ImplDecl};
@@ -15,10 +14,10 @@ type SharedImports<T> = HashMap<usize, (Arc<DefinitionMap<T>>, Arc<DefinitionMap
 
 pub(crate) struct CatalogImports {
     context: DefinitionContext,
-    types: SharedImports<TypeDef<DefinitionId>>,
-    traits: SharedImports<TraitDef<DefinitionId>>,
-    declarations: SharedImports<NativeDeclaration<DefinitionId>>,
-    implementations: SharedImports<ImplDecl<DefinitionId>>,
+    types: SharedImports<TypeDef>,
+    traits: SharedImports<TraitDef>,
+    declarations: SharedImports<NativeDeclaration>,
+    implementations: SharedImports<ImplDecl>,
 }
 
 impl CatalogImports {

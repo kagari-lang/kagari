@@ -5,7 +5,6 @@ use crate::{
 use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_runtime::{
     frame::transfer::ReturnValue, host::HostPathDescriptorId, numeric, range::RangeValue,
@@ -25,7 +24,7 @@ impl<'a> Executor<'a> {
     fn dispatch_iterator(
         &mut self,
         source: &Value,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         op: IterOp,
         dst: Option<Register>,
     ) -> Result<(), VmError> {
@@ -42,8 +41,8 @@ impl<'a> Executor<'a> {
     fn dispatch_range_bound(
         &mut self,
         value: Value,
-        range: &Ty<DefinitionId>,
-        bound: &Ty<DefinitionId>,
+        range: &Ty,
+        bound: &Ty,
         upper: bool,
         dst: Option<Register>,
     ) -> Result<(), VmError> {

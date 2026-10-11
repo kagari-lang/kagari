@@ -55,8 +55,8 @@ fn define_type(
 
 pub(super) fn hash_bounds(
     ids: &DefinitionContext,
-    key: Ty<DefinitionId>,
-) -> Result<Vec<GenericBound<DefinitionId>>, DeclarationError> {
+    key: Ty,
+) -> Result<Vec<GenericBound>, DeclarationError> {
     Ok(vec![GenericBound {
         ty: key,
         constraints: vec![
@@ -69,7 +69,7 @@ pub(super) fn hash_bounds(
     }])
 }
 
-fn parameters(owner: &DefinitionId, names: &[&str]) -> Vec<GenericParam<DefinitionId>> {
+fn parameters(owner: &DefinitionId, names: &[&str]) -> Vec<GenericParam> {
     names
         .iter()
         .enumerate()
@@ -403,11 +403,7 @@ fn range_implementations(
     Ok(())
 }
 
-fn storage(
-    ids: &DefinitionContext,
-    family: &str,
-    items: &[Ty<DefinitionId>],
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+fn storage(ids: &DefinitionContext, family: &str, items: &[Ty]) -> Result<Ty, DeclarationError> {
     Ok(match family {
         "array" => Ty::Array(Box::new(items[0].clone())),
         "list" => vec_type(ids, items[0].clone())?,
@@ -439,7 +435,7 @@ fn inherent(
     };
     let mut new = method("new", vec![], receiver.clone());
     new.implementation = CallableImplementation::Native(binding(ids, family, "new")?);
-    let mut methods: Vec<FnDecl<DefinitionId>> = if family == "array" {
+    let mut methods: Vec<FnDecl> = if family == "array" {
         [
             method(
                 "len",

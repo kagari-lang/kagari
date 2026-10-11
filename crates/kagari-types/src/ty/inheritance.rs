@@ -23,12 +23,12 @@ const MAX_EDGES: usize = 100_000;
 /// The additional dynamic surface supported by the language's Iterable contract.
 /// Explicit implementation outputs remain the canonical static signature.
 pub fn erased_iterator_view<'a>(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
-) -> Result<Option<NominalTy<DefinitionId>>, TypeTransformError> {
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
+) -> Result<Option<NominalTy>, TypeTransformError> {
     if Protocol::from_reference(&interface.declaration, Some(definitions))
         != Some(Protocol::Iterable)
     {
@@ -52,12 +52,12 @@ pub fn erased_iterator_view<'a>(
 /// Concrete dynamic values hide Iterable's iterator behind its declared bound.
 /// Implementation ancestry remains unchanged: a view is not a second impl.
 pub fn interface_views<'a>(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
-) -> Result<Vec<NominalTy<DefinitionId>>, TypeTransformError> {
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
+) -> Result<Vec<NominalTy>, TypeTransformError> {
     let mut closure = trait_closure(interface, receiver, cancel, lookup)?;
     for parent in &mut closure {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -112,11 +112,11 @@ pub fn interface_views<'a>(
 /// Declaration cycles fail even when they change arguments. Diamond paths to the
 /// same application are deduplicated; distinct applications retain their identity.
 pub fn trait_closure<'a>(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
-) -> Result<Vec<NominalTy<DefinitionId>>, TypeTransformError> {
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
+) -> Result<Vec<NominalTy>, TypeTransformError> {
     let empty = TypeSubstitution::default();
     let root = empty.apply_nominal(interface, cancel)?;
     let receiver = empty.apply(receiver, cancel)?;

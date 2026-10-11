@@ -1,8 +1,5 @@
 use crate::source::types::lower_native_kind;
-use kagari_common::identity::{
-    DefinitionKind,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_contract::types::{
     InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
 };
@@ -583,7 +580,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
     }
 }
 
-fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDecl<DefinitionId>> {
+fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDecl> {
     let mut result = item
         .methods
         .iter()
@@ -717,7 +714,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
     result
 }
 
-fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl<DefinitionId>> {
+fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> {
     let typed = module
         .typed
         .functions
@@ -778,7 +775,7 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl<D
 fn native_implementation_abi(
     module: &AnalyzedModule,
     binding: NativeBinding,
-) -> CallableImplementation<DefinitionId> {
+) -> CallableImplementation {
     let binding = match binding {
         NativeBinding::Default(_) => {
             unreachable!("native defaults require forwarding-call emission")
@@ -796,7 +793,7 @@ fn native_implementation_abi(
     CallableImplementation::Native(binding)
 }
 
-fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> Ty<DefinitionId> {
+fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> Ty {
     lower_type(
         &module
             .aggregates
@@ -808,7 +805,7 @@ fn inherent_method_abi(
     module: &AnalyzedModule,
     function: &Function,
     outer: &[HirGenericParam],
-) -> Option<FnDecl<DefinitionId>> {
+) -> Option<FnDecl> {
     let identity = &module
         .declarations
         .target(ResolvedName::Function(function.id))?
@@ -836,7 +833,7 @@ fn method_abi(
     module: &AnalyzedModule,
     function: &Function,
     outer: &[HirGenericParam],
-) -> Option<FnDecl<DefinitionId>> {
+) -> Option<FnDecl> {
     let mut method = function_abi(module, function)?;
     let inherited = generic_param_abi(module, outer);
     method
@@ -865,10 +862,7 @@ fn method_abi(
     Some(method)
 }
 
-fn generic_param_abi(
-    module: &AnalyzedModule,
-    params: &[HirGenericParam],
-) -> Vec<GenericParam<DefinitionId>> {
+fn generic_param_abi(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<GenericParam> {
     params
         .iter()
         .map(|param| {
@@ -888,17 +882,14 @@ fn generic_param_abi(
         .collect()
 }
 
-fn constraint_abi(target: ConstraintTarget) -> Constraint<DefinitionId> {
+fn constraint_abi(target: ConstraintTarget) -> Constraint {
     match target {
         ConstraintTarget::Standard(constraint) => Constraint::Standard(constraint),
         ConstraintTarget::Trait(ty) => Constraint::Trait(lower_nominal_type(&ty)),
     }
 }
 
-fn parameter_bounds(
-    module: &AnalyzedModule,
-    params: &[HirGenericParam],
-) -> Vec<GenericBound<DefinitionId>> {
+fn parameter_bounds(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<GenericBound> {
     let identities = generic_param_abi(module, params);
     let bounds = params
         .iter()
@@ -929,7 +920,7 @@ fn parameter_bounds(
 pub(super) fn checked_bounds(
     definitions: &DefinitionTable,
     bounds: &GenericBounds,
-) -> Vec<GenericBound<DefinitionId>> {
+) -> Vec<GenericBound> {
     canonical_bounds(
         definitions,
         bounds
@@ -942,10 +933,7 @@ pub(super) fn checked_bounds(
     )
 }
 
-fn canonical_bounds(
-    definitions: &DefinitionTable,
-    bounds: Vec<GenericBound<DefinitionId>>,
-) -> Vec<GenericBound<DefinitionId>> {
+fn canonical_bounds(definitions: &DefinitionTable, bounds: Vec<GenericBound>) -> Vec<GenericBound> {
     GenericBound::normalize(bounds, definitions, &Default::default())
         .expect("checked ABI bound identities and type limits")
         .into_iter()

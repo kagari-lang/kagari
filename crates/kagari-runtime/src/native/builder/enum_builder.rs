@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub struct EnumBuilder<'module> {
     module: &'module mut ModuleBuilder,
     id: DefinitionId,
-    declaration: TypeDef<DefinitionId>,
+    declaration: TypeDef,
     parameter_names: Vec<String>,
     documentation: BTreeMap<DefinitionId, String>,
 }

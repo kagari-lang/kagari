@@ -8,7 +8,6 @@ use crate::{
     frame::types::bindings::AssociatedInterface,
     gc::GcHeap,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     ty::{NominalTy, Ty},
@@ -107,8 +106,8 @@ impl OperationBindings {
     pub(crate) fn operation_slot(
         &self,
         heap: &GcHeap,
-        receiver: &Ty<DefinitionId>,
-        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty,
+        interface: &NominalTy,
         slot: u32,
     ) -> Option<OperationId> {
         self.segments().iter().find_map(|segment| match segment {
@@ -128,7 +127,7 @@ impl OperationBindings {
     pub(crate) fn operation(
         &self,
         heap: &GcHeap,
-        required: &NativeCallableRequirement<DefinitionId>,
+        required: &NativeCallableRequirement,
     ) -> Option<OperationId> {
         self.segments().iter().find_map(|segment| match segment {
             OperationSegment::Selected(id) => {

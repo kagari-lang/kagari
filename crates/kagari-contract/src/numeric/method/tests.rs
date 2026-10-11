@@ -1,7 +1,12 @@
 use super::*;
+use kagari_common::identity::map::DefinitionContext;
+use kagari_types::ty::NominalTy;
 
 #[test]
 fn numeric_contracts_preserve_width_sign_and_compound_results() {
+    let context = DefinitionContext::new().unwrap();
+    let declaration = context.intern(&binding::option_declaration()).unwrap();
+    let definitions = context.snapshot();
     for (receiver, signed) in [
         (BuiltinType::U8, BuiltinType::I8),
         (BuiltinType::U16, BuiltinType::I16),
@@ -12,22 +17,29 @@ fn numeric_contracts_preserve_width_sign_and_compound_results() {
         let offset =
             IntegerMethodContract::new(IntegerMethod::WrappingAddSigned, receiver).unwrap();
         assert_eq!(offset.parameters(), [receiver, signed]);
-        assert_eq!(offset.result(), Ty::Builtin(receiver));
+        assert_eq!(offset.result(&definitions), Some(Ty::Builtin(receiver)));
         assert!(IntegerMethodContract::new(IntegerMethod::WrappingAddSigned, signed).is_none());
         for ty in [receiver, signed] {
             let rotate = IntegerMethodContract::new(IntegerMethod::RotateLeft, ty).unwrap();
             assert_eq!(rotate.parameters(), [ty, BuiltinType::U32]);
-            assert_eq!(rotate.result(), Ty::Builtin(ty));
+            assert_eq!(rotate.result(&definitions), Some(Ty::Builtin(ty)));
             let checked = IntegerMethodContract::new(IntegerMethod::CheckedAdd, ty).unwrap();
             assert_eq!(
-                checked.result(),
-                kagari_types::language::binding::option(Ty::Builtin(ty))
+                checked.result(&definitions),
+                Some(Ty::Enum(NominalTy {
+                    declaration,
+                    arguments: vec![Ty::Builtin(ty)],
+                    associated_types: Default::default(),
+                }))
             );
             let overflowing =
                 IntegerMethodContract::new(IntegerMethod::OverflowingMul, ty).unwrap();
             assert_eq!(
-                overflowing.result(),
-                Ty::Tuple(vec![Ty::Builtin(ty), Ty::Builtin(BuiltinType::Bool)])
+                overflowing.result(&definitions),
+                Some(Ty::Tuple(vec![
+                    Ty::Builtin(ty),
+                    Ty::Builtin(BuiltinType::Bool)
+                ]))
             );
         }
     }

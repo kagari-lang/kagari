@@ -250,7 +250,7 @@ fn apply_generic(
     runtime: &Runtime,
     loaded: &LoadedModule,
     value: Value,
-    ty: Ty<DefinitionId>,
+    ty: Ty,
 ) -> RootedInterfaceMethod {
     let Value::Interface(id) = value else {
         panic!("interface fixture")

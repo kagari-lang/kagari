@@ -1,10 +1,9 @@
 //! Convert checked HIR types to source-independent semantic facts in the same scope.
 use crate::types::{GenericParameterType, NominalType, TypeId};
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{NominalTy, Ty};
 
 /// Converts a nominal application to source-independent semantic metadata; child recovery types panic as in `lower_type`.
-pub fn lower_nominal_type(ty: &NominalType) -> NominalTy<DefinitionId> {
+pub fn lower_nominal_type(ty: &NominalType) -> NominalTy {
     NominalTy {
         associated_types: ty
             .associated_types
@@ -23,7 +22,7 @@ pub fn lower_nominal_type(ty: &NominalType) -> NominalTy<DefinitionId> {
 /// # Panics
 ///
 /// Panics if any inference variable, unknown or error type reaches this checked boundary.
-pub fn lower_type(ty: &TypeId) -> Ty<DefinitionId> {
+pub fn lower_type(ty: &TypeId) -> Ty {
     match ty {
         TypeId::Projection {
             receiver,
@@ -69,7 +68,7 @@ pub fn lower_type(ty: &TypeId) -> Ty<DefinitionId> {
 }
 
 /// Reconstructs a HIR nominal application from scoped semantic metadata.
-pub fn raise_nominal_type(ty: &NominalTy<DefinitionId>) -> NominalType {
+pub fn raise_nominal_type(ty: &NominalTy) -> NominalType {
     NominalType {
         associated_types: ty
             .associated_types
@@ -82,7 +81,7 @@ pub fn raise_nominal_type(ty: &NominalTy<DefinitionId>) -> NominalType {
 }
 
 /// Reconstructs a HIR semantic type from scoped metadata, synthesizing generic display names where needed.
-pub fn raise_type(ty: &Ty<DefinitionId>) -> TypeId {
+pub fn raise_type(ty: &Ty) -> TypeId {
     match ty {
         Ty::Projection {
             receiver,

@@ -17,7 +17,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity,
-        mapping::DefinitionRecord,
+        scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -39,13 +39,13 @@ impl fmt::Display for DeclarationError {
 impl Error for DeclarationError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImplDecl<I = DefinitionId> {
-    pub generic_params: Vec<GenericParam<I>>,
+pub struct ImplDecl {
+    pub generic_params: Vec<GenericParam>,
     /// Obligations inherited by every method's registered callable template.
-    pub bounds: Vec<GenericBound<I>>,
-    pub trait_type: Option<NominalTy<I>>,
-    pub for_type: Ty<I>,
-    pub methods: Vec<FnDecl<I>>,
+    pub bounds: Vec<GenericBound>,
+    pub trait_type: Option<NominalTy>,
+    pub for_type: Ty,
+    pub methods: Vec<FnDecl>,
 }
 
 /// Rust registration definitions own these records. Generated text is a projection.
@@ -55,7 +55,7 @@ pub struct ImplDecl<I = DefinitionId> {
 /// Registered default applications retain their explicit native template mappings.
 /// Method binders retain their own identities; associated type families remain deferred.
 #[derive(Debug, Clone)]
-pub struct ModuleDecl<I = DefinitionId> {
+pub struct ModuleDecl {
     /// Explicit source prelude supplied by this registration closure.
     pub prelude: bool,
     pub identity: ModuleIdentity,
@@ -64,23 +64,23 @@ pub struct ModuleDecl<I = DefinitionId> {
     /// Owning modules required by the checked registration closure. NativeApi
     /// derives these edges from actual traits, templates and implementation facts.
     pub dependencies: BTreeSet<ModuleIdentity>,
-    pub types: Vec<TypeDef<I>>,
+    pub types: Vec<TypeDef>,
     /// Enum owners whose variants are also explicitly exported at module scope.
     pub variant_exports: BTreeSet<String>,
     /// Public type/trait/variant aliases retain the identity of their owner.
-    pub exports: BTreeMap<ExportName, I>,
-    pub traits: Vec<TraitDef<I>>,
-    pub implementations: Vec<ImplDecl<I>>,
-    pub functions: Vec<FnDecl<I>>,
+    pub exports: BTreeMap<ExportName, DefinitionId>,
+    pub traits: Vec<TraitDef>,
+    pub implementations: Vec<ImplDecl>,
+    pub functions: Vec<FnDecl>,
     /// Registered templates remain addressable by identity without public exports.
-    pub private_functions: BTreeSet<I>,
+    pub private_functions: BTreeSet<DefinitionId>,
     /// Full Markdown overview of this installed module.
     pub module_documentation: String,
-    pub documentation: BTreeMap<I, String>,
+    pub documentation: BTreeMap<DefinitionId, String>,
     /// Ordered callback slots owned by each native declaration. The compiler
     /// specializes these requirements; generated source does not select targets.
-    pub callable_requirements: BTreeMap<I, Vec<NativeCallableRequirement<I>>>,
-    pub concrete_results: BTreeMap<I, Ty<I>>,
+    pub callable_requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
+    pub concrete_results: BTreeMap<DefinitionId, Ty>,
 }
 
 impl ModuleDecl {
@@ -117,8 +117,8 @@ impl ModuleDecl {
     /// Built-in value families use their canonical core/alloc/std declaration owner.
     pub fn owns_inherent_receiver(
         &self,
-        receiver: &Ty<DefinitionId>,
-        owner: &impl Fn(&Ty<DefinitionId>) -> Option<ModuleIdentity>,
+        receiver: &Ty,
+        owner: &impl Fn(&Ty) -> Option<ModuleIdentity>,
     ) -> bool {
         owner(receiver).is_some_and(|owner| owner == self.identity)
     }
@@ -127,7 +127,7 @@ impl ModuleDecl {
     pub fn native_declarations(
         &self,
         definitions: &DefinitionTable,
-    ) -> Result<Vec<NativeDeclaration<DefinitionId>>, DeclarationError> {
+    ) -> Result<Vec<NativeDeclaration>, DeclarationError> {
         let mut result = Vec::new();
         for function in &self.functions {
             let id = self.definition(DefinitionKind::Function, &function.name, definitions)?;
@@ -174,7 +174,7 @@ impl ModuleDecl {
 
     pub fn validate(
         &self,
-        receiver_owner: &impl Fn(&Ty<DefinitionId>) -> Option<ModuleIdentity>,
+        receiver_owner: &impl Fn(&Ty) -> Option<ModuleIdentity>,
         definitions: &DefinitionTable,
     ) -> Result<(), DeclarationError> {
         let fail = || DeclarationError("invalid or unsupported native declaration".into());
@@ -198,7 +198,7 @@ impl ModuleDecl {
         }
         let mut names = HashSet::new();
         let cancel = CancellationToken::default();
-        self.visit_definitions(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
+        self.visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
             .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
         for ty in &self.types {
             for payload in ty.variants.iter().flat_map(|variant| &variant.payload) {
@@ -489,10 +489,7 @@ impl ModuleDecl {
 }
 
 // Keep runtime registration independent of declaration text and source analysis.
-fn supported_type(
-    ty: &Ty<DefinitionId>,
-    definitions: &DefinitionTable,
-) -> Result<(), DeclarationError> {
+fn supported_type(ty: &Ty, definitions: &DefinitionTable) -> Result<(), DeclarationError> {
     let invalid = || DeclarationError("unsupported type in initial native API".into());
     if !ty.within_wire_limits() {
         return Err(invalid());
@@ -562,7 +559,7 @@ fn supported_type(
 }
 
 fn supported_constraint(
-    constraint: &Constraint<DefinitionId>,
+    constraint: &Constraint,
     definitions: &DefinitionTable,
 ) -> Result<(), DeclarationError> {
     match constraint {

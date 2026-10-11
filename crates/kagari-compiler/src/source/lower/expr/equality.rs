@@ -1,9 +1,7 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use bincode::{DefaultOptions, Options};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::mapping::{
-    DefinitionMapper, DefinitionMappingError, DefinitionRecord,
-};
+use kagari_common::identity::{mapping::DefinitionMappingError, scoped::DefinitionReferences};
 use kagari_contract::{operations::BinaryOp, standard::RuntimePrimitive};
 use kagari_hir::{
     aggregates::implementations::{ImplementationSearchError, ImplementationSearchLimits},
@@ -16,7 +14,7 @@ use kagari_hir::{
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
 };
-use kagari_types::language::Protocol;
+use kagari_types::{declaration::wire::leaf::NominalTyRecord, language::Protocol};
 use std::{collections::HashSet, fmt::Write};
 
 impl FunctionLowerer<'_, '_> {
@@ -391,7 +389,7 @@ impl FunctionLowerer<'_, '_> {
                 let definitions = self.planner.definitions();
                 let cancel = &self.planner.options.cancel;
                 let mut references = HashSet::from([*declaration]);
-                nominal.visit_definitions(
+                nominal.visit_definition_ids(
                     &mut |id| {
                         references.insert(*id);
                         Ok(())
@@ -401,14 +399,7 @@ impl FunctionLowerer<'_, '_> {
                 let encoding = definitions
                     .encode(references)
                     .map_err(DefinitionMappingError::from)?;
-                let nominal = nominal.map_identities(&mut DefinitionMapper::new(
-                    &mut |id| {
-                        encoding
-                            .reference(*id)
-                            .map_err(DefinitionMappingError::from)
-                    },
-                    cancel,
-                ))?;
+                let nominal = NominalTyRecord::encode(&nominal, &encoding, cancel)?;
                 let variant = encoding
                     .reference(*declaration)
                     .map_err(DefinitionMappingError::from)?;

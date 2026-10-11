@@ -13,7 +13,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 use std::cell::Ref;
 
@@ -69,8 +68,8 @@ impl PreparedClosure {
     fn call<R: NativeScalar, A: CallArguments>(
         &self,
         cx: &CallContext<'_>,
-        params: &[Ty<DefinitionId>],
-        result: &Ty<DefinitionId>,
+        params: &[Ty],
+        result: &Ty,
         arguments: A,
     ) -> NativeResult<R> {
         if result != &Ty::Builtin(R::abi_type()) || !A::matches(params) {
@@ -112,8 +111,8 @@ impl PreparedClosure {
 /// checks immutable capture metadata and never holds a heap borrow across calls.
 pub struct CallableHandle<'call> {
     target: PreparedClosure,
-    params: &'call [Ty<DefinitionId>],
-    result: &'call Ty<DefinitionId>,
+    params: &'call [Ty],
+    result: &'call Ty,
     _arguments: ArgumentView<'call>,
 }
 

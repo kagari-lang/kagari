@@ -67,7 +67,7 @@ impl NativeTypeConstructor {
         DefinitionKind::AssociatedType
     }
 
-    pub fn shape_valid<I>(self, declaration: &TypeDef<I>) -> bool {
+    pub fn shape_valid(self, declaration: &TypeDef) -> bool {
         declaration.fields.is_empty()
             && declaration.variants.is_empty()
             && declaration.generic_params.len() == self.arity()

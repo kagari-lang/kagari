@@ -12,7 +12,6 @@ use crate::{
     module::LoadedModule,
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::ids::FunctionRef;
 use kagari_types::ty::{NominalTy, Ty};
 use std::{slice, sync::Arc};
@@ -35,7 +34,7 @@ pub(crate) struct ScopedInterfaceCall {
 }
 
 impl ScopedInterfaceCall {
-    pub(crate) fn interface_type(&self) -> &NominalTy<DefinitionId> {
+    pub(crate) fn interface_type(&self) -> &NominalTy {
         let Ty::Trait(interface) = self.interface.ty() else {
             unreachable!("prepared interface type");
         };

@@ -4,10 +4,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
 use kagari_types::{
@@ -94,7 +91,7 @@ impl SemanticSlotsRecord {
 
 // Numeric slot keys do not change identity scope; bounded map decoding rejects duplicates.
 fn encode_slots(
-    values: &BTreeMap<usize, Ty<DefinitionId>>,
+    values: &BTreeMap<usize, Ty>,
     encoding: &DefinitionEncoding,
     cancel: &CancellationToken,
 ) -> Result<BTreeMap<usize, WireType>, DefinitionMappingError> {
@@ -108,7 +105,7 @@ fn decode_slots(
     values: BTreeMap<usize, WireType>,
     decoding: &DefinitionDecoding,
     cancel: &CancellationToken,
-) -> Result<BTreeMap<usize, Ty<DefinitionId>>, DefinitionMappingError> {
+) -> Result<BTreeMap<usize, Ty>, DefinitionMappingError> {
     values
         .into_iter()
         .map(|(key, value)| Ok((key, value.decode(decoding, cancel)?)))

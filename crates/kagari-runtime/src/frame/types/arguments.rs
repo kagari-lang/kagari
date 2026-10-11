@@ -1,8 +1,6 @@
 //! Closed type arguments retain the lexical scope that supplied their layouts.
 use kagari_common::identity::{
-    mapping::DefinitionMappingError,
-    scoped::DefinitionReferences,
-    table::{DefinitionId, DefinitionTable},
+    mapping::DefinitionMappingError, scoped::DefinitionReferences, table::DefinitionTable,
 };
 #[cfg(test)]
 mod identity_tests;
@@ -34,7 +32,7 @@ pub struct TypeArgument {
 
 #[derive(Debug)]
 struct TypeArgumentData {
-    ty: Ty<DefinitionId>,
+    ty: Ty,
     definitions: DefinitionTable,
     origin: Option<Arc<TypeOrigin>>,
     parameters: OnceLock<Result<Vec<TypeArgument>, RuntimeError>>,
@@ -45,7 +43,7 @@ struct TypeArgumentData {
 
 #[derive(Debug)]
 struct TypeOrigin {
-    expression: Ty<DefinitionId>,
+    expression: Ty,
     scope: Arc<TypeScope>,
 }
 
@@ -95,7 +93,7 @@ impl TypeArgument {
         &self,
         runtime: &Runtime,
         fallback: &LoadedModule,
-        derive: impl FnOnce(&Ty<DefinitionId>) -> Option<Ty<DefinitionId>>,
+        derive: impl FnOnce(&Ty) -> Option<Ty>,
     ) -> Result<Self, RuntimeError> {
         let (expression, owner, environment) = match &self.data.origin {
             Some(origin) => (
@@ -164,7 +162,7 @@ impl TypeArgument {
         Ok(variants)
     }
 
-    pub fn ty(&self) -> &Ty<DefinitionId> {
+    pub fn ty(&self) -> &Ty {
         &self.data.ty
     }
 
@@ -224,7 +222,7 @@ impl TypeArgument {
     }
 }
 
-pub(crate) fn type_parameter(ty: &Ty<DefinitionId>, index: usize) -> Option<&Ty<DefinitionId>> {
+pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
     match ty {
         Ty::Struct(nominal)
         | Ty::Enum(nominal)
@@ -243,7 +241,7 @@ pub(crate) fn type_parameter(ty: &Ty<DefinitionId>, index: usize) -> Option<&Ty<
     }
 }
 
-fn contains_nominal_layout(ty: &Ty<DefinitionId>) -> bool {
+fn contains_nominal_layout(ty: &Ty) -> bool {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         match ty {
@@ -269,7 +267,7 @@ impl Runtime {
     pub(crate) fn matches_capture_type(
         &self,
         value: &Value,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         owner: &LoadedModule,
         environment: &TypeBindings,
     ) -> bool {
@@ -290,7 +288,7 @@ impl Runtime {
     pub fn resolve_type_arguments(
         &self,
         owner: &LoadedModule,
-        types: &[Ty<DefinitionId>],
+        types: &[Ty],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let cancel = Default::default();
         for ty in types {
@@ -313,7 +311,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         environment: Option<Arc<TypeBindings>>,
-        types: &[Ty<DefinitionId>],
+        types: &[Ty],
     ) -> Result<Vec<TypeArgument>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("type argument scope");
         // Reified types own immutable metadata, not executable module instances.
@@ -381,7 +379,7 @@ impl Runtime {
     pub(crate) fn matches_type_in(
         &self,
         value: &Value,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {

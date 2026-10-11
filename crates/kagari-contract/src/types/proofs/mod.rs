@@ -48,10 +48,10 @@ const MAX_DEPTH: usize = 64;
 pub struct ProofCatalog<'a> {
     definitions: DefinitionTable,
     implementations: Vec<Implementation<'a>>,
-    hosts: Vec<&'a HostTypeDeclaration<DefinitionId>>,
-    enumerations: BTreeMap<NominalTy<DefinitionId>, Vec<&'a Ty<DefinitionId>>>,
-    contracts: BTreeMap<DefinitionId, &'a TraitDef<DefinitionId>>,
-    native_declarations: BTreeMap<DefinitionId, &'a NativeDeclaration<DefinitionId>>,
+    hosts: Vec<&'a HostTypeDeclaration>,
+    enumerations: BTreeMap<NominalTy, Vec<&'a Ty>>,
+    contracts: BTreeMap<DefinitionId, &'a TraitDef>,
+    native_declarations: BTreeMap<DefinitionId, &'a NativeDeclaration>,
 }
 
 struct Budget<'a> {
@@ -102,7 +102,7 @@ impl<'a> ProofCatalog<'a> {
             .ok_or(TypeTransformError::InvalidContract)
     }
 
-    pub fn trait_contract(&self, declaration: &DefinitionId) -> Option<&'a TraitDef<DefinitionId>> {
+    pub fn trait_contract(&self, declaration: &DefinitionId) -> Option<&'a TraitDef> {
         self.contracts.get(declaration).copied()
     }
 
@@ -114,10 +114,10 @@ impl<'a> ProofCatalog<'a> {
     /// Cancellation, proof limits and invalid contracts return an error.
     pub fn new(
         implementations: Vec<Implementation<'a>>,
-        hosts: Vec<&'a HostTypeDeclaration<DefinitionId>>,
+        hosts: Vec<&'a HostTypeDeclaration>,
         enumerations: impl IntoIterator<Item = &'a EnumLayout>,
-        contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitDef<DefinitionId>)>,
-        native_declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
+        contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitDef)>,
+        native_declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
@@ -284,10 +284,10 @@ impl<'a> ProofCatalog<'a> {
 
     pub fn ancestry(
         &self,
-        interface: &NominalTy<DefinitionId>,
-        receiver: &Ty<DefinitionId>,
+        interface: &NominalTy,
+        receiver: &Ty,
         cancel: &CancellationToken,
-    ) -> Result<Vec<NominalTy<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Vec<NominalTy>, TypeTransformError> {
         validate_references(interface, &self.definitions, cancel)?;
         validate_references(receiver, &self.definitions, cancel)?;
         inheritance::trait_closure(interface, receiver, cancel, &|id| {
@@ -296,12 +296,12 @@ impl<'a> ProofCatalog<'a> {
     }
 
     /// A protocol slot from a validated carried trait declaration.
-    pub fn method(&self, interface: &DefinitionId, slot: usize) -> Option<&FnDecl<DefinitionId>> {
+    pub fn method(&self, interface: &DefinitionId, slot: usize) -> Option<&FnDecl> {
         self.contracts.get(interface)?.methods.get(slot)
     }
 
     /// Trait-owned generic parameters, separately from a method's local scope.
-    pub fn parameters(&self, interface: &DefinitionId) -> Option<&[GenericParam<DefinitionId>]> {
+    pub fn parameters(&self, interface: &DefinitionId) -> Option<&[GenericParam]> {
         self.contracts
             .get(interface)
             .map(|contract| contract.generic_params.as_slice())
@@ -309,9 +309,9 @@ impl<'a> ProofCatalog<'a> {
 
     pub fn expand_bounds(
         &self,
-        bounds: &[GenericBound<DefinitionId>],
+        bounds: &[GenericBound],
         cancel: &CancellationToken,
-    ) -> Result<Vec<GenericBound<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Vec<GenericBound>, TypeTransformError> {
         let mut expanded =
             TypeSubstitution::default().apply_bounds(bounds, &self.definitions, cancel)?;
         for bound in &expanded {
@@ -340,9 +340,7 @@ impl<'a> ProofCatalog<'a> {
     }
 }
 
-pub fn host_application(
-    implementation: &HostTraitImplementationDeclaration<DefinitionId>,
-) -> NominalTy<DefinitionId> {
+pub fn host_application(implementation: &HostTraitImplementationDeclaration) -> NominalTy {
     NominalTy {
         declaration: implementation.trait_id,
         arguments: implementation
@@ -358,7 +356,7 @@ pub fn host_application(
     }
 }
 
-fn satisfies(available: &NominalTy<DefinitionId>, required: &NominalTy<DefinitionId>) -> bool {
+fn satisfies(available: &NominalTy, required: &NominalTy) -> bool {
     available.satisfies(required)
 }
 

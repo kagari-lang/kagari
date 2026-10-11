@@ -1,6 +1,5 @@
 use crate::{error::VmError, executor::Executor};
 use kagari_bytecode::instruction::Register;
-use kagari_common::identity::table::DefinitionId;
 use kagari_runtime::value::{EnumTag, Value};
 use kagari_types::ty::Ty;
 
@@ -70,11 +69,7 @@ impl Executor<'_> {
             .and_then(|values| self.runtime.gc().alloc_tuple(values).map_err(VmError::from))
     }
 
-    pub(crate) fn make_array(
-        &self,
-        element: &Ty<DefinitionId>,
-        elements: &[Register],
-    ) -> Result<Value, VmError> {
+    pub(crate) fn make_array(&self, element: &Ty, elements: &[Register]) -> Result<Value, VmError> {
         let elements = elements
             .iter()
             .map(|element| {

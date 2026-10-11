@@ -78,7 +78,7 @@ impl Codec {
 
     pub(crate) fn accepts(
         &self,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         definitions: &DefinitionTable,
         catalog: &DeclarationCatalog,
     ) -> bool {
@@ -183,7 +183,7 @@ impl NativeBinding {
 
     pub(crate) fn check(
         &self,
-        signature: &Signature<DefinitionId>,
+        signature: &Signature,
         definitions: &DefinitionTable,
         catalog: &DeclarationCatalog,
     ) -> NativeResult<()> {
@@ -220,7 +220,7 @@ impl NativeBinding {
 pub struct LinkedNativeFunction {
     pub(crate) declaration: DefinitionId,
     pub(crate) binding: NativeBinding,
-    pub(crate) signature: Signature<DefinitionId>,
+    pub(crate) signature: Signature,
     pub(crate) prepared_signature: OnceLock<ScopedSignature>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,

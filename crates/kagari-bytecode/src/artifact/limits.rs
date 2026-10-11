@@ -304,7 +304,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
 }
 
 fn add_callable_requirement(
-    required: &NativeCallableRequirement<DefinitionId>,
+    required: &NativeCallableRequirement,
     add: &mut impl FnMut(usize) -> bool,
 ) -> bool {
     add(required.arguments.len())
@@ -312,20 +312,14 @@ fn add_callable_requirement(
         && add(required.interface.associated_types.len())
 }
 
-fn add_function_contract(
-    function: &FnDecl<DefinitionId>,
-    add: &mut impl FnMut(usize) -> bool,
-) -> bool {
+fn add_function_contract(function: &FnDecl, add: &mut impl FnMut(usize) -> bool) -> bool {
     match &function.implementation {
         CallableImplementation::NativeDefault(application) => add(application.arguments.len()),
         _ => true,
     }
 }
 
-pub(super) fn add_abi_bounds(
-    bounds: &[GenericBound<DefinitionId>],
-    add: &mut impl FnMut(usize) -> bool,
-) -> bool {
+pub(super) fn add_abi_bounds(bounds: &[GenericBound], add: &mut impl FnMut(usize) -> bool) -> bool {
     bounds.iter().all(|bound| {
         add(bound.constraints.len())
             && bound.constraints.iter().all(|constraint| match constraint {
@@ -335,10 +329,7 @@ pub(super) fn add_abi_bounds(
     })
 }
 
-pub(super) fn generic_identity_limit(
-    params: &[GenericParam<DefinitionId>],
-    bounds: &[GenericBound<DefinitionId>],
-) -> bool {
+pub(super) fn generic_identity_limit(params: &[GenericParam], bounds: &[GenericBound]) -> bool {
     params.iter().all(|param| param.owner.within_path_limit())
         && bounds.iter().all(|bound| {
             bound.ty.within_wire_limits()
@@ -355,7 +346,7 @@ pub(super) fn generic_identity_limit(
         })
 }
 
-pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef<DefinitionId>]) -> bool {
+pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef]) -> bool {
     members.iter().all(|member| {
         member.declaration.within_path_limit()
             && generic_identity_limit(&member.generic_params, &member.parameter_bounds)
@@ -366,7 +357,7 @@ pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef<DefinitionI
     })
 }
 
-pub(super) fn function_abi_identity_limit(function: &FnDecl<DefinitionId>) -> bool {
+pub(super) fn function_abi_identity_limit(function: &FnDecl) -> bool {
     generic_identity_limit(&function.generic_params, &function.bounds)
 }
 
@@ -374,7 +365,7 @@ pub(super) fn module_abi_type_limit(
     module: &BytecodeModule,
     definitions: &DefinitionTable,
 ) -> bool {
-    let valid = |ty: &Ty<DefinitionId>| ty.within_wire_limits();
+    let valid = |ty: &Ty| ty.within_wire_limits();
     module
         .native_imports
         .iter()
@@ -496,9 +487,9 @@ pub(super) fn module_abi_type_limit(
         })
 }
 
-pub(super) fn host_identity_limit(interface: &HostInterface<DefinitionId>) -> bool {
+pub(super) fn host_identity_limit(interface: &HostInterface) -> bool {
     let valid = |id: &DefinitionId| id.within_path_limit();
-    let value = |ty: &HostValueType<DefinitionId>| ty.nominal_references().into_iter().all(valid);
+    let value = |ty: &HostValueType| ty.nominal_references().into_iter().all(valid);
     interface.types.iter().all(|ty| {
         valid(&ty.id)
             && ty

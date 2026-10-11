@@ -22,7 +22,7 @@ use kagari_types::{
 use std::collections::BTreeMap;
 
 pub(crate) fn normalize_bounds(
-    signature: &mut FnDecl<DefinitionId>,
+    signature: &mut FnDecl,
     definitions: &DefinitionTable,
 ) -> NativeResult<()> {
     signature.bounds = GenericBound::normalize(
@@ -70,9 +70,9 @@ impl FunctionDecl {
 
     pub(crate) fn lower(
         self,
-        implementation: CallableImplementation<DefinitionId>,
+        implementation: CallableImplementation,
         context: &DefinitionContext,
-    ) -> NativeResult<FnDecl<DefinitionId>> {
+    ) -> NativeResult<FnDecl> {
         Ok(FnDecl {
             name: self.name,
             params: self
@@ -135,7 +135,7 @@ impl MethodDecl {
         mut self,
         receiver: Type,
         context: &DefinitionContext,
-    ) -> NativeResult<FnDecl<DefinitionId>> {
+    ) -> NativeResult<FnDecl> {
         if self.instance {
             self.signature.params.insert(0, ("self".into(), receiver));
         }
@@ -146,7 +146,7 @@ impl MethodDecl {
 
 #[derive(Debug, Clone)]
 pub struct CallableRequirement {
-    pub(crate) requirement: DefinitionMetadata<NativeCallableRequirement<DefinitionId>>,
+    pub(crate) requirement: DefinitionMetadata<NativeCallableRequirement>,
 }
 
 impl CallableRequirement {
@@ -226,8 +226,8 @@ impl SelectedCall {
     /// Recover a token from an exact scoped requirement. Invocation still checks
     /// its declaration owner and consumes the installed compiler-selected operation.
     pub fn from_declaration(
-        declaration: &DefinitionMetadata<NativeDeclaration<DefinitionId>>,
-        requirement: &NativeCallableRequirement<DefinitionId>,
+        declaration: &DefinitionMetadata<NativeDeclaration>,
+        requirement: &NativeCallableRequirement,
     ) -> NativeResult<Self> {
         let mut matches = declaration
             .records()
@@ -252,9 +252,9 @@ impl SelectedCall {
 pub struct FunctionBuilder<'a> {
     pub(crate) id: DefinitionId,
     pub(crate) context: &'a DefinitionContext,
-    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionId, Ty<DefinitionId>>,
-    pub(crate) signature: &'a mut FnDecl<DefinitionId>,
-    pub(crate) requirements: &'a mut Vec<NativeCallableRequirement<DefinitionId>>,
+    pub(crate) concrete_results: &'a mut BTreeMap<DefinitionId, Ty>,
+    pub(crate) signature: &'a mut FnDecl,
+    pub(crate) requirements: &'a mut Vec<NativeCallableRequirement>,
     pub(crate) names: &'a mut Vec<String>,
 }
 

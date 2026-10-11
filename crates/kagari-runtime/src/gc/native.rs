@@ -14,7 +14,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 use std::{cell::Cell, sync::Arc};
 
@@ -107,7 +106,7 @@ impl GcHeap {
     pub(crate) fn matches_native_type(
         &self,
         id: HeapObjectId,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
@@ -115,7 +114,7 @@ impl GcHeap {
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty, owner, environment))
     }
 
-    pub(crate) fn default_storage(&self, ty: &Ty<DefinitionId>) -> Option<&NativeStorage> {
+    pub(crate) fn default_storage(&self, ty: &Ty) -> Option<&NativeStorage> {
         match ty {
             Ty::Array(..) => Some(&self.sequence_storage),
             Ty::Map { .. } => Some(&self.map_storage),

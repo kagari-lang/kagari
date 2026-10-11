@@ -12,7 +12,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
 use std::{any::Any, collections::TryReserveError, sync::Arc};
 
@@ -38,7 +37,7 @@ pub(crate) enum SequenceStorage {
 macro_rules! storage {
     ($($variant:ident:$ty:ty),+) => {
         impl SequenceStorage {
-            pub(crate) fn empty(element: &Ty<DefinitionId>) -> Self {
+            pub(crate) fn empty(element: &Ty) -> Self {
                 match element {
                     $(Ty::Builtin(BuiltinType::$variant) => Self::$variant(Vec::new()),)+
                     _ => Self::Traced(Vec::new()),
@@ -187,7 +186,7 @@ impl SequenceStorage {
 
 #[derive(Debug)]
 pub(crate) struct SequencePayload {
-    pub(crate) element: Ty<DefinitionId>,
+    pub(crate) element: Ty,
     pub(crate) contract: Arc<StorageType>,
     pub(crate) values: SequenceStorage,
     pub(crate) leased_units: Option<usize>,

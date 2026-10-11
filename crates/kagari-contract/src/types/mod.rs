@@ -32,17 +32,17 @@ pub mod wire;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModuleContract {
-    pub native_declarations: Vec<NativeDeclaration<DefinitionId>>,
+    pub native_declarations: Vec<NativeDeclaration>,
     pub public_items: Vec<PublicItem>,
     pub trait_contracts: Vec<TraitContract>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublicItem {
-    Function(FnDecl<DefinitionId>),
-    Const(ConstDef<DefinitionId>),
-    Type(TypeDef<DefinitionId>),
-    Trait(TraitDef<DefinitionId>),
+    Function(FnDecl),
+    Const(ConstDef),
+    Type(TypeDef),
+    Trait(TraitDef),
     InterfaceTable(Box<InterfaceTable>),
     InherentTable(Box<InherentTable>),
 }
@@ -101,16 +101,16 @@ impl PublicItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceTable {
-    pub associated_type_families: Vec<AssociatedTypeFamily<DefinitionId>>,
-    pub associated_consts: Vec<ConstDef<DefinitionId>>,
+    pub associated_type_families: Vec<AssociatedTypeFamily>,
+    pub associated_consts: Vec<ConstDef>,
     pub host_bridge: bool,
     pub declaration: DefinitionId,
     pub name: String,
-    pub generic_params: Vec<GenericParam<DefinitionId>>,
-    pub bounds: Vec<GenericBound<DefinitionId>>,
-    pub trait_type: Ty<DefinitionId>,
-    pub for_type: Ty<DefinitionId>,
-    pub methods: Vec<FnDecl<DefinitionId>>,
+    pub generic_params: Vec<GenericParam>,
+    pub bounds: Vec<GenericBound>,
+    pub trait_type: Ty,
+    pub for_type: Ty,
+    pub methods: Vec<FnDecl>,
 }
 
 impl InterfaceTable {
@@ -122,8 +122,8 @@ impl InterfaceTable {
     /// validity, bounds and method slots.
     pub fn instantiate(
         &self,
-        arguments: &[Ty<DefinitionId>],
-        parameters: &[GenericParam<DefinitionId>],
+        arguments: &[Ty],
+        parameters: &[GenericParam],
         table: &DefinitionTable,
     ) -> Option<Self> {
         if arguments.len() != self.generic_params.len()
@@ -136,7 +136,7 @@ impl InterfaceTable {
         for (parameter, argument) in self.generic_params.iter().zip(arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
-        let apply = |ty: &Ty<DefinitionId>| substitution.apply(ty, &cancel).ok();
+        let apply = |ty: &Ty| substitution.apply(ty, &cancel).ok();
         let methods = self
             .methods
             .iter()
@@ -206,7 +206,7 @@ pub fn interface_method_types(
     owner: &ModuleIdentity,
     public_items: &[PublicItem],
     trait_contracts: &[TraitContract],
-    interface: &NominalTy<DefinitionId>,
+    interface: &NominalTy,
     slot: usize,
     definitions: &DefinitionTable,
 ) -> Option<(Vec<ValueType>, ValueType)> {
@@ -228,10 +228,10 @@ pub fn interface_method_semantics(
     owner: &ModuleIdentity,
     public_items: &[PublicItem],
     trait_contracts: &[TraitContract],
-    interface: &NominalTy<DefinitionId>,
+    interface: &NominalTy,
     slot: usize,
     definitions: &DefinitionTable,
-) -> Option<(Vec<Ty<DefinitionId>>, Ty<DefinitionId>)> {
+) -> Option<(Vec<Ty>, Ty)> {
     if definitions
         .resolve(interface.declaration)
         .map(|view| view.module())
@@ -272,14 +272,14 @@ pub fn interface_method_semantics(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitContract {
     pub declaration: DefinitionId,
-    pub abi: TraitDef<DefinitionId>,
+    pub abi: TraitDef,
 }
 
 /// Concrete executable identity; diagnostic function names are not binding keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConcreteFunctionIdentity {
     pub declaration: DefinitionId,
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
 }
 
 /// Resolve a trait only within its defining executable module. Standard traits
@@ -290,7 +290,7 @@ pub fn trait_contract<'a>(
     private: &'a [TraitContract],
     id: &DefinitionId,
     definitions: &DefinitionTable,
-) -> Option<&'a TraitDef<DefinitionId>> {
+) -> Option<&'a TraitDef> {
     let view = definitions.resolve(*id).ok()?;
     let part = view.last()?;
     if view.module() != owner
@@ -318,7 +318,7 @@ pub fn type_contract<'a>(
     items: &'a [PublicItem],
     id: &DefinitionId,
     definitions: &DefinitionTable,
-) -> Option<&'a TypeDef<DefinitionId>> {
+) -> Option<&'a TypeDef> {
     let view = definitions.resolve(*id).ok()?;
     let part = view.last()?;
     if view.module() != owner || view.segments().count() != 1 || part.occurrence != 0 {

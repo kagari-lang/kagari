@@ -1,6 +1,5 @@
 use crate::{module::BytecodeModule, trait_bounds::contract};
 use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::types::{
     InterfaceTable,
     proofs::{ProofCatalog, host_application},
@@ -17,8 +16,8 @@ use kagari_types::{
 
 /// Discharge family parameter bounds after validating the carried applications.
 fn projection_bounds_valid(
-    ty: &Ty<DefinitionId>,
-    assumptions: &[GenericBound<DefinitionId>],
+    ty: &Ty,
+    assumptions: &[GenericBound],
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
@@ -130,8 +129,8 @@ fn projection_bounds_valid(
 
 pub(super) fn associated_bounds_match(
     table: &InterfaceTable,
-    interface: &NominalTy<DefinitionId>,
-    record: &TraitDef<DefinitionId>,
+    interface: &NominalTy,
+    record: &TraitDef,
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
@@ -239,7 +238,7 @@ pub(super) fn host_bounds_match(
                     constraints: member.bounds.clone(),
                 });
             }
-            let normalize = |ty: &Ty<DefinitionId>| {
+            let normalize = |ty: &Ty| {
                 let ty = resolve_associated_outputs(
                     ty,
                     &applied,

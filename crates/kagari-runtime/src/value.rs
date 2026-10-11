@@ -121,12 +121,7 @@ enum KeyPart {
     U64(u64),
     Str(String),
     Tuple(usize),
-    DeclaredEnum(
-        HostRegistryId,
-        DefinitionId,
-        Vec<Ty<DefinitionId>>,
-        DefinitionId,
-    ),
+    DeclaredEnum(HostRegistryId, DefinitionId, Vec<Ty>, DefinitionId),
     Identity(u8, HeapObjectId),
 }
 

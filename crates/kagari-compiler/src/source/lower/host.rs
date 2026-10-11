@@ -22,7 +22,7 @@ pub(super) fn collect(
     functions: &[MirFunction],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-) -> Result<Vec<HostTypeDeclaration<DefinitionId>>, MirLoweringError> {
+) -> Result<Vec<HostTypeDeclaration>, MirLoweringError> {
     let mut pending: Vec<_> = roots.into_iter().collect();
     for instruction in functions
         .iter()

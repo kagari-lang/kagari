@@ -34,7 +34,7 @@ use kagari_common::{
         map::{DefinitionContext, DefinitionMap},
         mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTable},
+        table::DefinitionTable,
     },
     span::Span,
 };
@@ -108,7 +108,7 @@ pub struct BindingInfo {
 
 impl FileAnalysis {
     /// Returns the registered host field selected at an expression or assignment member name.
-    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration<DefinitionId>> {
+    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
         let facts = self.result.records().facts();
         let expressions = facts
             .lowered
@@ -219,10 +219,7 @@ impl FileAnalysis {
     }
 
     /// Finds the registered host function referenced at this byte offset.
-    pub fn host_function_at(
-        &self,
-        offset: usize,
-    ) -> Option<&HostFunctionDeclaration<DefinitionId>> {
+    pub fn host_function_at(&self, offset: usize) -> Option<&HostFunctionDeclaration> {
         let facts = self.result.records().facts();
         facts
             .lowered
@@ -279,7 +276,7 @@ impl FileAnalysis {
     }
 
     /// Portable host documentation has no synthetic source-file location.
-    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration<DefinitionId>> {
+    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
         let facts = self.result.records().facts();
         if let Some((index, _)) = facts
             .lowered

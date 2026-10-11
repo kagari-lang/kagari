@@ -150,11 +150,7 @@ pub(super) fn validate(
     Ok(())
 }
 
-fn implementation_matches(
-    id: &DefinitionId,
-    expected: &ImplDecl<DefinitionId>,
-    actual: &InterfaceTable,
-) -> bool {
+fn implementation_matches(id: &DefinitionId, expected: &ImplDecl, actual: &InterfaceTable) -> bool {
     // The compiler materializes omitted defaults on its real executable table.
     // Match the registered header and every explicit native method; defaults are
     // independently checked against the exact carried trait/template contracts.

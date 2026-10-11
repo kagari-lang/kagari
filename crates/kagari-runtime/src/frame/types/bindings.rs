@@ -14,15 +14,15 @@ use std::sync::Arc;
 /// Checked associated-type facts; contains no selected operation or environment.
 #[derive(Debug, Clone)]
 pub(crate) struct AssociatedInterface {
-    pub(crate) receiver: Ty<DefinitionId>,
-    pub(crate) interface: NominalTy<DefinitionId>,
+    pub(crate) receiver: Ty,
+    pub(crate) interface: NominalTy,
     pub(crate) owner: LoadedModule,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct TypeBindings {
     definitions: DefinitionContext,
-    parameters: Arc<[GenericParam<DefinitionId>]>,
+    parameters: Arc<[GenericParam]>,
     arguments: Arc<[TypeArgument]>,
     parent: Option<Arc<TypeBindings>>,
     pub(super) associated_interfaces: Arc<Vec<AssociatedInterface>>,
@@ -31,7 +31,7 @@ pub(crate) struct TypeBindings {
 impl TypeBindings {
     pub(crate) fn new(
         definitions: &DefinitionContext,
-        parameters: Vec<GenericParam<DefinitionId>>,
+        parameters: Vec<GenericParam>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
         if parameters.len() != arguments.len()
@@ -114,7 +114,7 @@ impl TypeBindings {
         offset == body.parameters.len()
     }
 
-    pub(crate) fn resolve(&self, ty: &Ty<DefinitionId>) -> Result<Ty<DefinitionId>, RuntimeError> {
+    pub(crate) fn resolve(&self, ty: &Ty) -> Result<Ty, RuntimeError> {
         let result = substitute_parameters(
             ty,
             &|owner, position| self.argument(owner, position).map(TypeArgument::ty),
@@ -143,10 +143,10 @@ impl TypeBindings {
 
     pub(crate) fn associated_output(
         &self,
-        receiver: &Ty<DefinitionId>,
-        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty,
+        interface: &NominalTy,
         member: DefinitionId,
-    ) -> Option<(&Ty<DefinitionId>, &LoadedModule)> {
+    ) -> Option<(&Ty, &LoadedModule)> {
         self.associated_interfaces
             .iter()
             .find_map(|fact| {
@@ -174,8 +174,8 @@ impl TypeBindings {
 
     pub(crate) fn resolve_requirement(
         &self,
-        required: &NativeCallableRequirement<DefinitionId>,
-    ) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
+        required: &NativeCallableRequirement,
+    ) -> Result<NativeCallableRequirement, RuntimeError> {
         let Ty::Trait(interface) = self.resolve(&Ty::Trait(required.interface.clone()))? else {
             return Err(RuntimeError::module_validation("constraint interface type"));
         };

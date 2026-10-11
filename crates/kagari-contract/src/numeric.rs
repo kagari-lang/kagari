@@ -2,7 +2,6 @@
 
 pub mod method;
 
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
 use serde::{Deserialize, Serialize};
 
@@ -15,9 +14,9 @@ pub struct NumericOperation {
 
 /// Checked operand and result types of an integer operation.
 pub struct NumericSignature {
-    pub left: Ty<DefinitionId>,
-    pub right: Option<Ty<DefinitionId>>,
-    pub output: Ty<DefinitionId>,
+    pub left: Ty,
+    pub right: Option<Ty>,
+    pub output: Ty,
 }
 
 impl NumericOperation {
@@ -49,7 +48,7 @@ pub struct NumericConversion {
 }
 
 impl NumericConversion {
-    pub fn contract(self) -> Option<(Ty<DefinitionId>, Ty<DefinitionId>)> {
+    pub fn contract(self) -> Option<(Ty, Ty)> {
         self.source
             .can_cast_to(self.target)
             .then_some((Ty::Builtin(self.source), Ty::Builtin(self.target)))

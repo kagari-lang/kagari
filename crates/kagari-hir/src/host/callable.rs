@@ -26,7 +26,7 @@ pub(super) struct HostSignature {
 }
 
 impl HostSignature {
-    pub(super) fn new(declaration: &HostFunctionDeclaration<DefinitionId>) -> Self {
+    pub(super) fn new(declaration: &HostFunctionDeclaration) -> Self {
         Self {
             params: declaration
                 .params
@@ -43,14 +43,14 @@ impl HostSignature {
 #[derive(Debug, Clone, Copy)]
 pub struct HostCallable<'a> {
     pub(super) id: HostFunctionId,
-    pub(super) declaration: &'a HostFunctionDeclaration<DefinitionId>,
+    pub(super) declaration: &'a HostFunctionDeclaration,
     pub(super) signature: &'a HostSignature,
     pub(super) origin: Option<&'a HostDeclarationOrigin>,
 }
 
 impl HostCallable<'_> {
     /// Borrows the original installed parameter/result/effect contract.
-    pub fn contract(&self) -> &HostFunctionDeclaration<DefinitionId> {
+    pub fn contract(&self) -> &HostFunctionDeclaration {
         self.declaration
     }
 

@@ -19,7 +19,7 @@ pub(super) fn contract(
     ids: &DefinitionContext,
     kind: RegistrationTrait,
     parameters: &[&str],
-) -> Result<TraitDef<DefinitionId>, DeclarationError> {
+) -> Result<TraitDef, DeclarationError> {
     let owner = key::identity(ids, kind)?;
     Ok(TraitDef {
         conversion_adapter: None,
@@ -41,7 +41,7 @@ pub(super) fn contract(
 pub(super) fn receiver(
     ids: &DefinitionContext,
     kind: RegistrationTrait,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+) -> Result<Ty, DeclarationError> {
     Ok(Ty::SelfType(key::identity(ids, kind)?))
 }
 
@@ -49,8 +49,8 @@ pub(super) fn associated(
     ids: &DefinitionContext,
     owner: &DefinitionId,
     name: &str,
-    bounds: Vec<Constraint<DefinitionId>>,
-) -> Result<AssociatedTypeDef<DefinitionId>, DeclarationError> {
+    bounds: Vec<Constraint>,
+) -> Result<AssociatedTypeDef, DeclarationError> {
     Ok(AssociatedTypeDef {
         declaration: identities::associated(ids, owner, name)?,
         generic_params: vec![],
@@ -59,11 +59,7 @@ pub(super) fn associated(
     })
 }
 
-pub(super) fn method(
-    name: &str,
-    params: Vec<Ty<DefinitionId>>,
-    result: Ty<DefinitionId>,
-) -> FnDecl<DefinitionId> {
+pub(super) fn method(name: &str, params: Vec<Ty>, result: Ty) -> FnDecl {
     FnDecl {
         name: name.into(),
         method_policy: MethodPolicy::default(),
@@ -90,8 +86,8 @@ pub(super) fn method(
 pub(super) fn enum_type(
     ids: &DefinitionContext,
     name: &str,
-    arguments: Vec<Ty<DefinitionId>>,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+    arguments: Vec<Ty>,
+) -> Result<Ty, DeclarationError> {
     Ok(Ty::Enum(NominalTy {
         declaration: identities::definition(ids, DefinitionKind::Enum, name)?,
         arguments,
@@ -99,30 +95,27 @@ pub(super) fn enum_type(
     }))
 }
 
-pub(super) fn option(
-    ids: &DefinitionContext,
-    item: Ty<DefinitionId>,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+pub(super) fn option(ids: &DefinitionContext, item: Ty) -> Result<Ty, DeclarationError> {
     enum_type(ids, "Option", vec![item])
 }
 
-pub(super) fn unit() -> Ty<DefinitionId> {
+pub(super) fn unit() -> Ty {
     Ty::Builtin(BuiltinType::Unit)
 }
 
-pub(super) fn usize_type() -> Ty<DefinitionId> {
+pub(super) fn usize_type() -> Ty {
     Ty::Builtin(BuiltinType::USize)
 }
 
-pub(super) fn boolean() -> Ty<DefinitionId> {
+pub(super) fn boolean() -> Ty {
     Ty::Builtin(BuiltinType::Bool)
 }
 
 pub(super) fn applied_item(
     ids: &DefinitionContext,
     kind: RegistrationTrait,
-    item: Ty<DefinitionId>,
-) -> Result<NominalTy<DefinitionId>, DeclarationError> {
+    item: Ty,
+) -> Result<NominalTy, DeclarationError> {
     let mut applied = key::applied(ids, kind, vec![])?;
     applied.associated_types.insert(
         identities::associated(ids, &applied.declaration, "Item")?,
@@ -155,10 +148,7 @@ pub(super) fn declare(
 }
 
 /// The concrete growable list type in the assembly; partitioning assigns its owner.
-pub(super) fn vec_type(
-    ids: &DefinitionContext,
-    item: Ty<DefinitionId>,
-) -> Result<Ty<DefinitionId>, DeclarationError> {
+pub(super) fn vec_type(ids: &DefinitionContext, item: Ty) -> Result<Ty, DeclarationError> {
     Ok(Ty::NativeObject(NominalTy {
         declaration: identities::definition(ids, DefinitionKind::AssociatedType, "Vec")?,
         arguments: vec![item],

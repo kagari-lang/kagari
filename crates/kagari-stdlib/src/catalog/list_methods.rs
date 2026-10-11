@@ -3,7 +3,7 @@ use crate::catalog::{
     contracts, identities,
     key::{self, RegistrationTrait},
 };
-use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
     declaration::{
@@ -157,11 +157,11 @@ fn comparison(name: &str) -> Option<RegistrationTrait> {
 
 fn requirement(
     ids: &DefinitionContext,
-    receiver: Ty<DefinitionId>,
+    receiver: Ty,
     protocol: RegistrationTrait,
-    arguments: Vec<Ty<DefinitionId>>,
+    arguments: Vec<Ty>,
     member: &str,
-) -> Result<NativeCallableRequirement<DefinitionId>, DeclarationError> {
+) -> Result<NativeCallableRequirement, DeclarationError> {
     let interface = key::applied(ids, protocol, arguments)?;
     Ok(NativeCallableRequirement {
         receiver,
@@ -173,10 +173,10 @@ fn requirement(
 
 fn calls(
     ids: &DefinitionContext,
-    method: &FnDecl<DefinitionId>,
-    item: Ty<DefinitionId>,
+    method: &FnDecl,
+    item: Ty,
     generic_receiver: bool,
-) -> Result<Vec<NativeCallableRequirement<DefinitionId>>, DeclarationError> {
+) -> Result<Vec<NativeCallableRequirement>, DeclarationError> {
     let mut calls = vec![];
     if let Some(protocol) = comparison(&method.name) {
         let key = if method.name.ends_with("_by_key") {
@@ -244,8 +244,8 @@ fn default(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
     protocol: RegistrationTrait,
-    item: &Ty<DefinitionId>,
-    method: &mut FnDecl<DefinitionId>,
+    item: &Ty,
+    method: &mut FnDecl,
 ) -> Result<(), DeclarationError> {
     let owner = key::identity(ids, protocol)?;
     let name = format!("__default_{}_{}", protocol.name(), method.name);

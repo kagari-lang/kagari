@@ -15,7 +15,6 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, EnumId, StructId},
     module::BytecodeFunction,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 use std::{
     collections::HashMap,
@@ -37,7 +36,7 @@ enum Aggregate {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct LayoutOperand {
     aggregate: Aggregate,
-    arguments: Box<[Ty<DefinitionId>]>,
+    arguments: Box<[Ty]>,
 }
 
 #[derive(Debug)]

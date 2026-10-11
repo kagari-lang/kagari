@@ -3,27 +3,18 @@ use crate::ty::{
     NominalTy, Ty,
     substitution::{TypeSubstitution, TypeTransformError},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
-};
-use serde::{Deserialize, Serialize};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 
 mod mapping;
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct NativeCallableRequirement<I = DefinitionPath> {
-    pub receiver: Ty<I>,
-    pub interface: NominalTy<I>,
-    pub member: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NativeCallableRequirement {
+    pub receiver: Ty,
+    pub interface: NominalTy,
+    pub member: DefinitionId,
+    pub arguments: Vec<Ty>,
 }
 
-impl NativeCallableRequirement<DefinitionId> {
+impl NativeCallableRequirement {
     pub fn apply(
         &self,
         substitution: &TypeSubstitution<'_>,

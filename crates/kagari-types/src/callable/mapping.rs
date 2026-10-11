@@ -3,34 +3,33 @@ use crate::callable::{CallableImplementation, NativeDefaultApplication, Signatur
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for CallableImplementation<I> {
-    type Rebind<J: DefinitionReference> = CallableImplementation<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for CallableImplementation {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Required => CallableImplementation::Required,
             Self::Script => CallableImplementation::Script,
             Self::Native(field0) => CallableImplementation::Native(mapper.reference(field0)?),
             Self::NativeDefault(field0) => {
-                CallableImplementation::NativeDefault((field0).map_identities(mapper)?)
+                CallableImplementation::NativeDefault((field0).remap_definitions(mapper)?)
             }
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for CallableImplementation {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -42,65 +41,65 @@ impl<I: DefinitionReference> DefinitionRecord<I> for CallableImplementation<I> {
                 visit(field0)?;
             }
             Self::NativeDefault(field0) => {
-                (field0).visit_definitions(visit, cancel)?;
+                (field0).visit_definition_ids(visit, cancel)?;
             }
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for NativeDefaultApplication<I> {
-    type Rebind<J: DefinitionReference> = NativeDefaultApplication<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for NativeDefaultApplication {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeDefaultApplication {
             declaration: mapper.reference(&self.declaration)?,
-            arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
+            arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for NativeDefaultApplication {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for Signature<I> {
-    type Rebind<J: DefinitionReference> = Signature<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for Signature {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(Signature {
-            params: map_sequence(&self.params, |value| (value).map_identities(mapper))?,
-            result: self.result.map_identities(mapper)?,
+            params: map_sequence(&self.params, |value| (value).remap_definitions(mapper))?,
+            result: self.result.remap_definitions(mapper)?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for Signature {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in &self.params {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
-        self.result.visit_definitions(visit, cancel)?;
+        self.result.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

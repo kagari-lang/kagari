@@ -43,7 +43,7 @@ impl Runtime {
     pub fn alloc_array(
         &self,
         owner: &LoadedModule,
-        element: Ty<DefinitionId>,
+        element: Ty,
         elements: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.validate_loaded_module(owner)?;
@@ -54,7 +54,7 @@ impl Runtime {
     pub fn alloc_array_repeat(
         &self,
         owner: &LoadedModule,
-        element: Ty<DefinitionId>,
+        element: Ty,
         value: Value,
         count: usize,
     ) -> Result<HeapObjectId, RuntimeError> {
@@ -404,7 +404,7 @@ impl Runtime {
     fn parent_snapshot(
         &self,
         id: InterfaceSnapshotId,
-        target: &NominalTy<DefinitionId>,
+        target: &NominalTy,
     ) -> Result<InterfaceSnapshotId, RuntimeError> {
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
@@ -509,7 +509,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         value: &value::Value,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         op: IterOp,
     ) -> Result<value::Value, RuntimeError> {
         let ty = self
@@ -731,8 +731,8 @@ impl Runtime {
     pub fn upcast_interface(
         &self,
         value: &value::Value,
-        source: &NominalTy<DefinitionId>,
-        target: &NominalTy<DefinitionId>,
+        source: &NominalTy,
+        target: &NominalTy,
     ) -> Result<value::Value, RuntimeError> {
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
@@ -757,7 +757,7 @@ impl Runtime {
     pub fn resolve_interface_method_slot(
         &self,
         value: &Value,
-        interface: &NominalTy<DefinitionId>,
+        interface: &NominalTy,
         slot: usize,
         arguments: &[TypeArgument],
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
@@ -773,7 +773,7 @@ impl Runtime {
     pub(crate) fn prepare_interface_method_slot(
         &self,
         value: &Value,
-        interface: &NominalTy<DefinitionId>,
+        interface: &NominalTy,
         slot: usize,
         arguments: &[TypeArgument],
         operations: OperationBindings,
@@ -798,7 +798,7 @@ impl Runtime {
     fn select_interface_snapshot(
         &self,
         value: &Value,
-        interface: &NominalTy<DefinitionId>,
+        interface: &NominalTy,
     ) -> Result<InterfaceSnapshotId, RuntimeError> {
         let Value::Interface(id) = value else {
             return Err(RuntimeError::new(

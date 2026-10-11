@@ -6,65 +6,64 @@ use crate::host_interface::path::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostPathDeclaration<I> {
-    type Rebind<J: DefinitionReference> = HostPathDeclaration<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostPathDeclaration {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostPathDeclaration {
             root: mapper.reference(&self.root)?,
-            segments: map_sequence(&self.segments, |value| (value).map_identities(mapper))?,
+            segments: map_sequence(&self.segments, |value| (value).remap_definitions(mapper))?,
             access: self.access,
             schema_epoch: self.schema_epoch,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostPathDeclaration {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.root)?;
         for value0 in &self.segments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentDeclaration<I> {
-    type Rebind<J: DefinitionReference> = HostPathSegmentDeclaration<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostPathSegmentDeclaration {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Field(field0) => HostPathSegmentDeclaration::Field(mapper.reference(field0)?),
             Self::Index(field0) => {
-                HostPathSegmentDeclaration::Index((field0).map_identities(mapper)?)
+                HostPathSegmentDeclaration::Index((field0).remap_definitions(mapper)?)
             }
             Self::Virtual(field0) => {
-                HostPathSegmentDeclaration::Virtual((field0).map_identities(mapper)?)
+                HostPathSegmentDeclaration::Virtual((field0).remap_definitions(mapper)?)
             }
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostPathSegmentDeclaration {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
@@ -74,83 +73,81 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentDeclaration<
                 visit(field0)?;
             }
             Self::Index(field0) => {
-                (field0).visit_definitions(visit, cancel)?;
+                (field0).visit_definition_ids(visit, cancel)?;
             }
             Self::Virtual(field0) => {
-                (field0).visit_definitions(visit, cancel)?;
+                (field0).visit_definition_ids(visit, cancel)?;
             }
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostIndexSegmentDeclaration<I> {
-    type Rebind<J: DefinitionReference> = HostIndexSegmentDeclaration<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostIndexSegmentDeclaration {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostIndexSegmentDeclaration {
             slot: self.slot,
-            collection: self.collection.map_identities(mapper)?,
-            index: self.index.map_identities(mapper)?,
-            result: self.result.map_identities(mapper)?,
+            collection: self.collection.remap_definitions(mapper)?,
+            index: self.index.remap_definitions(mapper)?,
+            result: self.result.remap_definitions(mapper)?,
             access: self.access,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostIndexSegmentDeclaration {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.collection.visit_definitions(visit, cancel)?;
-        self.index.visit_definitions(visit, cancel)?;
-        self.result.visit_definitions(visit, cancel)?;
+        self.collection.visit_definition_ids(visit, cancel)?;
+        self.index.visit_definition_ids(visit, cancel)?;
+        self.result.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostVirtualSegmentDeclaration<I> {
-    type Rebind<J: DefinitionReference> = HostVirtualSegmentDeclaration<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostVirtualSegmentDeclaration {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostVirtualSegmentDeclaration {
             name: self.name.clone(),
-            result: self.result.map_identities(mapper)?,
+            result: self.result.remap_definitions(mapper)?,
             access: self.access,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostVirtualSegmentDeclaration {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.result.visit_definitions(visit, cancel)?;
+        self.result.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostPathInput<I> {
-    type Rebind<J: DefinitionReference> = HostPathInput<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostPathInput {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
             Self::Field { owner } => HostPathInput::Field {
-                owner: (owner).map_identities(mapper)?,
+                owner: (owner).remap_definitions(mapper)?,
             },
             Self::Index {
                 slot,
@@ -158,32 +155,34 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathInput<I> {
                 index,
             } => HostPathInput::Index {
                 slot: *(slot),
-                collection: (collection).map_identities(mapper)?,
-                index: (index).map_identities(mapper)?,
+                collection: (collection).remap_definitions(mapper)?,
+                index: (index).remap_definitions(mapper)?,
             },
             Self::Virtual { name } => HostPathInput::Virtual {
                 name: (name).clone(),
             },
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostPathInput {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
             Self::Field { owner } => {
-                (owner).visit_definitions(visit, cancel)?;
+                (owner).visit_definition_ids(visit, cancel)?;
             }
             Self::Index {
                 slot: _,
                 collection,
                 index,
             } => {
-                (collection).visit_definitions(visit, cancel)?;
-                (index).visit_definitions(visit, cancel)?;
+                (collection).visit_definition_ids(visit, cancel)?;
+                (index).visit_definition_ids(visit, cancel)?;
             }
             Self::Virtual { name: _ } => {}
         }
@@ -191,60 +190,60 @@ impl<I: DefinitionReference> DefinitionRecord<I> for HostPathInput<I> {
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostPathSegmentContract<I> {
-    type Rebind<J: DefinitionReference> = HostPathSegmentContract<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostPathSegmentContract {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostPathSegmentContract {
-            input: self.input.map_identities(mapper)?,
-            result: self.result.map_identities(mapper)?,
+            input: self.input.remap_definitions(mapper)?,
+            result: self.result.remap_definitions(mapper)?,
             access: self.access,
             member_fingerprint: self.member_fingerprint,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostPathSegmentContract {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.input.visit_definitions(visit, cancel)?;
-        self.result.visit_definitions(visit, cancel)?;
+        self.input.visit_definition_ids(visit, cancel)?;
+        self.result.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for HostPathContract<I> {
-    type Rebind<J: DefinitionReference> = HostPathContract<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for HostPathContract {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostPathContract {
             root_fingerprint: self.root_fingerprint,
-            result: self.result.map_identities(mapper)?,
+            result: self.result.remap_definitions(mapper)?,
             schema_epoch: self.schema_epoch,
             access: self.access,
-            segments: map_sequence(&self.segments, |value| (value).map_identities(mapper))?,
+            segments: map_sequence(&self.segments, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for HostPathContract {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.result.visit_definitions(visit, cancel)?;
+        self.result.visit_definition_ids(visit, cancel)?;
         for value0 in &self.segments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

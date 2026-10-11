@@ -18,12 +18,8 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        ModuleIdentity,
-        map::DefinitionContext,
-        mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata,
-        scoped::DefinitionReferences,
-        table::{DefinitionId, DefinitionTable},
+        ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata, scoped::DefinitionReferences, table::DefinitionTable,
     },
 };
 use kagari_contract::{
@@ -511,7 +507,7 @@ pub struct ArtifactFingerprint(pub u64);
 impl ArtifactFingerprint {
     /// Canonical required ABI set; documentation and import slot order do not affect it.
     pub fn of_host_interface(
-        interface: &HostInterface<DefinitionId>,
+        interface: &HostInterface,
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError> {
         let cancel = CancellationToken::default();

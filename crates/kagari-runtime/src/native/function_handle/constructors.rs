@@ -11,7 +11,7 @@ use crate::{
         function_handle::{PinnedFunction, evidence::EntryEvidence},
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, table::DefinitionId};
+use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
 use kagari_contract::types::{PublicItem, inherent::InherentTable};
 use kagari_types::{
     collection::CollectionAccess,
@@ -55,7 +55,7 @@ impl Runtime {
     fn bind_hash_constructor<R: KagariType + 'static>(
         &self,
         owner: &LoadedModule,
-        receiver: Ty<DefinitionId>,
+        receiver: Ty,
         arguments: &[TypeArgument],
     ) -> NativeResult<PinnedFunction<(), R>> {
         self.gc().ensure_no_native_borrow()?;

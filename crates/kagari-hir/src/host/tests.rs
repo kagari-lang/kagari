@@ -75,7 +75,7 @@ fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
     );
 }
 
-pub(super) fn declaration(context: &DefinitionContext) -> HostFunctionDeclaration<DefinitionId> {
+pub(super) fn declaration(context: &DefinitionContext) -> HostFunctionDeclaration {
     let mut declaration = HostFunctionDeclaration::new(
         context,
         "demo.echo",
@@ -349,7 +349,7 @@ fn host_catalog_rejects_ambiguous_or_unspellable_paths() {
 /// remains with HostDeclarations, including fixtures intentionally made invalid.
 pub(super) fn metadata(
     context: &DefinitionContext,
-    interface: HostInterface<DefinitionId>,
-) -> DefinitionMetadata<HostInterface<DefinitionId>> {
+    interface: HostInterface,
+) -> DefinitionMetadata<HostInterface> {
     DefinitionMetadata::checked(context.snapshot(), interface, &Default::default()).unwrap()
 }

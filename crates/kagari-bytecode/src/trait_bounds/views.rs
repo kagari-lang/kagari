@@ -160,9 +160,9 @@ pub fn links(
 }
 
 fn select(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
-    scope: &[GenericParam<DefinitionId>],
+    interface: &NominalTy,
+    receiver: &Ty,
+    scope: &[GenericParam],
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,

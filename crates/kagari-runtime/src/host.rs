@@ -253,14 +253,14 @@ pub struct HostPathDescriptorRegistration {
     pub definitions: DefinitionTable,
     pub root_type: TypeId,
     pub result_type: TypeId,
-    pub segments: Vec<HostPathSegmentDeclaration<DefinitionId>>,
+    pub segments: Vec<HostPathSegmentDeclaration>,
     pub access: PathAccess,
     pub schema_epoch: HostSchemaEpoch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathDescriptor {
-    pub declaration: HostPathDeclaration<DefinitionId>,
+    pub declaration: HostPathDeclaration,
     pub id: HostPathDescriptorId,
     pub root_type: TypeId,
     pub result_type: TypeId,
@@ -277,7 +277,7 @@ impl HostPathDescriptor {
         registration: HostPathDescriptorRegistration,
         segments: Vec<HostPathSegment>,
         abi_fingerprint: AbiFingerprint,
-        declaration: HostPathDeclaration<DefinitionId>,
+        declaration: HostPathDeclaration,
     ) -> Result<Self, RuntimeError> {
         validate_path_access(registration.access, "path descriptor")?;
         let dynamic_parameters = collect_dynamic_parameters(&segments)?;
@@ -885,13 +885,13 @@ impl HostFunctionId {
 /// A host type input with its checked identity scope, before semantic validation.
 #[derive(Debug, Clone)]
 pub struct HostTypeRegistration {
-    pub declaration: DefinitionMetadata<HostTypeDeclaration<DefinitionId>>,
+    pub declaration: DefinitionMetadata<HostTypeDeclaration>,
     pub rust_type_name: String,
 }
 
 impl HostTypeRegistration {
     pub fn new(
-        declaration: DefinitionMetadata<HostTypeDeclaration<DefinitionId>>,
+        declaration: DefinitionMetadata<HostTypeDeclaration>,
         rust_type_name: impl Into<String>,
     ) -> Self {
         Self {
@@ -905,7 +905,7 @@ impl HostTypeRegistration {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostTypeInfo {
     pub type_id: TypeId,
-    pub declaration: HostTypeDeclaration<DefinitionId>,
+    pub declaration: HostTypeDeclaration,
     pub rust_type_name: String,
     pub abi_fingerprint: AbiFingerprint,
 }
@@ -983,7 +983,7 @@ pub type HostCallback =
 #[derive(Clone)]
 pub struct HostFunction {
     id: Option<HostFunctionId>,
-    declaration: HostFunctionDeclaration<DefinitionId>,
+    declaration: HostFunctionDeclaration,
     definitions: DefinitionTable,
     handler: Arc<HostCallback>,
 }
@@ -1003,7 +1003,7 @@ impl fmt::Debug for HostFunction {
 
 impl HostFunction {
     pub fn method(
-        owner: &DefinitionMetadata<HostTypeDeclaration<DefinitionId>>,
+        owner: &DefinitionMetadata<HostTypeDeclaration>,
         method: DefinitionId,
         handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
         + Send
@@ -1024,7 +1024,7 @@ impl HostFunction {
     }
 
     pub fn new(
-        declaration: DefinitionMetadata<HostFunctionDeclaration<DefinitionId>>,
+        declaration: DefinitionMetadata<HostFunctionDeclaration>,
         handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
         + Send
         + Sync
@@ -1043,7 +1043,7 @@ impl HostFunction {
         self.id
     }
 
-    pub fn declaration(&self) -> &HostFunctionDeclaration<DefinitionId> {
+    pub fn declaration(&self) -> &HostFunctionDeclaration {
         &self.declaration
     }
 
@@ -1137,7 +1137,7 @@ impl HostFunction {
 fn host_value_matches(
     runtime: &Runtime,
     value: &Value,
-    ty: &HostValueType<DefinitionId>,
+    ty: &HostValueType,
 ) -> Result<bool, RuntimeError> {
     let heap = runtime.gc();
     let mut pending = vec![(*value, ty)];

@@ -12,10 +12,7 @@ use crate::host_interface::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::table::{
-        DefinitionId,
-        wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-    },
+    identity::table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
 };
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +23,7 @@ pub(in crate::host_interface) struct WireHostParameter {
     passing: HostPassingStyle,
 }
 
-impl Encode for HostParameter<DefinitionId> {
+impl Encode for HostParameter {
     type Wire = WireHostParameter;
 
     fn encode(
@@ -48,7 +45,7 @@ impl WireHostParameter {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostParameter<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostParameter, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostParameter {
             name: self.name,
@@ -69,7 +66,7 @@ pub struct WireHostFunctionDeclaration {
     documentation: String,
 }
 
-impl Encode for HostFunctionDeclaration<DefinitionId> {
+impl Encode for HostFunctionDeclaration {
     type Wire = WireHostFunctionDeclaration;
 
     fn encode(
@@ -98,7 +95,7 @@ impl WireHostFunctionDeclaration {
     /// Returns reference, bounded shape or cancellation errors without granting
     /// Host validation or execution evidence.
     pub fn encode(
-        value: &HostFunctionDeclaration<DefinitionId>,
+        value: &HostFunctionDeclaration,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, HostInterfaceError> {
@@ -109,7 +106,7 @@ impl WireHostFunctionDeclaration {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostFunctionDeclaration<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostFunctionDeclaration, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostFunctionDeclaration {
             id: decoding.resolve(self.id).map_err(identity_error)?,
@@ -138,7 +135,7 @@ pub(in crate::host_interface) struct WireHostFieldDeclaration {
     documentation: String,
 }
 
-impl Encode for HostFieldDeclaration<DefinitionId> {
+impl Encode for HostFieldDeclaration {
     type Wire = WireHostFieldDeclaration;
 
     fn encode(
@@ -165,7 +162,7 @@ impl WireHostFieldDeclaration {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostFieldDeclaration<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostFieldDeclaration, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostFieldDeclaration {
             id: decoding.resolve(self.id).map_err(identity_error)?,
@@ -192,7 +189,7 @@ pub(in crate::host_interface) struct WireHostMethodDeclaration {
     documentation: String,
 }
 
-impl Encode for HostMethodDeclaration<DefinitionId> {
+impl Encode for HostMethodDeclaration {
     type Wire = WireHostMethodDeclaration;
 
     fn encode(
@@ -222,7 +219,7 @@ impl WireHostMethodDeclaration {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostMethodDeclaration<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostMethodDeclaration, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostMethodDeclaration {
             id: decoding.resolve(self.id).map_err(identity_error)?,
@@ -246,7 +243,7 @@ pub(in crate::host_interface) struct WireHostTraitMethodBinding {
     host_method: PortableDefinitionRef,
 }
 
-impl Encode for HostTraitMethodBinding<DefinitionId> {
+impl Encode for HostTraitMethodBinding {
     type Wire = WireHostTraitMethodBinding;
 
     fn encode(
@@ -271,7 +268,7 @@ impl WireHostTraitMethodBinding {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostTraitMethodBinding<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostTraitMethodBinding, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostTraitMethodBinding {
             trait_method: decoding
@@ -288,7 +285,7 @@ pub(in crate::host_interface) struct WireHostAssociatedTypeBinding {
     ty: WireHostValueType,
 }
 
-impl Encode for HostAssociatedTypeBinding<DefinitionId> {
+impl Encode for HostAssociatedTypeBinding {
     type Wire = WireHostAssociatedTypeBinding;
 
     fn encode(
@@ -311,7 +308,7 @@ impl WireHostAssociatedTypeBinding {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostAssociatedTypeBinding<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostAssociatedTypeBinding, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostAssociatedTypeBinding {
             declaration: decoding.resolve(self.declaration).map_err(identity_error)?,
@@ -332,7 +329,7 @@ pub(in crate::host_interface) struct WireHostTraitImplementationDeclaration {
     documentation: String,
 }
 
-impl Encode for HostTraitImplementationDeclaration<DefinitionId> {
+impl Encode for HostTraitImplementationDeclaration {
     type Wire = WireHostTraitImplementationDeclaration;
 
     fn encode(
@@ -368,7 +365,7 @@ impl WireHostTraitImplementationDeclaration {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostTraitImplementationDeclaration<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostTraitImplementationDeclaration, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostTraitImplementationDeclaration {
             trait_id: decoding.resolve(self.trait_id).map_err(identity_error)?,
@@ -408,7 +405,7 @@ pub struct WireHostTypeDeclaration {
     documentation: String,
 }
 
-impl Encode for HostTypeDeclaration<DefinitionId> {
+impl Encode for HostTypeDeclaration {
     type Wire = WireHostTypeDeclaration;
 
     fn encode(
@@ -448,7 +445,7 @@ impl WireHostTypeDeclaration {
     /// Returns reference, bounded shape or cancellation errors without granting
     /// Host validation or execution evidence.
     pub fn encode(
-        value: &HostTypeDeclaration<DefinitionId>,
+        value: &HostTypeDeclaration,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, HostInterfaceError> {
@@ -459,7 +456,7 @@ impl WireHostTypeDeclaration {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<HostTypeDeclaration<DefinitionId>, HostInterfaceError> {
+    ) -> Result<HostTypeDeclaration, HostInterfaceError> {
         check_cancel(cancel)?;
         Ok(HostTypeDeclaration {
             id: decoding.resolve(self.id).map_err(identity_error)?,
@@ -525,7 +522,7 @@ mod tests {
         invalid.extend(VERSION.to_le_bytes());
         invalid.extend(codec().serialize(&envelope).unwrap());
         assert!(matches!(
-            HostInterface::<DefinitionId>::from_bytes(&invalid),
+            HostInterface::from_bytes(&invalid),
             Err(HostInterfaceError::InvalidDeclaration)
         ));
     }

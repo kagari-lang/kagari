@@ -9,10 +9,7 @@ use crate::{
         semantic::{lower_nominal_type, lower_type},
     },
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_types::{
     callable::Signature,
     declaration::requirement::NativeCallableRequirement,
@@ -24,9 +21,9 @@ pub struct ImplicitProtocolApplication {
     /// Recognized language protocol role.
     pub kind: Protocol,
     /// Applied native callable requirement used by executable metadata.
-    pub requirement: NativeCallableRequirement<DefinitionId>,
+    pub requirement: NativeCallableRequirement,
     /// Selected source-independent parameter/result contract.
-    pub signature: Signature<DefinitionId>,
+    pub signature: Signature,
 }
 
 impl AggregateCatalog {
@@ -39,7 +36,7 @@ impl AggregateCatalog {
     pub fn implicit_protocol_application(
         &self,
         definitions: &DefinitionTable,
-        required: &NativeCallableRequirement<DefinitionId>,
+        required: &NativeCallableRequirement,
         receiver: &TypeId,
         interface: &NominalType,
         cancel: &CancellationToken,

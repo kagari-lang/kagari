@@ -10,10 +10,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -30,7 +27,7 @@ pub struct NominalTyRecord {
 
 impl NominalTyRecord {
     pub fn encode(
-        value: &NominalTy<DefinitionId>,
+        value: &NominalTy,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -58,7 +55,7 @@ impl NominalTyRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<NominalTy<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<NominalTy, DefinitionMappingError> {
         check_cancel(cancel)?;
         let mut associated_types = BTreeMap::new();
         for (member, ty) in self.associated_types {
@@ -88,7 +85,7 @@ pub(super) enum ConstraintRecord {
 
 impl ConstraintRecord {
     pub(super) fn encode(
-        value: &Constraint<DefinitionId>,
+        value: &Constraint,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -105,7 +102,7 @@ impl ConstraintRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<Constraint<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<Constraint, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
             Self::Standard(value) => Constraint::Standard(value),
@@ -127,7 +124,7 @@ enum CallableImplementationKind {
 
 impl CallableImplementationRecord {
     pub fn encode(
-        value: &CallableImplementation<DefinitionId>,
+        value: &CallableImplementation,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -150,7 +147,7 @@ impl CallableImplementationRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<CallableImplementation<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<CallableImplementation, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self.0 {
             CallableImplementationKind::Required => CallableImplementation::Required,
@@ -182,7 +179,7 @@ pub(super) enum ConversionAdapterRecord {
 
 impl ConversionAdapterRecord {
     pub(super) fn encode(
-        value: &ConversionAdapter<DefinitionId>,
+        value: &ConversionAdapter,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -222,7 +219,7 @@ impl ConversionAdapterRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<ConversionAdapter<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<ConversionAdapter, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
             Self::Reverse {

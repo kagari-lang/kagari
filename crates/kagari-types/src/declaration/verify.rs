@@ -27,14 +27,14 @@ pub enum DeclarationValidationError {
 }
 pub type Parameters = HashSet<(DefinitionId, usize)>;
 
-fn scalar_const_type<I>(ty: &Ty<I>) -> bool {
+fn scalar_const_type(ty: &Ty) -> bool {
     matches!(
         ty,
         Ty::Builtin(BuiltinType::Unit | BuiltinType::Bool | BuiltinType::I32 | BuiltinType::F32)
     )
 }
 
-pub fn scalar_const_valid<I>(ty: &Ty<I>, value: &str) -> bool {
+pub fn scalar_const_valid(ty: &Ty, value: &str) -> bool {
     match ty {
         Ty::Builtin(BuiltinType::Unit) => value == "const-v1:unit",
         Ty::Builtin(BuiltinType::Bool) => {
@@ -56,11 +56,7 @@ pub fn scalar_const_valid<I>(ty: &Ty<I>, value: &str) -> bool {
     }
 }
 
-pub fn concrete_type_valid(
-    ty: &Ty<DefinitionId>,
-    cancel: &CancellationToken,
-    table: &DefinitionTable,
-) -> bool {
+pub fn concrete_type_valid(ty: &Ty, cancel: &CancellationToken, table: &DefinitionTable) -> bool {
     type_valid(ty, &Parameters::new(), None, cancel, table)
 }
 
@@ -69,7 +65,7 @@ pub fn concrete_type_valid(
 /// All IDs must belong to `table`; constraints use canonical definition content
 /// for ordering, so allocation order cannot change declaration validity.
 pub fn validate_native_declarations(
-    declarations: &[NativeDeclaration<DefinitionId>],
+    declarations: &[NativeDeclaration],
     module: &ModuleIdentity,
     table: &DefinitionTable,
     cancel: &CancellationToken,
@@ -129,10 +125,9 @@ pub fn validate_native_declarations(
                 .and_then(|view| view.last())
                 .is_some_and(|part| part.kind == DefinitionKind::Trait)
         });
-        let valid = |ty: &Ty<DefinitionId>| {
-            ty.within_wire_limits() && type_valid(ty, &params, self_owner, cancel, table)
-        };
-        let before = |left: &Ty<DefinitionId>, right: &Ty<DefinitionId>| {
+        let valid =
+            |ty: &Ty| ty.within_wire_limits() && type_valid(ty, &params, self_owner, cancel, table);
+        let before = |left: &Ty, right: &Ty| {
             left.canonical_cmp(right, table, cancel)
                 .is_ok_and(|order| order.is_lt())
         };
@@ -174,10 +169,10 @@ pub fn validate_native_declarations(
     Ok(())
 }
 
-fn bounds_with<I: DefinitionReference>(
-    bounds: &[GenericBound<I>],
-    valid: &impl Fn(&Ty<I>) -> bool,
-    before: &impl Fn(&Ty<I>, &Ty<I>) -> bool,
+fn bounds_with(
+    bounds: &[GenericBound],
+    valid: &impl Fn(&Ty) -> bool,
+    before: &impl Fn(&Ty, &Ty) -> bool,
 ) -> bool {
     bounds
         .windows(2)
@@ -189,10 +184,10 @@ fn bounds_with<I: DefinitionReference>(
         })
 }
 
-fn constraints_with<I: DefinitionReference>(
-    constraints: &[Constraint<I>],
-    valid: &impl Fn(&Ty<I>) -> bool,
-    before: &impl Fn(&Ty<I>, &Ty<I>) -> bool,
+fn constraints_with(
+    constraints: &[Constraint],
+    valid: &impl Fn(&Ty) -> bool,
+    before: &impl Fn(&Ty, &Ty) -> bool,
 ) -> bool {
     constraints
         .windows(2)
@@ -211,7 +206,7 @@ fn constraints_with<I: DefinitionReference>(
 }
 
 pub fn trait_valid(
-    ty: &TraitDef<DefinitionId>,
+    ty: &TraitDef,
     owner: DefinitionId,
     cancel: &CancellationToken,
     table: &DefinitionTable,
@@ -302,10 +297,7 @@ pub fn trait_valid(
         })
 }
 
-pub fn aggregate_shape_valid<I: DefinitionReference>(
-    ty: &TypeDef<I>,
-    cancel: &CancellationToken,
-) -> bool {
+pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
     if ty.name.is_empty()
         || match ty.kind {
             TypeDefKind::Struct => !ty.variants.is_empty(),
@@ -329,7 +321,7 @@ pub fn aggregate_shape_valid<I: DefinitionReference>(
 }
 
 pub fn parameters(
-    declared: &[GenericParam<DefinitionId>],
+    declared: &[GenericParam],
     owner: &DefinitionId,
     outer: &Parameters,
 ) -> Option<Parameters> {
@@ -344,7 +336,7 @@ pub fn parameters(
 }
 
 pub fn bounds_valid(
-    bounds: &[GenericBound<DefinitionId>],
+    bounds: &[GenericBound],
     params: &Parameters,
     cancel: &CancellationToken,
     table: &DefinitionTable,
@@ -353,7 +345,7 @@ pub fn bounds_valid(
 }
 
 fn bounds_valid_in(
-    bounds: &[GenericBound<DefinitionId>],
+    bounds: &[GenericBound],
     params: &Parameters,
     self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
@@ -370,8 +362,8 @@ fn bounds_valid_in(
 }
 
 pub fn native_bounds_valid(
-    bounds: &[GenericBound<DefinitionId>],
-    parameters: &[GenericParam<DefinitionId>],
+    bounds: &[GenericBound],
+    parameters: &[GenericParam],
     cancel: &CancellationToken,
     table: &DefinitionTable,
 ) -> bool {
@@ -393,7 +385,7 @@ pub fn native_bounds_valid(
 }
 
 fn constraints_valid(
-    constraints: &[Constraint<DefinitionId>],
+    constraints: &[Constraint],
     params: &Parameters,
     self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
@@ -410,7 +402,7 @@ fn constraints_valid(
 }
 
 pub fn function_valid(
-    function: &FnDecl<DefinitionId>,
+    function: &FnDecl,
     owner: DefinitionId,
     outer: &Parameters,
     self_owner: Option<&DefinitionId>,
@@ -484,8 +476,8 @@ pub fn function_valid(
 
 /// Check scoped type expressions without materializing owned paths.
 pub fn types_in_scope<'a>(
-    types: impl IntoIterator<Item = &'a Ty<DefinitionId>>,
-    parameters: &[GenericParam<DefinitionId>],
+    types: impl IntoIterator<Item = &'a Ty>,
+    parameters: &[GenericParam],
     cancel: &CancellationToken,
     table: &DefinitionTable,
 ) -> bool {
@@ -505,7 +497,7 @@ pub fn types_in_scope<'a>(
 }
 
 pub fn type_valid(
-    ty: &Ty<DefinitionId>,
+    ty: &Ty,
     params: &HashSet<(DefinitionId, usize)>,
     self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
@@ -646,7 +638,7 @@ mod scoped_tests;
 
 /// Check fields, variants, storage parameters and binder ownership together.
 pub fn type_definition_valid(
-    ty: &TypeDef<DefinitionId>,
+    ty: &TypeDef,
     owner: DefinitionId,
     cancel: &CancellationToken,
     table: &DefinitionTable,

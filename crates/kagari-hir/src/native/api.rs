@@ -14,8 +14,8 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind,
-        mapping::DefinitionRecord,
         metadata::DefinitionMetadata,
+        scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -290,7 +290,7 @@ fn attach_functions(
     Ok(())
 }
 
-fn attach_binding(lowered: &mut LoweredModule, id: FunctionId, function: &FnDecl<DefinitionId>) {
+fn attach_binding(lowered: &mut LoweredModule, id: FunctionId, function: &FnDecl) {
     match &function.implementation {
         CallableImplementation::Native(binding) => {
             lowered
@@ -355,7 +355,7 @@ fn attach_dependencies(
         }
     }
     definition
-        .visit_definitions(
+        .visit_definition_ids(
             &mut |id: &DefinitionId| {
                 let view = definitions.resolve(*id)?;
                 if view.module() != &definition.identity

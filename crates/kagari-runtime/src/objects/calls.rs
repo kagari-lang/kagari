@@ -19,7 +19,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::witness::{OperationWitness, SharedMethodWitness},
     types as abi,
@@ -68,7 +67,7 @@ struct OperationScope<'a> {
 }
 
 impl OperationScope<'_> {
-    fn resolve(&self, ty: &Ty<DefinitionId>) -> Result<Ty<DefinitionId>, RuntimeError> {
+    fn resolve(&self, ty: &Ty) -> Result<Ty, RuntimeError> {
         if ty.is_concrete() {
             return Ok(ty.clone());
         }
@@ -82,8 +81,8 @@ impl OperationScope<'_> {
 
 fn resolve_requirement(
     scope: &OperationScope<'_>,
-    required: &NativeCallableRequirement<DefinitionId>,
-) -> Result<NativeCallableRequirement<DefinitionId>, RuntimeError> {
+    required: &NativeCallableRequirement,
+) -> Result<NativeCallableRequirement, RuntimeError> {
     let Ty::Trait(interface) = scope.resolve(&Ty::Trait(required.interface.clone()))? else {
         return Err(RuntimeError::module_validation("constraint interface type"));
     };

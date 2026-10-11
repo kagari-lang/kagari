@@ -29,13 +29,13 @@ mod defaults;
 pub struct TraitBuilder<'module> {
     module: &'module mut ModuleBuilder,
     id: DefinitionId,
-    declaration: TraitDef<DefinitionId>,
+    declaration: TraitDef,
     parameter_names: Vec<String>,
     method_parameters: BTreeMap<DefinitionId, Vec<String>>,
-    requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement<DefinitionId>>>,
+    requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
     documentation: BTreeMap<DefinitionId, String>,
     defaults: BTreeMap<DefinitionId, NativeBinding>,
-    concrete_results: BTreeMap<DefinitionId, Ty<DefinitionId>>,
+    concrete_results: BTreeMap<DefinitionId, Ty>,
 }
 
 impl<'module> TraitBuilder<'module> {

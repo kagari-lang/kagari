@@ -19,7 +19,7 @@ use crate::{
         typed::NativeContext,
     },
 };
-use kagari_common::identity::{DefinitionPath, table::DefinitionId};
+use kagari_common::identity::DefinitionPath;
 use kagari_types::ty::{GenericParam, Ty};
 
 /// Installed types expose public member evidence through the same resolver.
@@ -33,8 +33,8 @@ pub struct InherentMember {
     pub(crate) applied: AppliedReceiver,
     pub(crate) declaration: DefinitionPath,
     pub(crate) has_receiver: bool,
-    receiver: Ty<DefinitionId>,
-    parameters: Vec<GenericParam<DefinitionId>>,
+    receiver: Ty,
+    parameters: Vec<GenericParam>,
     method_arity: usize,
 }
 

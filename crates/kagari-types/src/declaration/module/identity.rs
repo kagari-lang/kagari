@@ -5,7 +5,7 @@ use kagari_common::{
     identity::{
         DefinitionKind,
         map::DefinitionContext,
-        mapping::DefinitionRecord,
+        scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -26,7 +26,7 @@ impl ModuleDecl {
         }
         let invalid = |error| DeclarationError(format!("invalid native identities: {error}"));
         let prefix = context.snapshot();
-        self.visit_definitions(
+        self.visit_definition_ids(
             &mut |id| Ok(prefix.resolve(*id).map(|_| ())?),
             &CancellationToken::default(),
         )

@@ -30,11 +30,7 @@ impl LayoutScope {
             .flatten()
     }
 
-    pub(super) fn accepts(
-        &self,
-        declaration: DefinitionId,
-        arguments: &[Ty<DefinitionId>],
-    ) -> bool {
+    pub(super) fn accepts(&self, declaration: DefinitionId, arguments: &[Ty]) -> bool {
         self.arguments.len() == arguments.len()
             && arguments.iter().enumerate().all(|(position, ty)| {
                 self.bindings

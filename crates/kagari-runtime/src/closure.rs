@@ -12,7 +12,6 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::NativeImportId;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{ids::FunctionRef, representation::semantic_representation};
 use kagari_types::ty::Ty;
 use std::{slice, sync::Arc};
@@ -124,7 +123,7 @@ impl ClosureValueSnapshot {
         if parameters.len() != expected.len() {
             return Ok(false);
         }
-        let resolve = |physical, semantic: Option<&Ty<DefinitionId>>| {
+        let resolve = |physical, semantic: Option<&Ty>| {
             if physical != ValueType::Generic {
                 return Ok(physical);
             }
@@ -157,8 +156,8 @@ impl ClosureValueSnapshot {
 
     pub(crate) fn matches_function(
         &self,
-        params: &[Ty<DefinitionId>],
-        result: &Ty<DefinitionId>,
+        params: &[Ty],
+        result: &Ty,
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
@@ -188,7 +187,7 @@ impl ClosureValueSnapshot {
         let Some(function) = self.implementation.bytecode.functions.get(function.index()) else {
             return false;
         };
-        let compatible = |actual: &Ty<DefinitionId>, expected: &Ty<DefinitionId>| {
+        let compatible = |actual: &Ty, expected: &Ty| {
             TypeView::new(
                 actual,
                 &self.implementation,

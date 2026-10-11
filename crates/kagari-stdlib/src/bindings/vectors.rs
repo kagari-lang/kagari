@@ -1,6 +1,6 @@
 //! Concrete Vec operations borrow call roots; callback algorithms retain SDK handles.
 use crate::bindings::{Entry, option};
-use kagari_common::identity::{metadata::DefinitionMetadata, table::DefinitionId};
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     error::RuntimeError,
     native::{
@@ -23,7 +23,7 @@ type Vector = ScriptVec<ScriptValue>;
 
 pub(super) fn binding(
     name: &str,
-    declaration: &DefinitionMetadata<NativeDeclaration<DefinitionId>>,
+    declaration: &DefinitionMetadata<NativeDeclaration>,
 ) -> NativeResult<Option<NativeBinding>> {
     Ok(Some(match name {
         "$foundation_list_len" => scoped(vec![Codec::Sequence], length),

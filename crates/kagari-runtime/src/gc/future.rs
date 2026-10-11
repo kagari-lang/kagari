@@ -13,7 +13,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 
 impl GcHeap {
@@ -57,7 +56,7 @@ impl GcHeap {
     pub(crate) fn future_contract(
         &self,
         id: HeapObjectId,
-    ) -> NativeResult<(LoadedModule, Ty<DefinitionId>, Option<TypeArgument>)> {
+    ) -> NativeResult<(LoadedModule, Ty, Option<TypeArgument>)> {
         self.ensure_no_native_borrow()?;
         self.ensure_execution_allowed()?;
         let objects = self

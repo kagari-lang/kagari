@@ -1,9 +1,6 @@
 //! Standard-library Markdown lives with the registrations that define the API.
 use crate::catalog::identities;
-use kagari_common::identity::{
-    DefinitionKind,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_types::{
     declaration::module::{DeclarationError, ModuleDecl},
     scalar::BuiltinType,
@@ -212,7 +209,7 @@ fn member_docs(trait_name: &str, name: &str, overview: &str) -> String {
     format!("{behavior}\n\nSee `{trait_name}` for the behavioral contract and examples.")
 }
 
-fn inherent_example(receiver: &Ty<DefinitionId>, name: &str) -> String {
+fn inherent_example(receiver: &Ty, name: &str) -> String {
     let (ty, arguments) = if *receiver == Ty::Builtin(BuiltinType::String) {
         (
             "String",

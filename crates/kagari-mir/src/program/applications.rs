@@ -17,7 +17,7 @@ use kagari_types::{
 pub(super) fn validate<'a>(
     module: &MirModule,
     cancel: &CancellationToken,
-    lookup: impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
+    lookup: impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
     nominal: impl Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(cancel, lookup, &nominal);

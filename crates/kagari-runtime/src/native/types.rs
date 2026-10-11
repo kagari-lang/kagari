@@ -29,16 +29,13 @@ use std::{
 /// Identity-free scalar/composite values need no identity table allocation.
 #[derive(Debug, Clone)]
 pub struct Type {
-    ty: Ty<DefinitionId>,
+    ty: Ty,
     definitions: Option<DefinitionTable>,
 }
 
 impl Type {
     /// Retain a checked identity scope, without granting semantic verification.
-    pub fn from_semantic(
-        ty: Ty<DefinitionId>,
-        definitions: &DefinitionTable,
-    ) -> NativeResult<Self> {
+    pub fn from_semantic(ty: Ty, definitions: &DefinitionTable) -> NativeResult<Self> {
         DefinitionMetadata::checked(
             definitions.clone(),
             ty.clone(),
@@ -125,7 +122,7 @@ impl Type {
         })
     }
 
-    pub fn abi(&self) -> &Ty<DefinitionId> {
+    pub fn abi(&self) -> &Ty {
         &self.ty
     }
 
@@ -134,7 +131,7 @@ impl Type {
         self.definitions.as_ref()
     }
 
-    pub(crate) fn adopt(&self, context: &DefinitionContext) -> NativeResult<Ty<DefinitionId>> {
+    pub(crate) fn adopt(&self, context: &DefinitionContext) -> NativeResult<Ty> {
         match &self.definitions {
             None => Ok(self.ty.clone()),
             Some(definitions) if definitions.id() == context.snapshot().id() => Ok(self.ty.clone()),
@@ -154,9 +151,7 @@ impl Type {
             .is_ok_and(|(_, types)| types[0] == types[1])
     }
 
-    fn compose(
-        inputs: Vec<Self>,
-    ) -> NativeResult<(Option<DefinitionTable>, Vec<Ty<DefinitionId>>)> {
+    fn compose(inputs: Vec<Self>) -> NativeResult<(Option<DefinitionTable>, Vec<Ty>)> {
         let mut definitions: Option<DefinitionTable> = None;
         let mut foreign = false;
         for input in &inputs {
@@ -188,7 +183,7 @@ impl Type {
 
     fn assemble(
         inputs: Vec<Self>,
-        build: impl FnOnce(Vec<Ty<DefinitionId>>) -> NativeResult<Ty<DefinitionId>>,
+        build: impl FnOnce(Vec<Ty>) -> NativeResult<Ty>,
     ) -> NativeResult<Self> {
         let (definitions, types) = Self::compose(inputs)?;
         Ok(Self {
@@ -213,7 +208,7 @@ impl ParameterRef {
 pub struct TypeRef {
     pub(crate) id: DefinitionId,
     pub(crate) definitions: DefinitionTable,
-    pub(crate) declaration: Arc<TypeDef<DefinitionId>>,
+    pub(crate) declaration: Arc<TypeDef>,
     pub(crate) parameter_names: Vec<String>,
 }
 
@@ -339,7 +334,7 @@ impl From<TypeRef> for Receiver {
 pub struct TraitRef {
     pub(crate) id: DefinitionId,
     pub(crate) definitions: DefinitionTable,
-    pub(crate) contract: Arc<TraitDef<DefinitionId>>,
+    pub(crate) contract: Arc<TraitDef>,
 }
 
 impl TraitRef {
@@ -419,7 +414,7 @@ impl TraitRef {
 #[derive(Debug, Clone)]
 pub struct AppliedTrait {
     pub(crate) contract: TraitRef,
-    pub(crate) ty: NominalTy<DefinitionId>,
+    pub(crate) ty: NominalTy,
     pub(crate) definitions: DefinitionTable,
 }
 

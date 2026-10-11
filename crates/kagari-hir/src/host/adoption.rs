@@ -5,8 +5,8 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
-        scoped::DefinitionReferences,
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -26,7 +26,7 @@ impl HostDeclarations {
         cancel: &CancellationToken,
     ) -> Result<Arc<Self>, DefinitionMappingError> {
         let mut references = HashSet::new();
-        self.interface.visit_definitions(
+        self.interface.visit_definition_ids(
             &mut |id| {
                 references.insert(*id);
                 Ok(())
@@ -36,7 +36,7 @@ impl HostDeclarations {
         let remap = context.import(&self.definitions, references)?;
         let mut map = |id: &_| remap.map(*id).map_err(Into::into);
         let mut mapper = DefinitionMapper::new(&mut map, cancel);
-        let interface = self.interface.map_identities(&mut mapper)?;
+        let interface = self.interface.remap_definitions(&mut mapper)?;
         let origins = self
             .origins
             .iter()

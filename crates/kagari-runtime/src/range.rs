@@ -6,7 +6,7 @@ use crate::{
     numeric,
     value::{EnumTag, Value},
 };
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::operations;
 use kagari_types::{
     integer,
@@ -31,11 +31,7 @@ fn invalid() -> RuntimeError {
 }
 
 impl RangeValue {
-    pub fn new(
-        ty: &Ty<DefinitionId>,
-        start: Option<&Value>,
-        end: Option<&Value>,
-    ) -> Result<Self, RuntimeError> {
+    pub fn new(ty: &Ty, start: Option<&Value>, end: Option<&Value>) -> Result<Self, RuntimeError> {
         let Ty::Range(element, kind) = ty else {
             return Err(invalid());
         };
@@ -66,8 +62,8 @@ impl RangeValue {
     pub fn bound(
         &self,
         definitions: &DefinitionTable,
-        range: &Ty<DefinitionId>,
-        bound: &Ty<DefinitionId>,
+        range: &Ty,
+        bound: &Ty,
         upper: bool,
     ) -> Result<Bound<Value>, RuntimeError> {
         if !self.matches(range) || !operations::range_bound_valid(range, bound, definitions) {
@@ -86,7 +82,7 @@ impl RangeValue {
         })
     }
 
-    pub(crate) fn matches(&self, ty: &Ty<DefinitionId>) -> bool {
+    pub(crate) fn matches(&self, ty: &Ty) -> bool {
         matches!(ty, Ty::Range(item, kind) if *kind == self.kind && **item == Ty::Builtin(self.item))
     }
 

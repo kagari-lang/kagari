@@ -4,13 +4,12 @@ use crate::{
     surface::StandardTypeConstraint,
     ty::substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES},
 };
-use kagari_common::identity::table::DefinitionId;
 
 /// Intrinsic standard constraints of portable host values. Collections use shared
 /// identity; tuple/Option/Result equality and hashing recurse into their payloads.
 /// Nominal host objects need declared trait implementations, not this fallback.
 pub fn satisfies_standard_constraint(
-    ty: &HostValueType<DefinitionId>,
+    ty: &HostValueType,
     constraint: StandardTypeConstraint,
 ) -> bool {
     if matches!(
@@ -72,7 +71,7 @@ mod tests {
     #[test]
     fn host_standard_constraints_distinguish_payload_and_collection_identity() {
         let context = DefinitionContext::new().unwrap();
-        let float: HostValueType<DefinitionId> = HostValueType::F64;
+        let float: HostValueType = HostValueType::F64;
         assert!(satisfies_standard_constraint(
             &float,
             StandardTypeConstraint::Comparable
@@ -98,11 +97,11 @@ mod tests {
             StandardTypeConstraint::Comparable
         ));
         assert!(!satisfies_standard_constraint(
-            &HostValueType::<DefinitionId>::Bool,
+            &HostValueType::Bool,
             StandardTypeConstraint::SignedNumber
         ));
         assert!(satisfies_standard_constraint(
-            &HostValueType::<DefinitionId>::F32,
+            &HostValueType::F32,
             StandardTypeConstraint::SignedNumber
         ));
     }

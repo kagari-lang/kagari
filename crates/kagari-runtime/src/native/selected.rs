@@ -14,7 +14,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::declaration::requirement::NativeCallableRequirement;
 use std::{slice, sync::Arc};
 
@@ -23,7 +22,7 @@ impl LinkedCallable {
         runtime: &Runtime,
         caller: &LoadedModule,
         caller_environment: &TypeEnvironment,
-        required: &NativeCallableRequirement<DefinitionId>,
+        required: &NativeCallableRequirement,
         id: OperationId,
     ) -> NativeResult<Self> {
         let operation = runtime

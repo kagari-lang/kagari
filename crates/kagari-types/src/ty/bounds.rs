@@ -1,16 +1,13 @@
 //! Canonical native bound merging uses exact scoped identities, never slot order.
 use crate::ty::{Constraint, GenericBound, Ty, substitution::TypeTransformError};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     mem,
 };
 
-impl GenericBound<DefinitionId> {
+impl GenericBound {
     /// Merge repeated targets and constraints in canonical semantic order.
     /// Validates identity scope and type bounds without granting type-check evidence.
     /// Cancellation or invalid input returns an error before publishing any result.
@@ -19,7 +16,7 @@ impl GenericBound<DefinitionId> {
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<Vec<Self>, TypeTransformError> {
-        let mut merged = BTreeMap::<Ty<DefinitionId>, BTreeSet<Constraint<DefinitionId>>>::new();
+        let mut merged = BTreeMap::<Ty, BTreeSet<Constraint>>::new();
         for bound in bounds {
             bound.ty.canonical_cmp(&bound.ty, definitions, cancel)?;
             let constraints = merged.entry(bound.ty).or_default();
@@ -47,7 +44,7 @@ impl GenericBound<DefinitionId> {
     }
 }
 
-impl Constraint<DefinitionId> {
+impl Constraint {
     /// Deduplicate constraints and order them by exact identity in the supplied scope.
     /// Associated outputs and ordinary generic bounds share this normalization.
     pub fn normalize(

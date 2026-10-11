@@ -8,7 +8,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{program::ModuleRef, trait_bounds::views::native_result_target};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::native_import::NativeImport;
 use kagari_types::ty::Ty;
 
@@ -16,7 +15,7 @@ use kagari_types::ty::Ty;
 pub(crate) struct LinkedResultAdapter {
     owner: ModuleRef,
     table: usize,
-    arguments: Vec<Ty<DefinitionId>>,
+    arguments: Vec<Ty>,
     applied: Option<Vec<TypeArgument>>,
 }
 

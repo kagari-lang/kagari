@@ -5,7 +5,6 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::BytecodeFunction;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{native_import::NativeImport, representation::semantic_representation};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{collections::BTreeMap, iter};
@@ -155,7 +154,7 @@ fn allocate(managed: bool, scalars: &mut usize, values: &mut usize) -> OperandSl
     slot
 }
 
-fn builtin(ty: Option<&Ty<DefinitionId>>) -> Option<BuiltinType> {
+fn builtin(ty: Option<&Ty>) -> Option<BuiltinType> {
     match ty {
         Some(Ty::Builtin(ty)) => Some(*ty),
         _ => None,

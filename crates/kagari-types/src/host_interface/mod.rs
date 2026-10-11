@@ -95,14 +95,10 @@ pub enum HostPassingStyle {
     UniqueBorrow,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostParameter<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostParameter {
     pub name: String,
-    pub ty: HostValueType<I>,
+    pub ty: HostValueType,
     pub passing: HostPassingStyle,
 }
 
@@ -118,24 +114,19 @@ pub struct HostFunctionEffects {
     pub may_suspend: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostFunctionDeclaration<I = DefinitionPath> {
-    pub id: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostFunctionDeclaration {
+    pub id: DefinitionId,
     /// The binding/export label is distinct from nominal declaration identity.
     pub symbol: String,
-    #[serde(deserialize_with = "decode_limits::members")]
-    pub params: Vec<HostParameter<I>>,
-    pub return_type: HostValueType<I>,
+    pub params: Vec<HostParameter>,
+    pub return_type: HostValueType,
 
     pub effects: HostFunctionEffects,
     pub documentation: String,
 }
 
-impl HostFunctionDeclaration<DefinitionId> {
+impl HostFunctionDeclaration {
     /// Registers a function in the explicit context's application Host namespace.
     ///
     /// Parameter/result IDs must belong to this context before publishing the
@@ -148,8 +139,8 @@ impl HostFunctionDeclaration<DefinitionId> {
     pub fn new(
         context: &DefinitionContext,
         symbol: impl Into<String>,
-        params: Vec<HostParameter<DefinitionId>>,
-        return_type: HostValueType<DefinitionId>,
+        params: Vec<HostParameter>,
+        return_type: HostValueType,
     ) -> Result<Self, DefinitionTableError> {
         let symbol = symbol.into();
         Ok(Self {
@@ -163,7 +154,7 @@ impl HostFunctionDeclaration<DefinitionId> {
     }
 }
 
-impl<I: DefinitionReference> HostFunctionDeclaration<I> {
+impl HostFunctionDeclaration {
     pub fn matches_binding(&self, actual: &Self) -> bool {
         self.id == actual.id
             && self.symbol == actual.symbol
@@ -173,7 +164,7 @@ impl<I: DefinitionReference> HostFunctionDeclaration<I> {
     }
 }
 
-impl HostFunctionDeclaration<DefinitionId> {
+impl HostFunctionDeclaration {
     pub fn method_owner(&self, definitions: &DefinitionTable) -> Option<DefinitionId> {
         if definitions.resolve(self.id).ok()?.last()?.kind != DefinitionKind::Method {
             return None;
@@ -263,8 +254,8 @@ fn adoption_error(error: DefinitionMappingError) -> HostInterfaceError {
 }
 
 fn validate_signature(
-    params: &[HostParameter<DefinitionId>],
-    return_type: &HostValueType<DefinitionId>,
+    params: &[HostParameter],
+    return_type: &HostValueType,
     definitions: &DefinitionTable,
 ) -> Result<(), HostInterfaceError> {
     if params.len() > decode_limits::MAX_MEMBERS {
@@ -289,21 +280,14 @@ fn validate_signature(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostInterface<I = DefinitionPath> {
-    #[serde(deserialize_with = "decode_limits::declarations")]
-    pub paths: Vec<HostPathDeclaration<I>>,
-    #[serde(deserialize_with = "decode_limits::declarations")]
-    pub types: Vec<HostTypeDeclaration<I>>,
-    #[serde(deserialize_with = "decode_limits::declarations")]
-    pub functions: Vec<HostFunctionDeclaration<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HostInterface {
+    pub paths: Vec<HostPathDeclaration>,
+    pub types: Vec<HostTypeDeclaration>,
+    pub functions: Vec<HostFunctionDeclaration>,
 }
 
-impl HostInterface<DefinitionId> {
+impl HostInterface {
     pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
         if [self.types.len(), self.functions.len(), self.paths.len()]
             .into_iter()
@@ -424,10 +408,10 @@ fn codec() -> impl Options {
 /// other metadata must import it into their context. Repeated calls share that
 /// scope; they neither allocate a new identity universe nor intern into a global pool.
 /// Allocation failure is returned before the contract can enter semantic processing.
-pub fn standard_log()
--> Result<DefinitionMetadata<HostFunctionDeclaration<DefinitionId>>, DefinitionMappingError> {
+pub fn standard_log() -> Result<DefinitionMetadata<HostFunctionDeclaration>, DefinitionMappingError>
+{
     static LOG: OnceLock<
-        Result<DefinitionMetadata<HostFunctionDeclaration<DefinitionId>>, DefinitionMappingError>,
+        Result<DefinitionMetadata<HostFunctionDeclaration>, DefinitionMappingError>,
     > = OnceLock::new();
     LOG.get_or_init(|| {
         let context = DefinitionContext::new()?;
@@ -457,16 +441,6 @@ fn hash(bytes: impl IntoIterator<Item = u8>) -> u64 {
     bytes.into_iter().fold(0xcbf29ce484222325, |h, byte| {
         (h ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     })
-}
-
-impl<I> Default for HostInterface<I> {
-    fn default() -> Self {
-        Self {
-            paths: Default::default(),
-            types: Default::default(),
-            functions: Default::default(),
-        }
-    }
 }
 
 mod mapping;

@@ -1,7 +1,6 @@
 //! Small callback argument packs stay on the Rust stack.
 use crate::native::{binding::NativeResult, scalar::NativeScalar};
 use crate::value::Value;
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 
 mod sealed {
@@ -9,13 +8,13 @@ mod sealed {
 }
 
 pub trait CallArguments: sealed::Arguments {
-    fn matches(params: &[Ty<DefinitionId>]) -> bool;
+    fn matches(params: &[Ty]) -> bool;
 
     fn with_values<R>(self, call: impl FnOnce(&[Value]) -> NativeResult<R>) -> NativeResult<R>;
 }
 
 impl CallArguments for () {
-    fn matches(params: &[Ty<DefinitionId>]) -> bool {
+    fn matches(params: &[Ty]) -> bool {
         params.is_empty()
     }
 
@@ -29,7 +28,7 @@ impl sealed::Arguments for () {}
 macro_rules! arguments {
     ($($ty:ident:$local:ident),+) => {
         impl<$($ty: NativeScalar),+> CallArguments for ($($ty,)+) {
-            fn matches(params: &[Ty<DefinitionId>]) -> bool { params == [$(Ty::Builtin($ty::abi_type())),+] }
+            fn matches(params: &[Ty]) -> bool { params == [$(Ty::Builtin($ty::abi_type())),+] }
 
             fn with_values<R>(self, call: impl FnOnce(&[Value]) -> NativeResult<R>) -> NativeResult<R> {
                 let ($($local,)+) = self;

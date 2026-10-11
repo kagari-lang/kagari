@@ -4,7 +4,7 @@ use crate::{
         Budget, ProofCatalog, host_application, satisfies, search::Search, validate_references,
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
     language::Protocol,
     ty::{
@@ -15,21 +15,17 @@ use kagari_types::{
 };
 
 impl ProofCatalog<'_> {
-    pub fn normalize(
-        &self,
-        ty: &Ty<DefinitionId>,
-        cancel: &CancellationToken,
-    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
+    pub fn normalize(&self, ty: &Ty, cancel: &CancellationToken) -> Result<Ty, TypeTransformError> {
         validate_references(ty, &self.definitions, cancel)?;
         self.normalize_with(ty, &Budget::new(cancel), 0)
     }
 
     pub(super) fn normalize_with(
         &self,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         budget: &Budget<'_>,
         depth: usize,
-    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
+    ) -> Result<Ty, TypeTransformError> {
         budget.step(depth)?;
         normalize_projections(
             ty,

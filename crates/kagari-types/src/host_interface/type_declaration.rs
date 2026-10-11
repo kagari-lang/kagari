@@ -1,13 +1,12 @@
-//! Portable member contracts. No Rust type names, runtime IDs or callbacks.
+//! Offline member contracts with scoped definition identities. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
 use crate::host_interface::{
     HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle,
     register_host_definition, validate_host_type_identity_in, value_type::HostValueType, wire,
 };
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath,
+    DefinitionKind,
     map::DefinitionContext,
-    reference::DefinitionReference,
     table::{DefinitionId, DefinitionTable, DefinitionTableError},
 };
 use serde::{Deserialize, Serialize};
@@ -40,15 +39,11 @@ pub enum Visibility {
     Public,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostFieldDeclaration<I = DefinitionPath> {
-    pub id: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostFieldDeclaration {
+    pub id: DefinitionId,
     pub name: String,
-    pub ty: HostValueType<I>,
+    pub ty: HostValueType,
     pub readable: bool,
     pub writable: bool,
     pub visibility: Visibility,
@@ -56,7 +51,7 @@ pub struct HostFieldDeclaration<I = DefinitionPath> {
     pub documentation: String,
 }
 
-impl HostFieldDeclaration<DefinitionId> {
+impl HostFieldDeclaration {
     /// Registers a field under an owner in the same context.
     /// Validation of access and value-type contracts occurs when the interface is published.
     ///
@@ -66,7 +61,7 @@ impl HostFieldDeclaration<DefinitionId> {
         context: &DefinitionContext,
         owner: DefinitionId,
         name: impl Into<String>,
-        ty: HostValueType<DefinitionId>,
+        ty: HostValueType,
     ) -> Result<Self, DefinitionTableError> {
         let name = name.into();
         Ok(Self {
@@ -82,7 +77,7 @@ impl HostFieldDeclaration<DefinitionId> {
     }
 }
 
-impl HostFieldDeclaration<DefinitionId> {
+impl HostFieldDeclaration {
     pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
         self.ty.validate_in(definitions)?;
         let mut abi = self.clone();
@@ -91,66 +86,46 @@ impl HostFieldDeclaration<DefinitionId> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostMethodDeclaration<I = DefinitionPath> {
-    pub id: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostMethodDeclaration {
+    pub id: DefinitionId,
     pub name: String,
     pub receiver: HostPassingStyle,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub params: Vec<HostParameter<I>>,
-    pub return_type: HostValueType<I>,
+    pub params: Vec<HostParameter>,
+    pub return_type: HostValueType,
 
     pub effects: HostFunctionEffects,
     pub documentation: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostTraitMethodBinding<I = DefinitionPath> {
-    pub trait_method: I,
-    pub host_method: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostTraitMethodBinding {
+    pub trait_method: DefinitionId,
+    pub host_method: DefinitionId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostAssociatedTypeBinding<I = DefinitionPath> {
-    pub declaration: I,
-    pub ty: HostValueType<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostAssociatedTypeBinding {
+    pub declaration: DefinitionId,
+    pub ty: HostValueType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostTraitImplementationDeclaration<I = DefinitionPath> {
-    pub trait_id: I,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub trait_arguments: Vec<HostValueType<I>>,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub associated_types: Vec<HostAssociatedTypeBinding<I>>,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub methods: Vec<HostTraitMethodBinding<I>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostTraitImplementationDeclaration {
+    pub trait_id: DefinitionId,
+    pub trait_arguments: Vec<HostValueType>,
+    pub associated_types: Vec<HostAssociatedTypeBinding>,
+    pub methods: Vec<HostTraitMethodBinding>,
     pub documentation: String,
 }
 
-impl HostTraitImplementationDeclaration<DefinitionId> {
+impl HostTraitImplementationDeclaration {
     /// Assembles an implementation from identities in its publication context.
     /// The enclosing Host interface validates member ownership and reference scope.
     pub fn new(
         trait_id: DefinitionId,
-        trait_arguments: Vec<HostValueType<DefinitionId>>,
-        methods: Vec<HostTraitMethodBinding<DefinitionId>>,
+        trait_arguments: Vec<HostValueType>,
+        methods: Vec<HostTraitMethodBinding>,
     ) -> Self {
         Self {
             trait_id,
@@ -162,7 +137,7 @@ impl HostTraitImplementationDeclaration<DefinitionId> {
     }
 }
 
-impl HostMethodDeclaration<DefinitionId> {
+impl HostMethodDeclaration {
     /// Registers a method under an owner in the same context.
     /// Signature IDs retain their context; publication validates the complete contract.
     ///
@@ -172,8 +147,8 @@ impl HostMethodDeclaration<DefinitionId> {
         context: &DefinitionContext,
         owner: DefinitionId,
         name: impl Into<String>,
-        params: Vec<HostParameter<DefinitionId>>,
-        return_type: HostValueType<DefinitionId>,
+        params: Vec<HostParameter>,
+        return_type: HostValueType,
     ) -> Result<Self, DefinitionTableError> {
         let name = name.into();
         Ok(Self {
@@ -189,7 +164,7 @@ impl HostMethodDeclaration<DefinitionId> {
     }
 }
 
-impl HostMethodDeclaration<DefinitionId> {
+impl HostMethodDeclaration {
     pub fn fingerprint(&self, definitions: &DefinitionTable) -> Result<u64, HostInterfaceError> {
         super::validate_signature(&self.params, &self.return_type, definitions)?;
         let mut abi = self.clone();
@@ -198,27 +173,20 @@ impl HostMethodDeclaration<DefinitionId> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct HostTypeDeclaration<I = DefinitionPath> {
-    pub id: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostTypeDeclaration {
+    pub id: DefinitionId,
     pub symbol: String,
     pub ownership: HostTypeOwnership,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub fields: Vec<HostFieldDeclaration<I>>,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub methods: Vec<HostMethodDeclaration<I>>,
-    #[serde(deserialize_with = "super::decode_limits::members")]
-    pub trait_implementations: Vec<HostTraitImplementationDeclaration<I>>,
+    pub fields: Vec<HostFieldDeclaration>,
+    pub methods: Vec<HostMethodDeclaration>,
+    pub trait_implementations: Vec<HostTraitImplementationDeclaration>,
     pub path_access: PathAccess,
     pub reflection: HostReflectionPolicy,
     pub documentation: String,
 }
 
-impl HostTypeDeclaration<DefinitionId> {
+impl HostTypeDeclaration {
     /// Registers a type in the explicit context's application Host namespace.
     /// Fields, methods and interfaces are added using IDs from the same context.
     ///
@@ -243,13 +211,13 @@ impl HostTypeDeclaration<DefinitionId> {
     }
 }
 
-impl HostTypeDeclaration<DefinitionId> {
+impl HostTypeDeclaration {
     /// Executable contract derived solely from this member declaration.
     pub fn method_contract(
         &self,
         id: &DefinitionId,
         definitions: &DefinitionTable,
-    ) -> Result<super::HostFunctionDeclaration<DefinitionId>, HostInterfaceError> {
+    ) -> Result<super::HostFunctionDeclaration, HostInterfaceError> {
         self.validate(definitions)?;
         let method = self
             .methods
@@ -416,8 +384,8 @@ impl HostTypeDeclaration<DefinitionId> {
     }
 }
 
-impl<I: DefinitionReference> HostTypeDeclaration<I> {
-    pub fn value_types(&self) -> impl Iterator<Item = &HostValueType<I>> {
+impl HostTypeDeclaration {
+    pub fn value_types(&self) -> impl Iterator<Item = &HostValueType> {
         self.fields
             .iter()
             .map(|field| &field.ty)
@@ -519,7 +487,7 @@ mod tests {
                 trait_id,
                 vec![],
                 vec![HostTraitMethodBinding {
-                    trait_method: trait_method,
+                    trait_method,
                     host_method: method.id,
                 }],
             ));
@@ -766,7 +734,7 @@ mod tests {
         let bytes = first.to_bytes(&context.snapshot()).unwrap();
         assert_eq!(bytes, second.to_bytes(&context.snapshot()).unwrap());
         assert_eq!(decode_fixture(&bytes, &context).unwrap(), first);
-        let decoded = HostInterface::<DefinitionId>::from_bytes(&bytes).unwrap();
+        let decoded = HostInterface::from_bytes(&bytes).unwrap();
         assert_eq!(
             decoded.records().to_bytes(decoded.definitions()).unwrap(),
             bytes

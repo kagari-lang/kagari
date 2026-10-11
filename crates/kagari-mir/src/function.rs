@@ -4,10 +4,7 @@ use crate::{
     instruction::{CallTarget, Instruction, InstructionBuffer, Terminator},
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::{
-    identity::{ModuleIdentity, table::DefinitionId},
-    span::Span,
-};
+use kagari_common::{identity::ModuleIdentity, span::Span};
 use kagari_contract::{
     callable::witness::OperationWitness,
     effects::EffectSet,
@@ -32,7 +29,7 @@ pub struct MirModule {
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
-    pub host_types: Vec<HostTypeDeclaration<DefinitionId>>,
+    pub host_types: Vec<HostTypeDeclaration>,
     pub dependencies: Vec<ModuleIdentity>,
     pub structures: Vec<StructLayout>,
     pub enumerations: Vec<EnumLayout>,
@@ -142,7 +139,7 @@ impl MirModule {
 }
 
 impl MirModule {
-    pub fn structure(&self, instance: &NominalTy<DefinitionId>) -> Option<Cow<'_, StructLayout>> {
+    pub fn structure(&self, instance: &NominalTy) -> Option<Cow<'_, StructLayout>> {
         self.structures
             .iter()
             .find(|layout| {

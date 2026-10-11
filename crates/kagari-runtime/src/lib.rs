@@ -37,9 +37,7 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_common::identity::{
-    map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
-};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_types::host_interface::path::HostPathDeclaration;
 use std::{cell::RefCell, sync::OnceLock};
@@ -449,7 +447,7 @@ impl Runtime {
 
     pub fn register_host_path(
         &mut self,
-        declaration: &DefinitionMetadata<HostPathDeclaration<DefinitionId>>,
+        declaration: &DefinitionMetadata<HostPathDeclaration>,
     ) -> Result<host::HostPathDescriptorId, RuntimeError> {
         self.host.register_path(declaration, &self.types)
     }

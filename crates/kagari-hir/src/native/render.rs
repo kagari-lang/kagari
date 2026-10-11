@@ -198,8 +198,8 @@ impl<'a> DeclarationView<'a> {
     /// Sort rendered associated outputs by exact identity, never allocation order.
     fn associated_outputs<'b>(
         &self,
-        outputs: &'b BTreeMap<DefinitionId, Ty<DefinitionId>>,
-    ) -> Result<Vec<(DefinitionId, &'b Ty<DefinitionId>)>, DeclarationError> {
+        outputs: &'b BTreeMap<DefinitionId, Ty>,
+    ) -> Result<Vec<(DefinitionId, &'b Ty)>, DeclarationError> {
         let mut entries = outputs
             .iter()
             .map(|(id, value)| Ok((*id, value, self.view(*id)?)))
@@ -419,15 +419,15 @@ impl<'a> DeclarationView<'a> {
         Ok(source)
     }
 
-    fn type_spelling(&self, ty: &Ty<DefinitionId>) -> Result<String, DeclarationError> {
+    fn type_spelling(&self, ty: &Ty) -> Result<String, DeclarationError> {
         if !ty.within_wire_limits() {
             return Err(DeclarationError("type exceeds native API limits".into()));
         }
         self.spell(ty)
     }
 
-    fn spell(&self, ty: &Ty<DefinitionId>) -> Result<String, DeclarationError> {
-        let join = |items: &[Ty<DefinitionId>]| -> Result<String, DeclarationError> {
+    fn spell(&self, ty: &Ty) -> Result<String, DeclarationError> {
+        let join = |items: &[Ty]| -> Result<String, DeclarationError> {
             Ok(items
                 .iter()
                 .map(|item| self.spell(item))
@@ -562,7 +562,7 @@ impl<'a> DeclarationView<'a> {
         ))
     }
 
-    fn nominal_spelling(&self, ty: &NominalTy<DefinitionId>) -> Result<String, DeclarationError> {
+    fn nominal_spelling(&self, ty: &NominalTy) -> Result<String, DeclarationError> {
         let declaration = self.view(ty.declaration)?;
         let name = self.name(ty.declaration)?;
         let mut text = if declaration.module() == &self.identity {
@@ -617,10 +617,7 @@ impl Renderer<'_> {
         Span::new(start, self.text.len())
     }
 
-    fn generics(
-        &mut self,
-        parameters: &[GenericParam<DefinitionId>],
-    ) -> Result<Vec<Span>, DeclarationError> {
+    fn generics(&mut self, parameters: &[GenericParam]) -> Result<Vec<Span>, DeclarationError> {
         if parameters.is_empty() {
             return Ok(vec![]);
         }
@@ -665,7 +662,7 @@ impl Renderer<'_> {
     fn function(
         &mut self,
         id: DefinitionId,
-        function: &FnDecl<DefinitionId>,
+        function: &FnDecl,
         method: bool,
     ) -> Result<(), DeclarationError> {
         self.doc(id)?;
@@ -730,8 +727,8 @@ impl Renderer<'_> {
     /// Renders the registration recipe as a real, ordinarily checked tail call.
     fn default_body(
         &mut self,
-        application: &NativeDefaultApplication<DefinitionId>,
-        function: &FnDecl<DefinitionId>,
+        application: &NativeDefaultApplication,
+        function: &FnDecl,
     ) -> Result<(), DeclarationError> {
         let target = self.module.view(application.declaration)?;
         let path = target
@@ -769,7 +766,7 @@ impl Renderer<'_> {
 
     fn bounds(
         &mut self,
-        bounds: &[GenericBound<DefinitionId>],
+        bounds: &[GenericBound],
     ) -> Result<Vec<NativeBoundSite>, DeclarationError> {
         let mut sites = vec![];
         if !bounds.is_empty() {
@@ -789,10 +786,7 @@ impl Renderer<'_> {
         Ok(sites)
     }
 
-    fn constraints(
-        &mut self,
-        constraints: &[Constraint<DefinitionId>],
-    ) -> Result<Vec<Span>, DeclarationError> {
+    fn constraints(&mut self, constraints: &[Constraint]) -> Result<Vec<Span>, DeclarationError> {
         let mut spans = vec![];
         if !constraints.is_empty() {
             self.text.push_str(": ");

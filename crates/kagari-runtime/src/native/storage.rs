@@ -44,7 +44,7 @@ pub trait NativePayload: Any + Debug + Send {
 pub struct StorageContext<'call> {
     pub(crate) runtime: &'call Runtime,
     pub(crate) owner: &'call LoadedModule,
-    pub(crate) ty: &'call Ty<DefinitionId>,
+    pub(crate) ty: &'call Ty,
     pub(crate) scope: Option<&'call TypeArgument>,
     pub(crate) selected: &'call [LinkedOperation],
 }
@@ -55,7 +55,7 @@ impl<'call> StorageContext<'call> {
     }
 
     /// Prepare a concrete type whose IDs belong to this call's loaded generation.
-    pub fn resolve_type(&self, ty: &Ty<DefinitionId>) -> NativeResult<TypeArgument> {
+    pub fn resolve_type(&self, ty: &Ty) -> NativeResult<TypeArgument> {
         self.runtime
             .resolve_type_arguments(self.owner, slice::from_ref(ty))?
             .pop()
@@ -109,7 +109,7 @@ impl<'call> StorageContext<'call> {
             })
     }
 
-    pub fn ty(&self) -> &'call Ty<DefinitionId> {
+    pub fn ty(&self) -> &'call Ty {
         self.ty
     }
 }
@@ -265,7 +265,7 @@ impl NativeStorage {
     pub(crate) fn prepare_payload<S: NativePayload>(
         &self,
         heap: &GcHeap,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         payload: S,
         owner: &LoadedModule,
     ) -> NativeResult<NativeObject> {
@@ -280,7 +280,7 @@ impl NativeStorage {
     fn object(
         &self,
         heap: &GcHeap,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         payload: Box<dyn Any + Send>,
         owner: &LoadedModule,
     ) -> NativeResult<NativeObject> {
@@ -311,7 +311,7 @@ impl NativeStorage {
 pub(crate) struct NativeObject {
     pub(crate) storage: NativeStorage,
     payload: Box<dyn Any + Send>,
-    pub(crate) ty: Ty<DefinitionId>,
+    pub(crate) ty: Ty,
     _owner: LoadedModule,
     pub(crate) scope: Option<TypeArgument>,
     pub(crate) selected: Arc<[StoredSelection]>,
@@ -339,7 +339,7 @@ impl NativeObject {
 
     pub(crate) fn matches(
         &self,
-        ty: &Ty<DefinitionId>,
+        ty: &Ty,
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {

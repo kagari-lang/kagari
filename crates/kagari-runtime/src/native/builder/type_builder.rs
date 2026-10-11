@@ -20,7 +20,7 @@ pub struct TypeBuilder<'module> {
     id: DefinitionId,
     name: String,
     parameter_names: Vec<String>,
-    parameters: Vec<GenericParam<DefinitionId>>,
+    parameters: Vec<GenericParam>,
     documentation: Option<String>,
     storage: Option<NativeStorage>,
 }

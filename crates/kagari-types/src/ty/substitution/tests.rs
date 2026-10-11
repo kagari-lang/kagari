@@ -17,7 +17,7 @@ fn associated(context: &DefinitionContext, owner: DefinitionId, name: &str) -> D
         .unwrap()
 }
 
-fn parameter(owner: &DefinitionId, position: usize) -> Ty<DefinitionId> {
+fn parameter(owner: &DefinitionId, position: usize) -> Ty {
     Ty::Parameter {
         owner: *owner,
         position,
@@ -108,7 +108,7 @@ fn substitution_checks_combined_depth_after_inserting_a_replacement() {
     );
 }
 
-fn projection(interface: &NominalTy<DefinitionId>, member: &DefinitionId) -> Ty<DefinitionId> {
+fn projection(interface: &NominalTy, member: &DefinitionId) -> Ty {
     Ty::Projection {
         receiver: Box::new(Ty::SelfType(interface.declaration)),
         interface: Box::new(interface.clone()),

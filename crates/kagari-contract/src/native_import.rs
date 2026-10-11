@@ -47,15 +47,15 @@ pub struct NativeImport {
     pub generic: Option<GenericBody>,
     pub instance: ConcreteFunctionIdentity,
     pub binding: DefinitionId,
-    pub signature: Signature<DefinitionId>,
-    pub requirements: Vec<GenericBound<DefinitionId>>,
+    pub signature: Signature,
+    pub requirements: Vec<GenericBound>,
     pub callables: Vec<OperationWitness>,
     /// Existing host borrow/schema/authority facts belong to the host adapter.
-    pub host: Option<HostFunctionDeclaration<DefinitionId>>,
+    pub host: Option<HostFunctionDeclaration>,
 }
 
 impl NativeImport {
-    pub fn from_host(declaration: &HostFunctionDeclaration<DefinitionId>) -> Self {
+    pub fn from_host(declaration: &HostFunctionDeclaration) -> Self {
         Self {
             result_adapter: None,
             generic: None,
@@ -85,9 +85,8 @@ impl NativeImport {
             .generic
             .as_ref()
             .map_or(&[][..], |body| body.parameters.as_slice());
-        let valid = |ty: &Ty<DefinitionId>| {
-            types_in_scope([ty], parameters, &CancellationToken::default(), definitions)
-        };
+        let valid =
+            |ty: &Ty| types_in_scope([ty], parameters, &CancellationToken::default(), definitions);
         self.generic.as_ref().is_none_or(|body| {
             !body.parameters.is_empty()
                 && body
@@ -137,7 +136,7 @@ impl NativeImport {
 impl NativeImport {
     pub fn matches_declaration(
         &self,
-        declaration: &NativeDeclaration<DefinitionId>,
+        declaration: &NativeDeclaration,
         catalog: &ProofCatalog<'_>,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {

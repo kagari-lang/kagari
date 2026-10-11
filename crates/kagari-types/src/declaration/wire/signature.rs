@@ -12,10 +12,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -31,7 +28,7 @@ impl GenericParamRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &GenericParam<DefinitionId>,
+        value: &GenericParam,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -48,7 +45,7 @@ impl GenericParamRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<GenericParam<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<GenericParam, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(GenericParam {
             owner: decoding.resolve(self.owner)?,
@@ -69,7 +66,7 @@ impl GenericBoundRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &GenericBound<DefinitionId>,
+        value: &GenericBound,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -90,7 +87,7 @@ impl GenericBoundRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<GenericBound<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<GenericBound, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(GenericBound {
             ty: self.ty.decode(decoding, cancel)?,
@@ -115,7 +112,7 @@ impl NativeDefaultApplicationRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &NativeDefaultApplication<DefinitionId>,
+        value: &NativeDefaultApplication,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -136,7 +133,7 @@ impl NativeDefaultApplicationRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<NativeDefaultApplication<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<NativeDefaultApplication, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeDefaultApplication {
             declaration: decoding.resolve(self.declaration)?,
@@ -168,7 +165,7 @@ impl FnDeclRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &FnDecl<DefinitionId>,
+        value: &FnDecl,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -206,7 +203,7 @@ impl FnDeclRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<FnDecl<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<FnDecl, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FnDecl {
             method_policy: self.method_policy,
@@ -244,7 +241,7 @@ impl ParamRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &Param<DefinitionId>,
+        value: &Param,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -262,7 +259,7 @@ impl ParamRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<Param<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<Param, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(Param {
             name: self.name,

@@ -5,7 +5,7 @@ use crate::{
     program::BytecodeProgram,
     trait_bounds::callables,
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
     callable::generic::GenericBody,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
@@ -18,8 +18,8 @@ use kagari_types::{
 pub(crate) struct SharedEntry<'a> {
     pub identity: &'a ConcreteFunctionIdentity,
     pub body: &'a GenericBody,
-    pub signature: Signature<DefinitionId>,
-    pub implementation: CallableImplementation<DefinitionId>,
+    pub signature: Signature,
+    pub implementation: CallableImplementation,
 }
 
 pub(crate) fn entry(module: &BytecodeModule, target: CallableTarget) -> Option<SharedEntry<'_>> {

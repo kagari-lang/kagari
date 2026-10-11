@@ -2,7 +2,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
-        metadata::DefinitionMetadata, scoped::DefinitionReferences, table::DefinitionId,
+        metadata::DefinitionMetadata, scoped::DefinitionReferences,
     },
 };
 
@@ -38,7 +38,7 @@ fn scoped<T: DefinitionReferences + Clone>(
     .unwrap()
 }
 
-fn declaration(context: &DefinitionContext) -> HostFunctionDeclaration<DefinitionId> {
+fn declaration(context: &DefinitionContext) -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
         context,
         "game.echo",
@@ -316,7 +316,7 @@ fn linking_checks_identity_signature_borrow_and_effects() {
             panic!("linking must not invoke callbacks")
         }))
         .unwrap();
-    let changes: [fn(&DefinitionContext, &mut HostFunctionDeclaration<DefinitionId>); 5] = [
+    let changes: [fn(&DefinitionContext, &mut HostFunctionDeclaration); 5] = [
         |context, d| {
             let root = context
                 .intern_root(&ModuleIdentity {

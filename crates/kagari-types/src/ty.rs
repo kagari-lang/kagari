@@ -14,28 +14,18 @@ use crate::{
     collection::CollectionAccess, host_interface::value_type::HostValueType, range::RangeKind,
     scalar::BuiltinType, surface::StandardTypeConstraint, ty::substitution::TypeSubstitution,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
-};
-use serde::{Deserialize, Serialize};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use std::collections::BTreeMap;
 
 /// Semantic types preserve nominal identity and container arguments.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + Serialize",
-    deserialize = "I: DefinitionReference + Deserialize<'de>"
-))]
-pub struct NominalTy<I = DefinitionPath> {
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::map")]
-    pub associated_types: BTreeMap<I, Ty<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NominalTy {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<Ty>,
+    pub associated_types: BTreeMap<DefinitionId, Ty>,
 }
 
-impl<I: DefinitionReference> NominalTy<I> {
+impl NominalTy {
     /// A required view can leave outputs unspecified; specified outputs remain
     /// invariant and must equal the concrete implementation's checked outputs.
     pub fn satisfies(&self, required: &Self) -> bool {
@@ -49,44 +39,44 @@ impl<I: DefinitionReference> NominalTy<I> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Ty<I = DefinitionPath> {
+pub enum Ty {
     Projection {
-        arguments: Vec<Ty<I>>,
-        receiver: Box<Ty<I>>,
-        interface: Box<NominalTy<I>>,
-        member: I,
+        arguments: Vec<Ty>,
+        receiver: Box<Ty>,
+        interface: Box<NominalTy>,
+        member: DefinitionId,
     },
-    Host(I),
+    Host(DefinitionId),
     /// Receiver template in a trait signature, never an executable value layout.
-    SelfType(I),
+    SelfType(DefinitionId),
     /// Valid only in a declaration template, never in an executable layout.
     Parameter {
-        owner: I,
+        owner: DefinitionId,
         position: usize,
     },
     Builtin(BuiltinType),
-    Tuple(Vec<Ty<I>>),
+    Tuple(Vec<Ty>),
     Function {
-        params: Vec<Ty<I>>,
-        result: Box<Ty<I>>,
+        params: Vec<Ty>,
+        result: Box<Ty>,
     },
-    Iter(Box<Ty<I>>),
-    Range(Box<Ty<I>>, RangeKind),
-    Array(Box<Ty<I>>),
+    Iter(Box<Ty>),
+    Range(Box<Ty>, RangeKind),
+    Array(Box<Ty>),
     Map {
-        key: Box<Ty<I>>,
-        value: Box<Ty<I>>,
+        key: Box<Ty>,
+        value: Box<Ty>,
         access: CollectionAccess,
     },
-    Set(Box<Ty<I>>, CollectionAccess),
-    Struct(NominalTy<I>),
+    Set(Box<Ty>, CollectionAccess),
+    Struct(NominalTy),
     /// A nominal script-heap object backed by a registered traced Rust payload.
-    NativeObject(NominalTy<I>),
-    Enum(NominalTy<I>),
-    Trait(NominalTy<I>),
+    NativeObject(NominalTy),
+    Enum(NominalTy),
+    Trait(NominalTy),
 }
 
-impl<I: DefinitionReference> Ty<I> {
+impl Ty {
     pub fn contains_projection(&self) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -139,35 +129,26 @@ impl<I: DefinitionReference> Ty<I> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenericParam<I = DefinitionPath> {
-    pub owner: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericParam {
+    pub owner: DefinitionId,
     pub position: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + Serialize",
-    deserialize = "I: DefinitionReference + Deserialize<'de>"
-))]
-pub struct GenericBound<I = DefinitionPath> {
-    pub ty: Ty<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub constraints: Vec<Constraint<I>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericBound {
+    pub ty: Ty,
+    pub constraints: Vec<Constraint>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + Serialize",
-    deserialize = "I: DefinitionReference + Deserialize<'de>"
-))]
-pub enum Constraint<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Constraint {
     Standard(StandardTypeConstraint),
-    Trait(NominalTy<I>),
+    Trait(NominalTy),
 }
 
-impl<I: DefinitionReference> Ty<I> {
-    pub fn from_host_type(ty: &HostValueType<I>) -> Self {
+impl Ty {
+    pub fn from_host_type(ty: &HostValueType) -> Self {
         match ty {
             HostValueType::Unit => Self::Builtin(BuiltinType::Unit),
             HostValueType::Bool => Self::Builtin(BuiltinType::Bool),
@@ -176,14 +157,14 @@ impl<I: DefinitionReference> Ty<I> {
             HostValueType::F32 => Self::Builtin(BuiltinType::F32),
             HostValueType::F64 => Self::Builtin(BuiltinType::F64),
             HostValueType::String => Self::Builtin(BuiltinType::String),
-            HostValueType::Opaque(id) => Self::Host(id.clone()),
+            HostValueType::Opaque(id) => Self::Host(*id),
             HostValueType::Tuple(types) => {
                 Self::Tuple(types.iter().map(Self::from_host_type).collect())
             }
             HostValueType::Array(ty) => Self::Array(Box::new(Self::from_host_type(ty))),
             HostValueType::Vec(declaration, item) | HostValueType::List(declaration, item) => {
                 let nominal = NominalTy {
-                    declaration: declaration.clone(),
+                    declaration: *declaration,
                     arguments: vec![Self::from_host_type(item)],
                     associated_types: Default::default(),
                 };
@@ -202,7 +183,7 @@ impl<I: DefinitionReference> Ty<I> {
                 Self::Set(Box::new(Self::from_host_type(ty)), *access)
             }
             HostValueType::Option(declaration, ty) => Self::Enum(NominalTy {
-                declaration: declaration.clone(),
+                declaration: *declaration,
                 arguments: vec![Self::from_host_type(ty)],
                 associated_types: Default::default(),
             }),
@@ -211,7 +192,7 @@ impl<I: DefinitionReference> Ty<I> {
                 ok,
                 error,
             } => Self::Enum(NominalTy {
-                declaration: declaration.clone(),
+                declaration: *declaration,
                 arguments: vec![Self::from_host_type(ok), Self::from_host_type(error)],
                 associated_types: Default::default(),
             }),
@@ -219,12 +200,8 @@ impl<I: DefinitionReference> Ty<I> {
     }
 }
 
-impl Ty<DefinitionId> {
-    pub fn instantiate(
-        &self,
-        owner: &DefinitionId,
-        arguments: &[Ty<DefinitionId>],
-    ) -> Option<Self> {
+impl Ty {
+    pub fn instantiate(&self, owner: &DefinitionId, arguments: &[Ty]) -> Option<Self> {
         let result = TypeSubstitution::for_owner(owner, arguments)
             .apply(self, &CancellationToken::default())
             .ok()?;

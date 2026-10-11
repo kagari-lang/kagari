@@ -1,5 +1,5 @@
 //! Access-flow validation runs after physical operand and layout validation.
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::numeric::NumericSignature;
 use kagari_contract::representation::builtin_representation;
 
@@ -26,12 +26,12 @@ use kagari_types::{
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {
-    ty: Option<Ty<DefinitionId>>,
+    ty: Option<Ty>,
     access: Option<Access>,
 }
 
 impl Fact {
-    fn typed(ty: Ty<DefinitionId>) -> Self {
+    fn typed(ty: Ty) -> Self {
         let access = ty.collection_access();
         Self {
             ty: Some(ty),
@@ -40,7 +40,7 @@ impl Fact {
     }
 }
 
-fn flows(source: &Fact, target: &Ty<DefinitionId>) -> bool {
+fn flows(source: &Fact, target: &Ty) -> bool {
     if source.access == Some(Access::ReadOnly)
         && target.collection_access() == Some(Access::Mutable)
     {
@@ -130,8 +130,7 @@ pub(super) fn verify(
             PublicItem::Function(abi) if abi.name == name => Some(abi),
             _ => None,
         }) {
-            let apply =
-                |ty: &Ty<DefinitionId>| ty.instantiate(&identity.declaration, &identity.arguments);
+            let apply = |ty: &Ty| ty.instantiate(&identity.declaration, &identity.arguments);
             if abi.params.len() != semantic.params.len()
                 || abi
                     .params

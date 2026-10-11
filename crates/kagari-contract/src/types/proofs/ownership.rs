@@ -2,7 +2,7 @@ use crate::{
     language::primitive as intrinsic,
     types::proofs::{Budget, ProofCatalog, implementation::Implementation},
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
     declaration::{conversion::ConversionAdapter, ownership::ReceiverOwners},
     language::Protocol,
@@ -46,7 +46,7 @@ impl ProofCatalog<'_> {
     fn iteration_conflict(
         &self,
         kind: Protocol,
-        receiver: &Ty<DefinitionId>,
+        receiver: &Ty,
         budget: &Budget<'_>,
     ) -> Result<bool, TypeTransformError> {
         let other = if kind == Protocol::Iterator {
@@ -185,7 +185,7 @@ impl ProofCatalog<'_> {
     }
 }
 
-fn overlapping(left: &Ty<DefinitionId>, right: &Ty<DefinitionId>) -> bool {
+fn overlapping(left: &Ty, right: &Ty) -> bool {
     if left == right {
         return true;
     }
@@ -210,7 +210,7 @@ fn overlapping(left: &Ty<DefinitionId>, right: &Ty<DefinitionId>) -> bool {
     }
 }
 
-fn occurs_in_constructor(parameter: &Ty<DefinitionId>, ty: &Ty<DefinitionId>) -> bool {
+fn occurs_in_constructor(parameter: &Ty, ty: &Ty) -> bool {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         if ty == parameter {

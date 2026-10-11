@@ -17,7 +17,7 @@ pub fn validate_declarations<'declaration, F, G>(
     cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
-    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef<DefinitionId>>,
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef>,
     G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
     for item in items {
@@ -66,7 +66,7 @@ pub fn validate_layouts<'declaration, F, G>(
     _cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
-    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef<DefinitionId>>,
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef>,
     G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
     for layout in structures {
@@ -86,7 +86,7 @@ pub fn validate_slots<'declaration, F, G>(
     _cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
-    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef<DefinitionId>>,
+    F: Fn(&DefinitionId) -> Option<&'declaration TraitDef>,
     G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
     if let Some(body) = &slots.generic {

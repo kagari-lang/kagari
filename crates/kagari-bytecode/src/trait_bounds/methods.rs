@@ -1,7 +1,6 @@
 //! Validate entry argument mappings and signatures in each interface slot.
 use crate::module::{BytecodeModule, CallableTarget};
 use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -95,7 +94,7 @@ pub(super) fn valid(
             for (parameter, argument) in abi.generic_params.iter().zip(&table.arguments) {
                 applied.bind(&parameter.owner, parameter.position, argument);
             }
-            let normalize = |ty: &Ty<DefinitionId>, substitution: &TypeSubstitution<'_>| {
+            let normalize = |ty: &Ty, substitution: &TypeSubstitution<'_>| {
                 catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
             };
             let expected = Signature {

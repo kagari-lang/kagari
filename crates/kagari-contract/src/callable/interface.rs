@@ -8,10 +8,7 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionKind, ModuleIdentity,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::{DefinitionKind, ModuleIdentity, table::DefinitionTable},
 };
 use kagari_types::{
     declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope},
@@ -28,30 +25,30 @@ pub struct InterfaceCallContract {
     pub normalizations: Vec<TypeNormalization>,
     /// None dispatches a boxed interface; Some invokes the caller's checked
     /// constraint operation on an unboxed value of this type.
-    pub receiver: Option<Ty<DefinitionId>>,
+    pub receiver: Option<Ty>,
     pub operations: Vec<OperationWitness>,
-    pub interface: NominalTy<DefinitionId>,
+    pub interface: NominalTy,
     pub method_slot: u32,
     /// Arguments for this method only. The interface owns its trait arguments.
-    pub arguments: Vec<Ty<DefinitionId>>,
+    pub arguments: Vec<Ty>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeNormalization {
-    pub source: Ty<DefinitionId>,
-    pub result: Ty<DefinitionId>,
+    pub source: Ty,
+    pub result: Ty,
 }
 
 pub struct InterfaceMethodSignature {
-    pub params: Vec<Ty<DefinitionId>>,
-    pub result: Ty<DefinitionId>,
-    pub bounds: Vec<GenericBound<DefinitionId>>,
+    pub params: Vec<Ty>,
+    pub result: Ty,
+    pub bounds: Vec<GenericBound>,
 }
 
 impl InterfaceMethodSignature {
     pub fn types_valid(
         &self,
-        parameters: &[GenericParam<DefinitionId>],
+        parameters: &[GenericParam],
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {
@@ -65,7 +62,7 @@ impl InterfaceMethodSignature {
 
     pub fn physical_types(
         &self,
-        parameters: &[GenericParam<DefinitionId>],
+        parameters: &[GenericParam],
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> Option<(Vec<ValueType>, ValueType)> {
@@ -110,7 +107,7 @@ impl InterfaceCallContract {
     /// and required bounds independently of this substitution.
     pub fn signature(
         &self,
-        contract: &TraitDef<DefinitionId>,
+        contract: &TraitDef,
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> Result<InterfaceMethodSignature, TypeTransformError> {
@@ -145,7 +142,7 @@ impl InterfaceCallContract {
 
     fn declared_signature(
         &self,
-        contract: &TraitDef<DefinitionId>,
+        contract: &TraitDef,
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> Result<InterfaceMethodSignature, TypeTransformError> {
@@ -209,7 +206,7 @@ impl InterfaceCallContract {
             .receiver
             .clone()
             .unwrap_or(Ty::SelfType(interface.declaration));
-        let apply = |ty: &Ty<DefinitionId>| {
+        let apply = |ty: &Ty| {
             resolve_associated_outputs(
                 &substitution.apply(ty, cancel)?,
                 interface,
@@ -260,10 +257,10 @@ impl InterfaceCallContract {
     /// A type argument is never accepted merely because it has a slot layout.
     pub fn check(
         &self,
-        contract: &TraitDef<DefinitionId>,
+        contract: &TraitDef,
         catalog: &ProofCatalog<'_>,
-        parameters: &[GenericParam<DefinitionId>],
-        assumptions: &[GenericBound<DefinitionId>],
+        parameters: &[GenericParam],
+        assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let definitions = catalog.definitions();

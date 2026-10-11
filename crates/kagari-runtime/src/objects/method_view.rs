@@ -17,7 +17,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{GenericParam, Ty};
 use std::{cell::Ref, sync::Arc};
 
@@ -113,7 +112,7 @@ impl MethodView<'_> {
         }
     }
 
-    pub(crate) fn parameter_types(&self) -> &[Ty<DefinitionId>] {
+    pub(crate) fn parameter_types(&self) -> &[Ty] {
         if let Some(application) = &self.application {
             return &application.signature.params;
         }
@@ -128,7 +127,7 @@ impl MethodView<'_> {
         }
     }
 
-    pub(crate) fn return_type(&self) -> &Ty<DefinitionId> {
+    pub(crate) fn return_type(&self) -> &Ty {
         if let Some(application) = &self.application {
             return &application.signature.result;
         }
@@ -143,7 +142,7 @@ impl MethodView<'_> {
         }
     }
 
-    pub(crate) fn type_parameters(&self) -> &[GenericParam<DefinitionId>] {
+    pub(crate) fn type_parameters(&self) -> &[GenericParam] {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
                 &snapshot.methods[*slot]
@@ -159,7 +158,7 @@ impl MethodView<'_> {
         }
     }
 
-    pub(crate) fn entry_parameters(&self) -> &[GenericParam<DefinitionId>] {
+    pub(crate) fn entry_parameters(&self) -> &[GenericParam] {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
                 &snapshot.methods[*slot]
@@ -175,7 +174,7 @@ impl MethodView<'_> {
         }
     }
 
-    pub(crate) fn entry_arguments(&self) -> &[Ty<DefinitionId>] {
+    pub(crate) fn entry_arguments(&self) -> &[Ty] {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
                 &snapshot.methods[*slot]

@@ -4,7 +4,7 @@ use crate::source::lower::{
     instances::{Instance, InstancePlanner},
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::{identity::table::DefinitionId, span::Span};
+use kagari_common::span::Span;
 use kagari_contract::effects::EffectSet;
 use kagari_hir::{
     AnalyzedModule,
@@ -198,7 +198,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         })
     }
 
-    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<Ty<DefinitionId>, MirLoweringError> {
+    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<Ty, MirLoweringError> {
         let concrete = self
             .planner
             .arguments(

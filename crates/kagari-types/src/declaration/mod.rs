@@ -21,81 +21,53 @@ use crate::{
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct FnDecl<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FnDecl {
     pub method_policy: MethodPolicy,
     pub name: String,
-    pub implementation: CallableImplementation<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBound<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub params: Vec<Param<I>>,
-    pub return_type: Ty<I>,
+    pub implementation: CallableImplementation,
+    pub generic_params: Vec<GenericParam>,
+    pub bounds: Vec<GenericBound>,
+    pub params: Vec<Param>,
+    pub return_type: Ty,
 }
 
 /// Declaration contract for native entrypoints, including inherent and private
 /// methods absent from the public ABI. The function uses the same checked model.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct NativeDeclaration<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeDeclaration {
     /// Concrete value produced by Rust before a checked interface-result adapter.
-    pub concrete_result: Option<Ty<I>>,
-    pub declaration: I,
-    pub function: FnDecl<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub callable_requirements: Vec<NativeCallableRequirement<I>>,
+    pub concrete_result: Option<Ty>,
+    pub declaration: DefinitionId,
+    pub function: FnDecl,
+    pub callable_requirements: Vec<NativeCallableRequirement>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct Param<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Param {
     pub name: String,
-    pub ty: Ty<I>,
+    pub ty: Ty,
     pub mutable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct ConstDef<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConstDef {
     pub name: String,
-    pub ty: Ty<I>,
+    pub ty: Ty,
     pub value: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct TypeDef<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDef {
     pub name: String,
     pub kind: TypeDefKind,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBound<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub fields: Vec<FieldDef<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub variants: Vec<VariantDef<I>>,
+    pub generic_params: Vec<GenericParam>,
+    pub bounds: Vec<GenericBound>,
+    pub fields: Vec<FieldDef>,
+    pub variants: Vec<VariantDef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,93 +90,57 @@ impl TypeDefKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct FieldDef<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldDef {
     pub visibility: Visibility,
     pub name: String,
-    pub ty: Ty<I>,
+    pub ty: Ty,
     pub mutable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct VariantDef<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantDef {
     /// Library-authored failure reporting captures diagnostic origin on construction.
     pub reports_failure: bool,
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub payload: Vec<Ty<I>>,
+    pub payload: Vec<Ty>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct TraitDef<I = DefinitionPath> {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_consts: Vec<AssociatedConstDef<I>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitDef {
+    pub associated_consts: Vec<AssociatedConstDef>,
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub supertraits: Vec<NominalTy<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBound<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub methods: Vec<FnDecl<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_types: Vec<AssociatedTypeDef<I>>,
+    pub supertraits: Vec<NominalTy>,
+    pub generic_params: Vec<GenericParam>,
+    pub bounds: Vec<GenericBound>,
+    pub methods: Vec<FnDecl>,
+    pub associated_types: Vec<AssociatedTypeDef>,
     /// Installed native storage capability of this interface. Ordinary source
     /// traits have no storage capability; declarations and loading retain it.
     pub storage_access: Option<CollectionAccess>,
     /// Adapter authority carried from installed native library declarations.
-    pub conversion_adapter: Option<conversion::ConversionAdapter<I>>,
+    pub conversion_adapter: Option<conversion::ConversionAdapter>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct AssociatedConstDef<I = DefinitionPath> {
-    pub declaration: I,
-    pub ty: Ty<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedConstDef {
+    pub declaration: DefinitionId,
+    pub ty: Ty,
     pub default_value: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct AssociatedTypeDef<I = DefinitionPath> {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub parameter_bounds: Vec<GenericBound<I>>,
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<Constraint<I>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedTypeDef {
+    pub generic_params: Vec<GenericParam>,
+    pub parameter_bounds: Vec<GenericBound>,
+    pub declaration: DefinitionId,
+    pub bounds: Vec<Constraint>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct AssociatedTypeFamily<I = DefinitionPath> {
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBound<I>>,
-    pub value: Ty<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedTypeFamily {
+    pub declaration: DefinitionId,
+    pub generic_params: Vec<GenericParam>,
+    pub bounds: Vec<GenericBound>,
+    pub value: Ty,
 }

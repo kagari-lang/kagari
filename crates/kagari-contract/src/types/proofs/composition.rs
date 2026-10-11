@@ -3,7 +3,7 @@ use crate::{
     language::primitive as intrinsic,
     types::proofs::{Budget, ProofCatalog, search::Search},
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
     language::Protocol,
     ty::{Ty, substitution::TypeTransformError},
@@ -15,7 +15,7 @@ impl ProofCatalog<'_> {
     /// nominal PartialEq implementation in this value's tuple or enum payloads.
     pub fn uses_custom_equality(
         &self,
-        receiver: &Ty<DefinitionId>,
+        receiver: &Ty,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let budget = Budget::new(cancel);

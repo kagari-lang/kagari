@@ -12,7 +12,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::ty::Ty;
 use std::slice;
@@ -29,7 +28,7 @@ impl LinkedCallable {
     }
 
     /// Checked parameter facts for representation-specific native fast paths.
-    pub fn parameters(&self) -> &[Ty<DefinitionId>] {
+    pub fn parameters(&self) -> &[Ty] {
         &self.params
     }
 }

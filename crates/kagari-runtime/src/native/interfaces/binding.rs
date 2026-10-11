@@ -36,7 +36,7 @@ pub struct InterfaceMember {
     pub(super) owner: LoadedModule,
     pub(super) slot: usize,
     declaration: DefinitionId,
-    pub(super) contract: TraitDef<DefinitionId>,
+    pub(super) contract: TraitDef,
     _program: ProgramLease,
 }
 

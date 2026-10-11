@@ -3,7 +3,7 @@ use crate::catalog::{
     contracts, defaults, identities,
     key::{self, RegistrationTrait},
 };
-use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     collection::CollectionAccess,
     conversion::checked_conversion_fallible,
@@ -127,9 +127,9 @@ fn checked_conversions(
 fn implement(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
-    interface: NominalTy<DefinitionId>,
-    receiver: Ty<DefinitionId>,
-    parameters: Vec<GenericParam<DefinitionId>>,
+    interface: NominalTy,
+    receiver: Ty,
+    parameters: Vec<GenericParam>,
     binding: &str,
 ) -> Result<(), DeclarationError> {
     let contract = module
@@ -166,7 +166,7 @@ fn implement(
 fn iteration_calls(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
-    item: Ty<DefinitionId>,
+    item: Ty,
 ) -> Result<(), DeclarationError> {
     let owner = identities::implementation(ids, module.implementations.len() - 1)?;
     let method = &module.implementations.last().unwrap().methods[0];

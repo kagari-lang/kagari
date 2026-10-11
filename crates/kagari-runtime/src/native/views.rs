@@ -12,7 +12,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::Ty;
 
 /// A generic value keeps the exact closed Kagari type of its rooted argument.
@@ -21,7 +20,7 @@ pub struct ValueHandle<'call> {
     heap: &'call GcHeap,
     arguments: ArgumentView<'call>,
     slot: usize,
-    ty: &'call Ty<DefinitionId>,
+    ty: &'call Ty,
 }
 
 /// Prevents recursive entry into an explicitly guarded native payload operation.
@@ -58,7 +57,7 @@ impl<'call> ValueHandle<'call> {
         })
     }
 
-    pub fn declared_type(&self) -> &'call Ty<DefinitionId> {
+    pub fn declared_type(&self) -> &'call Ty {
         self.ty
     }
 
@@ -103,7 +102,7 @@ impl<'call> ValueHandle<'call> {
 pub struct SequenceHandle<'call> {
     heap: &'call GcHeap,
     id: HeapObjectId,
-    ty: &'call Ty<DefinitionId>,
+    ty: &'call Ty,
     _arguments: ArgumentView<'call>,
 }
 
@@ -121,7 +120,7 @@ impl<'call> SequenceHandle<'call> {
         })
     }
 
-    pub fn declared_type(&self) -> &'call Ty<DefinitionId> {
+    pub fn declared_type(&self) -> &'call Ty {
         self.ty
     }
 

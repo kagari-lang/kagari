@@ -1,5 +1,6 @@
 //! Closed integer-method contracts shared by verification and native execution.
 
+use kagari_common::identity::table::DefinitionTable;
 use kagari_types::integer::IntegerMethod;
 use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
 
@@ -56,14 +57,16 @@ impl IntegerMethodContract {
         self.rhs
     }
 
-    pub fn result(self) -> Ty {
+    /// Resolve the semantic result using the retained declaration scope.
+    /// Returns None for checked methods if core Option is not registered.
+    pub fn result(self, definitions: &DefinitionTable) -> Option<Ty> {
         let value = Ty::Builtin(self.receiver);
         if self.method.checked() {
-            binding::option(value)
+            binding::option(definitions, value)
         } else if self.method.overflowing() {
-            Ty::Tuple(vec![value, Ty::Builtin(BuiltinType::Bool)])
+            Some(Ty::Tuple(vec![value, Ty::Builtin(BuiltinType::Bool)]))
         } else {
-            value
+            Some(value)
         }
     }
 }

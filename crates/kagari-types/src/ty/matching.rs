@@ -13,9 +13,9 @@ use kagari_common::{cancellation::CancellationToken, identity::table::Definition
 
 /// The actual checked header, independently of its declaration/executable source.
 pub struct ImplementationPattern<'a> {
-    pub parameters: &'a [GenericParam<DefinitionId>],
-    pub receiver: &'a Ty<DefinitionId>,
-    pub interface: &'a NominalTy<DefinitionId>,
+    pub parameters: &'a [GenericParam],
+    pub receiver: &'a Ty,
+    pub interface: &'a NominalTy,
     /// Language role resolved by the owner of the interface identity.
     pub protocol: Option<Protocol>,
     pub storage_access: Option<CollectionAccess>,
@@ -31,8 +31,8 @@ impl Clone for ImplementationPattern<'_> {
 
 pub fn match_pattern<'a>(
     pattern: ImplementationPattern<'a>,
-    interface: &'a NominalTy<DefinitionId>,
-    receiver: &'a Ty<DefinitionId>,
+    interface: &'a NominalTy,
+    receiver: &'a Ty,
     cancel: &CancellationToken,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let implemented = pattern.interface;
@@ -83,9 +83,9 @@ pub fn match_pattern<'a>(
 
 /// Match an inherent receiver without weakening access or resolving new proofs.
 pub fn match_receiver<'a>(
-    parameters: &'a [GenericParam<DefinitionId>],
-    template: &'a Ty<DefinitionId>,
-    actual: &'a Ty<DefinitionId>,
+    parameters: &'a [GenericParam],
+    template: &'a Ty,
+    actual: &'a Ty,
     cancel: &CancellationToken,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     if parameters.len() > MAX_TYPE_NODES
@@ -104,8 +104,8 @@ pub fn match_receiver<'a>(
 }
 
 fn match_pairs<'a>(
-    parameters: &'a [GenericParam<DefinitionId>],
-    mut pending: Vec<(&'a Ty<DefinitionId>, &'a Ty<DefinitionId>)>,
+    parameters: &'a [GenericParam],
+    mut pending: Vec<(&'a Ty, &'a Ty)>,
     cancel: &CancellationToken,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let mut bindings = TypeSubstitution::default();
@@ -192,13 +192,13 @@ fn match_pairs<'a>(
 
 pub fn projection_output(
     pattern: ImplementationPattern<'_>,
-    families: &[AssociatedTypeFamily<DefinitionId>],
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    families: &[AssociatedTypeFamily],
+    interface: &NominalTy,
+    receiver: &Ty,
     member: &DefinitionId,
-    arguments: &[Ty<DefinitionId>],
+    arguments: &[Ty],
     cancel: &CancellationToken,
-) -> Result<Option<Ty<DefinitionId>>, TypeTransformError> {
+) -> Result<Option<Ty>, TypeTransformError> {
     let Some(mut substitution) = match_pattern(pattern, interface, receiver, cancel)? else {
         return Ok(None);
     };

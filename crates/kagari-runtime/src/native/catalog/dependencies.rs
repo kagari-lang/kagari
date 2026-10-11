@@ -21,10 +21,10 @@ use std::{collections::BTreeSet, iter};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Reference {
     Type(DefinitionId),
-    Enum(NominalTy<DefinitionId>),
+    Enum(NominalTy),
     Trait(DefinitionId),
     Template(DefinitionId),
-    Obligation(Ty<DefinitionId>, NominalTy<DefinitionId>),
+    Obligation(Ty, NominalTy),
     Implementation(DefinitionId),
 }
 
@@ -42,7 +42,7 @@ pub(crate) struct DependencyClosure {
 }
 
 impl References {
-    fn nominal(&mut self, nominal: &NominalTy<DefinitionId>) -> Result<(), RuntimeError> {
+    fn nominal(&mut self, nominal: &NominalTy) -> Result<(), RuntimeError> {
         self.pending.push(Reference::Trait(nominal.declaration));
         for ty in nominal
             .arguments
@@ -54,7 +54,7 @@ impl References {
         Ok(())
     }
 
-    fn ty(&mut self, ty: &Ty<DefinitionId>) -> Result<(), RuntimeError> {
+    fn ty(&mut self, ty: &Ty) -> Result<(), RuntimeError> {
         if !ty.within_wire_limits() {
             return Err(RuntimeError::metadata_conflict(
                 "oversized native dependency type",
@@ -109,10 +109,7 @@ impl References {
         Ok(())
     }
 
-    fn constraints(
-        &mut self,
-        constraints: &[Constraint<DefinitionId>],
-    ) -> Result<(), RuntimeError> {
+    fn constraints(&mut self, constraints: &[Constraint]) -> Result<(), RuntimeError> {
         for constraint in constraints {
             if let Constraint::Trait(nominal) = constraint {
                 self.nominal(nominal)?;
@@ -121,7 +118,7 @@ impl References {
         Ok(())
     }
 
-    fn bounds(&mut self, bounds: &[GenericBound<DefinitionId>]) -> Result<(), RuntimeError> {
+    fn bounds(&mut self, bounds: &[GenericBound]) -> Result<(), RuntimeError> {
         for bound in bounds {
             self.ty(&bound.ty)?;
             self.constraints(&bound.constraints)?;
@@ -135,7 +132,7 @@ impl References {
         Ok(())
     }
 
-    fn function(&mut self, function: &FnDecl<DefinitionId>) -> Result<(), RuntimeError> {
+    fn function(&mut self, function: &FnDecl) -> Result<(), RuntimeError> {
         self.bounds(&function.bounds)?;
         for ty in function
             .params
@@ -155,10 +152,7 @@ impl References {
         Ok(())
     }
 
-    fn declaration(
-        &mut self,
-        declaration: &NativeDeclaration<DefinitionId>,
-    ) -> Result<(), RuntimeError> {
+    fn declaration(&mut self, declaration: &NativeDeclaration) -> Result<(), RuntimeError> {
         self.function(&declaration.function)?;
         if let Some(receiver) = &declaration.concrete_result {
             self.ty(receiver)?;
@@ -177,7 +171,7 @@ impl References {
         Ok(())
     }
 
-    fn type_definition(&mut self, declaration: &TypeDef<DefinitionId>) -> Result<(), RuntimeError> {
+    fn type_definition(&mut self, declaration: &TypeDef) -> Result<(), RuntimeError> {
         self.bounds(&declaration.bounds)?;
         for ty in declaration.fields.iter().map(|field| &field.ty).chain(
             declaration
@@ -195,8 +189,8 @@ impl DeclarationCatalog {
     pub(crate) fn dependency_closure<'a>(
         &self,
         traits: impl IntoIterator<Item = DefinitionId>,
-        declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
-        modules: impl IntoIterator<Item = &'a ModuleDecl<DefinitionId>>,
+        declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
+        modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<DependencyClosure, RuntimeError> {
         let mut references = References::default();
         references
@@ -229,7 +223,7 @@ impl DeclarationCatalog {
     pub(crate) fn binding_dependencies<'a>(
         &self,
         base: &DependencyClosure,
-        declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
+        declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
     ) -> Result<Self, RuntimeError> {
         if base.catalog.definitions().id() != self.definitions().id() {
             return Err(RuntimeError::metadata_conflict(

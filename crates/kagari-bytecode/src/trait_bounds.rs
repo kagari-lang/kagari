@@ -42,7 +42,7 @@ fn contract<'a>(
     id: &DefinitionId,
     closure: &[&'a BytecodeModule],
     definitions: &DefinitionTable,
-) -> Option<&'a TraitDef<DefinitionId>> {
+) -> Option<&'a TraitDef> {
     let identity = definitions.resolve(*id).ok()?;
     let owner = closure
         .iter()
@@ -58,11 +58,11 @@ fn contract<'a>(
 
 /// Read the bounded applied parent closure from portable trait contracts.
 pub fn interface_ancestors(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
-) -> Option<Vec<NominalTy<DefinitionId>>> {
+) -> Option<Vec<NominalTy>> {
     trait_inheritance::trait_closure(interface, receiver, &CancellationToken::default(), &|id| {
         contract(id, closure, definitions)
     })
@@ -71,11 +71,11 @@ pub fn interface_ancestors(
 
 /// Checked dynamic surfaces; concrete implementation proofs use raw ancestry.
 pub fn interface_views(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    interface: &NominalTy,
+    receiver: &Ty,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
-) -> Option<Vec<NominalTy<DefinitionId>>> {
+) -> Option<Vec<NominalTy>> {
     trait_inheritance::interface_views(
         interface,
         receiver,
@@ -87,9 +87,9 @@ pub fn interface_views(
 }
 
 fn executable_interface(
-    scope: &[GenericParam<DefinitionId>],
-    applied: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
+    scope: &[GenericParam],
+    applied: &NominalTy,
+    receiver: &Ty,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
 ) -> bool {
@@ -177,7 +177,7 @@ fn executable_interface(
 fn declarations<'a>(
     module: &'a BytecodeModule,
     definitions: &DefinitionTable,
-) -> Result<Vec<(DefinitionId, &'a TraitDef<DefinitionId>)>, LinkedValidationError> {
+) -> Result<Vec<(DefinitionId, &'a TraitDef)>, LinkedValidationError> {
     let root = definitions
         .lookup_root(&module.identity)
         .ok_or(LinkedValidationError::Contract)?;
@@ -532,9 +532,9 @@ fn linked_bounds_match(
 }
 
 fn parents_proven(
-    interface: &NominalTy<DefinitionId>,
-    receiver: &Ty<DefinitionId>,
-    bounds: &[GenericBound<DefinitionId>],
+    interface: &NominalTy,
+    receiver: &Ty,
+    bounds: &[GenericBound],
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,

@@ -33,7 +33,7 @@ impl InstancePlanner<'_> {
     pub(crate) fn registered_native_declaration(
         &self,
         declaration: &DefinitionId,
-    ) -> Option<&NativeDeclaration<DefinitionId>> {
+    ) -> Option<&NativeDeclaration> {
         self.modules
             .get(&self.module_identity(*declaration))?
             .lowered
@@ -78,7 +78,7 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn bind_operations(
         &mut self,
-        requirements: Vec<NativeCallableRequirement<DefinitionId>>,
+        requirements: Vec<NativeCallableRequirement>,
         span: Span,
     ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         let mut operations = vec![];
@@ -158,8 +158,8 @@ impl InstancePlanner<'_> {
 
     fn normalize_callable_requirement(
         &self,
-        mut required: NativeCallableRequirement<DefinitionId>,
-    ) -> Result<NativeCallableRequirement<DefinitionId>, MirLoweringError> {
+        mut required: NativeCallableRequirement,
+    ) -> Result<NativeCallableRequirement, MirLoweringError> {
         let receiver = self
             .catalog
             .normalize_type(&self.definitions(), &raise_type(&required.receiver));
@@ -223,7 +223,7 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn select_callables(
         &mut self,
-        requirements: Vec<NativeCallableRequirement<DefinitionId>>,
+        requirements: Vec<NativeCallableRequirement>,
         span: Span,
     ) -> Result<Vec<NativeCallableApplication>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked callable requirement");

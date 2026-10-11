@@ -22,7 +22,7 @@ pub struct ImplementationBuilder<'module> {
     module: &'module mut ModuleBuilder,
     receiver: Type,
     receiver_codec: Option<Codec>,
-    parameters: Vec<GenericParam<DefinitionId>>,
+    parameters: Vec<GenericParam>,
     parameter_names: Vec<String>,
 }
 

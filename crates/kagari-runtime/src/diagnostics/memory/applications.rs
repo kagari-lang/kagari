@@ -62,7 +62,7 @@ fn method_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Pha
             .clone();
         let inputs = (1..=count)
             .map(|width| {
-                let ty: Ty<DefinitionId> = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
+                let ty: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
                 runtime.resolve_type_arguments(&loaded, &[ty]).unwrap()
             })
             .collect::<Vec<_>>();
@@ -126,7 +126,7 @@ fn shared_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Pha
         let owner = loaded.member(module).unwrap();
         let inputs = (1..=count)
             .map(|width| {
-                let ty: Ty<DefinitionId> = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
+                let ty: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); width]);
                 let arguments = runtime.resolve_type_arguments(&loaded, &[ty]).unwrap();
                 runtime
                     .alloc_environment(
