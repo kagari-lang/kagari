@@ -31,6 +31,19 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Builtin fixed-length arrays (SA20)
+
+Selected as the next implementation direction; execution planning is complete and
+implementation has not started. The [BA01-BA05 execution plan](builtin-array-plan.md)
+owns phase order, acceptance and the progress/error ledger. `[T]` will represent
+a builtin array with construction-time fixed length, without length in its type.
+Literals will construct Array; Vec remains a distinct nominal library collection,
+constructed explicitly with `Vec::from(array)`. HashSet receives the corresponding
+array constructor. The plan covers checked artifacts, runtime/host enforcement and
+caller migration; broader SA18/SA19/SA21 changes remain separate. Current specs
+still describe implemented behavior until integration; no implementation or CI
+acceptance is claimed by this planning checkpoint.
+
 ### Name resolution (SA8, SA2, SA3, CI pending)
 
 NR01-NR05 are implemented and locally accepted. Type/Value namespaces, canonical

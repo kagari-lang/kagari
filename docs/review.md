@@ -767,12 +767,19 @@ any claimed memory or speed improvement. Implementation remains deferred.
 
 ## SA20 Separate builtin fixed-length arrays from library lists
 
+The length decision is now settled for the initial implementation: `[T]` has a
+construction-time fixed length stored in the object, not in type identity. The
+user selected this work next; the [BA01-BA05 execution plan](builtin-array-plan.md)
+owns implementation contracts and progress, with queue placement in the
+[roadmap](implementation-roadmap.md#builtin-fixed-length-arrays-sa20).
+Implementation has not started.
+
 The requested future direction is to retain a builtin Array whose length cannot
 change after construction. Array literals such as `[1, 2, 3]` should construct
 that builtin type, not select mutable Vec storage. Array remains distinct from
 List/MutableList and does not implicitly convert to or implement those interfaces.
-Its supported core protocols should cover indexing and iteration, with exact
-protocol membership and element-write behavior reviewed before implementation.
+Its supported core protocols cover indexing and iteration, and element replacement
+is permitted. The execution plan owns the exact protocol integration.
 Fixed length does not imply immutable elements or a change to binding `val`/`var`.
 
 The agreed collection construction direction uses associated functions on the
@@ -834,19 +841,20 @@ do not rename the existing resizable Array representation and consider the
 separation complete. No new Slice interface or implicit array/List coercion is
 selected; the explicit associated constructors above remain future work.
 
-Length in the type remains an open decision:
+The length alternatives were reviewed as follows:
 
 | Candidate | Meaning | Main consequence |
 | --- | --- | --- |
-| `[T; N]` | N participates in type identity. | Exact-size parameters can reject wrong lengths statically; constant-length rules and possible const-generic binders need a separate bounded design. |
-| `[T]` (or `Array<T>`) | Each object has a fixed construction-time length, which is not part of type identity. | One parameter type accepts arrays of different lengths; lengths may be computed at runtime and indexing remains checked. |
+| `[T; N]` (deferred) | N participates in type identity. | Exact-size parameters can reject wrong lengths statically; constant-length rules and possible const-generic binders need a separate bounded design. |
+| `[T]` (selected) | Each object has a fixed construction-time length, which is not part of type identity. | One parameter type accepts arrays of different lengths; lengths may be computed at runtime and indexing remains checked. |
 
-The proposed `fn sum(values: [i32; 4])` uses an ASCII semicolon and would require
-exact length four if that design is adopted. It is not a commitment to length
-in types or to general Rust const generics. The initial review favors evaluating
-runtime-stored fixed lengths for scripting simplicity, while leaving the choice
-to the later design decision. An omitted length must have one defined meaning;
-do not silently mix builtin arrays, borrowed slices and the List interface.
+The initial form is `fn sum(values: [i32])`, accepting different array lengths.
+Runtime-sized `[value; count]` construction remains supported with fixed length
+after creation. The earlier `fn sum(values: [i32; 4])` suggestion is deferred;
+future exact-length constraints and general const generics are separate additions.
+Do not introduce placeholder length parameters now or mix builtin arrays,
+borrowed slices and the List interface. Element replacement remains supported,
+including through a `val` binding; no operation resizes an existing Array.
 
 Current [collection access](spec/collection-access.md),
 [value semantics](spec/value-semantics.md#repeat-arrays-and-bulk-replacement) and
@@ -874,11 +882,10 @@ runtime ownership model.
 Follow-up owner: syntax/type semantics, foundation declarations and collection
 constructors, checked executable contracts and runtime array storage. Reuse
 focused literal/repetition, indexing/iteration, interface matching, generic,
-aliasing and source-free artifact/GC tests when activated. Keep the length-in-type
-decision and remaining constructor signature details explicit before selecting
-migration scope. This entry
-records a future design direction; implementation and specification changes
-remain deferred.
+aliasing and source-free artifact/GC tests during execution. The linked execution
+plan now bounds the migration, including the nominal Vec representation and host
+adapters. This entry retains the design rationale; implementation and specification
+changes await the planned phases.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 

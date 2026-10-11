@@ -26,6 +26,9 @@ parallel migration documents.
   [architecture review/open findings](architecture-review-2026-10-03.md) and
   [Kagari/Lua benchmarks](../benchmarks/lua-comparison/README.md).
 - [Review findings](review.md): the shared document for ongoing repository reviews.
+- [Builtin fixed-length array execution plan (SA20)](builtin-array-plan.md):
+  runtime-stored lengths, Array/Vec separation and explicit collection constructors;
+  planning is complete and implementation has not started.
 - [Runnable examples](../examples/README.md).
 - [HIR reading guide](architecture/hir.md) and the completed
   [HIR](hir-documentation-plan.md) / [syntax](syntax-documentation-plan.md)
