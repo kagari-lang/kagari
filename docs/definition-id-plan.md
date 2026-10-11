@@ -3287,3 +3287,55 @@ Focused local evidence and carried errors:
 
 The runtime unit build, remaining SDK/VM consumers and final documentation cleanup
 remain required SI06 work. Full-workspace/backend validation remains reserved for CI.
+
+
+### SI06 runtime unit snapshot and publication fixtures
+
+Completed the remaining runtime library-test callers of scoped registration,
+verification, artifact loading and reload. Host path fixtures retain independently
+authored declarations through registration, then use the runtime's published table
+for installed field IDs. Native fixtures explicitly adopt provider declarations and
+compare imported catalogs; fixed-ID entries replace path-key iteration. Re-export
+fixtures import the complete provider catalog because validating individual standard
+modules cannot establish cross-module return-interface contracts. Missing/corrupt
+export and uninstalled-provider rejection assertions remain in place.
+
+Shared verified programs, editable detached modules, artifact cache fingerprints
+and nominal enum reload fixtures now retain their actual definition scope. Detached
+module edits split and recombine the existing envelope rather than assign a new
+unrelated table. The module-store test body moved intact into `module/tests.rs`:
+explicit scope setup raised the facade above 1200 effective LOC, and this normal
+Rust child module restores the implementation/test responsibility boundary without
+exceptions or new public entrypoints.
+
+Focused local evidence and remaining errors:
+
+- `cargo test -p kagari-runtime --lib module::staging::tests:: --no-fail-fast
+  --message-format=short`: all six previously blocked staging cases pass; the
+  runtime library-test build's carried 130 errors are resolved.
+- The selected native::module::tests, module::records::tests and
+  module::retention::tests groups plus shared verification/resource rejection,
+  private runtime linkage, nominal enum reload, Host value categories, reload
+  publication/ABI/staleness and cache invalidation selected 36 cases. 35 passed
+  initially; the complete-provider fixture repair's exact-name rerun of
+  installed_reexports_require_declared_and_installed_canonical_targets passes,
+  completing this selection. The filter also selected the existing oversized
+  reload preflight case. Other runtime tests remain outside local execution scope.
+- `cargo clippy -p kagari-runtime --lib --tests --message-format=short --
+  -D warnings` exposed unmigrated integration-test consumers and failed before
+  completing all targets. The observed 110 diagnostics belong to enum_declarations,
+  installation_access, native_builder, native_conversion, host_objects,
+  execution_frames and host_borrows; representative causes are fallible Native
+  builders, old Scalar codecs, unscoped program loading and artifact decoding.
+  There are no diagnostics in the changed library-test files. This does not imply
+  that other integration targets have completed linting. Continue those consumer
+  migrations in SI06, then run a small selected boundary set rather than all tests.
+- `cargo clippy -p kagari-runtime --lib --message-format=short -- -D warnings`
+  passes for the production library.
+- Manual review preserves negative assertions, catalog scope provenance, immutable
+  retained metadata and runtime-local publication/GC boundaries. Globs remain
+  test-only. Structure checks 1087 Rust files with zero violations/exceptions;
+  formatting and diff checks pass.
+
+Runtime integration, embed/VM consumers and final contract-document transfer/plan
+retirement remain required. No full-workspace, backend matrix or CI pass is claimed.

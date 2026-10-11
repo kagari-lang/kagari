@@ -473,6 +473,7 @@ mod tests {
         module::BytecodeModule,
         program::{BytecodeProgram, ModuleRef},
     };
+    use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {
@@ -515,14 +516,20 @@ mod tests {
 
     #[test]
     fn trace_call_limit_reports_omitted_invocations() {
+        let context = DefinitionContext::new().unwrap();
         let mut runtime = crate::Runtime::default();
         let module = runtime
             .load_program(
                 "trace-cap",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
+                DefinitionMetadata::checked(
+                    context.snapshot(),
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![BytecodeModule::default()],
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
             )
             .unwrap();
         let mut options = runtime.execution_options();

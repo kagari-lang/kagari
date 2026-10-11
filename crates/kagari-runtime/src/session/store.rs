@@ -186,16 +186,23 @@ mod tests {
         module::BytecodeModule,
         program::{BytecodeProgram, ModuleRef},
     };
+    use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 
     fn module() -> (Runtime, LoadedModule) {
+        let context = DefinitionContext::new().unwrap();
         let mut runtime = Runtime::default();
         let module = runtime
             .load_program(
                 "sessions",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
+                DefinitionMetadata::checked(
+                    context.snapshot(),
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![BytecodeModule::default()],
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
             )
             .unwrap();
         (runtime, module)

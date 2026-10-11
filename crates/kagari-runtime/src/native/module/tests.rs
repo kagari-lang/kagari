@@ -12,15 +12,17 @@ use crate::{
     },
     value::Value,
 };
-use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_stdlib::catalog as standard_catalog;
+use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
+use kagari_stdlib::{catalog as standard_catalog, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
         TypeDefKind,
+        module::ModuleDecl,
         names::{ExportName, NameNamespace},
         native::NativeStorageLayout,
     },
+    language::Protocol,
 };
 use std::{collections::BTreeMap, slice};
 
@@ -46,13 +48,21 @@ fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
 
 #[test]
 fn reused_closures_preserve_exact_foundation_binding_requirements() {
-    let declarations = standard_catalog::declarations();
+    let declarations = standard_catalog::declarations().unwrap();
     let providers = DeclarationCatalog::from_declarations(&declarations).unwrap();
     let modules = declarations
         .into_iter()
         .map(|declaration| {
+            let context = providers.types.context();
+            let declaration = declaration
+                .import_into(context, &Default::default())
+                .unwrap()
+                .into_records();
             let mut bindings = BTreeMap::new();
-            for entry in declaration.native_declarations() {
+            for entry in declaration
+                .native_declarations(&providers.definitions())
+                .unwrap()
+            {
                 let CallableImplementation::Native(id) = entry.function.implementation else {
                     panic!("native template");
                 };
@@ -64,10 +74,11 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
                     )
                 });
             }
-            let owned = DeclarationCatalog::declared([&declaration]).unwrap();
+            let owned =
+                DeclarationCatalog::declared([&declaration], providers.types.context()).unwrap();
             let storage = owned
                 .types
-                .iter()
+                .entries()
                 .filter_map(|(id, ty)| {
                     let TypeDefKind::NativeStorage(layout) = ty.kind else {
                         return None;
@@ -84,7 +95,7 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
                         NativeStorageLayout::TaskScope => NativeStorage::task_scope(),
                         _ => panic!("unexpected foundation storage: {layout:?}"),
                     };
-                    Some((id.clone(), storage))
+                    Some((id, storage))
                 })
                 .collect();
             NativeModule::checked(
@@ -117,20 +128,24 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
 fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
     let providers = DeclarationCatalog::from_declarations(
         standard_catalog::shared()
+            .unwrap()
             .iter()
             .map(|module| module.as_ref()),
     )
     .unwrap();
-    let mut provider = ModuleBuilder::new("test::provider", &providers);
-    let mut remote = provider.define_trait("Remote");
+    let mut provider = ModuleBuilder::new("test::provider", &providers).unwrap();
+    let mut remote = provider.define_trait("Remote").unwrap();
     remote.define_method(MethodDecl::instance("read")).unwrap();
     let remote = remote.finish().unwrap();
     let provider = provider.finish().unwrap();
     let mut consumer = ModuleBuilder::new("test::consumer", &providers)
+        .unwrap()
         .with_modules(&[&provider])
         .unwrap();
     let inspect = consumer
-        .define_function(FunctionDecl::new("inspect").parameter("value", remote.apply([]).ty()))
+        .define_function(
+            FunctionDecl::new("inspect").parameter("value", remote.apply([]).unwrap().ty()),
+        )
         .unwrap();
     consumer
         .bind_with(
@@ -183,7 +198,8 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
 }
 
 fn application(names: &[&str]) -> NativeModule {
-    let mut module = ModuleBuilder::new("test::application", &DeclarationCatalog::default());
+    let mut module =
+        ModuleBuilder::new("test::application", &DeclarationCatalog::default()).unwrap();
     for name in names {
         let function = module
             .define_function(FunctionDecl::new(*name).returns(Type::i32()))
@@ -191,9 +207,7 @@ fn application(names: &[&str]) -> NativeModule {
         module
             .bind_with(
                 function,
-                NativeBinding::new(vec![], Codec::Scalar(Type::i32().abi().clone()), |_| {
-                    Ok(Value::I32(42))
-                }),
+                NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(42))),
             )
             .unwrap();
     }
@@ -216,13 +230,16 @@ fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
     // A failed batch must not retain its earlier successful entry.
     application(&["added"]).install(&mut first).unwrap();
     assert!(module.install(&mut second).is_err());
-    assert!(
-        !second.native_entries.catalog.declarations.keys().any(|id| {
-            id.path
-                .last()
-                .is_some_and(|segment| segment.name == "added")
-        })
-    );
+    assert!(!second.native_entries.catalog.declarations.ids().any(|id| {
+        second
+            .native_entries
+            .catalog
+            .definitions()
+            .resolve(id)
+            .unwrap()
+            .last()
+            .is_some_and(|segment| segment.name == "added")
+    }));
     assert_eq!(first.gc().active_roots(), 0);
     assert_eq!(second.gc().active_roots(), 0);
 }
@@ -234,13 +251,20 @@ fn independently_scoped_catalogs_match_complete_contracts_after_import() {
     let first_id = first.declaration().functions[0].implementation.clone();
     let second_id = second.declaration().functions[0].implementation.clone();
     assert_ne!(first_id, second_id);
-    let expected = first.to_declaration().unwrap();
+    let expected = first.to_declaration();
     let merged = DeclarationCatalog::from_modules(&[&first, &second]).unwrap();
     assert_eq!(merged.declarations.len(), 1);
     assert!(first.catalog().satisfied_by(&merged).unwrap());
     assert!(second.catalog().satisfied_by(&merged).unwrap());
     let retained = merged.declarations.values().next().unwrap().clone();
-    let expected_scoped = merged.scope(&expected.native_declarations()[0]).unwrap();
+    let expected = expected
+        .import_into(merged.types.context(), &Default::default())
+        .unwrap();
+    let expected_scoped = expected
+        .records()
+        .native_declarations(expected.definitions())
+        .unwrap()
+        .remove(0);
     assert_eq!(retained, expected_scoped);
     drop(first);
     drop(second);
@@ -248,9 +272,10 @@ fn independently_scoped_catalogs_match_complete_contracts_after_import() {
         merged.declarations.values().next().unwrap(),
         &expected_scoped
     );
-    let mut incompatible = expected;
+    let mut incompatible = expected.into_records();
     incompatible.functions[0].return_type = Type::bool().abi().clone();
-    let incompatible = DeclarationCatalog::declared([&incompatible]).unwrap();
+    let incompatible =
+        DeclarationCatalog::declared([&incompatible], merged.types.context()).unwrap();
     assert!(!incompatible.satisfied_by(&merged).unwrap());
     let mut rejected = merged.clone();
     assert!(rejected.merge(&incompatible).is_err());
@@ -302,43 +327,42 @@ fn registration_scope_survives_catalog_growth_and_module_drop() {
 
 #[test]
 fn installed_reexports_require_declared_and_installed_canonical_targets() {
-    use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
-    use std::collections::BTreeMap;
-    use {
-        kagari_stdlib::namespaces,
-        kagari_types::{declaration::module::ModuleDecl, language, language::Protocol},
-    };
-
     let providers = DeclarationCatalog::from_declarations(
         standard_catalog::shared()
+            .unwrap()
             .iter()
             .map(|module| module.as_ref()),
     )
     .unwrap();
+    let context = providers.types.context();
     let mut declaration = ModuleDecl::new(namespaces::module("test", "exports"));
     declaration.exports.insert(
         ExportName::new(NameNamespace::Type, "Hash"),
-        language::identity(Protocol::Hash),
+        Protocol::Hash.definition(&providers.definitions()).unwrap(),
     );
     declaration.exports.insert(
         ExportName::new(NameNamespace::Type, "Vec"),
         ModuleDecl::new(namespaces::type_owner("Vec"))
-            .definition(DefinitionKind::AssociatedType, "Vec"),
+            .definition(
+                DefinitionKind::AssociatedType,
+                "Vec",
+                &providers.definitions(),
+            )
+            .unwrap(),
     );
-    let mut some = ModuleDecl::new(namespaces::type_owner("Option"))
-        .definition(DefinitionKind::Enum, "Option");
-    some.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Variant,
-        name: "Some".into(),
-        occurrence: 0,
-    });
+    let option = ModuleDecl::new(namespaces::type_owner("Option"))
+        .definition(DefinitionKind::Enum, "Option", &providers.definitions())
+        .unwrap();
+    let some = context
+        .intern_child(option, DefinitionKind::Variant, "Some", 0)
+        .unwrap();
     declaration
         .exports
-        .insert(ExportName::new(NameNamespace::Value, "Some"), some.clone());
+        .insert(ExportName::new(NameNamespace::Value, "Some"), some);
     // One alias may denote a type and a value; category mismatches are invalid metadata.
     declaration
         .exports
-        .insert(ExportName::new(NameNamespace::Value, "Vec"), some.clone());
+        .insert(ExportName::new(NameNamespace::Value, "Vec"), some);
     let mut wrong_category = declaration.clone();
     wrong_category
         .exports
@@ -356,25 +380,19 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
     let module =
         NativeModule::checked(declaration.clone(), vec![], BTreeMap::new(), &providers).unwrap();
     assert_eq!(
-        module.to_declaration().unwrap().exports,
+        module.to_declaration().records().exports,
         declaration.exports
     );
     let mut empty = Default::default();
     assert!(module.install_into(&mut empty).is_err());
     assert!(empty.catalog.traits.is_empty() && empty.catalog.types.is_empty());
     let mut runtime = Runtime::default();
-    for declaration in standard_catalog::shared() {
-        runtime
-            .native_entries
-            .catalog
-            .merge(&DeclarationCatalog::declared([declaration.as_ref()]).unwrap())
-            .unwrap();
-    }
+    runtime.native_entries.catalog.merge(&providers).unwrap();
     module.install(&mut runtime).unwrap();
 
     for name in ["Hash", "Vec", "Some"] {
         let mut forged = declaration.clone();
-        forged
+        let target = forged
             .exports
             .get_mut(&ExportName::new(
                 if name == "Some" {
@@ -384,11 +402,10 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
                 },
                 name,
             ))
-            .unwrap()
-            .path
-            .last_mut()
-            .unwrap()
-            .name = "Missing".into();
+            .unwrap();
+        let mut path = context.snapshot().resolve(*target).unwrap().to_path();
+        path.path.last_mut().unwrap().name = "Missing".into();
+        *target = context.intern(&path).unwrap();
         assert!(
             NativeModule::checked(forged, vec![], BTreeMap::new(), &providers).is_err(),
             "{name}"

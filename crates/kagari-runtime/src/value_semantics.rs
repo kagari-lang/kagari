@@ -344,92 +344,74 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_bytecode::instruction::EnumId;
+    use kagari_bytecode::{
+        instruction::EnumId,
+        module::BytecodeModule,
+        program::{BytecodeProgram, ModuleRef},
+    };
+    use kagari_common::identity::{
+        DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    };
+    use kagari_contract::layout::{EnumLayout, EnumVariantLayout};
     use kagari_types::{scalar::BuiltinType, ty::Ty};
 
     #[test]
     fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
-        use kagari_bytecode::{
-            module::BytecodeModule,
-            program::{BytecodeProgram, ModuleRef},
-        };
-        use kagari_common::identity::{
-            DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-        };
-        use {
-            kagari_contract::layout::{EnumLayout, EnumVariantLayout},
-            kagari_types::{scalar::BuiltinType, ty::Ty},
-        };
-
+        let context = DefinitionContext::new().unwrap();
         let identity = ModuleIdentity::single_file("enum-equality.kgr");
-        let declaration = DefinitionPath {
-            module: identity.clone(),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Enum,
-                name: "Event".into(),
-                occurrence: 0,
-            }],
-        };
-        let mut other_declaration = declaration.clone();
-        other_declaration.path[0].name = "OtherEvent".into();
+        let root = context.intern_root(&identity).unwrap();
+        let declaration = context
+            .intern_child(root, DefinitionKind::Enum, "Event", 0)
+            .unwrap();
+        let other_declaration = context
+            .intern_child(root, DefinitionKind::Enum, "OtherEvent", 0)
+            .unwrap();
         let variant = |name: &str, payload| EnumVariantLayout {
             reports_failure: false,
-            declaration: DefinitionPath {
-                module: identity.clone(),
-                path: declaration
-                    .path
-                    .iter()
-                    .cloned()
-                    .chain([DefinitionPathSegment {
-                        kind: DefinitionKind::Variant,
-                        name: name.into(),
-                        occurrence: 0,
-                    }])
-                    .collect(),
-            },
+            declaration: context
+                .intern_child(declaration, DefinitionKind::Variant, name, 0)
+                .unwrap(),
             payload,
         };
-        let program = |extra_variant: bool| BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![BytecodeModule {
-                identity: identity.clone(),
-                enumerations: vec![
-                    EnumLayout {
-                        declaration: declaration.clone(),
-                        arguments: Vec::new(),
-                        variants: if extra_variant {
-                            vec![
-                                variant("Added", Vec::new()),
-                                variant("Data", vec![Ty::Builtin(BuiltinType::I32)]),
-                            ]
-                        } else {
-                            vec![variant("Data", vec![Ty::Builtin(BuiltinType::I32)])]
-                        },
-                    },
-                    EnumLayout {
-                        declaration: other_declaration.clone(),
-                        arguments: Vec::new(),
-                        variants: vec![EnumVariantLayout {
-                            reports_failure: false,
-                            declaration: DefinitionPath {
-                                module: identity.clone(),
-                                path: other_declaration
-                                    .path
-                                    .iter()
-                                    .cloned()
-                                    .chain([DefinitionPathSegment {
-                                        kind: DefinitionKind::Variant,
-                                        name: "Data".into(),
-                                        occurrence: 0,
-                                    }])
-                                    .collect(),
+        let program = |extra_variant: bool| {
+            let program = BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity: identity.clone(),
+                    enumerations: vec![
+                        EnumLayout {
+                            declaration,
+                            arguments: Vec::new(),
+                            variants: if extra_variant {
+                                vec![
+                                    variant("Added", Vec::new()),
+                                    variant("Data", vec![Ty::Builtin(BuiltinType::I32)]),
+                                ]
+                            } else {
+                                vec![variant("Data", vec![Ty::Builtin(BuiltinType::I32)])]
                             },
-                            payload: vec![Ty::Builtin(BuiltinType::I32)],
-                        }],
-                    },
-                ],
-                ..Default::default()
-            }],
+                        },
+                        EnumLayout {
+                            declaration: other_declaration,
+                            arguments: Vec::new(),
+                            variants: vec![EnumVariantLayout {
+                                reports_failure: false,
+                                declaration: context
+                                    .intern_child(
+                                        other_declaration,
+                                        DefinitionKind::Variant,
+                                        "Data",
+                                        0,
+                                    )
+                                    .unwrap(),
+                                payload: vec![Ty::Builtin(BuiltinType::I32)],
+                            }],
+                        },
+                    ],
+                    ..Default::default()
+                }],
+            };
+            DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = crate::Runtime::default();
         let old = runtime

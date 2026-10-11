@@ -20,14 +20,20 @@ use kagari_types::{
 
 #[test]
 fn corrupted_collection_root_quarantines_the_runtime() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let loaded = runtime
         .load_program(
             "gc-invariant",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let mut foreign_runtime = Runtime::default();
@@ -52,14 +58,20 @@ fn corrupted_collection_root_quarantines_the_runtime() {
 
 #[test]
 fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let loaded = runtime
         .load_program(
             "borrowed-module",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let held = runtime.modules.instance_mut(loaded.key()).unwrap();
@@ -123,23 +135,29 @@ fn module_with_executable_function() -> BytecodeModule {
 
 #[test]
 fn load_rejects_missing_function_terminator_before_publication() {
+    let context = DefinitionContext::new().unwrap();
     let mut module = module_with_executable_function();
     module.functions[0].instructions.clear();
     let mut runtime = Runtime::default();
     let error = runtime
         .load_program(
             "missing-return",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(runtime.modules().latest("missing-return").is_none());
 }
 
-fn artifact_with_loader_fingerprints() -> KbcArtifact {
+fn artifact_with_loader_fingerprints(context: &DefinitionContext) -> KbcArtifact {
     let dependency = BytecodeModule {
         identity: kagari_common::identity::ModuleIdentity::single_file("pkg/dependency"),
         ..Default::default()
@@ -154,6 +172,7 @@ fn artifact_with_loader_fingerprints() -> KbcArtifact {
         ArtifactBuildOptions {
             ..Default::default()
         },
+        context,
     )
     .unwrap()
 }
@@ -169,14 +188,20 @@ fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
 
 #[test]
 fn reload_publishes_valid_candidate_after_validation() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let loaded = runtime
         .load_program(
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("module should load");
 
@@ -184,10 +209,15 @@ fn reload_publishes_valid_candidate_after_validation() {
         .stage_reload_program(
             &loaded,
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect("compatible module should reload");
@@ -202,14 +232,20 @@ fn reload_publishes_valid_candidate_after_validation() {
 
 #[test]
 fn reload_rejects_public_abi_changes_before_publication() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let loaded = runtime
         .load_program(
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("module should load");
     let before_count = runtime.modules().loaded_count();
@@ -218,10 +254,15 @@ fn reload_rejects_public_abi_changes_before_publication() {
         .stage_reload_program(
             &loaded,
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::String)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::String)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect_err("public ABI change should reject reload");
@@ -240,24 +281,35 @@ fn reload_rejects_public_abi_changes_before_publication() {
 
 #[test]
 fn reload_rejects_stale_active_epoch_before_publication() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let first = runtime
         .load_program(
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("module should load");
     let second = runtime
         .stage_reload_program(
             &first,
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect("compatible module should reload");
@@ -267,10 +319,15 @@ fn reload_rejects_stale_active_epoch_before_publication() {
         .stage_reload_program(
             &first,
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect_err("stale active epoch should reject reload");
@@ -293,10 +350,19 @@ fn reload_rejects_stale_active_epoch_before_publication() {
 
 #[test]
 fn reload_artifact_validates_loader_compatibility_before_publication() {
-    let artifact = artifact_with_loader_fingerprints();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact_with_loader_fingerprints(&context);
     let mut runtime = Runtime::default();
     let loaded = runtime
-        .load_program("reloadable", artifact.program.clone())
+        .load_program(
+            "reloadable",
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                artifact.program.clone(),
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .expect("module should load");
     let before_count = runtime.modules().loaded_count();
 
@@ -304,7 +370,7 @@ fn reload_artifact_validates_loader_compatibility_before_publication() {
         .stage_reload_artifact(
             &loaded,
             "reloadable",
-            artifact,
+            DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap(),
             &ArtifactCompatibility {
                 dependency_fingerprints: Some(Vec::new()),
                 ..Default::default()
@@ -327,15 +393,29 @@ fn reload_artifact_validates_loader_compatibility_before_publication() {
 
 #[test]
 fn reload_artifact_publishes_after_loader_and_reload_validation() {
-    let artifact = artifact_with_loader_fingerprints();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact_with_loader_fingerprints(&context);
     let compatibility = compatibility_for_artifact(&artifact);
     let mut runtime = Runtime::default();
     let loaded = runtime
-        .load_program("reloadable", artifact.program.clone())
+        .load_program(
+            "reloadable",
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                artifact.program.clone(),
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .expect("module should load");
 
     let reloaded = runtime
-        .stage_reload_artifact(&loaded, "reloadable", artifact, &compatibility)
+        .stage_reload_artifact(
+            &loaded,
+            "reloadable",
+            DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap(),
+            &compatibility,
+        )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect("compatible artifact should reload");
 
@@ -349,17 +429,35 @@ fn reload_artifact_publishes_after_loader_and_reload_validation() {
 
 #[test]
 fn staged_reload_failure_and_stale_publication_preserve_the_active_entry() {
-    let artifact = artifact_with_loader_fingerprints();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact_with_loader_fingerprints(&context);
     let mut runtime = Runtime::default();
     let baseline = runtime
-        .load_program("reloadable", artifact.program.clone())
+        .load_program(
+            "reloadable",
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                artifact.program.clone(),
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .unwrap();
     let stage = |runtime: &mut Runtime| {
         let prepared = runtime
             .prepare_reload(
                 &baseline,
                 "reloadable".into(),
-                VerifiedProgram::new(artifact.program.clone()).unwrap(),
+                VerifiedProgram::new(
+                    DefinitionMetadata::checked(
+                        context.snapshot(),
+                        artifact.program.clone(),
+                        &Default::default(),
+                    )
+                    .unwrap(),
+                    &context,
+                )
+                .unwrap(),
             )
             .unwrap();
         runtime.stage_prepared_reload(prepared).unwrap()
@@ -401,10 +499,19 @@ fn staged_reload_failure_and_stale_publication_preserve_the_active_entry() {
 
 #[test]
 fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
-    let artifact = artifact_with_loader_fingerprints();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact_with_loader_fingerprints(&context);
     let mut runtime = Runtime::default();
     let baseline = runtime
-        .load_program("reloadable", artifact.program.clone())
+        .load_program(
+            "reloadable",
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                artifact.program.clone(),
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .unwrap();
     let before_count = runtime.modules().loaded_count();
     let before_resources = runtime.resources().counters();
@@ -413,7 +520,16 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
             .prepare_reload(
                 &baseline,
                 "reloadable".into(),
-                VerifiedProgram::new(artifact.program.clone()).unwrap(),
+                VerifiedProgram::new(
+                    DefinitionMetadata::checked(
+                        context.snapshot(),
+                        artifact.program.clone(),
+                        &Default::default(),
+                    )
+                    .unwrap(),
+                    &context,
+                )
+                .unwrap(),
             )
             .unwrap()
     };
@@ -448,6 +564,7 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
 
 #[test]
 fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
+    let context = DefinitionContext::new().unwrap();
     let dependency_v1 = KbcArtifact::from_program(
         BytecodeProgram {
             root: ModuleRef::new(0),
@@ -457,6 +574,7 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
             )],
         },
         ArtifactBuildOptions::default(),
+        &context,
     )
     .unwrap();
     let dependency_v2 = KbcArtifact::from_program(
@@ -468,26 +586,42 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
             )],
         },
         ArtifactBuildOptions::default(),
+        &context,
     )
     .unwrap();
-    let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
+    let dependency_v1_snapshot =
+        ReloadDependencySnapshot::from_artifact(&dependency_v1, &context.snapshot()).unwrap();
     let dependency_v2_compatibility = compatibility_for_artifact(&dependency_v2);
     let mut runtime = Runtime::default();
     let dependency = runtime
-        .load_program("dependency", dependency_v1.program.clone())
+        .load_program(
+            "dependency",
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                dependency_v1.program.clone(),
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .expect("dependency should load");
     let consumer = runtime
         .load_program(
             "consumer",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("consumer should load");
-    let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(
-        &consumer.to_unverified(&Default::default()).unwrap(),
-    );
+    let mut consumer_snapshot = {
+        let metadata = consumer.to_unverified(&Default::default()).unwrap();
+        ReloadDependencySnapshot::from_bytecode(metadata.records(), metadata.definitions()).unwrap()
+    };
     consumer_snapshot
         .dependency_fingerprints
         .push(DependencyFingerprint {
@@ -516,7 +650,8 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
         .stage_reload_artifact(
             &dependency,
             "dependency",
-            dependency_v2,
+            DefinitionMetadata::checked(context.snapshot(), dependency_v2, &Default::default())
+                .unwrap(),
             &dependency_v2_compatibility,
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
@@ -537,27 +672,31 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
 
 #[test]
 fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_stable() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let loaded = runtime
         .load_program(
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function_and_constant(
-                    BuiltinType::I32,
-                    1,
-                )],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function_and_constant(
+                        BuiltinType::I32,
+                        1,
+                    )],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("module should load");
     let artifact = runtime
-        .register_interpreter_cache(
-            loaded.key(),
-            None,
-            ReloadDependencySnapshot::from_bytecode(
-                &loaded.to_unverified(&Default::default()).unwrap(),
-            ),
-        )
+        .register_interpreter_cache(loaded.key(), None, {
+            let metadata = loaded.to_unverified(&Default::default()).unwrap();
+            ReloadDependencySnapshot::from_bytecode(metadata.records(), metadata.definitions())
+                .unwrap()
+        })
         .expect("function cache should register");
 
     assert!(runtime.interpreter_cache(artifact).is_some());
@@ -573,13 +712,18 @@ fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_st
         .stage_reload_program(
             &loaded,
             "reloadable",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function_and_constant(
-                    BuiltinType::I32,
-                    2,
-                )],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function_and_constant(
+                        BuiltinType::I32,
+                        2,
+                    )],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect("implementation-only reload should publish a new epoch");
@@ -599,28 +743,44 @@ fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_st
 
 #[test]
 fn failed_reload_does_not_invalidate_interpreter_caches() {
-    let dependency_v1 = artifact_with_loader_fingerprints();
-    let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
+    let context = DefinitionContext::new().unwrap();
+    let dependency_v1 = artifact_with_loader_fingerprints(&context);
+    let dependency_v1_snapshot =
+        ReloadDependencySnapshot::from_artifact(&dependency_v1, &context.snapshot()).unwrap();
     let mut dependency_v2 = dependency_v1.clone();
     dependency_v2.program.modules[dependency_v2.program.root.index()]
         .constants
         .push(ConstantOperand::I32(2));
     let mut runtime = Runtime::default();
     let dependency = runtime
-        .load_program("dependency", dependency_v1.program.clone())
+        .load_program(
+            "dependency",
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                dependency_v1.program.clone(),
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .expect("dependency should load");
     let consumer = runtime
         .load_program(
             "consumer",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module_with_public_function(BuiltinType::I32)],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module_with_public_function(BuiltinType::I32)],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("consumer should load");
-    let mut consumer_snapshot = ReloadDependencySnapshot::from_bytecode(
-        &consumer.to_unverified(&Default::default()).unwrap(),
-    );
+    let mut consumer_snapshot = {
+        let metadata = consumer.to_unverified(&Default::default()).unwrap();
+        ReloadDependencySnapshot::from_bytecode(metadata.records(), metadata.definitions()).unwrap()
+    };
     consumer_snapshot
         .dependency_fingerprints
         .push(DependencyFingerprint {
@@ -636,7 +796,8 @@ fn failed_reload_does_not_invalidate_interpreter_caches() {
         .stage_reload_artifact(
             &dependency,
             "dependency",
-            dependency_v2,
+            DefinitionMetadata::checked(context.snapshot(), dependency_v2, &Default::default())
+                .unwrap(),
             &ArtifactCompatibility::default(),
         )
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
