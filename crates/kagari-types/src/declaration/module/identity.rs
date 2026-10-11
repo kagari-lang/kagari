@@ -68,6 +68,15 @@ impl ModuleDecl {
                     .intern_child(owner, DefinitionKind::Method, &method.name, 0)
                     .map_err(invalid)?;
             }
+            if let Some(interface) = &implementation.trait_type {
+                for member in interface.associated_types.keys() {
+                    let member = prefix.resolve(*member).map_err(invalid)?;
+                    let name = member.last().ok_or_else(absent)?.name;
+                    context
+                        .intern_child(owner, DefinitionKind::AssociatedType, name, 0)
+                        .map_err(invalid)?;
+                }
+            }
         }
         Ok(context.snapshot())
     }

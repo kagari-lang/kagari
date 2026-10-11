@@ -1,5 +1,8 @@
 //! Source package spelling and inherent ownership from the installed declarations.
-use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity};
+use kagari_common::identity::{
+    DefinitionKind, ModuleIdentity,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::{
     collection::CollectionAccess,
     declaration::{
@@ -11,9 +14,11 @@ use kagari_types::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 
-pub(crate) fn module_path(identity: &ModuleIdentity, providers: &[Arc<ModuleDecl>]) -> String {
+pub(crate) fn module_path<'a>(
+    identity: &ModuleIdentity,
+    mut providers: impl Iterator<Item = &'a ModuleDecl>,
+) -> String {
     let package = providers
-        .iter()
         .find(|module| module.identity == *identity)
         .and_then(|module| module.package_alias.as_deref())
         .unwrap_or(&identity.package.0);
@@ -22,7 +27,24 @@ pub(crate) fn module_path(identity: &ModuleIdentity, providers: &[Arc<ModuleDecl
 
 pub(crate) fn array_interfaces(
     providers: &[Arc<ModuleDecl>],
-) -> Result<BTreeMap<CollectionAccess, DefinitionPath>, DeclarationError> {
+    definitions: &DefinitionTable,
+) -> Result<BTreeMap<CollectionAccess, DefinitionId>, DeclarationError> {
+    let mut types = BTreeMap::new();
+    let mut traits = BTreeMap::new();
+    for provider in providers {
+        for ty in &provider.types {
+            let id = provider.definition(ty.kind.definition_kind(), &ty.name, definitions)?;
+            if types.insert(id, ty).is_some() {
+                return Err(DeclarationError("duplicate registered type".into()));
+            }
+        }
+        for contract in &provider.traits {
+            let id = provider.definition(DefinitionKind::Trait, &contract.name, definitions)?;
+            if traits.insert(id, contract).is_some() {
+                return Err(DeclarationError("duplicate registered trait".into()));
+            }
+        }
+    }
     let mut interfaces = BTreeMap::new();
     for implementation in providers.iter().flat_map(|module| &module.implementations) {
         let (Ty::NativeObject(nominal), Some(interface)) =
@@ -30,14 +52,11 @@ pub(crate) fn array_interfaces(
         else {
             continue;
         };
-        let Some(element) = providers
-            .iter()
-            .find(|module| module.identity == nominal.declaration.module)
-            .and_then(|module| {
-                module.types.iter().find(|ty| {
-                    module.definition(ty.kind.definition_kind(), &ty.name) == nominal.declaration
-                })
-            })
+        definitions
+            .resolve(nominal.declaration)
+            .map_err(|error| DeclarationError(error.to_string()))?;
+        let Some(element) = types
+            .get(&nominal.declaration)
             .and_then(|ty| match ty.kind {
                 TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element }) => {
                     nominal.arguments.get(element)
@@ -50,23 +69,17 @@ pub(crate) fn array_interfaces(
         if interface.arguments.as_slice() != [element.clone()] {
             continue;
         }
-        let Some(contract) = providers
-            .iter()
-            .find(|module| module.identity == interface.declaration.module)
-            .and_then(|module| {
-                module.traits.iter().find(|contract| {
-                    module.definition(DefinitionKind::Trait, &contract.name)
-                        == interface.declaration
-                })
-            })
-        else {
+        definitions
+            .resolve(interface.declaration)
+            .map_err(|error| DeclarationError(error.to_string()))?;
+        let Some(contract) = traits.get(&interface.declaration) else {
             continue;
         };
         let Some(access) = contract.storage_access else {
             continue;
         };
         if interfaces
-            .insert(access, interface.declaration.clone())
+            .insert(access, interface.declaration)
             .is_some_and(|previous| previous != interface.declaration)
         {
             return Err(DeclarationError(

@@ -1065,3 +1065,58 @@ reviewed. Structure passes 1048 Rust files without violations/exceptions; format
 and diff checks pass. No full workspace suite, performance measurement, ABI/version
 bump or generated-fixture sweep was run. SI02 still includes source registration and
 remaining call-site integration; SI03–SI06 and final documentation cleanup remain open.
+
+### SI02 scoped Native declaration views
+
+The HIR-owned renderer now accepts scoped ModuleDecl metadata and provider roots.
+It borrows definition names, parents and complete paths from the retained table;
+its generated navigation sites use DefinitionId and retain that exact immutable
+prefix. Rendering does not intern names or grant registration authority. Missing
+implicit declaration names return errors instead of fabricating new path identities.
+Provider package spelling reads only provider records and does not combine their
+independent identity scopes. Associated-output rendering sorts by complete borrowed
+identity, preserving canonical text independently of numeric allocation order.
+
+ModuleDecl construction now also collects implementation-owned associated output
+names. These are the generated `impl { type Output = ...; }` declaration identities,
+not replacements for the trait-owned associated keys in semantic applications.
+Registration remains fallible and first validates all supplied references against
+the incoming prefix. The Native array-interface lookup now takes an explicit table,
+indexes actual type/trait declarations by ID and rejects duplicate identities;
+receiver and interface matching no longer reconstructs paths.
+
+Validation and carried integration:
+
+- `cargo check -p kagari-hir --lib --message-format=short` was attempted at the
+  changed owner boundary. It reports 37 errors, down from the preceding 81-error
+  HIR attempt. No errors remain in the renderer or array-interface helper. The
+  remaining diagnostics are in `native/api.rs`, Host consumers and aggregate
+  protocols: old unscoped inputs, path-shaped lowered attachments and obsolete
+  Host validation/accessors. SI02 source/provider adoption and SI03 own those
+  repairs; HIR does not build yet. The previously recorded MIR failures remain.
+- `cargo build -p kagari-stdlib -p kagari-syntax --lib --message-format=json` passes.
+  The two tracked tests in `native/render/tests.rs` pass through a temporary direct
+  Rust test harness that compiles the actual `native/paths.rs` and `native/render.rs`
+  modules against Cargo's exact emitted common/types/stdlib/source/syntax rlibs.
+  Use an inline `native` module whose `#[path]` is the repository's native directory,
+  then ordinary `mod paths; mod render;`; no copied production implementation or
+  tracked module-path exception is involved. The same harness passes direct
+  `clippy-driver --test --emit=metadata -D warnings` with those exact rlibs.
+- Those tests compare all generated foundation text and declaration/name/generic/
+  parameter/bound spans across independent scopes, parse every generated module,
+  check both registered array interfaces and reject foreign tables, retain old
+  navigation prefixes after appends, and reject missing implicit names. The
+  canonical comparison exports individual site identities only at the test boundary.
+- Both existing stdlib registration tests pass again against the newly built rlibs,
+  covering the changed implicit-name collector through complete foundation admission,
+  independent runtime installs, duplicate rejection and local storage contracts.
+  `cargo clippy -p kagari-types --lib -- -D warnings` also passes.
+
+Production imports, table retention, fallible queries, generated-source authority,
+identity ordering and file sizes were reviewed. Structure passes 1049 Rust files
+without violations/exceptions; formatting and diff checks pass. Normal Cargo HIR
+unit/integration execution and source correspondence/recovery tests remain pending
+until the owning migration builds; direct harness results do not claim those checks
+passed. No full workspace/backend sweep or speed claim was made. Continue with
+Native input adoption into the analysis context, source identity collection and
+fixed-ID HIR consumers; SI02–SI06 remain incomplete.
