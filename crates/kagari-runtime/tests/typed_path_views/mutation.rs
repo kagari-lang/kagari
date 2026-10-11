@@ -1,4 +1,5 @@
 use super::*;
+use kagari_common::cancellation::CancellationToken;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -217,17 +218,21 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
 
 #[test]
 fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
-    use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
-    use kagari_common::cancellation::CancellationToken;
+    let context = DefinitionContext::new().unwrap();
 
     let mut runtime = path_mutation_runtime();
     let module = runtime
         .load_program(
             "commit.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![Default::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![Default::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let scalar = register_i32(&runtime);
@@ -629,10 +634,11 @@ fn path_execution_uses_installed_descriptor() {
         .unwrap();
     let descriptor_id = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: runtime
+            segments: vec![HostPathSegmentDeclaration::Field(
+                runtime
                     .host()
                     .host_type(player_id)
                     .unwrap()
@@ -641,9 +647,8 @@ fn path_execution_uses_installed_descriptor() {
                     .iter()
                     .find(|field| field.name == "secure_hp")
                     .unwrap()
-                    .id
-                    .clone(),
-            }],
+                    .id,
+            )],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
         })

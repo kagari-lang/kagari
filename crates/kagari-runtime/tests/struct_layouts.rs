@@ -2,8 +2,12 @@ use kagari_bytecode::{
     instruction::StructId,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
-use kagari_types::ty::Ty;
+use kagari_types::{
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
+};
 
 #[path = "support/layouts.rs"]
 mod layouts;
@@ -15,33 +19,42 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
         &mut runtime,
         "Point",
         &[
-            (
-                "x",
-                Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-                true,
-            ),
-            (
-                "fixed",
-                Ty::Builtin(kagari_types::scalar::BuiltinType::Bool),
-                false,
-            ),
+            ("x", Ty::Builtin(BuiltinType::I32), true),
+            ("fixed", Ty::Builtin(BuiltinType::Bool), false),
         ],
     );
     let object = runtime
         .alloc_struct(layout.clone(), vec![Value::I32(1), Value::Bool(true)])
         .unwrap();
-    let mut foreign = layout.module().to_unverified(&Default::default()).unwrap();
-    foreign.structures[0].declaration.module.path = vec!["other.kgr".into()];
+    let context = DefinitionContext::new().unwrap();
+    let mut foreign = layout
+        .module()
+        .to_unverified(&Default::default())
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let relocate = |id| {
+        let mut path = context.snapshot().resolve(id).unwrap().to_path();
+        path.module.path = vec!["other.kgr".into()];
+        context.intern(&path).unwrap()
+    };
+    foreign.structures[0].declaration = relocate(foreign.structures[0].declaration);
     for field in &mut foreign.structures[0].fields {
-        field.declaration.module.path = vec!["other.kgr".into()];
+        field.declaration = relocate(field.declaration);
     }
     let foreign = runtime
         .load_program(
             "other",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![foreign],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![foreign],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap()
         .struct_layout(StructId::new(0))
@@ -89,21 +102,13 @@ fn allocation_rejects_foreign_layout_and_invalid_initializers_before_accounting(
     let layout = layouts::layout(
         &mut runtime,
         "Point",
-        &[(
-            "x",
-            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-            true,
-        )],
+        &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
     let mut other = Runtime::default();
     let foreign = layouts::layout(
         &mut other,
         "Point",
-        &[(
-            "x",
-            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-            true,
-        )],
+        &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
     let counters = runtime.resources().counters();
     assert_eq!(
@@ -144,29 +149,30 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
     let original = layouts::layout(
         &mut runtime,
         "Point",
-        &[(
-            "x",
-            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-            true,
-        )],
+        &[("x", Ty::Builtin(BuiltinType::I32), true)],
     );
     let object = runtime
         .alloc_struct(original.clone(), vec![Value::I32(1)])
         .unwrap();
     let _root = runtime.root_value(Value::Struct(object)).unwrap();
+    let (definitions, bytecode) = original
+        .module()
+        .to_unverified(&Default::default())
+        .unwrap()
+        .into_parts();
     let next = runtime
         .stage_reload_program(
             original.module(),
             "Point",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![
-                    original
-                        .module()
-                        .to_unverified(&Default::default())
-                        .unwrap(),
-                ],
-            },
+            DefinitionMetadata::checked(
+                definitions,
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![bytecode],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let next = runtime.publish_staged_reload(next).unwrap();
@@ -200,11 +206,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
     let changed = layouts::layout(
         &mut runtime,
         "Point",
-        &[(
-            "x",
-            Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-            false,
-        )],
+        &[("x", Ty::Builtin(BuiltinType::I32), false)],
     );
     assert!(runtime.gc().struct_get_slot(object, &changed, 0).is_none());
     assert!(
@@ -221,8 +223,6 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
 
 #[test]
 fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
-    use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
-    use kagari_types::{scalar::BuiltinType, ty::NominalTy};
     let mut runtime = Runtime::default();
     let leaf = layouts::layout(
         &mut runtime,
@@ -246,23 +246,26 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         associated_types: Default::default(),
     });
     let wrong_value = Value::Struct(runtime.alloc_struct(wrong, vec![Value::I32(9)]).unwrap());
-    let mut bytecode = wrapper.module().to_unverified(&Default::default()).unwrap();
-    bytecode.structures.push(
-        leaf.module()
-            .to_unverified(&Default::default())
-            .unwrap()
-            .structures[0]
-            .clone(),
-    );
+    let context = DefinitionContext::new().unwrap();
+    let mut bytecode = wrapper
+        .module()
+        .to_unverified(&Default::default())
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let leaf = leaf
+        .module()
+        .to_unverified(&Default::default())
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    bytecode.structures.push(leaf.structures[0].clone());
     bytecode.structures[0].fields[0].ty = Ty::Array(Box::new(Ty::Tuple(vec![
         Ty::Struct(NominalTy {
             associated_types: Default::default(),
-            declaration: leaf
-                .module()
-                .definitions()
-                .resolve(leaf.layout().declaration)
-                .unwrap()
-                .to_path(),
+            declaration: bytecode.structures[1].declaration,
             arguments: vec![],
         }),
         Ty::Builtin(BuiltinType::Bool),
@@ -270,10 +273,15 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     let module = runtime
         .load_program(
             "concrete",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![bytecode],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let wrapper = module.struct_layout(StructId::new(0)).unwrap();

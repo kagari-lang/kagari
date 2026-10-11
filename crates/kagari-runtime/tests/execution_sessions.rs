@@ -5,36 +5,47 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
-    host::HostPathDescriptorId,
+    host::{HostFunction, HostPathDescriptorId},
     module::LoadedModule,
     reload::ReloadValidationError,
     session::{DeterministicInputs, ExecutionPhase},
     value::Value,
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    host_interface::{HostFunctionDeclaration, HostFunctionEffects, value_type::HostValueType},
+    scalar::BuiltinType,
+    ty::Ty,
+};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
 fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
+    let context = DefinitionContext::new().unwrap();
     runtime
         .load_program(
             name,
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    module_slots: vec![BytecodeModuleSlot {
-                        name: "state".into(),
-                        ty: ValueType::HeapObject,
-                        mutable: true,
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule {
+                        module_slots: vec![BytecodeModuleSlot {
+                            name: "state".into(),
+                            ty: ValueType::HeapObject,
+                            mutable: true,
+                        }],
+                        ..Default::default()
                     }],
-                    ..Default::default()
-                }],
-            },
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap()
 }
@@ -220,10 +231,7 @@ fn root_heap_peak_counters_do_not_reuse_a_previous_roots_peak() {
 
 #[test]
 fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session() {
-    use kagari_runtime::{host::HostFunction, session::ExecutionPhase};
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostFunctionEffects, value_type::HostValueType,
-    };
+    let context = DefinitionContext::new().unwrap();
 
     let mut runtime = Runtime::default();
 
@@ -266,14 +274,19 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
             },
         ),
     ] {
-        let mut declaration = HostFunctionDeclaration::new(symbol, vec![], HostValueType::Unit);
+        let mut declaration =
+            HostFunctionDeclaration::new(&context, symbol, vec![], HostValueType::Unit).unwrap();
         declaration.effects = effects;
         let calls = calls.clone();
         runtime
-            .register_host_function(HostFunction::new(declaration, move |_, _| {
-                calls.fetch_add(1, Ordering::SeqCst);
-                Ok(Value::Unit)
-            }))
+            .register_host_function(HostFunction::new(
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap(),
+                move |_, _| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(Value::Unit)
+                },
+            ))
             .unwrap();
     }
     let module = load(&mut runtime, "main");
@@ -324,7 +337,6 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
 
 #[test]
 fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
-    use kagari_runtime::session::ExecutionPhase;
     let mut runtime = Runtime::default();
     let module = load(&mut runtime, "main");
     let _session = runtime
@@ -345,8 +357,7 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
 
 #[test]
 fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations() {
-    use kagari_runtime::host::HostFunction;
-    use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
 
     let baseline = load(&mut runtime, "main");
@@ -367,50 +378,67 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let root = runtime.root_value(Value::Array(old_object)).unwrap();
     for symbol in ["old", "fresh"] {
         let mut declaration = HostFunctionDeclaration::new(
+            &context,
             symbol,
             vec![],
             HostValueType::Array(Box::new(HostValueType::Array(Box::new(HostValueType::I32)))),
-        );
+        )
+        .unwrap();
         declaration.effects.may_allocate = true;
         let retained = root.clone();
         let allocation_owner = baseline.clone();
         runtime
-            .register_host_function(HostFunction::new(declaration, move |context, _| {
-                if symbol == "old" {
-                    return Ok(retained.value(context.runtime().gc()).unwrap());
-                }
-                let owner = context
-                    .runtime()
-                    .execution_root()
-                    .unwrap_or_else(|| allocation_owner.clone());
-                let inner = Value::Array(
-                    context
+            .register_host_function(HostFunction::new(
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap(),
+                move |context, _| {
+                    if symbol == "old" {
+                        return Ok(retained.value(context.runtime().gc()).unwrap());
+                    }
+                    let owner = context
                         .runtime()
-                        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(42)])
-                        .unwrap(),
-                );
-                Ok(Value::Array(
-                    context
-                        .runtime()
-                        .alloc_array(
-                            &owner,
-                            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-                            vec![inner],
-                        )
-                        .unwrap(),
-                ))
-            }))
+                        .execution_root()
+                        .unwrap_or_else(|| allocation_owner.clone());
+                    let inner = Value::Array(
+                        context
+                            .runtime()
+                            .alloc_array(
+                                &owner,
+                                Ty::Builtin(BuiltinType::I32),
+                                vec![Value::I32(42)],
+                            )
+                            .unwrap(),
+                    );
+                    Ok(Value::Array(
+                        context
+                            .runtime()
+                            .alloc_array(
+                                &owner,
+                                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+                                vec![inner],
+                            )
+                            .unwrap(),
+                    ))
+                },
+            ))
             .unwrap();
     }
     let candidate = runtime
-        .stage_reload_program(
-            &baseline,
-            "main",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![baseline.to_unverified(&Default::default()).unwrap()],
-            },
-        )
+        .stage_reload_program(&baseline, "main", {
+            let (definitions, module) = baseline
+                .to_unverified(&Default::default())
+                .unwrap()
+                .into_parts();
+            DefinitionMetadata::checked(
+                definitions,
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                &Default::default(),
+            )
+            .unwrap()
+        })
         .unwrap();
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     assert_eq!(
@@ -441,14 +469,19 @@ fn candidate_module_state_access_is_limited_to_its_program() {
     let old = load(&mut runtime, "main");
     let other = load(&mut runtime, "other");
     let candidate = runtime
-        .stage_reload_program(
-            &old,
-            "main",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![old.to_unverified(&Default::default()).unwrap()],
-            },
-        )
+        .stage_reload_program(&old, "main", {
+            let (definitions, module) =
+                old.to_unverified(&Default::default()).unwrap().into_parts();
+            DefinitionMetadata::checked(
+                definitions,
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                &Default::default(),
+            )
+            .unwrap()
+        })
         .unwrap();
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
     for external in [&old, &other] {
@@ -498,14 +531,21 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
         .unwrap();
     for inject_external in [true, false] {
         let candidate = runtime
-            .stage_reload_program(
-                &baseline,
-                "main",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![baseline.to_unverified(&Default::default()).unwrap()],
-                },
-            )
+            .stage_reload_program(&baseline, "main", {
+                let (definitions, module) = baseline
+                    .to_unverified(&Default::default())
+                    .unwrap()
+                    .into_parts();
+                DefinitionMetadata::checked(
+                    definitions,
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![module],
+                    },
+                    &Default::default(),
+                )
+                .unwrap()
+            })
             .unwrap();
         let session = runtime.begin_candidate_initialization(&candidate).unwrap();
         let inner = runtime
@@ -569,14 +609,21 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
         let mut runtime = Runtime::default();
         let baseline = load(&mut runtime, "main");
         let candidate = runtime
-            .stage_reload_program(
-                &baseline,
-                "main",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![baseline.to_unverified(&Default::default()).unwrap()],
-                },
-            )
+            .stage_reload_program(&baseline, "main", {
+                let (definitions, module) = baseline
+                    .to_unverified(&Default::default())
+                    .unwrap()
+                    .into_parts();
+                DefinitionMetadata::checked(
+                    definitions,
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![module],
+                    },
+                    &Default::default(),
+                )
+                .unwrap()
+            })
             .unwrap();
         let mut direct = runtime.execution_options();
         direct.phase = ExecutionPhase::CandidateInitialization;

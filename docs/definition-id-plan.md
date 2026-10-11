@@ -3394,3 +3394,52 @@ Focused local evidence and remaining work:
 Runtime integration consumers, embed/VM consumers, lasting contract documentation
 and plan retirement remain required. Exhaustive tests/features/backends remain CI
 scope and have not been run locally.
+
+
+### SI06 runtime Host scope, typed path and layout integration completion
+
+Migrated the remaining runtime integration callers of Host declarations, typed path
+registration, execution-session reload and editable layouts. Host types/functions
+finish identity registration before retaining metadata snapshots. Path descriptors
+use HostPathSegmentDeclaration directly, with their source table: installed field IDs
+retain the runtime snapshot, independently authored missing/disconnected identities
+retain their authoring table, and cross-runtime index contracts are explicitly
+imported by registration. Offline HostInterface round trips retain decoded scopes
+through contract fingerprinting, binding and link validation.
+
+Candidate program fixtures split detached metadata and recombine it with the same
+table, preserving suspended-session and publication checks. Struct fixtures import
+layout records into a shared authoring context before composing nested types. A
+single deliberately relocated nominal identity and its fields remain a narrow
+negative-fixture boundary; whole semantic records never project to paths. Existing
+assertions on side effects, cancellation, borrows, GC retention, rejected allocation
+accounting and old-generation schemas remain unchanged.
+
+Focused local evidence:
+
+- Selected execution_sessions (six candidate/publication cases), host_scopes
+  (declared callback borrow conflict, unwinding cleanup and reentry trace order) and
+  runtime_substrate (Host value categories and independent module epochs) pass all
+  11 selected cases. mutation_resources compiled but the initial name filter selected
+  zero cases; its actual rejected-allocation case was then selected and passed.
+- Seven typed_path_views cases pass: index/virtual fingerprints across runtime and
+  offline boundaries, unbound type rejection, disconnected path rejection, temporary
+  roots during preparation, dynamic argument shape, stale root/index validation and
+  installed descriptor execution. The separately selected cancellation-during-commit
+  case also passes, preserving the completed atomic update before cancellation.
+- Three struct_layouts cases pass: nominal/schema/permission slot checks,
+  old-generation retention and equal-schema access, and nested nominal rejection
+  before allocation/commit. These complete 23 distinct selected cases in this batch.
+- Scoped Clippy for host_scopes, execution_sessions, runtime_substrate,
+  mutation_resources and typed_path_views passes. The next package test-target lint
+  exposed 12 remaining struct_layouts consumer diagnostics; after that coherent
+  repair, `cargo clippy -p kagari-runtime --lib --tests --message-format=short --
+  -D warnings` passes, resolving the runtime test-target compile/lint carry.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Manual review covers snapshot timing, cross-scope adoption,
+  negative-case causes, normal module imports and unchanged behavior assertions.
+
+This completes the carried runtime consumer build repair, not full runtime test
+execution. VM/embed consumers and lasting documentation transfer/plan retirement
+remain required SI06 work. Exhaustive workspace, feature/backend and CI acceptance
+remain unrun locally.

@@ -2,18 +2,25 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{Runtime, module::LoadedModule, value::Value};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn runtime_with_owner() -> (Runtime, LoadedModule) {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let owner = runtime
         .load_program(
             "allocations",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     (runtime, owner)

@@ -2,13 +2,14 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
     gc::GcHeap,
     host::{
         DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-        HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
+        HostSchemaEpoch, HostTypeRegistration,
     },
     metadata::{
         AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
@@ -18,6 +19,7 @@ use kagari_runtime::{
 };
 use kagari_types::{
     host_interface::{
+        path::HostPathSegmentDeclaration,
         type_declaration::{
             HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess, Visibility,
         },
@@ -41,25 +43,32 @@ fn host_root_value(heap: &GcHeap, object_id: u64) -> Value {
 fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
     let result_type = TypeId::new(1);
     let mut runtime = kagari_runtime::Runtime::default();
-    let mut declaration = HostTypeDeclaration::new("Player");
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = HostTypeDeclaration::new(&context, "Player").unwrap();
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
+    let mut hp =
+        HostFieldDeclaration::new(&context, declaration.id, "hp", HostValueType::I32).unwrap();
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     declaration.fields.push(hp);
     let root_type = runtime
-        .register_host_type(HostTypeRegistration::new(declaration, "Player"))
+        .register_host_type(HostTypeRegistration::new(
+            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                .unwrap(),
+            "Player",
+        ))
         .unwrap();
     let root = runtime
         .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
         .unwrap();
     let descriptor = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type,
             result_type,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: runtime
+            segments: vec![HostPathSegmentDeclaration::Field(
+                runtime
                     .host()
                     .host_type(root_type)
                     .unwrap()
@@ -68,9 +77,8 @@ fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
                     .iter()
                     .find(|field| field.name == "hp")
                     .unwrap()
-                    .id
-                    .clone(),
-            }],
+                    .id,
+            )],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
         })
@@ -174,23 +182,34 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
 
 #[test]
 fn module_epochs_have_independent_runtime_instances() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let first = runtime
         .load_program(
             "game.player",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let second = runtime
         .load_program(
             "game.player",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
 

@@ -5,18 +5,21 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
     let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let definitions = runtime.host().definitions();
+    let player = runtime.host().host_type(owner).unwrap().declaration.id;
     let index = |access| HostPathDescriptorRegistration {
+        definitions: definitions.clone(),
         root_type: owner,
         result_type: scalar,
-        segments: vec![HostPathSegmentRegistration::Index {
-            declaration: HostIndexSegmentDeclaration {
+        segments: vec![HostPathSegmentDeclaration::Index(
+            HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::opaque("game.Player"),
+                collection: HostValueType::Opaque(player),
                 index: HostValueType::I32,
                 result: HostValueType::I32,
                 access,
             },
-        }],
+        )],
         access,
         schema_epoch: HostSchemaEpoch::new(0),
     };
@@ -45,15 +48,16 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
     );
 
     let virtual_path = |name: &str| HostPathDescriptorRegistration {
+        definitions: definitions.clone(),
         root_type: owner,
         result_type: scalar,
-        segments: vec![HostPathSegmentRegistration::Virtual {
-            declaration: HostVirtualSegmentDeclaration {
+        segments: vec![HostPathSegmentDeclaration::Virtual(
+            HostVirtualSegmentDeclaration {
                 name: name.into(),
                 result: HostValueType::I32,
                 access: PathAccess::ReadOnly,
             },
-        }],
+        )],
         access: PathAccess::ReadOnly,
         schema_epoch: HostSchemaEpoch::new(0),
     };
@@ -87,20 +91,35 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
     );
 
     let offline = runtime.host().interface();
-    let encoded = offline.to_bytes().unwrap();
+    let encoded = offline.records().to_bytes(offline.definitions()).unwrap();
     let offline = kagari_types::host_interface::HostInterface::from_bytes(&encoded).unwrap();
-    assert_eq!(offline.paths.len(), 4);
+    assert_eq!(offline.records().paths.len(), 4);
     let mut bound = path_mutation_runtime();
     register_i32(&bound);
     register_host_root_type(&mut bound, "game.Player", PathAccess::ReadWrite);
-    for path in &offline.paths {
-        let id = bound.register_host_path(path).unwrap();
+    for path in &offline.records().paths {
+        let id = bound
+            .register_host_path(
+                &DefinitionMetadata::checked(
+                    offline.definitions().clone(),
+                    path.clone(),
+                    &Default::default(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
         assert_eq!(
             bound.host().path_descriptor(id).unwrap().abi_fingerprint.0,
-            path.contract(&offline).unwrap().fingerprint().unwrap()
+            path.contract(offline.records(), offline.definitions())
+                .unwrap()
+                .fingerprint(offline.definitions())
+                .unwrap()
         );
     }
-    bound.host().link_interface(&offline).unwrap();
+    bound
+        .host()
+        .link_interface(offline.records(), offline.definitions())
+        .unwrap();
 }
 
 #[test]
@@ -108,27 +127,31 @@ fn portable_path_segments_reject_unbound_types_before_publication() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
     let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let context = DefinitionContext::new().unwrap();
+    let player = HostTypeDeclaration::new(&context, "game.Player")
+        .unwrap()
+        .id;
+    let missing = HostTypeDeclaration::new(&context, "game.Missing")
+        .unwrap()
+        .id;
     for segment in [
-        HostPathSegmentRegistration::Index {
-            declaration: HostIndexSegmentDeclaration {
-                slot: 0,
-                collection: HostValueType::opaque("game.Player"),
-                index: HostValueType::opaque("game.Missing"),
-                result: HostValueType::I32,
-                access: PathAccess::ReadOnly,
-            },
-        },
-        HostPathSegmentRegistration::Virtual {
-            declaration: HostVirtualSegmentDeclaration {
-                name: "missing".into(),
-                result: HostValueType::opaque("game.Missing"),
-                access: PathAccess::ReadOnly,
-            },
-        },
+        HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+            slot: 0,
+            collection: HostValueType::Opaque(player),
+            index: HostValueType::Opaque(missing),
+            result: HostValueType::I32,
+            access: PathAccess::ReadOnly,
+        }),
+        HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
+            name: "missing".into(),
+            result: HostValueType::Opaque(missing),
+            access: PathAccess::ReadOnly,
+        }),
     ] {
         assert_eq!(
             runtime
                 .register_host_path_descriptor(HostPathDescriptorRegistration {
+                    definitions: context.snapshot(),
                     root_type: owner,
                     result_type: scalar,
                     segments: vec![segment],
@@ -145,25 +168,27 @@ fn portable_path_segments_reject_unbound_types_before_publication() {
 
 #[test]
 fn heap_path_temporaries_survive_collection_during_write_preparation() {
-    use std::sync::{Arc, Mutex};
     let mut runtime = path_mutation_runtime();
-    use kagari_types::host_interface::{
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    };
-    let mut declaration = HostTypeDeclaration::new("game.Player");
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = HostTypeDeclaration::new(&context, "game.Player").unwrap();
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
     let mut hp = HostFieldDeclaration::new(
-        &declaration.id,
+        &context,
+        declaration.id,
         "hp",
         HostValueType::Array(Box::new(HostValueType::I32)),
-    );
+    )
+    .unwrap();
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     declaration.fields.push(hp);
     let player_type = runtime
-        .register_host_type(HostTypeRegistration::new(declaration, "Player"))
+        .register_host_type(HostTypeRegistration::new(
+            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                .unwrap(),
+            "Player",
+        ))
         .unwrap();
     let result_type = runtime.types().get(player_type).unwrap().fields[0].ty;
     let root = runtime
@@ -258,30 +283,39 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
     let player = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
-    let field = |owner_type| HostPathSegmentRegistration::Field {
-        declaration: HostFieldDeclaration::new(
-            &kagari_types::host_interface::host_type_identity(if owner_type == player {
-                "game.Player"
-            } else {
-                "game.Other"
-            }),
-            "hp",
-            HostValueType::I32,
+    let context = DefinitionContext::new().unwrap();
+    let player_declaration = HostTypeDeclaration::new(&context, "game.Player")
+        .unwrap()
+        .id;
+    let other_declaration = HostTypeDeclaration::new(&context, "game.Other").unwrap().id;
+    let field = |owner_type| {
+        HostPathSegmentDeclaration::Field(
+            HostFieldDeclaration::new(
+                &context,
+                if owner_type == player {
+                    player_declaration
+                } else {
+                    other_declaration
+                },
+                "hp",
+                HostValueType::I32,
+            )
+            .unwrap()
+            .id,
         )
-        .id,
     };
-    let index = |collection_type| HostPathSegmentRegistration::Index {
-        declaration: HostIndexSegmentDeclaration {
+    let index = |collection_type| {
+        HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
             slot: 0,
             collection: if collection_type == player {
-                HostValueType::opaque("game.Player")
+                HostValueType::Opaque(player_declaration)
             } else {
                 HostValueType::I32
             },
             index: HostValueType::I32,
             result: HostValueType::I32,
             access: PathAccess::ReadWrite,
-        },
+        })
     };
     for segments in [
         vec![field(scalar)],
@@ -290,6 +324,7 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
         vec![field(player), index(player)],
     ] {
         let result = runtime.register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: context.snapshot(),
             root_type: player,
             result_type: scalar,
             segments,
@@ -326,10 +361,11 @@ fn registers_typed_host_roots_and_simple_path_views() {
 
     let descriptor_id = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: runtime
+            segments: vec![HostPathSegmentDeclaration::Field(
+                runtime
                     .host()
                     .host_type(player_id)
                     .unwrap()
@@ -338,9 +374,8 @@ fn registers_typed_host_roots_and_simple_path_views() {
                     .iter()
                     .find(|field| field.name == "hp")
                     .unwrap()
-                    .id
-                    .clone(),
-            }],
+                    .id,
+            )],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
         })
@@ -384,20 +419,23 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
         .unwrap();
     let descriptor_id = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
             segments: vec![
-                HostPathSegmentRegistration::Index {
-                    declaration: HostIndexSegmentDeclaration {
-                        slot: 0,
-                        collection: HostValueType::opaque("game.Player"),
-                        index: HostValueType::I32,
-                        result: HostValueType::opaque("game.Item"),
-                        access: PathAccess::ReadWrite,
-                    },
-                },
-                HostPathSegmentRegistration::Field {
-                    declaration: runtime
+                HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+                    slot: 0,
+                    collection: HostValueType::Opaque(
+                        runtime.host().host_type(player_id).unwrap().declaration.id,
+                    ),
+                    index: HostValueType::I32,
+                    result: HostValueType::Opaque(
+                        runtime.host().host_type(item_id).unwrap().declaration.id,
+                    ),
+                    access: PathAccess::ReadWrite,
+                }),
+                HostPathSegmentDeclaration::Field(
+                    runtime
                         .host()
                         .host_type(item_id)
                         .unwrap()
@@ -406,9 +444,8 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
                         .iter()
                         .find(|field| field.name == "count")
                         .unwrap()
-                        .id
-                        .clone(),
-                },
+                        .id,
+                ),
             ],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
@@ -511,17 +548,20 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
         .unwrap();
     let descriptor_id = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentRegistration::Index {
-                declaration: HostIndexSegmentDeclaration {
+            segments: vec![HostPathSegmentDeclaration::Index(
+                HostIndexSegmentDeclaration {
                     slot: 0,
-                    collection: HostValueType::opaque("game.Player"),
+                    collection: HostValueType::Opaque(
+                        runtime.host().host_type(player_id).unwrap().declaration.id,
+                    ),
                     index: HostValueType::I32,
                     result: HostValueType::I32,
                     access: PathAccess::ReadOnly,
                 },
-            }],
+            )],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
         })
@@ -594,10 +634,11 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
     assert_eq!(
         runtime
             .register_host_path_descriptor(HostPathDescriptorRegistration {
+                definitions: runtime.host().definitions(),
                 root_type: read_only_id,
                 result_type: i32_id,
-                segments: vec![HostPathSegmentRegistration::Field {
-                    declaration: runtime
+                segments: vec![HostPathSegmentDeclaration::Field(
+                    runtime
                         .host()
                         .host_type(read_only_id)
                         .unwrap()
@@ -607,8 +648,7 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
                         .find(|field| field.name == "hp")
                         .unwrap()
                         .id
-                        .clone()
-                }],
+                )],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
             })
@@ -628,10 +668,11 @@ fn rejects_root_schema_mismatch_when_creating_views() {
         .unwrap();
     let descriptor_id = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: runtime
+            segments: vec![HostPathSegmentDeclaration::Field(
+                runtime
                     .host()
                     .host_type(player_id)
                     .unwrap()
@@ -640,9 +681,8 @@ fn rejects_root_schema_mismatch_when_creating_views() {
                     .iter()
                     .find(|field| field.name == "hp")
                     .unwrap()
-                    .id
-                    .clone(),
-            }],
+                    .id,
+            )],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
         })

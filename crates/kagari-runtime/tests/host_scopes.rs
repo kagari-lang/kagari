@@ -2,6 +2,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -39,10 +40,14 @@ fn runtime() -> Runtime {
 }
 
 fn root(runtime: &mut Runtime) -> Value {
-    let mut registration =
-        HostTypeRegistration::new(HostTypeDeclaration::new("game.Object"), "Object");
-    registration.declaration.ownership = HostTypeOwnership::HostRoot;
-    registration.declaration.path_access = PathAccess::ReadWrite;
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = HostTypeDeclaration::new(&context, "game.Object").unwrap();
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = PathAccess::ReadWrite;
+    let registration = HostTypeRegistration::new(
+        DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap(),
+        "Object",
+    );
     let ty = runtime.register_host_type(registration).unwrap();
     let root = runtime
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
@@ -50,16 +55,27 @@ fn root(runtime: &mut Runtime) -> Value {
     runtime.gc().alloc_host_root(root).unwrap()
 }
 
-fn declaration(name: &str, passing: HostPassingStyle) -> HostFunctionDeclaration {
-    HostFunctionDeclaration::new(
+fn declaration(
+    name: &str,
+    passing: HostPassingStyle,
+) -> DefinitionMetadata<HostFunctionDeclaration> {
+    let context = DefinitionContext::new().unwrap();
+    let declaration = HostFunctionDeclaration::new(
+        &context,
         name,
         vec![HostParameter {
             name: "object".into(),
-            ty: HostValueType::opaque("game.Object"),
+            ty: HostValueType::Opaque(
+                HostTypeDeclaration::new(&context, "game.Object")
+                    .unwrap()
+                    .id,
+            ),
             passing,
         }],
         HostValueType::Unit,
     )
+    .unwrap();
+    DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap()
 }
 
 #[test]
@@ -115,15 +131,21 @@ fn same_frame_numbers_in_different_runtimes_do_not_authorize_foreign_borrows() {
 
 #[test]
 fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
+    let context = DefinitionContext::new().unwrap();
     for with_session in [false, true] {
         let mut runtime = runtime();
         let loaded = runtime
             .load_program(
                 "unwind",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
+                DefinitionMetadata::checked(
+                    context.snapshot(),
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![BytecodeModule::default()],
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
             )
             .unwrap();
         let value = Value::Array(
@@ -185,14 +207,20 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
 
 #[test]
 fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
     let loaded = runtime
         .load_program(
             "scope",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let options = runtime.execution_options();
@@ -325,14 +353,20 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
 
 #[test]
 fn quarantine_does_not_block_host_scope_cleanup() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
     let loaded = runtime
         .load_program(
             "quarantine",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let session = runtime
@@ -381,21 +415,37 @@ fn quarantine_does_not_block_host_scope_cleanup() {
 
 #[test]
 fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
     let module = runtime
         .load_program(
             "allocation-owner",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let raw = Arc::new(Mutex::new(None));
     let saved = raw.clone();
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("game.make", vec![], HostValueType::Unit),
+            {
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "game.make",
+                    vec![],
+                    HostValueType::Unit,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             move |context, _| {
                 let value = Value::Array(
                     context
@@ -428,12 +478,23 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
 
 #[test]
 fn host_callbacks_observe_replayable_root_inputs() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
     let observed = Arc::new(Mutex::new(Vec::new()));
     let captured = observed.clone();
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("game.sample", vec![], HostValueType::Unit),
+            {
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "game.sample",
+                    vec![],
+                    HostValueType::Unit,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             move |context, _| {
                 captured.lock().unwrap().push((
                     context.execution_time_millis().unwrap(),
@@ -446,10 +507,15 @@ fn host_callbacks_observe_replayable_root_inputs() {
     let module = runtime
         .load_program(
             "inputs",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let mut options = runtime.execution_options();
@@ -469,16 +535,37 @@ fn host_callbacks_observe_replayable_root_inputs() {
 
 #[test]
 fn host_trace_keeps_invocation_order_across_reentry() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("game.inner", vec![], HostValueType::I32),
+            {
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "game.inner",
+                    vec![],
+                    HostValueType::I32,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             |_, _| Ok(Value::I32(2)),
         ))
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("game.outer", vec![], HostValueType::I32),
+            {
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "game.outer",
+                    vec![],
+                    HostValueType::I32,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             |context, _| {
                 let inner = context.runtime().invoke_host("game.inner", &[]).unwrap();
                 assert_eq!(inner, Value::I32(2));
@@ -488,17 +575,28 @@ fn host_trace_keeps_invocation_order_across_reentry() {
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("game.fail", vec![], HostValueType::I32),
+            {
+                let declaration =
+                    HostFunctionDeclaration::new(&context, "game.fail", vec![], HostValueType::I32)
+                        .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             |_, _| Err(HostError::new("expected failure")),
         ))
         .unwrap();
     let module = runtime
         .load_program(
             "trace",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
     let mut options = runtime.execution_options();

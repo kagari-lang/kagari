@@ -3,13 +3,14 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     host::{
         DynamicPathArgument, DynamicPathArguments, HostBorrowTable, HostError, HostObjectId,
         HostPathAdapter, HostPathDescriptorId, HostPathDescriptorRegistration, HostPathOperation,
-        HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration, PreparedHostPathWrite,
+        HostSchemaEpoch, HostTypeRegistration, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
     module::LoadedModule,
@@ -17,7 +18,9 @@ use kagari_runtime::{
 };
 use kagari_types::{
     host_interface::{
-        path::{HostIndexSegmentDeclaration, HostVirtualSegmentDeclaration},
+        path::{
+            HostIndexSegmentDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
+        },
         type_declaration::{
             HostFieldDeclaration, HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership,
             PathAccess,
@@ -30,13 +33,19 @@ use kagari_types::{
 use std::sync::{Arc, Mutex};
 
 fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
+    let context = DefinitionContext::new().unwrap();
     runtime
         .load_program(
             "allocation-owner",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap()
 }
@@ -62,20 +71,27 @@ fn register_i32(runtime: &Runtime) -> TypeId {
 }
 
 fn register_host_root_type(runtime: &mut Runtime, name: &str, access: PathAccess) -> TypeId {
-    let mut registration = HostTypeRegistration::new(HostTypeDeclaration::new(name), name);
-    registration.declaration.ownership = HostTypeOwnership::HostRoot;
-    registration.declaration.path_access = access;
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = HostTypeDeclaration::new(&context, name).unwrap();
+    declaration.ownership = HostTypeOwnership::HostRoot;
+    declaration.path_access = access;
     for name in ["hp", "secure_hp", "count"] {
         let mut field =
-            HostFieldDeclaration::new(&registration.declaration.id, name, HostValueType::I32);
+            HostFieldDeclaration::new(&context, declaration.id, name, HostValueType::I32).unwrap();
         field.writable = access == PathAccess::ReadWrite;
         field.path_access = access;
-        registration.declaration.fields.push(field);
+        declaration.fields.push(field);
     }
 
-    registration.declaration.reflection = HostReflectionPolicy::Metadata;
+    declaration.reflection = HostReflectionPolicy::Metadata;
 
-    runtime.register_host_type(registration).unwrap()
+    runtime
+        .register_host_type(HostTypeRegistration::new(
+            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                .unwrap(),
+            name,
+        ))
+        .unwrap()
 }
 
 fn register_hp_descriptor(
@@ -86,10 +102,11 @@ fn register_hp_descriptor(
 ) -> HostPathDescriptorId {
     runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: runtime
+            segments: vec![HostPathSegmentDeclaration::Field(
+                runtime
                     .host()
                     .host_type(player_id)
                     .unwrap()
@@ -98,9 +115,8 @@ fn register_hp_descriptor(
                     .iter()
                     .find(|field| field.name == "hp")
                     .unwrap()
-                    .id
-                    .clone(),
-            }],
+                    .id,
+            )],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
         })
