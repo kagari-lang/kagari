@@ -793,6 +793,16 @@ have transient authoring projections during the active
 [Definition ID migration](definition-id-plan.md); they confer no executable seal.
 HIR arenas/body handles and runtime generations/epochs remain separate safeguards.
 
+Native `ModuleDecl` validation borrows its supplied identity table. Construction
+collects implicit declaration/member names only after checking the input reference
+scope and declaration count; validation never creates a replacement context.
+Trait implementation construction and contract checking share one scoped method
+projection. Merged bounds use exact semantic order, independent of ID allocation.
+Native catalog imports remap documentation keys and collect implicit method/variant
+names that are not necessarily present in the explicit reference closure. Neither
+operation grants declaration or executable authority. Native module editable
+extraction retains the scoped metadata and discards installation evidence.
+
 Portable KBC/MIR data uses canonical exact tables and four-byte local references.
 Only referenced nodes and ancestors are emitted. Process table numbers, insertion
 order and unrelated interned nodes do not affect canonical bytes or fingerprints;

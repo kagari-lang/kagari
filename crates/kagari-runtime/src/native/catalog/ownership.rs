@@ -8,8 +8,9 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, DefinitionPath,
-        map::DefinitionMap,
+        map::{DefinitionContext, DefinitionMap},
         mapping::{DefinitionMapper, DefinitionRecord},
+        metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -18,31 +19,39 @@ use kagari_types::declaration::{
     module::{ImplDecl, ModuleDecl},
     ownership::ReceiverOwners,
 };
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 fn conflict(cause: impl ToString) -> RuntimeError {
     RuntimeError::metadata_conflict(cause.to_string())
 }
 
 impl DeclarationCatalog {
-    /// Validate a complete, explicitly supplied set of declaration providers.
+    /// Validate scoped declaration providers after explicit adoption into one catalog.
     pub fn from_declarations<'a>(
-        modules: impl IntoIterator<Item = &'a ModuleDecl>,
+        modules: impl IntoIterator<Item = &'a DefinitionMetadata<ModuleDecl>>,
     ) -> Result<Self, RuntimeError> {
-        let modules = modules.into_iter().collect::<Vec<_>>();
-        let catalog = Self::declared(modules.iter().copied())?;
+        let context = DefinitionContext::new().map_err(conflict)?;
+        let modules = modules
+            .into_iter()
+            .map(|module| {
+                module
+                    .import_into(&context, &CancellationToken::default())
+                    .map(|metadata| metadata.into_records())
+                    .map_err(conflict)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let catalog = Self::declared(&modules, &context)?;
+        let definitions = catalog.definitions();
         let owners = catalog.receiver_owners(None)?;
         for module in &modules {
             module
-                .validate(&|receiver| {
-                    catalog
-                        .scope(receiver)
-                        .ok()
-                        .and_then(|receiver| owners.owner(&receiver, &catalog.definitions()))
-                })
+                .validate(
+                    &|receiver| owners.owner(receiver, &definitions),
+                    &definitions,
+                )
                 .map_err(conflict)?;
         }
-        catalog.check_implementations(modules.iter().copied())?;
+        catalog.check_implementations(&modules)?;
         catalog.validate_callable_contracts()?;
         Ok(catalog)
     }
@@ -51,12 +60,6 @@ impl DeclarationCatalog {
         &self,
         extra: Option<&ModuleDecl>,
     ) -> Result<ReceiverOwners, RuntimeError> {
-        let extra = extra
-            .map(|module| {
-                self.scope(&module.types)
-                    .map(|types| (&module.identity, types))
-            })
-            .transpose()?;
         let definitions = self.definitions();
         let types = self
             .types
@@ -67,8 +70,8 @@ impl DeclarationCatalog {
         ReceiverOwners::from_types(
             types.into_iter().chain(
                 extra
-                    .iter()
-                    .flat_map(|(module, types)| types.iter().map(|ty| (*module, ty))),
+                    .into_iter()
+                    .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
             ),
         )
         .map_err(conflict)
@@ -140,17 +143,20 @@ impl DeclarationCatalog {
 
     pub(crate) fn declared<'a>(
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
+        context: &DefinitionContext,
     ) -> Result<Self, RuntimeError> {
-        let mut result = Self::default();
-        let context = result.types.context().clone();
+        let mut result = Self::in_context(context.clone());
         for module in modules {
-            let root = context.intern_root(&module.identity).map_err(conflict)?;
+            let definitions = module.collect_definitions(context).map_err(conflict)?;
+            let root = definitions
+                .lookup_root(&module.identity)
+                .expect("collected module identity");
             Arc::make_mut(&mut result.documentation).extend(module.documentation.clone());
             for ty in &module.types {
                 let id = context
                     .intern_child(root, ty.kind.definition_kind(), &ty.name, 0)
                     .map_err(conflict)?;
-                let contract = result.scope(ty)?;
+                let contract = ty.clone();
                 insert_contract(
                     &mut result.types,
                     id,
@@ -162,7 +168,7 @@ impl DeclarationCatalog {
                 let id = context
                     .intern_child(root, DefinitionKind::Trait, &contract.name, 0)
                     .map_err(conflict)?;
-                let contract = result.scope(contract)?;
+                let contract = contract.clone();
                 insert_contract(
                     &mut result.traits,
                     id,
@@ -170,8 +176,7 @@ impl DeclarationCatalog {
                     "conflicting native trait contracts",
                 )?;
             }
-            for declaration in module.native_declarations() {
-                let declaration = result.scope(&declaration)?;
+            for declaration in module.native_declarations(&definitions).map_err(conflict)? {
                 result.insert_declaration(declaration)?;
             }
             for (index, implementation) in module.implementations.iter().enumerate() {
@@ -181,8 +186,7 @@ impl DeclarationCatalog {
                     let id = context
                         .intern_child(root, DefinitionKind::Impl, "", occurrence)
                         .map_err(conflict)?;
-                    let implementation = result.scope(implementation)?;
-                    result.insert_implementation(id, &implementation)?;
+                    result.insert_implementation(id, implementation)?;
                 }
             }
         }
@@ -195,11 +199,10 @@ impl DeclarationCatalog {
 
     pub(crate) fn insert(
         &mut self,
-        id: DefinitionPath,
-        contract: TraitDef,
+        id: DefinitionId,
+        contract: TraitDef<DefinitionId>,
     ) -> Result<(), RuntimeError> {
-        let id = self.types.context().intern(&id).map_err(conflict)?;
-        let contract = self.scope(&contract)?;
+        check_scope(&contract, &self.definitions())?;
         insert_contract(
             &mut self.traits,
             id,
@@ -210,11 +213,10 @@ impl DeclarationCatalog {
 
     pub(crate) fn insert_type(
         &mut self,
-        id: DefinitionPath,
-        contract: TypeDef,
+        id: DefinitionId,
+        contract: TypeDef<DefinitionId>,
     ) -> Result<(), RuntimeError> {
-        let id = self.types.context().intern(&id).map_err(conflict)?;
-        let contract = self.scope(&contract)?;
+        check_scope(&contract, &self.definitions())?;
         insert_contract(
             &mut self.types,
             id,
@@ -227,13 +229,7 @@ impl DeclarationCatalog {
         &mut self,
         declaration: NativeDeclaration<DefinitionId>,
     ) -> Result<(), RuntimeError> {
-        let definitions = self.definitions();
-        declaration
-            .visit_definitions(
-                &mut |id| Ok(definitions.resolve(*id).map(|_| ())?),
-                &Default::default(),
-            )
-            .map_err(conflict)?;
+        check_scope(&declaration, &self.definitions())?;
         insert_contract(
             &mut self.declarations,
             declaration.declaration,
@@ -247,6 +243,7 @@ impl DeclarationCatalog {
         id: DefinitionId,
         implementation: &ImplDecl<DefinitionId>,
     ) -> Result<(), RuntimeError> {
+        check_scope(implementation, &self.definitions())?;
         if self.implementations.get_id(id).is_none() && self.implementations.len() >= 4096 {
             return Err(conflict(
                 "native implementation catalog exceeds proof limits",
@@ -292,12 +289,58 @@ impl DeclarationCatalog {
             &other.implementations,
             "conflicting native implementation contracts",
         )?;
-        Arc::make_mut(&mut self.documentation).extend(
-            other
-                .documentation
-                .iter()
-                .map(|(id, text)| (id.clone(), text.clone())),
-        );
+        let documentation = self.import_documentation(other)?;
+        Arc::make_mut(&mut self.documentation)
+            .extend(documentation.iter().map(|(id, text)| (*id, text.clone())));
+        self.collect_implicit_definitions()?;
+        Ok(())
+    }
+
+    pub(super) fn import_documentation(
+        &self,
+        other: &Self,
+    ) -> Result<Arc<BTreeMap<DefinitionId, String>>, RuntimeError> {
+        if self.definitions().id() == other.definitions().id() {
+            return Ok(other.documentation.clone());
+        }
+        let remap = self
+            .types
+            .context()
+            .import(&other.definitions(), other.documentation.keys().copied())
+            .map_err(conflict)?;
+        let entries = other
+            .documentation
+            .iter()
+            .map(|(id, text)| Ok((remap.map(*id).map_err(conflict)?, text.clone())))
+            .collect::<Result<_, RuntimeError>>()?;
+        Ok(Arc::new(entries))
+    }
+
+    /// Importing explicit references does not collect implicit member names.
+    /// Register those names separately; this operation grants no ABI authority.
+    pub(super) fn collect_implicit_definitions(&self) -> Result<(), RuntimeError> {
+        let context = self.types.context();
+        for (owner, ty) in self.types.entries() {
+            for variant in &ty.variants {
+                context
+                    .intern_child(owner, DefinitionKind::Variant, &variant.name, 0)
+                    .map_err(conflict)?;
+            }
+        }
+        for (owner, contract) in self.traits.entries() {
+            for method in &contract.methods {
+                context
+                    .intern_child(owner, DefinitionKind::Method, &method.name, 0)
+                    .map_err(conflict)?;
+            }
+        }
+        for (owner, implementation) in self.implementations.entries() {
+            for method in &implementation.methods {
+                context
+                    .intern_child(owner, DefinitionKind::Method, &method.name, 0)
+                    .map_err(conflict)?;
+            }
+        }
         Ok(())
     }
 
@@ -312,18 +355,27 @@ impl DeclarationCatalog {
         &self,
         modules: impl IntoIterator<Item = &'a ModuleDecl>,
     ) -> Result<(), RuntimeError> {
-        let traits = self
-            .traits
-            .iter()
-            .map(|(id, contract)| Ok((id, self.paths(contract)?)))
-            .collect::<Result<_, RuntimeError>>()?;
+        let traits = self.traits.entries().collect();
+        let definitions = self.definitions();
         for module in modules {
             module
-                .validate_trait_implementations(&traits)
+                .validate_trait_implementations(&traits, &definitions)
                 .map_err(conflict)?;
         }
         Ok(())
     }
+}
+
+fn check_scope(
+    records: &impl DefinitionRecord<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Result<(), RuntimeError> {
+    records
+        .visit_definitions(
+            &mut |id| Ok(definitions.resolve(*id).map(|_| ())?),
+            &CancellationToken::default(),
+        )
+        .map_err(conflict)
 }
 
 pub(super) fn insert_contract<T: Clone + PartialEq>(

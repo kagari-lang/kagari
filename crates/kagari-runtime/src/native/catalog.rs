@@ -5,7 +5,6 @@ mod ownership;
 mod proofs;
 use crate::error::RuntimeError;
 use kagari_common::identity::{
-    DefinitionPath,
     map::{DefinitionContext, DefinitionMap},
     table::{DefinitionId, DefinitionTableError},
 };
@@ -16,7 +15,7 @@ use std::{collections::BTreeMap, sync::Arc};
 #[derive(Debug, Clone)]
 pub struct DeclarationCatalog {
     /// Authoring-only Markdown; excluded from executable contract comparisons.
-    pub(crate) documentation: Arc<BTreeMap<DefinitionPath, String>>,
+    pub(crate) documentation: Arc<BTreeMap<DefinitionId, String>>,
     pub(crate) types: Arc<DefinitionMap<TypeDef<DefinitionId>>>,
     pub(crate) traits: Arc<DefinitionMap<TraitDef<DefinitionId>>>,
     pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration<DefinitionId>>>,
@@ -30,7 +29,7 @@ impl Default for DeclarationCatalog {
 }
 
 impl DeclarationCatalog {
-    fn in_context(context: DefinitionContext) -> Self {
+    pub(crate) fn in_context(context: DefinitionContext) -> Self {
         Self {
             documentation: Arc::default(),
             types: Arc::new(DefinitionMap::new(context.clone())),

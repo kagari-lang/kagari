@@ -1,5 +1,6 @@
 //! Semantic type expressions and scoped generic constraints; no execution representation.
 pub mod access;
+mod bounds;
 pub mod identity;
 pub mod inheritance;
 mod mapping;
@@ -7,6 +8,7 @@ pub mod matching;
 mod order;
 pub mod substitution;
 mod wire;
+
 use crate::{
     collection::CollectionAccess, host_interface::value_type::HostValueType, range::RangeKind,
     scalar::BuiltinType, surface::StandardTypeConstraint, ty::substitution::TypeSubstitution,

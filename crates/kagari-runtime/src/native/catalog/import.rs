@@ -36,8 +36,8 @@ impl CatalogImports {
         &mut self,
         catalog: &DeclarationCatalog,
     ) -> Result<DeclarationCatalog, RuntimeError> {
-        Ok(DeclarationCatalog {
-            documentation: catalog.documentation.clone(),
+        let mut imported = DeclarationCatalog {
+            documentation: Default::default(),
             types: imported(&catalog.types, &self.context, &mut self.types)?,
             traits: imported(&catalog.traits, &self.context, &mut self.traits)?,
             declarations: imported(&catalog.declarations, &self.context, &mut self.declarations)?,
@@ -46,7 +46,10 @@ impl CatalogImports {
                 &self.context,
                 &mut self.implementations,
             )?,
-        })
+        };
+        imported.documentation = imported.import_documentation(catalog)?;
+        imported.collect_implicit_definitions()?;
+        Ok(imported)
     }
 }
 

@@ -10,17 +10,15 @@ use crate::{
             validate_native_declarations,
         },
     },
-    ty::{
-        Constraint, GenericBound, GenericParam, NominalTy, Ty,
-        substitution::{TypeSubstitution, resolve_associated_outputs},
-    },
+    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
 
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        DefinitionKind, ModuleIdentity,
+        mapping::DefinitionRecord,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use std::{
@@ -41,7 +39,7 @@ impl fmt::Display for DeclarationError {
 impl Error for DeclarationError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImplDecl<I = DefinitionPath> {
+pub struct ImplDecl<I = DefinitionId> {
     pub generic_params: Vec<GenericParam<I>>,
     /// Obligations inherited by every method's registered callable template.
     pub bounds: Vec<GenericBound<I>>,
@@ -57,7 +55,7 @@ pub struct ImplDecl<I = DefinitionPath> {
 /// Registered default applications retain their explicit native template mappings.
 /// Method binders retain their own identities; associated type families remain deferred.
 #[derive(Debug, Clone)]
-pub struct ModuleDecl<I = DefinitionPath> {
+pub struct ModuleDecl<I = DefinitionId> {
     /// Explicit source prelude supplied by this registration closure.
     pub prelude: bool,
     pub identity: ModuleIdentity,
@@ -106,276 +104,78 @@ impl ModuleDecl {
         }
     }
 
-    pub fn definition(&self, kind: DefinitionKind, name: &str) -> DefinitionPath {
-        DefinitionPath {
-            module: self.identity.clone(),
-            path: vec![DefinitionPathSegment {
-                kind,
-                name: name.into(),
-                occurrence: 0,
-            }],
-        }
-    }
-
-    pub fn implementation_id(&self, index: usize) -> DefinitionPath {
-        let mut id = self.definition(DefinitionKind::Impl, "");
-        id.path[0].occurrence =
-            u32::try_from(index).expect("native implementation slot exceeds identity range");
-        id
-    }
-
-    pub fn method_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
-        let mut id = owner.clone();
-        id.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Method,
-            name: name.into(),
-            occurrence: 0,
-        });
-        id
-    }
-
-    pub fn variant_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
-        let mut id = owner.clone();
-        id.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Variant,
-            name: name.into(),
-            occurrence: 0,
-        });
-        id
+    fn declaration_count_valid(&self) -> bool {
+        self.types
+            .len()
+            .saturating_add(self.traits.len())
+            .saturating_add(self.functions.len())
+            .saturating_add(self.implementations.len())
+            <= 4096
     }
 
     /// Inherent declarations are owned by the receiver's defining module.
     /// Built-in value families use their canonical core/alloc/std declaration owner.
     pub fn owns_inherent_receiver(
         &self,
-        receiver: &Ty,
-        owner: &impl Fn(&Ty) -> Option<ModuleIdentity>,
+        receiver: &Ty<DefinitionId>,
+        owner: &impl Fn(&Ty<DefinitionId>) -> Option<ModuleIdentity>,
     ) -> bool {
         owner(receiver).is_some_and(|owner| owner == self.identity)
     }
 
-    /// Bind implementations to an existing trait contract without repeating signatures.
-    pub fn implement_trait(
-        &mut self,
-        contract: &TraitDef,
-        trait_type: NominalTy,
-        for_type: Ty,
-        generic_params: Vec<GenericParam>,
-        bindings: &[(&str, DefinitionPath)],
-    ) -> Result<(), DeclarationError> {
-        let owner = ModuleDecl::new(trait_type.declaration.module.clone())
-            .definition(DefinitionKind::Trait, &contract.name);
-        if owner != trait_type.declaration {
-            return Err(DeclarationError(
-                "native trait contract has a different owner".into(),
-            ));
-        }
-        let mut input = ModuleDecl::new(owner.module.clone());
-        input.traits.push(contract.clone());
-        let scoped = input.adopt_declarations()?;
-        let id = scoped
-            .definitions()
-            .lookup(&owner)
-            .ok_or_else(|| DeclarationError("missing trait identity".into()))?;
-        if !trait_valid(
-            &scoped.records().traits[0],
-            id,
-            &CancellationToken::default(),
-            scoped.definitions(),
-        ) {
-            return Err(DeclarationError("invalid native trait contract".into()));
-        }
-        if trait_type.arguments.len() != contract.generic_params.len()
-            || trait_type.associated_types.len() != contract.associated_types.len()
-            || contract.associated_types.iter().any(|member| {
-                !trait_type
-                    .associated_types
-                    .contains_key(&member.declaration)
-            })
-        {
-            return Err(DeclarationError(
-                "trait arguments or required methods differ".into(),
-            ));
-        }
-        let mut names = HashSet::new();
-        if bindings.iter().any(|(name, _)| !names.insert(*name)) {
-            return Err(DeclarationError("duplicate method binding".into()));
-        }
-        if bindings
-            .iter()
-            .any(|(name, _)| !contract.methods.iter().any(|method| method.name == *name))
-        {
-            return Err(DeclarationError("unknown trait method binding".into()));
-        }
-        let cancel = CancellationToken::default();
-        let mut methods = vec![];
-        for method in &contract.methods {
-            let binding = bindings.iter().find(|(name, _)| *name == method.name);
-            let Some(binding) = binding else {
-                if matches!(
-                    method.implementation,
-                    CallableImplementation::NativeDefault(_)
-                ) {
-                    continue;
-                }
-                return Err(DeclarationError(format!("missing method {}", method.name)));
-            };
-            if !method.method_policy.override_allowed {
-                return Err(DeclarationError(format!(
-                    "method {} forbids overriding",
-                    method.name
-                )));
-            }
-            let method_owner = Self::method_id(
-                &self.implementation_id(self.implementations.len()),
-                &method.name,
-            );
-            let own_parameters = method
-                .generic_params
-                .iter()
-                .enumerate()
-                .map(|(position, _)| GenericParam {
-                    owner: method_owner.clone(),
-                    position,
-                })
-                .collect::<Vec<_>>();
-            let mut substitution =
-                TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
-            substitution.bind_receiver(&trait_type.declaration, &for_type);
-            let own_types = own_parameters
-                .iter()
-                .map(GenericParam::as_type)
-                .collect::<Vec<_>>();
-            for (declared, implemented) in method.generic_params.iter().zip(&own_types) {
-                substitution.bind(&declared.owner, declared.position, implemented);
-            }
-            let resolve = |ty: &Ty| {
-                let ty = substitution.apply(ty, &cancel).map_err(|error| {
-                    DeclarationError(format!("invalid substitution: {error:?}"))
-                })?;
-                resolve_associated_outputs(&ty, &trait_type, &for_type, &cancel).map_err(|error| {
-                    DeclarationError(format!("invalid associated output: {error:?}"))
-                })
-            };
-            let mut method = method.clone();
-            method.implementation = CallableImplementation::Native(binding.1.clone());
-            method.generic_params = generic_params.clone();
-            method.generic_params.extend(own_parameters);
-            method.bounds = method
-                .bounds
-                .iter()
-                .map(|bound| {
-                    Ok(GenericBound {
-                        ty: resolve(&bound.ty)?,
-                        constraints: bound
-                            .constraints
-                            .iter()
-                            .map(|constraint| match constraint {
-                                Constraint::Standard(kind) => Ok(Constraint::Standard(*kind)),
-                                Constraint::Trait(interface) => {
-                                    let Ty::Trait(interface) =
-                                        resolve(&Ty::Trait(interface.clone()))?
-                                    else {
-                                        unreachable!("trait substitution");
-                                    };
-                                    Ok(Constraint::Trait(interface))
-                                }
-                            })
-                            .collect::<Result<_, DeclarationError>>()?,
-                    })
-                })
-                .collect::<Result<_, DeclarationError>>()?;
-            method.params = method
-                .params
-                .into_iter()
-                .map(|mut param| {
-                    param.ty = resolve(&param.ty)?;
-                    Ok(param)
-                })
-                .collect::<Result<_, DeclarationError>>()?;
-            method.return_type = resolve(&method.return_type)?;
-            methods.push(method);
-        }
-        let owner = self.implementation_id(self.implementations.len());
-        let inherited_docs = contract
-            .methods
-            .iter()
-            .filter_map(|method| {
-                self.documentation
-                    .get(&Self::method_id(&trait_type.declaration, &method.name))
-                    .map(|doc| (Self::method_id(&owner, &method.name), doc.clone()))
-            })
-            .collect::<Vec<_>>();
-        for (id, doc) in inherited_docs {
-            self.documentation.entry(id).or_insert(doc);
-        }
-        self.implementations.push(ImplDecl {
-            bounds: vec![],
-            generic_params,
-            trait_type: Some(trait_type),
-            for_type,
-            methods,
-        });
-        Ok(())
-    }
-
-    pub fn native_declarations(&self) -> Vec<NativeDeclaration> {
-        let mut result = self
-            .functions
-            .iter()
-            .map(|function| NativeDeclaration {
-                concrete_result: self
-                    .concrete_results
-                    .get(&self.definition(DefinitionKind::Function, &function.name))
-                    .cloned(),
+    /// Resolve registered native templates in this module's retained identity scope.
+    pub fn native_declarations(
+        &self,
+        definitions: &DefinitionTable,
+    ) -> Result<Vec<NativeDeclaration<DefinitionId>>, DeclarationError> {
+        let mut result = Vec::new();
+        for function in &self.functions {
+            let id = self.definition(DefinitionKind::Function, &function.name, definitions)?;
+            result.push(NativeDeclaration {
+                declaration: id,
+                function: function.clone(),
+                concrete_result: self.concrete_results.get(&id).cloned(),
                 callable_requirements: self
                     .callable_requirements
-                    .get(&self.definition(DefinitionKind::Function, &function.name))
+                    .get(&id)
                     .cloned()
                     .unwrap_or_default(),
-                declaration: self.definition(DefinitionKind::Function, &function.name),
-                function: function.clone(),
-            })
-            .collect::<Vec<_>>();
+            });
+        }
         for (index, implementation) in self.implementations.iter().enumerate() {
-            let owner = self.implementation_id(index);
-            result.extend(implementation.methods.iter().map(|function| {
+            let owner = self.implementation_id(index, definitions)?;
+            for function in &implementation.methods {
+                let id = Self::method_id(owner, &function.name, definitions)?;
                 let mut function = function.clone();
-                let mut bounds = BTreeMap::<Ty, BTreeSet<Constraint>>::new();
-                for bound in implementation.bounds.iter().chain(&function.bounds) {
-                    bounds
-                        .entry(bound.ty.clone())
-                        .or_default()
-                        .extend(bound.constraints.clone());
-                }
-                function.bounds = bounds
-                    .into_iter()
-                    .map(|(ty, constraints)| GenericBound {
-                        ty,
-                        constraints: constraints.into_iter().collect(),
-                    })
-                    .collect();
-                NativeDeclaration {
-                    concrete_result: self
-                        .concrete_results
-                        .get(&Self::method_id(&owner, &function.name))
+                function.bounds = GenericBound::normalize(
+                    implementation
+                        .bounds
+                        .iter()
+                        .chain(&function.bounds)
                         .cloned(),
+                    definitions,
+                    &CancellationToken::default(),
+                )
+                .map_err(|error| DeclarationError(format!("invalid native bounds: {error:?}")))?;
+                result.push(NativeDeclaration {
+                    declaration: id,
+                    function,
+                    concrete_result: self.concrete_results.get(&id).cloned(),
                     callable_requirements: self
                         .callable_requirements
-                        .get(&Self::method_id(&owner, &function.name))
+                        .get(&id)
                         .cloned()
                         .unwrap_or_default(),
-                    declaration: Self::method_id(&owner, &function.name),
-                    function,
-                }
-            }));
+                });
+            }
         }
-        result
+        Ok(result)
     }
 
     pub fn validate(
         &self,
-        receiver_owner: &impl Fn(&Ty) -> Option<ModuleIdentity>,
+        receiver_owner: &impl Fn(&Ty<DefinitionId>) -> Option<ModuleIdentity>,
+        definitions: &DefinitionTable,
     ) -> Result<(), DeclarationError> {
         let fail = || DeclarationError("invalid or unsupported native declaration".into());
         if self.identity.package.0.is_empty()
@@ -392,21 +192,17 @@ impl ModuleDecl {
                     || dependency.path.is_empty()
                     || dependency.path.iter().any(|name| !identifier(name))
             })
-            || self.types.len()
-                + self.traits.len()
-                + self.functions.len()
-                + self.implementations.len()
-                > 4096
+            || !self.declaration_count_valid()
         {
             return Err(fail());
         }
         let mut names = HashSet::new();
         let cancel = CancellationToken::default();
-        let scoped = self.adopt_declarations()?;
-        let definitions = scoped.definitions();
-        for (ty, adopted) in self.types.iter().zip(&scoped.records().types) {
+        self.visit_definitions(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
+            .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
+        for ty in &self.types {
             for payload in ty.variants.iter().flat_map(|variant| &variant.payload) {
-                supported_type(payload)?;
+                supported_type(payload, definitions)?;
             }
             if !identifier(&ty.name)
                 || !names.insert((NameNamespace::Type, &ty.name))
@@ -418,23 +214,21 @@ impl ModuleDecl {
             {
                 return Err(fail());
             }
-            let owner = definitions
-                .lookup(&self.definition(ty.kind.definition_kind(), &ty.name))
-                .ok_or_else(fail)?;
-            if !type_definition_valid(adopted, owner, &cancel, definitions) {
+            let owner = self.definition(ty.kind.definition_kind(), &ty.name, definitions)?;
+            if !type_definition_valid(ty, owner, &cancel, definitions) {
                 return Err(fail());
             }
         }
-        for (item, adopted) in self.traits.iter().zip(&scoped.records().traits) {
+        for item in &self.traits {
             if !identifier(&item.name)
                 || !names.insert((NameNamespace::Type, &item.name))
                 || !item.bounds.is_empty()
                 || item.associated_types.iter().any(|member| {
-                    member
-                        .declaration
-                        .path
-                        .last()
-                        .is_none_or(|part| !identifier(&part.name))
+                    definitions
+                        .resolve(member.declaration)
+                        .ok()
+                        .and_then(|view| view.last())
+                        .is_none_or(|part| !identifier(part.name))
                         || !member.generic_params.is_empty()
                         || !member.parameter_bounds.is_empty()
                 })
@@ -450,17 +244,13 @@ impl ModuleDecl {
             {
                 return Err(fail());
             }
-            let owner = definitions
-                .lookup(&self.definition(DefinitionKind::Trait, &item.name))
-                .ok_or_else(fail)?;
-            if !trait_valid(adopted, owner, &cancel, definitions) {
+            let owner = self.definition(DefinitionKind::Trait, &item.name, definitions)?;
+            if !trait_valid(item, owner, &cancel, definitions) {
                 return Err(fail());
             }
         }
-        for (function, adopted) in self.functions.iter().zip(&scoped.records().functions) {
-            let owner = definitions
-                .lookup(&self.definition(DefinitionKind::Function, &function.name))
-                .ok_or_else(fail)?;
+        for function in &self.functions {
+            let owner = self.definition(DefinitionKind::Function, &function.name, definitions)?;
             if !identifier(&function.name) || !names.insert((NameNamespace::Value, &function.name))
             {
                 return Err(fail());
@@ -468,7 +258,7 @@ impl ModuleDecl {
             if !(matches!(function.implementation, CallableImplementation::Native(_))
                 || (function.generic_params.is_empty() && function.bounds.is_empty()))
                 || !function_valid(
-                    adopted,
+                    function,
                     owner,
                     &Parameters::new(),
                     None,
@@ -496,27 +286,26 @@ impl ModuleDecl {
             return Err(fail());
         }
         for (name, target) in &self.exports {
+            let target = definitions.resolve(*target).map_err(|_| fail())?;
+            let segments = target.segments().collect::<Vec<_>>();
             if !identifier(&name.name)
                 || !names.insert((name.namespace, &name.name))
                 || target
-                    .path
                     .last()
                     .and_then(|part| NameNamespace::of_definition(part.kind))
                     != Some(name.namespace)
-                || !target.within_path_limit()
-                || target.module == self.identity
-                || !(1..=2).contains(&target.path.len())
+                || *target.module() == self.identity
+                || !(1..=2).contains(&segments.len())
                 || !matches!(
-                    target.path[0].kind,
+                    segments[0].kind,
                     DefinitionKind::Trait | DefinitionKind::Enum | DefinitionKind::AssociatedType
                 )
-                || target
-                    .path
+                || segments
                     .iter()
-                    .any(|part| !identifier(&part.name) || part.occurrence != 0)
-                || (target.path.len() == 2
-                    && (target.path[0].kind != DefinitionKind::Enum
-                        || target.path[1].kind != DefinitionKind::Variant))
+                    .any(|part| !identifier(part.name) || part.occurrence != 0)
+                || (segments.len() == 2
+                    && (segments[0].kind != DefinitionKind::Enum
+                        || segments[1].kind != DefinitionKind::Variant))
             {
                 return Err(fail());
             }
@@ -524,18 +313,15 @@ impl ModuleDecl {
         if self.private_functions.len() > self.functions.len()
             || self.private_functions.iter().any(|id| {
                 !self.functions.iter().any(|function| {
-                    self.definition(DefinitionKind::Function, &function.name) == *id
+                    self.definition(DefinitionKind::Function, &function.name, definitions)
+                        .ok()
+                        == Some(*id)
                 })
             })
         {
             return Err(fail());
         }
-        for (index, (implementation, adopted)) in self
-            .implementations
-            .iter()
-            .zip(&scoped.records().implementations)
-            .enumerate()
-        {
+        for (index, implementation) in self.implementations.iter().enumerate() {
             if implementation.trait_type.is_none()
                 && !self.owns_inherent_receiver(&implementation.for_type, receiver_owner)
             {
@@ -543,7 +329,7 @@ impl ModuleDecl {
                     "inherent methods belong to the receiver's defining module".into(),
                 ));
             }
-            let owner = self.implementation_id(index);
+            let owner = self.implementation_id(index, definitions)?;
             if implementation
                 .generic_params
                 .iter()
@@ -556,14 +342,14 @@ impl ModuleDecl {
             }
             let mut method_names = HashSet::new();
             if !native_bounds_valid(
-                &adopted.bounds,
-                &adopted.generic_params,
+                &implementation.bounds,
+                &implementation.generic_params,
                 &cancel,
                 definitions,
             ) {
                 return Err(fail());
             }
-            for (method, adopted) in implementation.methods.iter().zip(&adopted.methods) {
+            for method in &implementation.methods {
                 if !identifier(&method.name)
                     || !method_names.insert(&method.name)
                     || !method
@@ -573,12 +359,13 @@ impl ModuleDecl {
                         .iter()
                         .enumerate()
                         .any(|(position, parameter)| {
-                            parameter.owner != Self::method_id(&owner, &method.name)
+                            Self::method_id(owner, &method.name, definitions).ok()
+                                != Some(parameter.owner)
                                 || parameter.position != position
                         })
                     || !native_bounds_valid(
-                        &adopted.bounds,
-                        &adopted.generic_params,
+                        &method.bounds,
+                        &method.generic_params,
                         &cancel,
                         definitions,
                     )
@@ -587,18 +374,28 @@ impl ModuleDecl {
                 }
             }
         }
-        let declarations = self.native_declarations();
+        let declarations = self.native_declarations(definitions)?;
         for required in declarations
             .iter()
             .flat_map(|declaration| &declaration.callable_requirements)
         {
-            if required.interface.declaration.module == self.identity
+            if definitions
+                .resolve(required.interface.declaration)
+                .map_err(|_| fail())?
+                .module()
+                == &self.identity
                 && !self.traits.iter().any(|contract| {
-                    self.definition(DefinitionKind::Trait, &contract.name)
-                        == required.interface.declaration
+                    self.definition(DefinitionKind::Trait, &contract.name, definitions)
+                        .ok()
+                        == Some(required.interface.declaration)
                         && contract.methods.iter().any(|method| {
-                            Self::method_id(&required.interface.declaration, &method.name)
-                                == required.member
+                            Self::method_id(
+                                required.interface.declaration,
+                                &method.name,
+                                definitions,
+                            )
+                            .ok()
+                                == Some(required.member)
                                 && method.generic_params.len() == required.arguments.len()
                         })
                 })
@@ -631,30 +428,22 @@ impl ModuleDecl {
         }) {
             return Err(fail());
         }
-        let cancel = CancellationToken::default();
-        let declarations = declarations
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |path| {
-                    definitions
-                        .lookup(path)
-                        .ok_or(DefinitionMappingError::InvalidContract)
-                },
-                &cancel,
-            ))
-            .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
         validate_native_declarations(&declarations, &self.identity, definitions, &cancel)
             .map_err(|error| DeclarationError(format!("invalid native declarations: {error:?}")))?;
-        self.validate_implementations()?;
-        self.validate_supported_types()?;
+        self.validate_implementations(definitions)?;
+        self.validate_supported_types(definitions)?;
         Ok(())
     }
 
-    fn validate_supported_types(&self) -> Result<(), DeclarationError> {
+    fn validate_supported_types(
+        &self,
+        definitions: &DefinitionTable,
+    ) -> Result<(), DeclarationError> {
         for ty in &self.types {
             for bound in &ty.bounds {
-                supported_type(&bound.ty)?;
+                supported_type(&bound.ty, definitions)?;
                 for constraint in &bound.constraints {
-                    supported_constraint(constraint)?;
+                    supported_constraint(constraint, definitions)?;
                 }
             }
         }
@@ -662,181 +451,48 @@ impl ModuleDecl {
         for contract in &self.traits {
             functions.extend(&contract.methods);
             for parent in &contract.supertraits {
-                supported_type(&Ty::Trait(parent.clone()))?;
+                supported_type(&Ty::Trait(parent.clone()), definitions)?;
             }
             for member in &contract.associated_types {
                 for bound in &member.bounds {
-                    supported_constraint(bound)?;
+                    supported_constraint(bound, definitions)?;
                 }
             }
         }
         for implementation in &self.implementations {
             functions.extend(&implementation.methods);
-            supported_type(&implementation.for_type)?;
+            supported_type(&implementation.for_type, definitions)?;
             if let Some(trait_type) = &implementation.trait_type {
-                supported_type(&Ty::Trait(trait_type.clone()))?;
+                supported_type(&Ty::Trait(trait_type.clone()), definitions)?;
             }
             for bound in &implementation.bounds {
-                supported_type(&bound.ty)?;
+                supported_type(&bound.ty, definitions)?;
                 for constraint in &bound.constraints {
-                    supported_constraint(constraint)?;
+                    supported_constraint(constraint, definitions)?;
                 }
             }
         }
         for function in functions {
-            supported_type(&function.return_type)?;
+            supported_type(&function.return_type, definitions)?;
             for parameter in &function.params {
-                supported_type(&parameter.ty)?;
+                supported_type(&parameter.ty, definitions)?;
             }
             for bound in &function.bounds {
-                supported_type(&bound.ty)?;
+                supported_type(&bound.ty, definitions)?;
                 for constraint in &bound.constraints {
-                    supported_constraint(constraint)?;
+                    supported_constraint(constraint, definitions)?;
                 }
             }
         }
         Ok(())
-    }
-
-    fn validate_implementations(&self) -> Result<(), DeclarationError> {
-        let contracts = self
-            .traits
-            .iter()
-            .map(|contract| {
-                (
-                    self.definition(DefinitionKind::Trait, &contract.name),
-                    contract.clone(),
-                )
-            })
-            .collect();
-        self.check_implementations(&contracts, false)
-    }
-
-    /// Validate method contracts against a complete installed native catalog.
-    /// Generic applicability and parent witnesses retain their ordinary checked
-    /// HIR/portable proofs; this check does not infer an implementation body.
-    pub fn validate_trait_implementations(
-        &self,
-        contracts: &BTreeMap<DefinitionPath, TraitDef>,
-    ) -> Result<(), DeclarationError> {
-        self.check_implementations(contracts, true)
-    }
-
-    fn check_implementations(
-        &self,
-        contracts: &BTreeMap<DefinitionPath, TraitDef>,
-        require_external: bool,
-    ) -> Result<(), DeclarationError> {
-        let invalid =
-            || DeclarationError("trait implementation differs from its registered contract".into());
-        for (index, implementation) in self.implementations.iter().enumerate() {
-            let Some(trait_type) = &implementation.trait_type else {
-                continue;
-            };
-            let Some(contract) = contracts.get(&trait_type.declaration) else {
-                if !require_external && trait_type.declaration.module != self.identity {
-                    continue;
-                }
-                return Err(invalid());
-            };
-            let bindings = implementation
-                .methods
-                .iter()
-                .map(|method| {
-                    let CallableImplementation::Native(binding) = &method.implementation else {
-                        return Err(invalid());
-                    };
-                    Ok((method.name.as_str(), binding.clone()))
-                })
-                .collect::<Result<Vec<_>, DeclarationError>>()?;
-            let mut expected = self.clone();
-            expected.implementations.truncate(index);
-            expected.implement_trait(
-                contract,
-                trait_type.clone(),
-                implementation.for_type.clone(),
-                implementation.generic_params.clone(),
-                &bindings,
-            )?;
-            if expected.implementations[index].methods != implementation.methods {
-                return Err(invalid());
-            }
-            let mut substitution =
-                TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
-            substitution.bind_receiver(&trait_type.declaration, &implementation.for_type);
-            for parent in &contract.supertraits {
-                if parent.declaration.module != self.identity {
-                    continue;
-                }
-                let cancel = CancellationToken::default();
-                let parent = resolve_associated_outputs(
-                    &Ty::Trait(parent.clone()),
-                    trait_type,
-                    &Ty::SelfType(trait_type.declaration.clone()),
-                    &cancel,
-                )
-                .map_err(|_| invalid())?;
-                let parent = substitution
-                    .apply(&parent, &cancel)
-                    .map_err(|_| invalid())?;
-                let required = self.normalized(&parent, &implementation.generic_params)?;
-                let target =
-                    self.normalized(&implementation.for_type, &implementation.generic_params)?;
-                let mut found = false;
-                for candidate in &self.implementations {
-                    let Some(candidate_trait) = &candidate.trait_type else {
-                        continue;
-                    };
-                    let available = self.normalized(
-                        &Ty::Trait(candidate_trait.clone()),
-                        &candidate.generic_params,
-                    )?;
-                    let parent_matches = matches!((&available, &required),
-                        (Ty::Trait(available), Ty::Trait(required))
-                        if available.declaration == required.declaration
-                            && available.arguments == required.arguments
-                            && required.associated_types.iter().all(|(member, output)|
-                                available.associated_types.get(member) == Some(output)));
-                    if parent_matches
-                        && self.normalized(&candidate.for_type, &candidate.generic_params)?
-                            == target
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    return Err(DeclarationError(
-                        "missing native supertrait implementation".into(),
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn normalized(&self, ty: &Ty, parameters: &[GenericParam]) -> Result<Ty, DeclarationError> {
-        let owner = self.implementation_id(0);
-        let arguments = parameters
-            .iter()
-            .enumerate()
-            .map(|(position, _)| Ty::Parameter {
-                owner: owner.clone(),
-                position,
-            })
-            .collect::<Vec<_>>();
-        let mut substitution = TypeSubstitution::default();
-        for (parameter, argument) in parameters.iter().zip(&arguments) {
-            substitution.bind(&parameter.owner, parameter.position, argument);
-        }
-        substitution
-            .apply(ty, &CancellationToken::default())
-            .map_err(|error| DeclarationError(format!("invalid generic template: {error:?}")))
     }
 }
 
 // Keep runtime registration independent of declaration text and source analysis.
-fn supported_type(ty: &Ty) -> Result<(), DeclarationError> {
+fn supported_type(
+    ty: &Ty<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Result<(), DeclarationError> {
     let invalid = || DeclarationError("unsupported type in initial native API".into());
     if !ty.within_wire_limits() {
         return Err(invalid());
@@ -863,26 +519,30 @@ fn supported_type(ty: &Ty) -> Result<(), DeclarationError> {
                 arguments,
             } => {
                 if !arguments.is_empty()
-                    || member
-                        .path
-                        .last()
-                        .is_none_or(|part| !identifier(&part.name))
+                    || definitions
+                        .resolve(*member)
+                        .ok()
+                        .and_then(|view| view.last())
+                        .is_none_or(|part| !identifier(part.name))
                 {
                     return Err(invalid());
                 }
                 pending.push(receiver);
-                supported_type(&Ty::Trait(*interface.clone()))?;
+                supported_type(&Ty::Trait(*interface.clone()), definitions)?;
             }
             Ty::Trait(nominal) => {
-                if nominal
-                    .declaration
-                    .path
-                    .last()
-                    .is_none_or(|name| !identifier(&name.name))
-                    || nominal
-                        .associated_types
-                        .keys()
-                        .any(|id| id.path.last().is_none_or(|name| !identifier(&name.name)))
+                if definitions
+                    .resolve(nominal.declaration)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_none_or(|name| !identifier(name.name))
+                    || nominal.associated_types.keys().any(|id| {
+                        definitions
+                            .resolve(*id)
+                            .ok()
+                            .and_then(|view| view.last())
+                            .is_none_or(|name| !identifier(name.name))
+                    })
                 {
                     return Err(invalid());
                 }
@@ -901,9 +561,14 @@ fn supported_type(ty: &Ty) -> Result<(), DeclarationError> {
     Ok(())
 }
 
-fn supported_constraint(constraint: &Constraint) -> Result<(), DeclarationError> {
+fn supported_constraint(
+    constraint: &Constraint<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Result<(), DeclarationError> {
     match constraint {
-        Constraint::Trait(trait_type) => supported_type(&Ty::Trait(trait_type.clone())),
+        Constraint::Trait(trait_type) => {
+            supported_type(&Ty::Trait(trait_type.clone()), definitions)
+        }
         Constraint::Standard(kind) if kind.source_bound_name().is_some() => Ok(()),
         _ => Err(DeclarationError(
             "native declaration has no source-level constraint".into(),
@@ -919,5 +584,6 @@ fn identifier(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-mod adoption;
+mod identity;
+mod implementation;
 mod mapping;

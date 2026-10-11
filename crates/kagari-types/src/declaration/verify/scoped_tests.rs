@@ -1,8 +1,8 @@
 use crate::{
     callable::CallableImplementation,
     declaration::{
-        AssociatedTypeDef, FnDecl, NativeDeclaration, TraitDef,
-        module::ModuleDecl,
+        AssociatedTypeDef, FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
+        module::{ImplDecl, ModuleDecl},
         verify::{
             DeclarationValidationError, Parameters, function_valid, trait_valid, types_in_scope,
             types_in_scope_in, validate_native_declarations,
@@ -12,6 +12,7 @@ use crate::{
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeTransformError},
 };
+use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, associated_type_id,
     map::DefinitionContext,
@@ -148,6 +149,24 @@ fn canonical_type_order_ignores_interning_and_associated_member_order() {
             );
         }
     }
+    let merged = GenericBound::normalize(
+        scoped.iter().rev().map(|ty| GenericBound {
+            ty: ty.clone(),
+            constraints: vec![],
+        }),
+        &table,
+        &cancel,
+    )
+    .unwrap();
+    let mut order = (0..cases.len()).collect::<Vec<_>>();
+    order.sort_by_key(|index| &cases[*index]);
+    assert_eq!(
+        merged.iter().map(|bound| &bound.ty).collect::<Vec<_>>(),
+        order
+            .iter()
+            .map(|index| &scoped[*index])
+            .collect::<Vec<_>>()
+    );
     let foreign = DefinitionTableBuilder::new().unwrap().freeze();
     assert_eq!(
         scoped[0].canonical_cmp(&scoped[4], &foreign, &cancel),
@@ -232,7 +251,42 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
         validate(&declaration),
         Err(DeclarationValidationError::Invalid)
     );
-    declaration.function.bounds[0].constraints.reverse();
+    let original = declaration.function.bounds[0]
+        .constraints
+        .iter()
+        .rev()
+        .cloned()
+        .collect::<Vec<_>>();
+    declaration.function.bounds = GenericBound::normalize(
+        declaration
+            .function
+            .bounds
+            .iter()
+            .chain(&declaration.function.bounds)
+            .cloned(),
+        &table,
+        &cancel,
+    )
+    .unwrap();
+    assert_eq!(declaration.function.bounds[0].constraints, original);
+    assert_eq!(validate(&declaration), Ok(()));
+    let invalid_scope = DefinitionTableBuilder::new().unwrap().freeze();
+    assert_eq!(
+        GenericBound::normalize(declaration.function.bounds.clone(), &invalid_scope, &cancel),
+        Err(TypeTransformError::InvalidContract)
+    );
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert_eq!(
+        GenericBound::normalize(declaration.function.bounds.clone(), &table, &cancelled),
+        Err(TypeTransformError::Cancelled)
+    );
+    let mut declarations = ModuleDecl::new(module.clone());
+    declarations.functions.push(declaration.function.clone());
+    assert_eq!(
+        declarations.native_declarations(&table).unwrap(),
+        vec![declaration.clone()]
+    );
     let mut wrong_owner = declaration.clone();
     wrong_owner.function.generic_params[0].owner = a;
     assert_eq!(
@@ -309,16 +363,59 @@ fn trait_members_require_the_retained_scope_and_exact_parent() {
     };
     let retained = context.snapshot();
     assert!(trait_valid(&contract, owner, &cancel, &retained));
-    let mut authored = ModuleDecl::new(retained.resolve(owner).unwrap().module().clone());
-    authored.traits.push(
-        contract
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |id| Ok(retained.resolve(*id)?.to_path()),
-                &cancel,
-            ))
-            .unwrap(),
+    let mut module = ModuleDecl::new(retained.resolve(owner).unwrap().module().clone());
+    module.traits.push(contract.clone());
+    assert!(module.validate(&|_| None, &retained).is_ok());
+    assert!(module.validate(&|_| None, &before).is_err());
+    let binding = context
+        .intern_child(root, DefinitionKind::Function, "read_binding", 0)
+        .unwrap();
+    module
+        .implement_trait(
+            &contract,
+            ImplDecl {
+                generic_params: vec![],
+                bounds: vec![],
+                trait_type: Some(NominalTy {
+                    declaration: owner,
+                    arguments: vec![],
+                    associated_types: [(output, Ty::Builtin(BuiltinType::I32))].into(),
+                }),
+                for_type: Ty::Builtin(BuiltinType::I32),
+                methods: vec![],
+            },
+            &[("read", binding)],
+            &context,
+        )
+        .unwrap();
+    assert_eq!(
+        module.implementations[0].methods[0].return_type,
+        Ty::Builtin(BuiltinType::I32)
     );
-    assert!(authored.validate(&|_| None).is_ok());
+    let implemented = context.snapshot();
+    assert!(module.validate(&|_| None, &implemented).is_ok());
+    assert!(module.validate(&|_| None, &retained).is_err());
+    let mut changed = module.clone();
+    changed.implementations[0].methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
+    assert!(changed.validate(&|_| None, &implemented).is_err());
+    let foreign_context = DefinitionContext::new().unwrap();
+    let count = foreign_context.snapshot().len();
+    assert!(module.collect_definitions(&foreign_context).is_err());
+    assert_eq!(foreign_context.snapshot().len(), count);
+    let mut oversized = ModuleDecl::new(module.identity.clone());
+    oversized.types = (0..4097)
+        .map(|index| TypeDef {
+            name: format!("Type{index}"),
+            kind: TypeDefKind::Enum,
+            generic_params: vec![],
+            bounds: vec![],
+            fields: vec![],
+            variants: vec![],
+        })
+        .collect();
+    assert!(oversized.collect_definitions(&foreign_context).is_err());
+    assert_eq!(foreign_context.snapshot().len(), count);
+
     assert!(!trait_valid(&contract, owner, &cancel, &before));
     let foreign = DefinitionContext::new().unwrap();
     assert!(!trait_valid(&contract, owner, &cancel, &foreign.snapshot()));

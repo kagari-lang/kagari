@@ -842,3 +842,78 @@ source/compiler consumers must migrate with their owners. Native builder/catalog
 adoption, HIR and specialization, codec representation removal and final documentation
 cleanup remain required. No full workspace or backend matrix was run; exhaustive
 validation remains CI scope. No performance or retained-memory improvement is claimed.
+
+### SI02 scoped ModuleDecl and Native module/catalog boundary
+
+Replaced the path-only `ModuleDecl` algorithms and changed ModuleDecl/ImplDecl's
+semantic defaults to DefinitionId. Native declaration enumeration, structural/type
+validation, receiver ownership, exports, callable requirements, supported-type checks,
+trait implementation checking and generic normalization now borrow scoped IDs and
+an explicit table. Removed the temporary `module/adoption.rs` bridge. Construction
+collects implicit names through `collect_definitions`; it rejects oversized module
+counts and the complete foreign/absent input reference set before interning any name.
+Identity lookup helpers are read-only and fallible. They do not mint identities or
+establish declaration existence by validation side effect.
+
+Split implementation construction/checking into its ordinary owner module. Both use
+one scoped method projection; checking no longer clones a complete ModuleDecl and
+reenters its authoring API. Associated outputs, method binder owners/positions,
+default omission/override policy, exact method signatures and local supertrait
+requirements remain checked. `GenericBound::normalize` merges equal targets and
+constraints and orders their types by the existing exact canonical comparator.
+Fallible merge sorting propagates cancellation/invalid scopes instead of using slot
+order or swallowing comparison errors. This replaces numeric-ID ordering when
+combining implementation and method bounds; it is shared groundwork for the remaining
+Native builder normalizer, whose old path-only code must still be removed.
+
+Native catalog provider construction now accepts scoped metadata, imports once into
+its context and validates fixed-ID modules. Receiver and implementation queries
+borrow catalog records directly. Catalog documentation is keyed by ID, explicitly
+remapped on import, and remains excluded from executable contract equality. Imports
+and merges collect implicit trait/implementation method and enum variant names:
+these may have no explicit references, so importing the reference closure alone is
+insufficient. Record insertion continues to check the complete source reference
+scope. These names confer no semantic authority.
+
+NativeModule finalization now consumes records, binding keys and storage keys in its
+provider context. Exact exports, storage admission, receiver ownership, dependency
+closure and binding grouping use IDs; export dependencies no longer project their
+contracts to paths. Installation imports the retained module declaration before
+implementation checks. `to_declaration` returns editable scoped metadata rather than
+a whole-record path projection, and `trait_id` returns an ID in the module's retained
+table. Builder construction/typed authoring handles must now supply these scopes;
+this is an intermediate architecture checkpoint, not completed Native integration.
+
+Validation and carried errors:
+
+- `cargo check -p kagari-types --lib` and `cargo clippy -p kagari-types --lib -- -D
+  warnings` pass. Initial needless-borrow diagnostics were repaired. The expanded
+  fixture initially shadowed a ModuleIdentity with ModuleDecl; that compile error
+  was repaired before the selected tests completed.
+- `cargo test -p kagari-types --lib declaration:: --no-fail-fast` passes 11 selected
+  declaration/Host member tests. Existing canonical-order and scoped-trait fixtures
+  now also check bound merging across reversed ID allocation, duplicate constraints,
+  cancellation/foreign scope rejection, Native template enumeration, associated-output
+  implementation construction, changed method rejection and stale-prefix rejection.
+  The affected trait fixture passes again after adding the declaration-count preflight,
+  including an oversized module that must not intern names into an empty context.
+- `cargo check -p kagari-runtime --lib --message-format=short` initially reported 151
+  errors after the shared API replacement; after catalog/module migration it reports
+  126, concentrated in Native builder/type-handle and registration callers. Examples
+  are `builder/enum_builder.rs` still supplying path IDs to lookup helpers,
+  `builder/implementation.rs` still building path receivers, and
+  `registration.rs`/`future/registration.rs` still using old declaration admission.
+  No errors are reported in the migrated catalog or NativeModule files, but the
+  runtime library as a whole is broken. SI02's builder/provider-handle and registration
+  follow-up owns these errors. Do not add path validators or compatibility entrypoints.
+- The prior Host/bytecode test results remain evidence for that earlier checkpoint;
+  their Cargo routes are currently blocked again by this Native integration work.
+  Native runtime behavior and source-free registration have not passed for this
+  checkpoint. HIR/MIR carried errors, other fixtures and exhaustive CI remain pending.
+
+Changed production import scopes, fallible ownership queries, public metadata
+extraction and implicit-name collection were reviewed. Structure passes 1045 Rust
+files with no violations/exceptions; formatting and diff checks pass. No workspace
+sweep or performance measurement was run. The remaining catalog `paths`/`scope`
+helpers serve unmigrated typed authoring handles and must disappear with those callers;
+this checkpoint does not satisfy SI02 or SI06 exit conditions.

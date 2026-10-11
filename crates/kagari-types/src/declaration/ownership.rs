@@ -102,12 +102,15 @@ mod tests {
     };
     use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 
-    fn sequence(module: &ModuleDecl) -> TypeDef {
+    fn sequence(module: &ModuleDecl, context: &DefinitionContext) -> TypeDef<DefinitionId> {
+        let root = context.intern_root(&module.identity).unwrap();
         TypeDef {
             name: "Sequence".into(),
             kind: TypeDefKind::Native(NativeTypeConstructor::Set),
             generic_params: vec![GenericParam {
-                owner: module.definition(DefinitionKind::AssociatedType, "Sequence"),
+                owner: context
+                    .intern_child(root, DefinitionKind::AssociatedType, "Sequence", 0)
+                    .unwrap(),
                 position: 0,
             }],
             bounds: vec![],
@@ -120,7 +123,8 @@ mod tests {
     fn native_family_ownership_comes_from_validated_bindings() {
         let left = ModuleDecl::new(ModuleIdentity::single_file("left.kgr"));
         let right = ModuleDecl::new(ModuleIdentity::single_file("right.kgr"));
-        let definitions = DefinitionContext::new().unwrap().snapshot();
+        let context = DefinitionContext::new().unwrap();
+        let definitions = context.snapshot();
         let receiver = Ty::Set(
             Box::new(Ty::Builtin(BuiltinType::I32)),
             CollectionAccess::Mutable,
@@ -129,8 +133,8 @@ mod tests {
             ReceiverOwners::default().owner(&receiver, &definitions),
             None
         );
-        let left_type = sequence(&left);
-        let right_type = sequence(&right);
+        let left_type = sequence(&left, &context);
+        let right_type = sequence(&right, &context);
         let owners = ReceiverOwners::from_types([(&left.identity, &left_type)]).unwrap();
         assert_eq!(
             owners.owner(&receiver, &definitions),

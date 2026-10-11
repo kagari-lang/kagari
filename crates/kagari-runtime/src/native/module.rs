@@ -14,7 +14,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath,
+        DefinitionKind,
         map::DefinitionMap,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
@@ -39,20 +39,22 @@ pub struct NativeModule {
 impl NativeModule {
     pub(crate) fn checked(
         declaration: ModuleDecl,
-        bindings: Vec<(DefinitionPath, NativeBinding)>,
-        storage: BTreeMap<DefinitionPath, NativeStorage>,
+        bindings: Vec<(DefinitionId, NativeBinding)>,
+        storage: BTreeMap<DefinitionId, NativeStorage>,
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
+        let context = providers.types.context();
+        let definitions = declaration
+            .collect_definitions(context)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let owners = providers.receiver_owners(Some(&declaration))?;
         declaration
-            .validate(&|receiver| {
-                providers
-                    .scope(receiver)
-                    .ok()
-                    .and_then(|receiver| owners.owner(&receiver, &providers.definitions()))
-            })
+            .validate(
+                &|receiver| owners.owner(receiver, &definitions),
+                &definitions,
+            )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        let owned = DeclarationCatalog::declared([&declaration])?;
+        let owned = DeclarationCatalog::declared([&declaration], context)?;
         let mut entries = BTreeMap::new();
         for declaration in owned.declarations.values() {
             let CallableImplementation::Native(binding) = declaration.function.implementation
@@ -68,7 +70,7 @@ impl NativeModule {
         }
         let storage_types: Vec<_> = owned
             .types
-            .iter()
+            .entries()
             .filter(|(_, ty)| matches!(ty.kind, TypeDefKind::NativeStorage(_)))
             .collect();
         if storage_types.len() != storage.len()
@@ -84,18 +86,26 @@ impl NativeModule {
         }
         let mut available = owned.clone();
         available.merge(providers)?;
+        let definitions = available.definitions();
         for target in declaration.exports.values() {
-            let mut owner = target.clone();
-            owner.path.truncate(1);
-            let exists = match target.path[0].kind {
-                DefinitionKind::Trait => available.traits.get(target).is_some(),
-                DefinitionKind::Enum | DefinitionKind::AssociatedType => {
-                    available.types.get(&owner).is_some_and(|ty| {
-                        target.path.len() == 1
-                            || ty
-                                .variants
-                                .iter()
-                                .any(|variant| variant.name == target.path[1].name)
+            let owner = export_owner(*target, &definitions)?;
+            let view = definitions
+                .resolve(owner)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+            let exists = match view.last().map(|part| part.kind) {
+                Some(DefinitionKind::Trait) => available.traits.get_id(*target).is_some(),
+                Some(DefinitionKind::Enum | DefinitionKind::AssociatedType) => {
+                    available.types.get_id(owner).is_some_and(|ty| {
+                        owner == *target
+                            || definitions
+                                .resolve(*target)
+                                .ok()
+                                .and_then(|view| view.last())
+                                .is_some_and(|member| {
+                                    ty.variants
+                                        .iter()
+                                        .any(|variant| variant.name == member.name)
+                                })
                     })
                 }
                 _ => false,
@@ -108,12 +118,8 @@ impl NativeModule {
         }
         // Owned traits and implementation bounds are common to every binding.
         // A binding extends this closed seed only with its own signature/proofs.
-        let scoped_declaration = available.scope(&declaration)?;
-        let base = available.dependency_closure(
-            owned.traits.ids(),
-            iter::empty(),
-            [&scoped_declaration],
-        )?;
+        let base =
+            available.dependency_closure(owned.traits.ids(), iter::empty(), [&declaration])?;
         let dependencies = available.binding_dependencies(&base, entries.values().flatten())?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
@@ -123,9 +129,6 @@ impl NativeModule {
         let mut registry = NativeRegistry::default();
         let mut imports = CatalogImports::new(registry.catalog.types.context().clone());
         for (id, binding) in bindings {
-            let id = available.definitions().lookup(&id).ok_or_else(|| {
-                RuntimeError::metadata_conflict("unknown native binding identity")
-            })?;
             let declarations = entries.remove(&id).ok_or_else(|| {
                 RuntimeError::metadata_conflict("unknown or duplicate native binding")
             })?;
@@ -145,54 +148,55 @@ impl NativeModule {
         }
         let mut dependencies = dependencies;
         for target in declaration.exports.values() {
-            let mut owner = target.clone();
-            owner.path.truncate(1);
-            match target.path[0].kind {
-                DefinitionKind::Trait => {
-                    dependencies.insert(
-                        target.clone(),
-                        available.paths(available.traits.get(target).expect("checked export"))?,
-                    )?;
-                }
-                _ => {
-                    dependencies.insert_type(
-                        owner.clone(),
-                        available.paths(available.types.get(&owner).expect("checked export"))?,
-                    )?;
-                }
+            let owner = export_owner(*target, &definitions)?;
+            if let Some(contract) = available.traits.get_id(*target) {
+                dependencies.insert(*target, contract.clone())?;
+            } else {
+                dependencies.insert_type(
+                    owner,
+                    available
+                        .types
+                        .get_id(owner)
+                        .expect("checked export")
+                        .clone(),
+                )?;
             }
         }
         let required = dependencies.foreign_to(&owned)?;
+        let definitions = checked.definitions();
         let mut declaration = declaration;
         declaration.dependencies.extend(
             required
                 .traits
-                .keys()
-                .chain(required.types.keys())
-                .chain(required.declarations.keys())
-                .chain(required.implementations.keys())
-                .map(|id| id.module.clone())
-                .filter(|owner| *owner != declaration.identity)
-                .collect::<Vec<_>>(),
+                .ids()
+                .chain(required.types.ids())
+                .chain(required.declarations.ids())
+                .chain(required.implementations.ids())
+                .map(|id| {
+                    definitions
+                        .resolve(id)
+                        .map(|view| view.module().clone())
+                        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter(|owner| *owner != declaration.identity),
         );
         declaration
-            .validate(&|receiver| {
-                providers
-                    .scope(receiver)
-                    .ok()
-                    .and_then(|receiver| owners.owner(&receiver, &providers.definitions()))
-            })
+            .validate(
+                &|receiver| owners.owner(receiver, &definitions),
+                &definitions,
+            )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let mut indexed_storage = DefinitionMap::new(owned.types.context().clone());
         for (id, storage) in storage {
             indexed_storage
-                .insert(id, storage)
+                .insert_id(id, storage)
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
-        let records = checked.scope(&declaration)?;
         let declaration = DefinitionMetadata::checked(
             checked.definitions(),
-            records,
+            declaration,
             &CancellationToken::default(),
         )
         .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
@@ -214,11 +218,10 @@ impl NativeModule {
         self.declaration.definitions()
     }
 
-    /// Explicit source-authoring projection; installed modules retain short IDs.
-    pub fn to_declaration(&self) -> NativeResult<ModuleDecl> {
-        self.declaration
-            .to_paths(&CancellationToken::default())
-            .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))
+    /// Extract editable declaration records while retaining their identity scope.
+    /// This does not transfer installation or binding verification evidence.
+    pub fn to_declaration(&self) -> DefinitionMetadata<ModuleDecl> {
+        self.declaration.as_ref().clone()
     }
 
     pub fn catalog(&self) -> DeclarationCatalog {
@@ -311,24 +314,54 @@ impl NativeModule {
                 "native module dependency is not installed",
             ));
         }
+        let declaration = self
+            .declaration
+            .import_into(
+                registry.catalog.types.context(),
+                &CancellationToken::default(),
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        declaration
+            .records()
+            .collect_definitions(registry.catalog.types.context())
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         registry
             .catalog
-            .check_implementations([&self.to_declaration()?])?;
+            .check_implementations([declaration.records()])?;
         for registration in self.bindings.iter() {
             registry.install(registration.clone(), imports)?;
         }
         Ok(())
     }
 
-    pub fn trait_id(&self, name: &str) -> NativeResult<DefinitionPath> {
-        self.declaration()
+    pub fn trait_id(&self, name: &str) -> NativeResult<DefinitionId> {
+        if !self
+            .declaration()
             .traits
             .iter()
             .any(|contract| contract.name == name)
-            .then(|| {
-                ModuleDecl::new(self.declaration().identity.clone())
-                    .definition(DefinitionKind::Trait, name)
-            })
-            .ok_or_else(|| RuntimeError::metadata_conflict("unknown native trait"))
+        {
+            return Err(RuntimeError::metadata_conflict("unknown native trait"));
+        }
+        self.declaration()
+            .definition(DefinitionKind::Trait, name, self.definitions())
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))
+    }
+}
+
+fn export_owner(target: DefinitionId, definitions: &DefinitionTable) -> NativeResult<DefinitionId> {
+    let view = definitions
+        .resolve(target)
+        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+    if view
+        .last()
+        .is_some_and(|part| part.kind == DefinitionKind::Variant)
+    {
+        definitions
+            .parent(target)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+            .ok_or_else(|| RuntimeError::metadata_conflict("export variant has no owner"))
+    } else {
+        Ok(target)
     }
 }
