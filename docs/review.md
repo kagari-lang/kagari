@@ -610,3 +610,442 @@ checked host reads where applicable through execution, with navigation/capture
 coverage at their existing owners. Coordinate with SA16 without expanding into
 slice patterns, tuple rest syntax or unrelated pattern features. This entry records
 the agreed future design only; implementation remains deferred.
+
+## SA18 Collection operations should be constrained by trait interfaces
+
+The requested follow-up direction uses a Kotlin-like interface/object model:
+trait members and checked implementation/inheritance relationships determine
+available operations. A shared object's storage does not acquire a separate
+mutable/immutable state when viewed through another interface. Preserve binding
+and field `val`/`var` assignment rules, which have a different responsibility.
+The current [collection contract](spec/collection-access.md) already separates
+List/MutableList, Map/MutableMap and Set/MutableSet and permits shared aliases.
+The concern is the extra semantic axis and unrelated rules attached to it.
+
+For an installed Vec implementation, the intended interface model is shown
+below. The constructor follows SA20's agreed future API; its implementation is
+deferred together with the fixed-length builtin Array migration.
+
+```kagari
+val concrete = Vec::from([1, 2]);
+val writable: MutableList<i32> = concrete;
+val readable: List<i32> = writable;
+writable.push(3);
+readable.len(); // 3: both interfaces retain the same underlying object.
+```
+
+`List<T>` exposes read operations; `MutableList<T>: List<T>` adds write operations.
+Calling `readable.push(...)` or assigning an element through List must fail because
+the static interface lacks the required operation. Interface conversion retains
+the object; it does not copy, freeze or snapshot storage. Other aliases can mutate
+it, and referenced elements retain their own access rules. A readonly API is not a
+purity proof. Native and script implementations should use the same ordinary
+interface checking and dispatch model.
+
+[`TraitBuilder::storage_view`](../crates/kagari-runtime/src/native/builder/trait_builder.rs)
+currently sets [`TraitDef.storage_access`](../crates/kagari-types/src/declaration/mod.rs).
+Inspection found that this field influences more than method availability:
+implementation matching/receiver access weakening, common readonly branch types,
+automatic Eq/Hash/Debug support, interface identity unwrapping, implementation
+ownership and exact installation checks. The
+[installation test](../crates/kagari-runtime/tests/installation_access.rs) constructs
+a methodless marked trait and verifies those installation privileges even without
+native calls. This coupling makes a read/write marker imply unrelated semantics.
+It is not evidence of a current correctness failure or measured bottleneck.
+
+Follow-up owner: shared types/declarations, HIR interface analysis, executable
+contracts and runtime interface/storage boundaries. The target is to remove
+`TraitDef.storage_access` and `TraitBuilder::storage_view` after moving each
+consumer's guarantees to its semantic owner:
+
+| Current responsibility | Intended owner/model |
+| --- | --- |
+| Available read/write operations and parent upcasts | Trait members, explicit implementations and ordinary interface inheritance. |
+| Receiver matching and common branch types | General checked interface/type relationships; preserve valid existing cases and diagnose ambiguity without selecting by a storage tag. |
+| Equality/hash/debug support | Explicit protocol selection and specified defaults, independent of read/write access. |
+| Underlying identity through interface wrapping | Interface value representation and object identity semantics, retaining pinned method-table versions. |
+| Native installation and implementation validity | Exact required declaration, entry, layout and witness validation at their existing source-free owners. |
+
+An interface value conceptually retains its underlying value plus a checked method
+witness/table. List and MutableList views of one Vec share the underlying object
+while exposing different declared methods. The witness/table is executable
+metadata, not a second mutability authority. Actual Rust storage still needs its
+registered layout, tracing, ownership and scoped borrow validation; removing the
+trait marker does not remove concrete native storage registration or runtime
+integrity checks. Do not extend identity operations to scalar/tuple/enum values
+merely because they are boxed, or to unrelated interfaces as an incidental change.
+
+Review `CollectionAccess` in internal Array/Map/Set types as part of tracing the
+same model, rather than retaining a parallel access system beneath ordinary
+interfaces. SA20 retains a distinct builtin fixed-length Array and separates it
+from Vec and the List interfaces; it does not require deleting that builtin type.
+Choose representation changes only for affected concrete paths;
+operators such as indexed assignment must still select and validate the required
+write operation. Keep generic arguments invariant during this migration and
+preserve the current collection identity-based equality/hashing and one-way
+implicit parent conversions. General variance, structural collection equality,
+new downcasts and a universal object superclass are separate language decisions.
+
+Kotlin's [collection interfaces](https://kotlinlang.org/docs/collections-overview.html)
+provide the reference for method surfaces, parent relationships and val/var
+independence. Kotlin's List covariance and
+[element-based equality](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.collections/-list/)
+differ from Kagari's current contract; this follow-up does not silently adopt them
+or introduce Kotlin/JVM runtime representation requirements.
+
+When activated, migrate the shared declarations, analysis, checked artifacts and
+runtime consumers coherently and update specifications/model documentation. Reuse
+focused contracts for read/write method and index access, shared alias visibility,
+custom implementations, generic matching, common-interface inference, equality/
+hash identity, interface dispatch and pinned reload. Adapt marker-specific tests
+while retaining meaningful source-free rejection of forged declarations/layouts/
+witnesses and host borrow/GC cleanup coverage. Measure any claimed memory or speed
+benefit. This entry records the future architectural direction only; code migration
+and specification changes remain deferred.
+
+## SA19 Consider one definition-ID representation inside semantic models
+
+The proposed follow-up is to simplify definition references by using
+`DefinitionId` consistently inside semantic models and keeping path/wire
+conversion at explicit boundaries. This is an evaluation direction, not a final
+representation decision or an activated migration.
+
+Currently, [DefinitionReference](../crates/kagari-common/src/identity/reference.rs)
+is a sealed trait implemented by `DefinitionPath`, `DefinitionId` and
+`PortableDefinitionRef`. Identity-bearing records such as
+[TypeId and NominalType](../crates/kagari-hir/src/types.rs) are generic over that
+representation. [CheckedAnalysis](../crates/kagari-hir/src/lib.rs) maps authoring
+paths into scoped IDs; record mapping and portable encoding reuse the same shape.
+This avoids duplicate record definitions, but propagates identity-representation
+parameters through semantic APIs. The portable implementation cannot directly
+describe or resolve itself through `DefinitionTable`; those operations return
+errors until the dedicated decoder maps its references.
+
+For a type application such as `Box<i32>`, the candidate model is:
+
+```text
+Authoring path for Box -> definition context -> DefinitionId for Box
+Semantic type         -> declaration: DefinitionId, arguments: [Builtin(I32)]
+Diagnostics/display   -> look up the definition's path through its owning table
+Artifact boundary     -> encode/decode through a validated portable definition table
+```
+
+References to the same canonical declaration share its ID in one context. The
+path remains useful for registration, debugging and exact cross-context import;
+the proposal does not remove it. Source aliases must still resolve to canonical
+definitions. Distinct contexts may assign different IDs to an equal path and
+require explicit remapping. These IDs are not runtime generation/version IDs.
+
+Rust provides a useful reference: [DefId](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_span/def_id/struct.DefId.html)
+combines a crate number and definition index;
+[DefKey](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir_id/definitions/struct.DefKey.html)
+stores a parent and disambiguated path segment. Semantic
+[ADT definitions](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/struct.AdtDefData.html)
+retain a DefId, while [incremental compilation](https://rustc-dev-guide.rust-lang.org/queries/incremental-compilation-in-detail.html)
+maps stable path hashes to current-session IDs. This separation is the reference,
+not a requirement to copy rustc's interner generics, hash identities or metadata
+codec. Kagari's exact portable identities and pinned reload ownership remain
+separate contracts.
+
+Follow-up owner: common identity tables/mapping, semantic types/declarations,
+analysis publication and checked artifact boundaries. Evaluate whether authoring
+inputs can be adopted before semantic analysis so internal records no longer
+need path/ID variants. Remove obsolete semantic representation parameters and
+their mapping/projection machinery where this is viable; decide separately
+whether boundary records still benefit from generic mapping. Language generic
+parameters, type arguments and associated-type semantics are unaffected. Reuse
+the existing definition context; do not create a parallel registry or merge HIR
+arena IDs with semantic definition IDs. Coordinate module-handle changes with
+SA9 rather than extending this review into that migration.
+
+When activated, preserve owning-table and index validation, immutable snapshots,
+append-only identity stability, canonical bounded artifact decoding, cancellation,
+cross-context import and generation-pinned dependencies. Reuse identity,
+alias/navigation, generic/associated-type and source-free artifact rejection
+coverage. Assess adoption/projection consumers before deciding scope and measure
+any claimed memory or speed improvement. Implementation remains deferred.
+
+## SA20 Separate builtin fixed-length arrays from library lists
+
+The requested future direction is to retain a builtin Array whose length cannot
+change after construction. Array literals such as `[1, 2, 3]` should construct
+that builtin type, not select mutable Vec storage. Array remains distinct from
+List/MutableList and does not implicitly convert to or implement those interfaces.
+Its supported core protocols should cover indexing and iteration, with exact
+protocol membership and element-write behavior reviewed before implementation.
+Fixed length does not imply immutable elements or a change to binding `val`/`var`.
+
+The agreed collection construction direction uses associated functions on the
+concrete implementation, following Rust-style naming. This supersedes the earlier
+`list_of`/`mutable_list_of` and Set factory-name candidates; do not retain a second
+factory surface as hypothetical compatibility. The initial API accepts one
+builtin Array rather than requiring macros or variadic parameters:
+
+| Entry | Result/responsibility |
+| --- | --- |
+| `Vec::new()` | Construct an empty concrete Vec. |
+| `Vec::from(array)` | Construct an independent concrete Vec from the array's elements, retaining their order and duplicates. |
+| `HashSet::new()` | Construct an empty concrete HashSet. |
+| `HashSet::from(array)` | Construct an independent concrete HashSet and deduplicate according to checked element Eq/Hash. |
+
+The following examples are future API sketches, not currently supported programs:
+
+```text
+val array = [1, 2, 3]; // builtin Array; length stays 3
+val concrete = Vec::from(array);
+val readable: List<i32> = Vec::from([1, 2, 3]);
+val writable: MutableList<i32> = Vec::from([1, 2, 3]);
+val unique = HashSet::from([1, 2, 2, 3]);
+val readable_set: Set<i32> = HashSet::from([1, 2, 3]);
+val empty: Vec<i32> = Vec::new();
+```
+
+Construction selects a concrete implementation; a type annotation or ordinary
+checked upcast selects the exposed interface. List/MutableList and Set/MutableSet
+remain operation contracts without constructors that choose default storage.
+Constructing a Vec yields its concrete mutable API; annotating that value as List
+does not freeze the object or create an object-level mutability flag. HashSet's
+construction requirements are `T: Eq + Hash`, not requirements imposed on every
+possible Set implementation. Its iteration order remains unspecified; adopting
+Kotlin's ordered set factories is a separate decision.
+
+`from(array)` is an explicit construction operation, not implicit Array/List
+interoperability. It creates independent collection storage and leaves the input
+Array usable. Copy scalar/value elements according to Kagari value semantics;
+shared-object elements retain their identities without deep copying. Do not steal
+or move the input Array as if Kagari had Rust ownership semantics. Array element
+expressions evaluate left-to-right exactly once before the constructor executes;
+Set deduplication must not suppress evaluation of duplicate input expressions.
+
+These are ordinary library declarations and associated calls. Resolve `from`
+through the applicable declaration/implementation model; the naming choice does
+not authorize extra implicit conversions or compiler recognition of factory names.
+General variadic parameters and spread syntax remain deferred. If later added,
+evaluate lowering packed arguments through the same builtin Array construction
+path and define existing-array spread alias/copy behavior explicitly.
+
+Collection implementations and their constructor selection stay in library
+declarations/implementations. Semantic analysis consumes checked declaration IDs,
+generic arguments and trait facts; it should not need a dedicated Map/Set type
+variant for every library implementation. Retain Array as an intrinsic semantic
+type with its own contract. Review the current special Vec/HashMap/HashSet mapping
+in [NativeTypeKind::apply](../crates/kagari-hir/src/native.rs) coherently with SA18;
+do not rename the existing resizable Array representation and consider the
+separation complete. No new Slice interface or implicit array/List coercion is
+selected; the explicit associated constructors above remain future work.
+
+Length in the type remains an open decision:
+
+| Candidate | Meaning | Main consequence |
+| --- | --- | --- |
+| `[T; N]` | N participates in type identity. | Exact-size parameters can reject wrong lengths statically; constant-length rules and possible const-generic binders need a separate bounded design. |
+| `[T]` (or `Array<T>`) | Each object has a fixed construction-time length, which is not part of type identity. | One parameter type accepts arrays of different lengths; lengths may be computed at runtime and indexing remains checked. |
+
+The proposed `fn sum(values: [i32; 4])` uses an ASCII semicolon and would require
+exact length four if that design is adopted. It is not a commitment to length
+in types or to general Rust const generics. The initial review favors evaluating
+runtime-stored fixed lengths for scripting simplicity, while leaving the choice
+to the later design decision. An omitted length must have one defined meaning;
+do not silently mix builtin arrays, borrowed slices and the List interface.
+
+Current [collection access](spec/collection-access.md),
+[value semantics](spec/value-semantics.md#repeat-arrays-and-bulk-replacement) and
+[architecture](architecture.md#language-contracts-and-native-implementations)
+instead specify `[T]` as List and literal/repeat construction as Vec. Activating
+this direction deliberately replaces those contracts and requires coordinated
+syntax, type, library, artifact/runtime, example and tooling updates. Preserve
+left-to-right once-only literal evaluation, checked element/index behavior,
+shared-object/GC rooting and cleanup. Decide repeat-count compatibility with the
+length model explicitly; preserve repetition's existing shared-identity safety
+rule unless separately changed. Do not import Rust move/borrow semantics, Kotlin
+variance or structural collection equality as incidental changes.
+
+Primary references: Rust's [array types](https://doc.rust-lang.org/reference/types/array.html)
+have type-level constant lengths; Kotlin's [arrays](https://kotlinlang.org/docs/arrays.html)
+are fixed-size objects without a size type parameter, and its
+[collection factories](https://kotlinlang.org/docs/constructing-collections.html)
+separate list construction from arrays. Rust's
+[Vec](https://doc.rust-lang.org/std/vec/struct.Vec.html) and
+[HashSet](https://doc.rust-lang.org/std/collections/struct.HashSet.html) provide
+`new` and array-based `From` construction using associated-call syntax. These
+support naming and responsibility comparisons, not copying either language's
+runtime ownership model.
+
+Follow-up owner: syntax/type semantics, foundation declarations and collection
+constructors, checked executable contracts and runtime array storage. Reuse
+focused literal/repetition, indexing/iteration, interface matching, generic,
+aliasing and source-free artifact/GC tests when activated. Keep the length-in-type
+decision and remaining constructor signature details explicit before selecting
+migration scope. This entry
+records a future design direction; implementation and specification changes
+remain deferred.
+
+## SA21 Unify Rust registration through NativeModule with scoped host access
+
+The requested future direction is to register all Rust-side functions and types
+through NativeModule, including application host APIs. Keep the existing field,
+assignment and function-call syntax. Host access still needs explicit typing and
+runtime lifetime/borrow checks; unified registration does not make Rust state
+part of the script heap or import a full Rust borrow checker into Kagari.
+
+Current registration has two paths. Standard and application native modules use
+ModuleDecl, NativeBinding/storage and Engine installation. The bundled standard
+library supplies [modules()](../crates/kagari-stdlib/src/lib.rs), and the
+[Engine builder](../crates/kagari-embed/src/engine/builder.rs) installs them by
+default. Host APIs separately use
+[HostInterface](../crates/kagari-types/src/host_interface/mod.rs),
+HostFunction/type/path bindings and HostRegistry. The runtime retains both host
+and native registries. Ordinary function and method registration overlaps; the
+Host path additionally owns external object identity, scoped borrows, declared
+field/path access and mutation adapters. Its capabilities justify a host boundary,
+not necessarily a second declaration and installation system.
+
+The target reuses [unified library registration](architecture.md#unified-library-registration):
+one declaration/binding/install path for standard and application APIs, with
+host object/access adapters under the same module. Move relevant Host contracts
+into the shared model and replace obsolete entrypoints/records coherently rather
+than retaining forwarding APIs or dual signature authorities. Runtime-local host
+objects, borrow leases and path commit state may retain focused internal owners;
+this does not require flattening every registry into one data structure. Preserve
+source-free declaration/binding validation, generated tooling views, root and
+runtime ownership checks, schema/generation validation and pinned dependencies.
+
+### Candidate host access types and field semantics
+
+Ref<T> and RefMut<T> are candidate script-visible wrapper names for shared and
+writable host access; names, conversion rules and exact representation remain
+open. Scripts use ordinary type annotations, field access and Native calls rather
+than new `&`/`&mut`, move or lifetime syntax. A wrapper is a checked handle with
+host provenance, access capability and a valid scope, not a freely storable naked
+Rust reference. It still needs semantic support for lifetime/escape restrictions;
+a plain generic struct alone cannot establish these guarantees. Writable access
+through a host wrapper is separate from SA18's collection-interface model and
+from binding `val`/`var`; shared access does not imply deep object immutability.
+
+The intended distinction is:
+
+| Field content | Result of reading the field |
+| --- | --- |
+| Scalar or other value-semantic data | An ordinary value; local copies do not alias the host field. |
+| A shared Kagari-managed object | Its checked object identity, following ordinary alias and rooting rules. |
+| A Rust-owned nested object accessed in place | A controlled field view retaining host provenance, access and scope. |
+
+These examples illustrate future wrapper behavior, not implemented APIs:
+
+```kagari
+// Assume player.hp is i32.
+var hp = player.hp;
+val number_alias = hp;
+hp = 20; // Changes only the local; player.hp and number_alias are unchanged.
+player.hp = 20; // Writes the host field through its checked adapter.
+
+// Assume player.stats is a Rust-owned nested object.
+val stats = player.stats;
+val alias = stats;
+alias.hp = 20; // Accesses the same host field view.
+reset_stats(stats); // Native registration declares writable access to Stats.
+```
+
+Reuse [host path views](spec/typed-path-mutation.md): they retain a root and typed
+projection rather than a persistent Rust field borrow. Copying a controlled view
+must not duplicate a raw mutable reference. Field replacement, indexed-element
+removal and relocation need an explicit view contract: decide whether an old view
+resolves the current location or becomes invalid. Never silently treat a path
+view as a stable borrowed object identity or retain a dangling field address.
+
+### Initial scope: borrowed inputs and independent outputs
+
+The proposed first implementation accepts shared/unique Rust access during a
+Native invocation, returning ordinary values or independent owning handles.
+Acquire checked access before invoking Rust and release it on every exit. An
+outer host-to-script borrowed scope remains the lifetime bound for all derived
+access; per-operation access must be authorized by that scope rather than create
+an independent conflicting lease. Checks cover aliases, multiple parameters,
+parent/child overlap and synchronous reentry. Distinct script names do not prove
+distinct host data. For a callback requiring two mutable inputs, two handles to
+the same or overlapping data must fail before Rust receives overlapping `&mut`s.
+
+The existing [typed conversion traits](../crates/kagari-runtime/src/native/conversion/mod.rs)
+primarily transfer owned data or owning handles; safe borrowed input adapters
+must be designed explicitly rather than assume ordinary FromKagari can return
+arbitrary Rust references. Reuse existing host ownership/borrow validation and
+checked native contracts. Do not activate unrestricted borrowed returns as an
+incidental part of registration unification.
+
+### Optional extension: returns borrowed from an input
+
+A Native function returning a reference tied to its input requires a persistent
+borrow relationship. For example:
+
+```rust
+fn stats_mut<'a>(player: &'a mut Player) -> &'a mut Stats {
+    &mut player.stats
+}
+```
+
+The following future script sketch must reject the conflicting replacement while
+the returned borrow remains active:
+
+```kagari
+val stats = stats_mut(player);
+player.stats = new_stats(); // Trap: a live derived borrow protects the input.
+stats.hp = 20;
+```
+
+Returning shared `&Stats` also prevents conflicting writes while it remains valid.
+Returning an independent value/handle, or a reference independent of the input,
+does not establish this particular input/output relationship. Registration must
+declare the return's borrow origin(s), or use a dedicated checked return adapter;
+input/output type names alone cannot identify that relationship. Multi-input
+origins and composite borrowed results need a bounded design if later included.
+
+The candidate runtime model records the host owner/scope, parent borrow, mode and
+active/released state, and associates the returned handle with that record. Keep
+the originating borrow protection after the Native function returns. Authorize
+access through the derived handle while blocking conflicting use of the parent
+or other aliases. Check active conflicts, not whether an object was ever borrowed;
+a live shared borrow also blocks writes. An initial conservative whole-root check
+is acceptable to evaluate; field-disjoint borrow analysis is not required. Report
+conflicts as runtime traps rather than introduce a complete static borrow checker.
+Preserve once-only evaluation, trap ordering, committed effects and path mutation
+validation/commit guarantees when choosing the check location.
+
+Explicit release is a candidate, not a finalized API:
+
+```kagari
+val stats = stats_mut(player);
+val alias = stats;
+stats.release(); // Candidate: closes the shared borrow record for all aliases.
+player.stats = new_stats();
+alias.hp = 20; // Trap: this borrowed handle is now invalid.
+```
+
+Closing the record invalidates all associated borrowed aliases; merely removing
+one variable cannot restore input access while another valid alias remains.
+Do not release protection while an active Rust callback still holds a reference.
+Nested derived borrows also need a defined release/invalidation policy before
+support is added. Explicit release must be backed by automatic scope cleanup on
+normal exit, traps, cancellation and depth exhaustion. Releasing a child does not
+end an independent outer host borrow. Borrowed handles cannot outlive their host
+scope or cross suspension without a separately established safe contract. Do not
+use nondeterministic GC collection as the borrow-release mechanism.
+
+Runtime checking avoids full static borrow analysis but still needs safe storage,
+provenance and cleanup. Wrapper copying, readonly adaptation, scope escape,
+release behavior and diagnostics remain decisions for activation. Genuine borrowed
+returns and re-resolving path views must remain distinct contracts. Rust's
+[lifetime relationships](https://doc.rust-lang.org/book/ch10-03-lifetime-syntax.html)
+and [RefCell runtime borrow checks](https://doc.rust-lang.org/std/cell/struct.RefCell.html)
+are references for these boundaries, not a requirement to copy Rust syntax,
+ownership semantics or RefCell's panic API.
+
+Follow-up owner: shared declarations and executable contracts, Engine module
+registration, runtime host identity/path/borrow adapters and Native conversion.
+Suggested order: unify registration; integrate host types and field views; support
+borrowed inputs with ordinary/owning outputs; then decide whether persistent
+borrowed returns justify their additional lifecycle model. When activated, reuse
+focused registration/linking, source-free rejection, alias/overlap, borrowed-return
+lifetime, reentry, stale-view, suspension, cleanup and pinned-reload contracts.
+Do not weaken tests or retain a second semantic implementation to hide migration
+gaps. This review entry records the future direction and unresolved choices only;
+implementation, specifications and roadmap phase activation remain deferred.
