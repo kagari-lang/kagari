@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for EnumLayout {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(EnumLayout {
@@ -44,7 +44,7 @@ impl DefinitionReferences for EnumLayout {
 impl RemapDefinitions for EnumVariantLayout {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(EnumVariantLayout {
@@ -73,7 +73,7 @@ impl DefinitionReferences for EnumVariantLayout {
 impl RemapDefinitions for StructLayout {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(StructLayout {
@@ -105,7 +105,7 @@ impl DefinitionReferences for StructLayout {
 impl RemapDefinitions for StructFieldLayout {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(StructFieldLayout {

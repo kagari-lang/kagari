@@ -60,7 +60,7 @@ impl ReceiverOwners {
             }
             Ty::Builtin(BuiltinType::String) => NativeTypeConstructor::String,
             Ty::Trait(interface)
-                if Protocol::from_reference(&interface.declaration, Some(definitions))
+                if Protocol::from_definition(&interface.declaration, definitions)
                     == Some(Protocol::Iterator) =>
             {
                 return definitions

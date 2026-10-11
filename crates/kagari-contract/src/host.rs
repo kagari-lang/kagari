@@ -42,7 +42,7 @@ pub fn trait_bindings_match(
         for implementation in &host.trait_implementations {
             cancel.check()?;
             let id = &implementation.trait_id;
-            if Protocol::from_reference(id, Some(definitions))
+            if Protocol::from_definition(id, definitions)
                 .is_some_and(|kind| !kind.host_implementable())
             {
                 return Ok(false);

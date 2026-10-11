@@ -13,7 +13,7 @@ use kagari_common::{
 impl RemapDefinitions for DeclarationId {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -55,7 +55,7 @@ impl DefinitionReferences for DeclarationId {
 impl RemapDefinitions for Declaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(Declaration {

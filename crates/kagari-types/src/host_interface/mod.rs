@@ -8,7 +8,6 @@ use kagari_common::identity::{
     map::DefinitionContext,
     mapping::DefinitionMappingError,
     metadata::DefinitionMetadata,
-    reference::DefinitionReference,
     table::{DefinitionId, DefinitionTable, DefinitionTableError},
 };
 use serde::{Deserialize, Serialize};
@@ -62,19 +61,14 @@ fn register_host_definition(
     context.intern_child(root, kind, &name, 0)
 }
 
-pub fn validate_host_type_identity(id: &DefinitionPath) -> Result<(), HostInterfaceError> {
-    validate_host_type_identity_in(id, None)
-}
-
-pub fn validate_host_type_identity_in<I: DefinitionReference>(
-    id: &I,
-    table: Option<&DefinitionTable>,
+/// Validate a nominal Host type in its retained identity scope.
+/// Returns InvalidDeclaration for foreign handles or invalid namespace/kind facts.
+pub fn validate_host_type_identity(
+    id: &DefinitionId,
+    table: &DefinitionTable,
 ) -> Result<(), HostInterfaceError> {
-    if !id.within_path_limit() {
-        return Err(HostInterfaceError::TooLarge);
-    }
-    let view = id
-        .describe(table)
+    let view = table
+        .resolve(*id)
         .map_err(|_| HostInterfaceError::InvalidDeclaration)?;
     if view.module().package.0.is_empty()
         || view.module().path.iter().any(String::is_empty)
@@ -202,7 +196,7 @@ impl HostFunctionDeclaration {
                 .parent(self.id)
                 .map_err(|_| HostInterfaceError::InvalidDeclaration)?
                 .ok_or(HostInterfaceError::InvalidDeclaration)?;
-            validate_host_type_identity_in(&owner, Some(definitions))?;
+            validate_host_type_identity(&owner, definitions)?;
             if self.params.first().is_none_or(|receiver| {
                 receiver.name != "self" || receiver.ty != HostValueType::Opaque(owner)
             }) {

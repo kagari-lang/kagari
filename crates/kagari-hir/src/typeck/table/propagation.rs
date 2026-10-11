@@ -44,7 +44,7 @@ impl TypeTable {
 impl RemapDefinitions for ResolvedPropagation {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         Ok(ResolvedPropagation {
             branch: self.branch.remap_definitions(mapper)?,

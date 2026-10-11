@@ -273,9 +273,9 @@ impl DeclarationCatalog {
                         };
                         if match_pattern(
                             ImplementationPattern {
-                                protocol: Protocol::from_reference(
+                                protocol: Protocol::from_definition(
                                     &implemented.declaration,
-                                    Some(&definitions),
+                                    &definitions,
                                 ),
                                 storage_access: self
                                     .traits

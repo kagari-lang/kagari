@@ -15,7 +15,7 @@ use kagari_common::{
 impl RemapDefinitions for HostPathDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostPathDeclaration {
@@ -45,7 +45,7 @@ impl DefinitionReferences for HostPathDeclaration {
 impl RemapDefinitions for HostPathSegmentDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -86,7 +86,7 @@ impl DefinitionReferences for HostPathSegmentDeclaration {
 impl RemapDefinitions for HostIndexSegmentDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostIndexSegmentDeclaration {
@@ -116,7 +116,7 @@ impl DefinitionReferences for HostIndexSegmentDeclaration {
 impl RemapDefinitions for HostVirtualSegmentDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostVirtualSegmentDeclaration {
@@ -142,7 +142,7 @@ impl DefinitionReferences for HostVirtualSegmentDeclaration {
 impl RemapDefinitions for HostPathInput {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -193,7 +193,7 @@ impl DefinitionReferences for HostPathInput {
 impl RemapDefinitions for HostPathSegmentContract {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostPathSegmentContract {
@@ -221,7 +221,7 @@ impl DefinitionReferences for HostPathSegmentContract {
 impl RemapDefinitions for HostPathContract {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostPathContract {

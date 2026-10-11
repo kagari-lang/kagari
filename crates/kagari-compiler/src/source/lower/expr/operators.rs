@@ -151,7 +151,7 @@ impl FunctionLowerer<'_, '_> {
             return self.lower_applied_method(required, target, &method, &method_arguments, args);
         }
 
-        if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+        if Protocol::from_definition(&interface.declaration, &self.planner.definitions())
             == Some(Protocol::Fn)
             && let TypeId::Function { params, result } = &ty
         {
@@ -284,9 +284,9 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
         if let TypeId::Builtin(input) = &ty {
-            let op = match Protocol::from_reference(
+            let op = match Protocol::from_definition(
                 &interface.declaration,
-                Some(&self.planner.definitions()),
+                &self.planner.definitions(),
             ) {
                 Some(Protocol::BitAnd) => Some(IntegerOp::BitAnd),
                 Some(Protocol::BitOr) => Some(IntegerOp::BitOr),
@@ -330,7 +330,7 @@ impl FunctionLowerer<'_, '_> {
         {
             return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
         }
-        if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+        if Protocol::from_definition(&interface.declaration, &self.planner.definitions())
             == Some(Protocol::From)
             && interface.arguments.as_slice() == [ty.clone()]
         {
@@ -338,7 +338,7 @@ impl FunctionLowerer<'_, '_> {
         }
         if let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
             (&ty, interface.arguments.as_slice())
-            && Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+            && Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 == Some(Protocol::From)
             && traits::intrinsic_applies(
                 &self.planner.definitions(),
@@ -432,7 +432,7 @@ impl FunctionLowerer<'_, '_> {
                 }))
             }
         } else {
-            if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+            if Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 == Some(Protocol::Iterable)
                 && result == ty
                 && traits::iterator_requirement(&self.planner.definitions(), &interface, &ty)
@@ -449,7 +449,7 @@ impl FunctionLowerer<'_, '_> {
                 return Ok(args[0]);
             }
             if let Some(protocol) =
-                Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+                Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 && protocol.binary_operator()
             {
                 let op = match protocol {
@@ -497,7 +497,7 @@ impl FunctionLowerer<'_, '_> {
                 return Ok(dst);
             }
             if let Some(protocol) =
-                Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+                Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 && matches!(protocol, Protocol::Neg | Protocol::Not)
             {
                 let dst = self.alloc_temp(result_ty);
@@ -533,7 +533,7 @@ impl FunctionLowerer<'_, '_> {
                 self.check_integer_range(dst, &result);
                 return Ok(dst);
             }
-            if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+            if Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 == Some(Protocol::Index)
             {
                 let dst = self.alloc_temp(result_ty);
@@ -544,9 +544,9 @@ impl FunctionLowerer<'_, '_> {
                 });
                 return Ok(dst);
             }
-            let intrinsic = match Protocol::from_reference(
+            let intrinsic = match Protocol::from_definition(
                 &interface.declaration,
-                Some(&self.planner.definitions()),
+                &self.planner.definitions(),
             ) {
                 Some(Protocol::PartialOrd) => RuntimePrimitive::ValuePartialCmp,
                 Some(Protocol::Ord) => RuntimePrimitive::ValueCmp,

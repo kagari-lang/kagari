@@ -16,7 +16,7 @@ use kagari_common::{
 impl RemapDefinitions for ImplementationSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImplementationSignature {

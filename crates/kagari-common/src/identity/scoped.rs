@@ -3,9 +3,7 @@
 use crate::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
         table::DefinitionId,
     },
 };
@@ -33,28 +31,8 @@ pub trait RemapDefinitions: DefinitionReferences + Sized {
     /// cancellation, an unmapped reference, a limit or a collapsed unique key.
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError>;
-}
-
-// SI06 removes these adapters with the remaining representation-generic owners.
-impl<T: DefinitionRecord<DefinitionId>> DefinitionReferences for T {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        self.visit_definitions(visit, cancel)
-    }
-}
-
-impl<T: DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>> RemapDefinitions for T {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
-    ) -> Result<Self, DefinitionMappingError> {
-        self.map_identities(mapper)
-    }
 }
 
 impl<T: DefinitionReferences> DefinitionReferences for Vec<T> {
@@ -74,7 +52,7 @@ impl<T: DefinitionReferences> DefinitionReferences for Vec<T> {
 impl<T: RemapDefinitions> RemapDefinitions for Vec<T> {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         map_sequence(self, |record| record.remap_definitions(mapper))

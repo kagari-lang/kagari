@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for HostParameter {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostParameter {
@@ -38,7 +38,7 @@ impl DefinitionReferences for HostParameter {
 impl RemapDefinitions for HostFunctionDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostFunctionDeclaration {
@@ -71,7 +71,7 @@ impl DefinitionReferences for HostFunctionDeclaration {
 impl RemapDefinitions for HostInterface {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostInterface {

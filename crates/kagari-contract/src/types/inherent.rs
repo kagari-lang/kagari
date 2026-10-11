@@ -37,7 +37,7 @@ pub struct InherentTable {
 impl RemapDefinitions for InherentTable {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InherentTable {

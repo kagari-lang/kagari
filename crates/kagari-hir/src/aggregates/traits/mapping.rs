@@ -18,7 +18,7 @@ use kagari_common::{
 impl RemapDefinitions for MethodParameter {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(MethodParameter {
@@ -44,7 +44,7 @@ impl DefinitionReferences for MethodParameter {
 impl RemapDefinitions for MethodSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(MethodSignature {
@@ -112,7 +112,7 @@ impl DefinitionReferences for MethodSignature {
 impl RemapDefinitions for MethodDefault {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -142,7 +142,7 @@ impl DefinitionReferences for MethodDefault {
 impl RemapDefinitions for TraitSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TraitSignature {
@@ -247,7 +247,7 @@ impl DefinitionReferences for TraitSignature {
 impl RemapDefinitions for AssociatedConstSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AssociatedConstSignature {

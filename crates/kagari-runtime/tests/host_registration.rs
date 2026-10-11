@@ -1,10 +1,7 @@
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath,
-        mapping::DefinitionRecord,
-        metadata::{DefinitionMetadata, scope_record},
-        table::DefinitionId,
+        map::DefinitionContext, metadata::DefinitionMetadata, scoped::DefinitionReferences,
     },
 };
 
@@ -17,25 +14,30 @@ use kagari_runtime::{
 };
 use kagari_types::host_interface::{
     HostFunctionDeclaration, HostFunctionEffects, HostParameter, HostPassingStyle,
+    host_type_identity,
     type_declaration::{HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership, PathAccess},
     value_type::HostValueType,
 };
 use std::sync::{Arc, Mutex};
 
-fn scoped<T: DefinitionRecord<DefinitionPath>>(
+fn scoped<T: DefinitionReferences + Clone>(
+    context: &DefinitionContext,
     value: &T,
-) -> DefinitionMetadata<T::Rebind<DefinitionId>>
-where
-    T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
-{
-    scope_record(value, &CancellationToken::default()).unwrap()
+) -> DefinitionMetadata<T> {
+    DefinitionMetadata::checked(
+        context.snapshot(),
+        value.clone(),
+        &CancellationToken::default(),
+    )
+    .unwrap()
 }
 
 fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
-    let mut declaration = HostTypeDeclaration::new("game.Player");
+    let context = DefinitionContext::new().unwrap();
+    let mut declaration = HostTypeDeclaration::new(&context, "game.Player").unwrap();
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
-    let registration = HostTypeRegistration::new(scoped(&declaration), "Player");
+    let registration = HostTypeRegistration::new(scoped(&context, &declaration), "Player");
     let ty = runtime.register_host_type(registration).unwrap();
     let root = runtime
         .register_host_root(HostObjectId(object_id), ty, HostSchemaEpoch::new(0))
@@ -57,15 +59,23 @@ fn host_call_enabled_runtime() -> Runtime {
 
 #[test]
 fn callback_context_releases_borrows_and_rejects_borrowed_results() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = exposed_host_runtime();
     host_root_value(&mut runtime, 1);
     runtime
         .register_host_function(HostFunction::new(
-            scoped(&HostFunctionDeclaration::new(
-                "game.heal",
-                vec![],
-                HostValueType::opaque("game.Player"),
-            )),
+            scoped(
+                &context,
+                &HostFunctionDeclaration::new(
+                    &context,
+                    "game.heal",
+                    vec![],
+                    HostValueType::Opaque(
+                        context.intern(&host_type_identity("game.Player")).unwrap(),
+                    ),
+                )
+                .unwrap(),
+            ),
             |context, _| {
                 let token = context
                     .borrows()
@@ -89,6 +99,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
 
 #[test]
 fn registers_host_function_metadata_and_invokes_handler() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = exposed_host_runtime();
     let i32_id = runtime
         .types()
@@ -101,7 +112,9 @@ fn registers_host_function_metadata_and_invokes_handler() {
         params: vec![
             HostParameter {
                 name: "player".into(),
-                ty: HostValueType::opaque("game.Player"),
+                ty: HostValueType::Opaque(
+                    context.intern(&host_type_identity("game.Player")).unwrap(),
+                ),
                 passing: HostPassingStyle::UniqueBorrow,
             },
             HostParameter {
@@ -116,9 +129,9 @@ fn registers_host_function_metadata_and_invokes_handler() {
             may_trap: true,
             ..HostFunctionEffects::default()
         },
-        ..HostFunctionDeclaration::new("game.heal", vec![], HostValueType::I32)
+        ..HostFunctionDeclaration::new(&context, "game.heal", vec![], HostValueType::I32).unwrap()
     };
-    let metadata = scoped(&metadata);
+    let metadata = scoped(&context, &metadata);
     let fingerprint = metadata
         .records()
         .fingerprint(metadata.definitions())
@@ -159,16 +172,17 @@ fn registers_host_function_metadata_and_invokes_handler() {
 
 #[test]
 fn installed_host_functions_are_available() {
+    let context = DefinitionContext::new().unwrap();
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
     let mut runtime = host_call_enabled_runtime();
     runtime
         .register_host_function(HostFunction::new(
-            scoped(&HostFunctionDeclaration::new(
-                "game.tick",
-                vec![],
-                HostValueType::Unit,
-            )),
+            scoped(
+                &context,
+                &HostFunctionDeclaration::new(&context, "game.tick", vec![], HostValueType::Unit)
+                    .unwrap(),
+            ),
             move |_, _| {
                 *calls_for_host.lock().expect("counter should lock") += 1;
                 Ok(Value::Unit)
@@ -182,14 +196,15 @@ fn installed_host_functions_are_available() {
 
 #[test]
 fn rejects_duplicate_host_function_symbols() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     runtime
         .register_host_function(HostFunction::new(
-            scoped(&HostFunctionDeclaration::new(
-                "game.tick",
-                vec![],
-                HostValueType::Unit,
-            )),
+            scoped(
+                &context,
+                &HostFunctionDeclaration::new(&context, "game.tick", vec![], HostValueType::Unit)
+                    .unwrap(),
+            ),
             |_, _| Ok(Value::Unit),
         ))
         .unwrap();
@@ -210,6 +225,7 @@ fn rejects_duplicate_host_function_symbols() {
 
 #[test]
 fn registers_host_type_metadata_with_stable_runtime_type_identity() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let i32_id = runtime
         .types()
@@ -223,25 +239,30 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
         type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     };
-    let mut declaration = HostTypeDeclaration::new("game.Player");
+    let mut declaration = HostTypeDeclaration::new(&context, "game.Player").unwrap();
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
     declaration.reflection = HostReflectionPolicy::Metadata;
-    let mut field = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
+    let mut field =
+        HostFieldDeclaration::new(&context, declaration.id, "hp", HostValueType::I32).unwrap();
     field.writable = true;
     field.path_access = PathAccess::ReadWrite;
     declaration.fields.push(field);
-    declaration.methods.push(HostMethodDeclaration::new(
-        &declaration.id,
-        "heal",
-        vec![HostParameter {
-            name: "hp".into(),
-            ty: HostValueType::I32,
-            passing: HostPassingStyle::Owned,
-        }],
-        HostValueType::I32,
-    ));
-    let declaration = scoped(&declaration);
+    declaration.methods.push(
+        HostMethodDeclaration::new(
+            &context,
+            declaration.id,
+            "heal",
+            vec![HostParameter {
+                name: "hp".into(),
+                ty: HostValueType::I32,
+                passing: HostPassingStyle::Owned,
+            }],
+            HostValueType::I32,
+        )
+        .unwrap(),
+    );
+    let declaration = scoped(&context, &declaration);
     let fingerprint = AbiFingerprint(
         declaration
             .records()
@@ -276,17 +297,24 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
 
 #[test]
 fn rejects_duplicate_host_type_names() {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     runtime
         .register_host_type(HostTypeRegistration::new(
-            scoped(&HostTypeDeclaration::new("game.Player")),
+            scoped(
+                &context,
+                &HostTypeDeclaration::new(&context, "game.Player").unwrap(),
+            ),
             "crate::game::Player",
         ))
         .unwrap();
 
     let error = runtime
         .register_host_type(HostTypeRegistration::new(
-            scoped(&HostTypeDeclaration::new("game.Player")),
+            scoped(
+                &context,
+                &HostTypeDeclaration::new(&context, "game.Player").unwrap(),
+            ),
             "crate::game::OtherPlayer",
         ))
         .unwrap_err();

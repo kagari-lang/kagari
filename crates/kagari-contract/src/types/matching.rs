@@ -24,7 +24,7 @@ pub fn match_implementation<'a>(
     };
     match_pattern(
         ImplementationPattern {
-            protocol: Protocol::from_reference(&implemented.declaration, Some(definitions)),
+            protocol: Protocol::from_definition(&implemented.declaration, definitions),
             storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: &table.generic_params,
             receiver: &table.for_type,

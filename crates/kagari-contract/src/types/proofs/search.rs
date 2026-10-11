@@ -421,7 +421,7 @@ impl ProofCatalog<'_> {
         )? {
             return self.obligations(&requirements, assumptions, search, budget, depth + 1);
         }
-        let Some(kind) = Protocol::from_reference(&interface.declaration, Some(&self.definitions))
+        let Some(kind) = Protocol::from_definition(&interface.declaration, &self.definitions)
         else {
             return Ok(false);
         };

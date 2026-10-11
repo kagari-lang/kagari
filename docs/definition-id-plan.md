@@ -40,7 +40,7 @@ sharing are separate measured follow-ups. Do not introduce a global identity poo
 
 | Owner | Current behavior and required change |
 | --- | --- |
-| [Identity references](../crates/kagari-common/src/identity/reference.rs) | `DefinitionReference` abstracts paths, IDs and file references. Portable references cannot satisfy ordinary table lookup/display operations. Remove the shared semantic abstraction. |
+| Original identity-reference abstraction (removed in SI06) | `DefinitionReference` previously abstracted paths, IDs and file references. Scoped visitors/remappers and codec-owned wire records replace it; no shared semantic representation abstraction remains. |
 | [Definition tables](../crates/kagari-common/src/identity/table.rs), [context/maps](../crates/kagari-common/src/identity/map.rs) | Eight-byte table/index IDs, append-only interning, borrowed views, explicit imports and immutable snapshots already exist. Reuse them; make internal map access ID-based rather than materializing and sorting paths. |
 | [Metadata ownership](../crates/kagari-common/src/identity/metadata.rs) | `DefinitionMetadata` retains a table and validates references; generic rebinding supplies paths, wire data and cross-context imports. Preserve ownership/reference validation, separate the three conversion responsibilities. |
 | [HIR types](../crates/kagari-hir/src/types.rs), [declarations](../crates/kagari-hir/src/declarations.rs) | Semantic records default to paths while published caches retain IDs. Register declaration identities before semantic processing. |
@@ -2898,3 +2898,84 @@ Common DefinitionReference/DefinitionRecord/Rebind, metadata path/portable proje
 legacy query helpers still require removal. Recorded compiler/runtime/contract
 library-test and remaining example/integration fixtures remain open SI06 work.
 Full backend/feature acceptance is reserved for CI; the goal is not complete.
+
+
+### SI06 delete common rebinding and complete SDK scope adoption
+
+Removed DefinitionReference/DefinitionDescription and their module, DefinitionRecord/
+Rebind, blanket semantic adapters, DefinitionMetadata::to_paths/to_portable,
+scope_record and PortableMetadata. DefinitionMapper accepts only DefinitionId to
+DefinitionId and preserves cancellation/error propagation; all semantic owner
+signatures use this fixed mapper. Metadata retains scope validation and explicit
+imports without gaining semantic or executable authority.
+
+Protocol::from_definition requires a retained table, Host nominal validation has
+one scoped entrypoint, and exact builtin path queries compare against table lookup.
+The declaration verifier directly checks callable namespace/kind facts previously
+read through DefinitionDescription. Runtime installed-trait checks use module/name
+queries and scoped catalog keys without materializing paths. Every production
+caller across HIR, compiler, executable and runtime layers uses the fixed queries.
+Bytecode count/type checks remove the old always-true ID path predicates and empty
+Host identity walk. Actual ModuleIdentity/path-table checks, type depth/node limits,
+collection counts, Host semantic validation and complete reference-prefix checks
+remain with their established owners.
+
+SDK checking exposed three previously unmigrated production calls: Native module
+export still treated scoped extraction as fallible; artifact emission returned a
+bare record; preparation verified a bare record without its scope. The export now
+retains metadata directly. Emission returns DefinitionMetadata<BytecodeArtifact>
+after explicit adoption and artifact construction. Preparation resource-checks the
+input before adoption, then performs complete artifact/native correspondence
+verification in its context; identity cancellation retains the cancellation error.
+The existing source_modules and scoped_execution examples use retained scopes and
+explicit import for editable products. HIR body lookup takes a scoped ID, and source
+display borrows the owning table instead of projecting a whole type to paths.
+
+The first source_modules run found a runtime construction defect: NativeInstallation
+created a default Runtime/Host context, then replaced only the Native registry.
+Host linking correctly rejected the two contexts. Runtime now constructs both
+registries from the final Native registry through a private constructor; ordinary
+Runtime::new supplies its default registry through the same path. No validation or
+Host owner check is bypassed. The prepared installation still shares registration
+records/name allocation while heaps, Host registry owners, loaded generations and
+later registration publication remain runtime-local. The example now loads the
+same prepared program in two runtimes, verifies both return 42 and rejects a loaded
+module from the other runtime.
+
+Focused local evidence:
+
+- Compiler/runtime/SDK library checks pass; the three SDK API errors are repaired.
+  Common/types/bytecode/SDK library Clippy passes with warnings denied. Final SDK
+  library plus source_modules/scoped_execution example Clippy also passes.
+- `cargo test -p kagari-types --lib declaration::verify::scoped_tests::
+  --no-fail-fast --message-format=short`: four scoped declaration cases pass. The
+  initially combined language_identity target matched no filter and is not counted;
+  its separate unfiltered target run passes its one exact protocol/snapshot case.
+- `cargo test -p kagari-bytecode --test identity --no-fail-fast
+  --message-format=short`: six resource, canonical identity and forged-input cases
+  pass with the actual path/table and bounded codec checks retained.
+- `cargo test -p kagari-runtime --test host_registration --no-fail-fast
+  --message-format=short`: six cases pass after explicit fixture registration and
+  scope ownership migration, preserving duplicate publication, borrow cleanup,
+  borrowed-result rejection and stable runtime metadata assertions.
+- `cargo run -p kagari-embed --example source_modules --message-format=short`:
+  source queries, independent KBC decode, imported public type ownership and
+  execution of 36 linked modules pass. The final two-runtime assertions pass
+  after the NativeInstallation construction repair.
+- `cargo run -p kagari-embed --example scoped_execution --message-format=short`:
+  SDK compilation with portable MIR, artifact preparation, repeated execution,
+  cancellation/reuse, missing entry and ambiguous entry rejection pass.
+
+Manual review covers deletion consumers, scoped mapper fields, query predicates,
+retained input resource checks, artifact/native verification order, installation
+ownership and preserved Host/generation checks. Remaining legacy compiler fixture
+helpers and runtime host_nominal/offline_types still reference removed APIs and
+are not buildable yet; they are owned by the next SI06 fixture cleanup. Previously
+recorded compiler/runtime/contract library-test repairs and further SDK examples/
+integration tests remain open; unchanged failing targets were not rerun. No local
+workspace/feature/backend matrix or performance measurement ran. CI acceptance and
+final plan retirement remain outstanding; the goal is not complete.
+
+Final checkpoint checks: `uv run --locked scripts/check_structure.py` checks 1085
+Rust files with zero violations/exceptions; `cargo fmt --all -- --check` and
+`git diff --check` pass.

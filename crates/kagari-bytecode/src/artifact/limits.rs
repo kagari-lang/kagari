@@ -8,16 +8,12 @@ use crate::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::{
-    reference::DefinitionReference,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{AssociatedTypeDef, FnDecl, requirement::NativeCallableRequirement},
-    host_interface::{HostInterface, path::HostPathSegmentDeclaration, value_type::HostValueType},
-    ty::{Constraint, GenericBound, GenericParam, Ty},
+    ty::{Constraint, GenericBound, Ty},
 };
 
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
@@ -329,27 +325,25 @@ pub(super) fn add_abi_bounds(bounds: &[GenericBound], add: &mut impl FnMut(usize
     })
 }
 
-pub(super) fn generic_identity_limit(params: &[GenericParam], bounds: &[GenericBound]) -> bool {
-    params.iter().all(|param| param.owner.within_path_limit())
-        && bounds.iter().all(|bound| {
-            bound.ty.within_wire_limits()
-                && bound.constraints.iter().all(|constraint| match constraint {
-                    Constraint::Standard(_) => true,
-                    Constraint::Trait(ty) => {
-                        ty.declaration.within_path_limit()
-                            && ty.arguments.iter().all(|arg| arg.within_wire_limits())
-                            && ty.associated_types.iter().all(|(member, value)| {
-                                member.within_path_limit() && value.within_wire_limits()
-                            })
-                    }
-                })
-        })
+pub(super) fn bounds_type_limit(bounds: &[GenericBound]) -> bool {
+    bounds.iter().all(|bound| {
+        bound.ty.within_wire_limits()
+            && bound.constraints.iter().all(|constraint| match constraint {
+                Constraint::Standard(_) => true,
+                Constraint::Trait(ty) => {
+                    ty.arguments.iter().all(|arg| arg.within_wire_limits())
+                        && ty
+                            .associated_types
+                            .values()
+                            .all(|value| value.within_wire_limits())
+                }
+            })
+    })
 }
 
-pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef]) -> bool {
+pub(super) fn associated_type_limit(members: &[AssociatedTypeDef]) -> bool {
     members.iter().all(|member| {
-        member.declaration.within_path_limit()
-            && generic_identity_limit(&member.generic_params, &member.parameter_bounds)
+        bounds_type_limit(&member.parameter_bounds)
             && member.bounds.iter().all(|bound| match bound {
                 Constraint::Standard(_) => true,
                 Constraint::Trait(ty) => Ty::Trait(ty.clone()).within_wire_limits(),
@@ -357,8 +351,8 @@ pub(super) fn associated_identity_limit(members: &[AssociatedTypeDef]) -> bool {
     })
 }
 
-pub(super) fn function_abi_identity_limit(function: &FnDecl) -> bool {
-    generic_identity_limit(&function.generic_params, &function.bounds)
+pub(super) fn function_abi_type_limit(function: &FnDecl) -> bool {
+    bounds_type_limit(&function.bounds)
 }
 
 pub(super) fn module_abi_type_limit(
@@ -372,14 +366,12 @@ pub(super) fn module_abi_type_limit(
         .all(|import| import.structurally_valid(definitions))
         && module.native_declarations.iter().all(|declaration| {
             let function = &declaration.function;
-            declaration.declaration.within_path_limit()
-                && function_abi_identity_limit(function)
+            function_abi_type_limit(function)
                 && function.params.iter().all(|param| valid(&param.ty))
                 && valid(&function.return_type)
                 && declaration.concrete_result.as_ref().is_none_or(valid)
                 && declaration.callable_requirements.iter().all(|required| {
-                    required.member.within_path_limit()
-                        && valid(&required.receiver)
+                    valid(&required.receiver)
                         && valid(&Ty::Trait(required.interface.clone()))
                         && required.arguments.iter().all(&valid)
                 })
@@ -387,31 +379,31 @@ pub(super) fn module_abi_type_limit(
         && module.interface_tables.iter().all(|table| {
             table.view.as_ref().is_none_or(|view| {
                 valid(&Ty::Trait(view.interface.clone()))
-                    && view.results.iter().all(|adapter| {
-                        adapter.method.within_path_limit()
-                            && adapter.implementation.declaration.within_path_limit()
-                            && adapter.implementation.arguments.iter().all(&valid)
-                    })
-            }) && table.declaration.within_path_limit()
-                && table.arguments.iter().all(&valid)
+                    && view
+                        .results
+                        .iter()
+                        .all(|adapter| adapter.implementation.arguments.iter().all(&valid))
+            }) && table.arguments.iter().all(&valid)
                 && table.parents.iter().all(|parent| {
                     valid(&Ty::Trait(parent.interface.clone()))
-                        && parent.implementation.declaration.within_path_limit()
                         && parent.implementation.arguments.iter().all(&valid)
                 })
-                && table.methods.iter().all(|slot| {
-                    slot.method.within_path_limit() && slot.arguments.iter().all(&valid)
-                })
+                && table
+                    .methods
+                    .iter()
+                    .all(|slot| slot.arguments.iter().all(&valid))
         })
         && module.functions.iter().all(|function| {
-            function.identity.as_ref().is_none_or(|identity| {
-                identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
-            })
+            function
+                .identity
+                .as_ref()
+                .is_none_or(|identity| identity.arguments.iter().all(&valid))
         })
         && module.function_table.iter().all(|record| {
-            record.identity.as_ref().is_none_or(|identity| {
-                identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
-            })
+            record
+                .identity
+                .as_ref()
+                .is_none_or(|identity| identity.arguments.iter().all(&valid))
         })
         && module.structures.iter().all(|layout| {
             layout.arguments.iter().all(&valid)
@@ -425,24 +417,23 @@ pub(super) fn module_abi_type_limit(
                     .all(|variant| variant.payload.iter().all(&valid))
         })
         && module.trait_contracts.iter().all(|contract| {
-            contract.declaration.within_path_limit()
-                && generic_identity_limit(&contract.abi.generic_params, &contract.abi.bounds)
-                && associated_identity_limit(&contract.abi.associated_types)
+            bounds_type_limit(&contract.abi.bounds)
+                && associated_type_limit(&contract.abi.associated_types)
                 && contract.abi.methods.iter().all(|method| {
-                    function_abi_identity_limit(method)
+                    function_abi_type_limit(method)
                         && method.params.iter().all(|param| valid(&param.ty))
                         && valid(&method.return_type)
                 })
         })
         && module.public_items.iter().all(|item| match item {
             PublicItem::Function(item) => {
-                function_abi_identity_limit(item)
+                function_abi_type_limit(item)
                     && item.params.iter().all(|param| valid(&param.ty))
                     && valid(&item.return_type)
             }
             PublicItem::Const(item) => valid(&item.ty),
             PublicItem::Type(item) => {
-                generic_identity_limit(&item.generic_params, &item.bounds)
+                bounds_type_limit(&item.bounds)
                     && item.fields.iter().all(|field| valid(&field.ty))
                     && item
                         .variants
@@ -450,71 +441,38 @@ pub(super) fn module_abi_type_limit(
                         .all(|variant| variant.payload.iter().all(&valid))
             }
             PublicItem::Trait(item) => {
-                associated_identity_limit(&item.associated_types)
-                    && generic_identity_limit(&item.generic_params, &item.bounds)
+                associated_type_limit(&item.associated_types)
+                    && bounds_type_limit(&item.bounds)
                     && item.methods.iter().all(|method| {
-                        function_abi_identity_limit(method)
+                        function_abi_type_limit(method)
                             && method.params.iter().all(|param| valid(&param.ty))
                             && valid(&method.return_type)
                     })
             }
             PublicItem::InherentTable(item) => {
-                item.declaration.within_path_limit()
-                    && generic_identity_limit(&item.generic_params, &item.bounds)
+                bounds_type_limit(&item.bounds)
                     && valid(&item.for_type)
                     && item.methods.iter().all(|method| {
-                        function_abi_identity_limit(method)
+                        function_abi_type_limit(method)
                             && method.params.iter().all(|param| valid(&param.ty))
                             && valid(&method.return_type)
                     })
             }
             PublicItem::InterfaceTable(item) => {
-                item.declaration.within_path_limit()
-                    && generic_identity_limit(&item.generic_params, &item.bounds)
+                bounds_type_limit(&item.bounds)
                     && valid(&item.trait_type)
                     && valid(&item.for_type)
-                    && item.associated_type_families.iter().all(|family| {
-                        family.declaration.within_path_limit()
-                            && generic_identity_limit(&family.generic_params, &family.bounds)
-                            && valid(&family.value)
-                    })
+                    && item
+                        .associated_type_families
+                        .iter()
+                        .all(|family| bounds_type_limit(&family.bounds) && valid(&family.value))
                     && item.methods.iter().all(|method| {
-                        function_abi_identity_limit(method)
+                        function_abi_type_limit(method)
                             && method.params.iter().all(|param| valid(&param.ty))
                             && valid(&method.return_type)
                     })
             }
         })
-}
-
-pub(super) fn host_identity_limit(interface: &HostInterface) -> bool {
-    let valid = |id: &DefinitionId| id.within_path_limit();
-    let value = |ty: &HostValueType| ty.nominal_references().into_iter().all(valid);
-    interface.types.iter().all(|ty| {
-        valid(&ty.id)
-            && ty
-                .fields
-                .iter()
-                .all(|field| valid(&field.id) && value(&field.ty))
-            && ty.methods.iter().all(|method| {
-                valid(&method.id)
-                    && method.params.iter().all(|param| value(&param.ty))
-                    && value(&method.return_type)
-            })
-    }) && interface.functions.iter().all(|function| {
-        valid(&function.id)
-            && function.params.iter().all(|param| value(&param.ty))
-            && value(&function.return_type)
-    }) && interface.paths.iter().all(|path| {
-        valid(&path.root)
-            && path.segments.iter().all(|segment| match segment {
-                HostPathSegmentDeclaration::Field(id) => valid(id),
-                HostPathSegmentDeclaration::Index(index) => {
-                    value(&index.collection) && value(&index.index) && value(&index.result)
-                }
-                HostPathSegmentDeclaration::Virtual(virtual_step) => value(&virtual_step.result),
-            })
-    })
 }
 
 pub(super) fn program_count_limit(
@@ -530,23 +488,7 @@ pub(super) fn program_count_limit(
     let mut module_records = 0usize;
     let mut nested_records = 0usize;
     for module in &program.modules {
-        if !module.identity.within_path_limit()
-            || !host_identity_limit(&module.host_interface)
-            || module.structures.iter().any(|layout| {
-                !layout.declaration.within_path_limit()
-                    || layout
-                        .fields
-                        .iter()
-                        .any(|field| !field.declaration.within_path_limit())
-            })
-            || module.enumerations.iter().any(|layout| {
-                !layout.declaration.within_path_limit()
-                    || layout
-                        .variants
-                        .iter()
-                        .any(|variant| !variant.declaration.within_path_limit())
-            })
-        {
+        if !module.identity.within_path_limit() {
             return Some("identity path segment limit exceeded");
         }
         if !module_nested_count_limit(module, &mut nested_records) {

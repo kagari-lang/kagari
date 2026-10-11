@@ -15,7 +15,7 @@ use kagari_common::{
 impl RemapDefinitions for BytecodeModule {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(BytecodeModule {
@@ -96,7 +96,7 @@ impl DefinitionReferences for BytecodeModule {
 impl RemapDefinitions for BytecodeFunction {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(BytecodeFunction {
@@ -139,7 +139,7 @@ impl DefinitionReferences for BytecodeFunction {
 impl RemapDefinitions for FunctionMetadata {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FunctionMetadata {
@@ -171,7 +171,7 @@ impl DefinitionReferences for FunctionMetadata {
 impl RemapDefinitions for FunctionRecord {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FunctionRecord {
@@ -206,7 +206,7 @@ impl DefinitionReferences for FunctionRecord {
 impl RemapDefinitions for InterfaceTableRecord {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceTableRecord {
@@ -251,7 +251,7 @@ impl DefinitionReferences for InterfaceTableRecord {
 impl RemapDefinitions for InterfaceParentRecord {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceParentRecord {
@@ -278,7 +278,7 @@ impl DefinitionReferences for InterfaceParentRecord {
 impl RemapDefinitions for InterfaceViewRecord {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceViewRecord {
@@ -306,7 +306,7 @@ impl DefinitionReferences for InterfaceViewRecord {
 impl RemapDefinitions for InterfaceResultAdapter {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceResultAdapter {
@@ -332,7 +332,7 @@ impl DefinitionReferences for InterfaceResultAdapter {
 impl RemapDefinitions for InterfaceMethodSlot {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceMethodSlot {

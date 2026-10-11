@@ -88,7 +88,7 @@ impl<'a> Implementation<'a> {
         definitions: &DefinitionTable,
     ) -> Option<ImplementationPattern<'a>> {
         Some(ImplementationPattern {
-            protocol: Protocol::from_reference(&self.interface()?.declaration, Some(definitions)),
+            protocol: Protocol::from_definition(&self.interface()?.declaration, definitions),
             storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: self.parameters(),
             receiver: self.receiver(),

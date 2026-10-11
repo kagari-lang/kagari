@@ -37,7 +37,7 @@ impl ProofCatalog<'_> {
                 .iter()
                 .filter(|bound| bound.ty == *receiver)
                 .flat_map(|bound| &bound.constraints)
-                .any(|bound| matches!(bound, Constraint::Trait(interface) if Protocol::from_reference(&interface.declaration, Some(&self.definitions)) == Some(Protocol::Eq) && interface.arguments.is_empty() && interface.associated_types.is_empty()))
+                .any(|bound| matches!(bound, Constraint::Trait(interface) if Protocol::from_definition(&interface.declaration, &self.definitions) == Some(Protocol::Eq) && interface.arguments.is_empty() && interface.associated_types.is_empty()))
         {
             return Ok(true);
         }

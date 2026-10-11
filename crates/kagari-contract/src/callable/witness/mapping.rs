@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for OperationWitness {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -54,7 +54,7 @@ impl DefinitionReferences for OperationWitness {
 impl RemapDefinitions for SharedMethodWitness {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(SharedMethodWitness {

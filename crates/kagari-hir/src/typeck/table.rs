@@ -526,7 +526,7 @@ impl TypeTable {
     ) -> bool {
         if trait_type.arguments.is_empty()
             && trait_type.associated_types.is_empty()
-            && let Some(kind) = Protocol::from_reference(&trait_type.declaration, Some(definitions))
+            && let Some(kind) = Protocol::from_definition(&trait_type.declaration, definitions)
         {
             return traits::intrinsic_holds(definitions, kind, ty, None, &Default::default());
         }

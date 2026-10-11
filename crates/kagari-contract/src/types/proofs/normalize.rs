@@ -42,7 +42,7 @@ impl ProofCatalog<'_> {
                     )? {
                         return Ok(Some(output));
                     }
-                    if Protocol::from_reference(&interface.declaration, Some(&self.definitions))
+                    if Protocol::from_definition(&interface.declaration, &self.definitions)
                         == Some(Protocol::Iterable)
                         && let Some(required) =
                             intrinsic::identity_iterator(interface, receiver, &self.definitions)

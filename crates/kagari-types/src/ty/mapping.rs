@@ -14,7 +14,7 @@ use kagari_common::{
 impl RemapDefinitions for NominalTy {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NominalTy {
@@ -53,7 +53,7 @@ impl DefinitionReferences for NominalTy {
 impl RemapDefinitions for GenericParam {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(GenericParam {
@@ -78,7 +78,7 @@ impl DefinitionReferences for GenericParam {
 impl RemapDefinitions for GenericBound {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(GenericBound {
@@ -108,7 +108,7 @@ impl DefinitionReferences for GenericBound {
 impl RemapDefinitions for Constraint {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {

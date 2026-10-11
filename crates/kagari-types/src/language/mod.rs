@@ -4,7 +4,6 @@
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use kagari_common::identity::{
     ModuleIdentity, PackageId,
-    reference::DefinitionReference,
     table::{DefinitionId, DefinitionTable},
 };
 
@@ -142,15 +141,9 @@ impl Protocol {
         }
     }
 
-    pub fn from_id(id: &DefinitionPath) -> Option<Self> {
-        Self::from_reference(id, None)
-    }
-
-    pub fn from_reference<I: DefinitionReference>(
-        id: &I,
-        table: Option<&DefinitionTable>,
-    ) -> Option<Self> {
-        let view = id.describe(table).ok()?;
+    /// Recognize a protocol only when its exact declaration resolves in this scope.
+    pub fn from_definition(id: &DefinitionId, table: &DefinitionTable) -> Option<Self> {
+        let view = table.resolve(*id).ok()?;
         if view.segments().count() != 1 {
             return None;
         }

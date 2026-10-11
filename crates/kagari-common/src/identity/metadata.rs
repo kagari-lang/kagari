@@ -1,18 +1,13 @@
-//! Owned metadata contexts and explicit portable projections.
+//! Owned semantic metadata scopes and explicit ID-to-ID imports.
 use crate::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        mapping::{DefinitionMapper, DefinitionMappingError},
         scoped::{DefinitionReferences, RemapDefinitions},
-        table::{
-            DefinitionId, DefinitionTable, DefinitionTableBuilder,
-            wire::{PortableDefinitionRef, PortableDefinitionTable},
-        },
+        table::DefinitionTable,
     },
 };
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// This owns a checked identity scope, not semantic verification evidence.
@@ -58,41 +53,6 @@ impl<T: DefinitionReferences> DefinitionMetadata<T> {
     }
 }
 
-impl<T: DefinitionRecord<DefinitionId>> DefinitionMetadata<T> {
-    pub fn to_paths(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<T::Rebind<DefinitionPath>, DefinitionMappingError> {
-        self.records.map_identities(&mut DefinitionMapper::new(
-            &mut |id| Ok(self.definitions.resolve(*id)?.to_path()),
-            cancel,
-        ))
-    }
-
-    pub fn to_portable(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<PortableMetadata<T::Rebind<PortableDefinitionRef>>, DefinitionMappingError> {
-        let mut references = HashSet::new();
-        self.records.visit_definition_ids(
-            &mut |id| {
-                references.insert(*id);
-                Ok(())
-            },
-            cancel,
-        )?;
-        let encoding = self.definitions.encode(references)?;
-        let records = self.records.map_identities(&mut DefinitionMapper::new(
-            &mut |id| encoding.reference(*id).map_err(Into::into),
-            cancel,
-        ))?;
-        Ok(PortableMetadata {
-            definitions: encoding.table,
-            records,
-        })
-    }
-}
-
 impl<T: RemapDefinitions> DefinitionMetadata<T> {
     /// Imports referenced definitions and rebuilds reusable records in `context`.
     ///
@@ -121,51 +81,5 @@ impl<T: RemapDefinitions> DefinitionMetadata<T> {
             cancel,
         ))?;
         DefinitionMetadata::checked(context.snapshot(), records, cancel)
-    }
-}
-
-pub fn scope_record<T: DefinitionRecord<DefinitionPath>>(
-    records: &T,
-    cancel: &CancellationToken,
-) -> Result<DefinitionMetadata<T::Rebind<DefinitionId>>, DefinitionMappingError>
-where
-    T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
-{
-    let mut definitions = DefinitionTableBuilder::new()?;
-    let records = records.map_identities(&mut DefinitionMapper::new(
-        &mut |path| definitions.intern_path(path).map_err(Into::into),
-        cancel,
-    ))?;
-    DefinitionMetadata::checked(definitions.freeze(), records, cancel)
-}
-
-/// Serialization carries only a bounded exact table and context-local references.
-/// Process table numbers and immutable verification seals cannot enter this format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PortableMetadata<T> {
-    records: T,
-    definitions: PortableDefinitionTable,
-}
-
-impl<T> PortableMetadata<T> {
-    pub fn records(&self) -> &T {
-        &self.records
-    }
-}
-
-impl<T: DefinitionRecord<PortableDefinitionRef>> PortableMetadata<T> {
-    pub fn decode(
-        self,
-        cancel: &CancellationToken,
-    ) -> Result<DefinitionMetadata<T::Rebind<DefinitionId>>, DefinitionMappingError>
-    where
-        T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
-    {
-        let decoded = self.definitions.decode()?;
-        let records = self.records.map_identities(&mut DefinitionMapper::new(
-            &mut |reference| decoded.resolve(*reference).map_err(Into::into),
-            cancel,
-        ))?;
-        DefinitionMetadata::checked(decoded.table, records, cancel)
     }
 }

@@ -309,7 +309,7 @@ impl HostRegistry {
         declaration: &DefinitionId,
         symbol: &str,
     ) -> Result<(), RuntimeError> {
-        host_interface::validate_host_type_identity_in(declaration, Some(&self.definitions()))
+        host_interface::validate_host_type_identity(declaration, &self.definitions())
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         if symbol.is_empty()
             || symbol.split('.').any(str::is_empty)

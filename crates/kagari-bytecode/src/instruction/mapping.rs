@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for FieldRef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FieldRef {
@@ -40,7 +40,7 @@ impl DefinitionReferences for FieldRef {
 impl RemapDefinitions for CallTarget {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -122,7 +122,7 @@ impl DefinitionReferences for CallTarget {
 impl RemapDefinitions for BytecodeInstruction {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {

@@ -20,7 +20,7 @@ use std::sync::Arc;
 impl RemapDefinitions for FieldSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FieldSignature {
@@ -55,7 +55,7 @@ impl DefinitionReferences for FieldSignature {
 impl RemapDefinitions for InherentMethodSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InherentMethodSignature {
@@ -87,7 +87,7 @@ impl DefinitionReferences for InherentMethodSignature {
 impl RemapDefinitions for StructSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(StructSignature {
@@ -138,7 +138,7 @@ impl DefinitionReferences for StructSignature {
 impl RemapDefinitions for NativeTypeSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeTypeSignature {
@@ -187,7 +187,7 @@ impl DefinitionReferences for NativeTypeSignature {
 impl RemapDefinitions for VariantSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(VariantSignature {
@@ -223,7 +223,7 @@ impl DefinitionReferences for VariantSignature {
 impl RemapDefinitions for EnumSignature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(EnumSignature {
@@ -275,7 +275,7 @@ impl DefinitionReferences for EnumSignature {
 impl RemapDefinitions for AggregateCatalog {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AggregateCatalog {

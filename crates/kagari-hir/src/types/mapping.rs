@@ -21,7 +21,7 @@ use kagari_common::{
 impl RemapDefinitions for TypeSubstitution {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypeSubstitution {
@@ -67,7 +67,7 @@ impl DefinitionReferences for TypeSubstitution {
 impl RemapDefinitions for GenericParameterType {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(GenericParameterType {
@@ -93,7 +93,7 @@ impl DefinitionReferences for GenericParameterType {
 impl RemapDefinitions for AssociatedTypeParameters {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AssociatedTypeParameters {
@@ -134,7 +134,7 @@ impl DefinitionReferences for AssociatedTypeParameters {
 impl RemapDefinitions for AssociatedTypeFamily {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AssociatedTypeFamily {
@@ -160,7 +160,7 @@ impl DefinitionReferences for AssociatedTypeFamily {
 impl RemapDefinitions for NominalType {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NominalType {
@@ -199,7 +199,7 @@ impl DefinitionReferences for NominalType {
 impl RemapDefinitions for TypeId {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         shape::validate(self, mapper.cancellation())?;

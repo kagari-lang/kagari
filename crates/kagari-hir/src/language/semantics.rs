@@ -86,7 +86,7 @@ pub fn callable_signature(
     definitions: &DefinitionTable,
     interface: &NominalType,
 ) -> Option<TypeId> {
-    if Protocol::from_reference(&interface.declaration, Some(definitions)) != Some(Protocol::Fn) {
+    if Protocol::from_definition(&interface.declaration, definitions) != Some(Protocol::Fn) {
         return None;
     }
     let params = match interface.arguments.as_slice() {
@@ -116,7 +116,7 @@ pub fn intrinsic_output(
     interface: &NominalType,
     receiver: &TypeId,
 ) -> Option<TypeId> {
-    let kind = Protocol::from_reference(&interface.declaration, Some(definitions))?;
+    let kind = Protocol::from_definition(&interface.declaration, definitions)?;
     if kind == Protocol::Fn
         && let TypeId::Function { params, result } = receiver
     {
@@ -211,7 +211,7 @@ pub fn intrinsic_applies(
             || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
             || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(definitions, &required, &target, bounds, ImplementationSearchLimits { max_checks: 100_000, max_depth: 64 }, &Default::default()).is_ok_and(|found| found.is_some()));
     }
-    let Some(kind) = Protocol::from_reference(&interface.declaration, Some(definitions)) else {
+    let Some(kind) = Protocol::from_definition(&interface.declaration, definitions) else {
         return false;
     };
     if kind.iteration() {
@@ -350,7 +350,7 @@ pub fn intrinsic_holds(
         if !seen.insert(ty.clone()) {
             continue;
         }
-        if bounds.get(&ty).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(n) if Protocol::from_reference(&n.declaration, Some(definitions)).is_some_and(|p| p == protocol || p == Protocol::Eq && protocol == Protocol::PartialEq)))) { continue; }
+        if bounds.get(&ty).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(n) if Protocol::from_definition(&n.declaration, definitions).is_some_and(|p| p == protocol || p == Protocol::Eq && protocol == Protocol::PartialEq)))) { continue; }
         match ty {
             // Recovery holes cannot disprove a protocol; code generation rejects them.
             TypeId::Unknown | TypeId::Error => {}
@@ -569,8 +569,7 @@ pub fn iterator_requirement(
     interface: &NominalType,
     receiver: &TypeId,
 ) -> Option<NominalType> {
-    if Protocol::from_reference(&interface.declaration, Some(definitions))
-        != Some(Protocol::Iterable)
+    if Protocol::from_definition(&interface.declaration, definitions) != Some(Protocol::Iterable)
         || !interface.arguments.is_empty()
     {
         return None;

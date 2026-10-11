@@ -98,7 +98,7 @@ impl DefinitionReferences for RawProgram {
 impl RemapDefinitions for RawProgram {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(Self {

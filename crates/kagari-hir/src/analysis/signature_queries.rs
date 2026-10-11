@@ -333,7 +333,7 @@ impl AnalysisDatabase {
 impl RemapDefinitions for BodyEnvironment {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         Ok(BodyEnvironment {
             imported_functions: self.imported_functions.remap_definitions(mapper)?,

@@ -99,11 +99,7 @@ pub fn range_bound_valid(range: &Ty, bound: &Ty, table: &DefinitionTable) -> boo
     range.within_wire_limits()
         && bound.within_wire_limits()
         && types_in_scope([range, bound], &[], &Default::default(), table)
-        && binding::matches(
-            &nominal.declaration,
-            &binding::bound_declaration(),
-            Some(table),
-        )
+        && binding::matches(&nominal.declaration, &binding::bound_declaration(), table)
         && nominal.arguments.len() == 1
         && nominal.associated_types.is_empty()
         && (*kind == RangeKind::Full || nominal.arguments[0] == **item)

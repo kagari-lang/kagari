@@ -300,8 +300,8 @@ impl<'a> DeclarationView<'a> {
             let id = self.definition(DefinitionKind::Trait, &item.name, self.definitions)?;
             output.doc(id)?;
             let start = output.text.len();
-            if let Some(role) = Protocol::from_reference(&id, Some(self.definitions))
-                .and_then(LangRole::from_protocol)
+            if let Some(role) =
+                Protocol::from_definition(&id, self.definitions).and_then(LangRole::from_protocol)
             {
                 output
                     .text

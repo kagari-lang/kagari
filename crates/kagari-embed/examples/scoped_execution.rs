@@ -1,5 +1,6 @@
 //! Independent execution sessions and cooperative cancellation.
 
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -76,7 +77,11 @@ fn main() {
             ArtifactOptions::default(),
         )
         .unwrap();
-    let mut program = ambiguous.program;
+    let definitions = DefinitionContext::new().unwrap();
+    let ambiguous = ambiguous
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    let mut program = ambiguous.into_records().program;
     let root = program.root.index();
     let alternative = program.modules[root]
         .functions
@@ -85,7 +90,11 @@ fn main() {
         .unwrap();
     program.modules[root].functions[alternative].name = "main".into();
     program.modules[root].function_table[alternative].name = "main".into();
-    let ambiguous = BytecodeArtifact::from_program(program, Default::default()).unwrap();
+    let ambiguous =
+        BytecodeArtifact::from_program(program, Default::default(), &definitions).unwrap();
+    let ambiguous =
+        DefinitionMetadata::checked(definitions.snapshot(), ambiguous, &Default::default())
+            .unwrap();
     let program =
         PreparedProgram::from_artifact(ambiguous, &Default::default(), &Default::default())
             .unwrap();

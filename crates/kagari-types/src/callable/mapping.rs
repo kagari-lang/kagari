@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for CallableImplementation {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -51,7 +51,7 @@ impl DefinitionReferences for CallableImplementation {
 impl RemapDefinitions for NativeDefaultApplication {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeDefaultApplication {
@@ -79,7 +79,7 @@ impl DefinitionReferences for NativeDefaultApplication {
 impl RemapDefinitions for Signature {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(Signature {

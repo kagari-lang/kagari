@@ -324,17 +324,20 @@ pub(crate) fn callable_primitive(
         ]
         .into_iter()
         .find(|(protocol, name, _)| {
-            table.parent(*member).ok().flatten().is_some_and(|parent| {
-                Protocol::from_reference(&parent, Some(table)) == Some(*protocol)
-            }) && table
-                .resolve(*member)
+            table
+                .parent(*member)
                 .ok()
-                .and_then(|view| view.segments().last())
-                .is_some_and(|part| {
-                    part.kind == DefinitionKind::Method
-                        && part.occurrence == 0
-                        && part.name == *name
-                })
+                .flatten()
+                .is_some_and(|parent| Protocol::from_definition(&parent, table) == Some(*protocol))
+                && table
+                    .resolve(*member)
+                    .ok()
+                    .and_then(|view| view.segments().last())
+                    .is_some_and(|part| {
+                        part.kind == DefinitionKind::Method
+                            && part.occurrence == 0
+                            && part.name == *name
+                    })
         })
         .map(|(_, _, primitive)| primitive)
     } else {

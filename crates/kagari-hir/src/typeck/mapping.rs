@@ -16,7 +16,7 @@ use kagari_common::{
 impl RemapDefinitions for ModuleSignatures {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ModuleSignatures {
@@ -75,7 +75,7 @@ impl DefinitionReferences for ModuleSignatures {
 impl RemapDefinitions for TypedModule {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypedModule {
@@ -119,7 +119,7 @@ impl DefinitionReferences for TypedModule {
 impl RemapDefinitions for TypedFunction {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypedFunction {
@@ -176,7 +176,7 @@ impl DefinitionReferences for TypedFunction {
 impl RemapDefinitions for FunctionImplementation {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -210,7 +210,7 @@ impl DefinitionReferences for FunctionImplementation {
 impl RemapDefinitions for TypedParameter {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypedParameter {

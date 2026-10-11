@@ -2,26 +2,14 @@
 //! These are declaration identities, not type shapes or runtime discriminants.
 //! Consumers must resolve and validate the actual installed declarations/layouts.
 use crate::ty::{NominalTy, Ty};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
 
-pub fn matches<I: DefinitionReference>(
-    id: &I,
-    expected: &DefinitionPath,
-    table: Option<&DefinitionTable>,
-) -> bool {
-    id.describe(table).is_ok_and(|actual| {
-        actual.module() == &expected.module
-            && actual
-                .segments()
-                .map(|part| (part.kind, part.name, part.occurrence))
-                .eq(expected
-                    .path
-                    .iter()
-                    .map(|part| (part.kind, part.name.as_str(), part.occurrence)))
-    })
+/// Match an external symbolic query against an ID in its retained scope.
+pub fn matches(id: &DefinitionId, expected: &DefinitionPath, table: &DefinitionTable) -> bool {
+    table.lookup(expected) == Some(*id)
 }
 
 fn declaration(module: &str, name: &str) -> DefinitionPath {

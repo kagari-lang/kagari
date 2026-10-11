@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for MirModule {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(MirModule {
@@ -70,7 +70,7 @@ impl DefinitionReferences for MirModule {
 impl RemapDefinitions for MirFunction {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(MirFunction {
@@ -109,7 +109,7 @@ impl DefinitionReferences for MirFunction {
 impl RemapDefinitions for BasicBlock {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(BasicBlock {

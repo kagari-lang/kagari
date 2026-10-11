@@ -14,7 +14,7 @@ use kagari_common::{
 impl RemapDefinitions for AggregateFieldRef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AggregateFieldRef {
@@ -39,7 +39,7 @@ impl DefinitionReferences for AggregateFieldRef {
 impl RemapDefinitions for PathRef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(PathRef {
@@ -74,7 +74,7 @@ impl DefinitionReferences for PathRef {
 impl RemapDefinitions for Instruction {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -590,7 +590,7 @@ impl DefinitionReferences for Instruction {
 impl RemapDefinitions for CallTarget {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -660,7 +660,7 @@ impl DefinitionReferences for CallTarget {
 impl RemapDefinitions for SourceFunctionContract {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(SourceFunctionContract {

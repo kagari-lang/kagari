@@ -15,7 +15,7 @@ use kagari_common::{
 impl RemapDefinitions for HostFieldDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostFieldDeclaration {
@@ -47,7 +47,7 @@ impl DefinitionReferences for HostFieldDeclaration {
 impl RemapDefinitions for HostMethodDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostMethodDeclaration {
@@ -81,7 +81,7 @@ impl DefinitionReferences for HostMethodDeclaration {
 impl RemapDefinitions for HostTraitMethodBinding {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostTraitMethodBinding {
@@ -108,7 +108,7 @@ impl DefinitionReferences for HostTraitMethodBinding {
 impl RemapDefinitions for HostAssociatedTypeBinding {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostAssociatedTypeBinding {
@@ -134,7 +134,7 @@ impl DefinitionReferences for HostAssociatedTypeBinding {
 impl RemapDefinitions for HostTraitImplementationDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostTraitImplementationDeclaration {
@@ -175,7 +175,7 @@ impl DefinitionReferences for HostTraitImplementationDeclaration {
 impl RemapDefinitions for HostTypeDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(HostTypeDeclaration {

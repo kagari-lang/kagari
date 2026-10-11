@@ -2,7 +2,7 @@
 use super::decode_limits;
 use crate::host_interface::{
     HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle,
-    register_host_definition, validate_host_type_identity_in, value_type::HostValueType, wire,
+    register_host_definition, validate_host_type_identity, value_type::HostValueType, wire,
 };
 use kagari_common::identity::{
     DefinitionKind,
@@ -244,7 +244,7 @@ impl HostTypeDeclaration {
     }
 
     pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
-        validate_host_type_identity_in(&self.id, Some(definitions))?;
+        validate_host_type_identity(&self.id, definitions)?;
         if self.fields.len() > decode_limits::MAX_MEMBERS
             || self.methods.len() > decode_limits::MAX_MEMBERS
             || self.trait_implementations.len() > decode_limits::MAX_MEMBERS

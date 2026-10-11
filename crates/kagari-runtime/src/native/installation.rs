@@ -29,8 +29,6 @@ impl NativeInstallation {
     /// Create an independent runtime. Later registrations affect only that runtime;
     /// loading still validates each program against its installed contracts.
     pub fn runtime(&self, config: RuntimeConfig) -> Runtime {
-        let mut runtime = Runtime::new(config);
-        runtime.native_entries = self.registry.as_ref().clone();
-        runtime
+        Runtime::with_native_registry(config, self.registry.as_ref().clone())
     }
 }

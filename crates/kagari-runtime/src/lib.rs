@@ -157,8 +157,11 @@ impl Runtime {
     }
 
     pub fn new(config: RuntimeConfig) -> Self {
+        Self::with_native_registry(config, NativeRegistry::default())
+    }
+
+    fn with_native_registry(config: RuntimeConfig, native_entries: NativeRegistry) -> Self {
         let resources = ResourceState::new(config.limits);
-        let native_entries = NativeRegistry::default();
         let host = HostRegistry::new(native_entries.catalog.types.context().clone());
         Self {
             tasks: RefCell::new(TaskStore::new(config.async_limits)),

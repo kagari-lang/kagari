@@ -497,10 +497,7 @@ fn same_method_contract(
                 };
                 projection_output(
                     ImplementationPattern {
-                        protocol: Protocol::from_reference(
-                            &implemented.declaration,
-                            Some(definitions),
-                        ),
+                        protocol: Protocol::from_definition(&implemented.declaration, definitions),
                         storage_access: None,
                         parameters: &table.generic_params,
                         receiver: &table.for_type,

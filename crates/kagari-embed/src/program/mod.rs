@@ -9,7 +9,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use kagari_bytecode::artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact};
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        map::DefinitionContext, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
+    },
+};
 #[cfg(feature = "native")]
 use kagari_compiler::native_input::{NativeInputError, verify_native_input};
 #[cfg(feature = "native")]
@@ -46,11 +51,22 @@ struct ProgramState {
 pub enum ProgramPreparationError {
     #[error("program preparation cancelled")]
     Cancelled,
+    #[error("invalid definition scope: {0}")]
+    Identity(DefinitionMappingError),
     #[error("invalid artifact: {0}")]
     Artifact(#[from] ArtifactValidationError),
     #[cfg(feature = "native")]
     #[error("invalid native input: {0}")]
     NativeInput(NativeInputError),
+}
+
+impl From<DefinitionMappingError> for ProgramPreparationError {
+    fn from(error: DefinitionMappingError) -> Self {
+        match error {
+            DefinitionMappingError::Cancelled => Self::Cancelled,
+            error => Self::Identity(error),
+        }
+    }
 }
 
 #[cfg(feature = "native")]
@@ -67,17 +83,24 @@ impl PreparedProgram {
     /// Validate the artifact before runtime linking or script effects. Native-enabled
     /// builds additionally validate all supplied compiler input; bytecode-only builds
     /// check the opaque payload bounds and integrity without interpreting MIR.
+    /// Scoped input is resource-checked before adoption into the preparation context;
+    /// importing identities does not replace artifact or executable verification.
     /// A missing payload is valid bytecode-only input. Native-enabled builds reject
     /// malformed or mismatched compiler input.
     pub fn from_artifact(
-        artifact: KbcArtifact,
+        artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,
         cancel: &CancellationToken,
     ) -> Result<Self, ProgramPreparationError> {
         cancel
             .check()
             .map_err(|_| ProgramPreparationError::Cancelled)?;
-        let artifact = artifact.into_verified(compatibility)?;
+        artifact
+            .records()
+            .validate_resource_limits(artifact.definitions())?;
+        let context = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
+        let artifact = artifact.import_into(&context, cancel)?.into_records();
+        let artifact = artifact.into_verified(compatibility, &context)?;
         #[cfg(feature = "native")]
         let mir = artifact
             .portable_mir()

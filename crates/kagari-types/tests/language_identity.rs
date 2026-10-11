@@ -26,18 +26,18 @@ fn protocol_lookup_requires_exact_identity_in_the_retained_scope() {
         let missing = context.snapshot();
         assert_eq!(protocol.definition(&missing), None);
         for impostor in [wrong_kind, duplicate, foreign] {
-            assert_eq!(Protocol::from_reference(&impostor, Some(&missing)), None);
+            assert_eq!(Protocol::from_definition(&impostor, &missing), None);
         }
 
         let declaration = context.intern(&identity(protocol)).unwrap();
         let installed = context.snapshot();
         assert_eq!(protocol.definition(&installed), Some(declaration));
         assert_eq!(
-            Protocol::from_reference(&declaration, Some(&installed)),
+            Protocol::from_definition(&declaration, &installed),
             Some(protocol)
         );
         assert_eq!(protocol.definition(&missing), None);
-        assert_eq!(Protocol::from_reference(&declaration, Some(&before)), None);
+        assert_eq!(Protocol::from_definition(&declaration, &before), None);
 
         let adopted = DefinitionContext::new().unwrap();
         adopted.intern(&identity(Protocol::Try)).unwrap();
@@ -47,11 +47,11 @@ fn protocol_lookup_requires_exact_identity_in_the_retained_scope() {
         assert_ne!(adopted_id, declaration);
         assert_eq!(protocol.definition(&adopted_table), Some(adopted_id));
         assert_eq!(
-            Protocol::from_reference(&adopted_id, Some(&adopted_table)),
+            Protocol::from_definition(&adopted_id, &adopted_table),
             Some(protocol)
         );
         assert_eq!(
-            Protocol::from_reference(&declaration, Some(&adopted_table)),
+            Protocol::from_definition(&declaration, &adopted_table),
             None
         );
     }

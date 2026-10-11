@@ -96,8 +96,11 @@ when the current database replaces its registration inputs.
 Runtime's `NativeInstallation` prepares a closed module batch through the same
 transactional installer used for ordinary registration. The SDK builder retains
 that result. Creating a runtime copies its checked registry into fresh runtime
-state instead of repeating module/dependency/callable validation. Loading and
-linking each executable still check its contracts against the installed entries.
+state instead of repeating module/dependency/callable validation. Construction
+supplies that registry before creating the Host registry, so both use the same
+append-only definition context. Replacing one after construction would split
+identity ownership. Loading and linking each executable still check its contracts
+against the installed entries.
 Subsequent registration remains transactional and local to that runtime.
 
 Registration records and Rust callback captures retain their existing shared
@@ -799,9 +802,11 @@ compose those capabilities without arbitrary representation rebinding. Callable
 proofs, layouts, Native imports and public ABI records use these fixed models.
 Flat codec records share bounded traversal without admitting path-based semantic
 models; only explicit wire records serialize file-local references. Type remapping
-helpers are private to the semantic owner. The active
-[Definition ID migration](definition-id-plan.md) still owns removal of obsolete
-common reference/projection APIs and remaining legacy test/example consumers.
+helpers are private to the semantic owner. Common metadata exposes scope validation
+and ID-to-ID imports, with no arbitrary rebinding or whole-record path/file-reference
+projection. Protocol recognition and Host nominal validation require a retained
+table. The active [Definition ID migration](definition-id-plan.md) still owns
+remaining legacy test/example consumers and final integration.
 Bytecode verification, linked executable proofs and Host contract validation use
 scoped records directly.
 Bytecode verification checks the complete input reference

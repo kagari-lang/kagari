@@ -448,9 +448,9 @@ impl<'a> BodyChecker<'a> {
                                 self.declarations.hosts.implements(&trait_type, actual),
                             ) {
                                 0 => {
-                                    Protocol::from_reference(
+                                    Protocol::from_definition(
                                         &trait_type.declaration,
-                                        Some(self.declarations.definitions()),
+                                        self.declarations.definitions(),
                                     )
                                     .is_none()
                                         && self.type_table.implements(
@@ -711,7 +711,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if !bounds.values().flatten().any(|bound| {
             matches!(bound, ConstraintTarget::Trait(interface)
-                if Protocol::from_reference(&interface.declaration, Some(self.declarations.definitions())) == Some(Protocol::Fn)
+                if Protocol::from_definition(&interface.declaration, self.declarations.definitions()) == Some(Protocol::Fn)
                     || !interface.associated_types.is_empty())
         }) {
             return;

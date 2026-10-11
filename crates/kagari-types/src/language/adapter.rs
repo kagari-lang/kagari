@@ -27,7 +27,7 @@ pub fn adapter_contract(
             associated_types: Default::default(),
         })
     };
-    let kind = Protocol::from_reference(&required.interface.declaration, Some(definitions))?;
+    let kind = Protocol::from_definition(&required.interface.declaration, definitions)?;
     if kind == Protocol::From {
         let [input] = required.interface.arguments.as_slice() else {
             return None;

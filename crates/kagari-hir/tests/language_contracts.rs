@@ -81,7 +81,7 @@ fn portable_language_catalog_has_complete_contracts() {
         })
         .unwrap();
     assert!(
-        matches!(&iter.bounds[..], [Constraint::Trait(required)] if Protocol::from_reference(&required.declaration, Some(definitions)) == Some(Protocol::Iterator))
+        matches!(&iter.bounds[..], [Constraint::Trait(required)] if Protocol::from_definition(&required.declaration, definitions) == Some(Protocol::Iterator))
     );
     for kind in ["Map", "Set", "MutableMap", "MutableSet"] {
         assert!(
@@ -100,7 +100,7 @@ fn portable_language_catalog_has_complete_contracts() {
                 .iter()
                 .map(|bound| match bound {
                     Constraint::Trait(interface) =>
-                        Protocol::from_reference(&interface.declaration, Some(definitions)),
+                        Protocol::from_definition(&interface.declaration, definitions),
                     _ => None,
                 })
                 .collect::<Vec<_>>(),
@@ -206,20 +206,18 @@ fn portable_collection_view_preserves_concrete_iterator_proofs() {
     let original = original
         .iter()
         .find(|parent| {
-            Protocol::from_reference(&parent.declaration, Some(definitions))
-                == Some(Protocol::Iterable)
+            Protocol::from_definition(&parent.declaration, definitions) == Some(Protocol::Iterable)
         })
         .unwrap();
     assert!(!original.associated_types.contains_key(&iter));
     let view = views
         .iter()
         .find(|parent| {
-            Protocol::from_reference(&parent.declaration, Some(definitions))
-                == Some(Protocol::Iterable)
+            Protocol::from_definition(&parent.declaration, definitions) == Some(Protocol::Iterable)
         })
         .unwrap();
     assert!(matches!(&view.associated_types[&iter], Ty::Trait(iterator)
-        if Protocol::from_reference(&iterator.declaration, Some(definitions)) == Some(Protocol::Iterator)
+        if Protocol::from_definition(&iterator.declaration, definitions) == Some(Protocol::Iterator)
             && iterator.associated_types[&definitions.lookup_child(iterator.declaration, DefinitionKind::AssociatedType, "Item", 0).unwrap()] == Ty::Builtin(BuiltinType::I32)));
     let mut actual = original.clone();
     actual

@@ -11,7 +11,10 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, reference::DefinitionReference},
+    identity::{
+        ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata, table::DefinitionId,
+    },
 };
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
@@ -211,10 +214,10 @@ impl KagariEngine {
     }
 
     /// Query one function body and module-constant prerequisites by declaration identity.
-    pub fn body<I: DefinitionReference>(
+    pub fn body(
         &self,
         source: SourceSnapshot,
-        function: &I,
+        function: &DefinitionId,
         cancel: &CancellationToken,
     ) -> CompileResult<Option<Arc<FunctionAnalysis>>> {
         self.analysis
@@ -292,7 +295,7 @@ impl KagariEngine {
         &self,
         checked: &CheckedModule,
         options: ArtifactOptions,
-    ) -> CompileResult<BytecodeArtifact> {
+    ) -> CompileResult<DefinitionMetadata<BytecodeArtifact>> {
         let ir =
             lower_program_to_mir(&checked.program, &options.lowering).map_err(
                 |error| match error {
@@ -332,15 +335,30 @@ impl KagariEngine {
             }),
             NativeInputExport::BytecodeOnly => None,
         };
-        KbcArtifact::from_program(program, build).map_err(EmbeddingError::artifact_validation)
+        let context =
+            DefinitionContext::new().map_err(|error| artifact_identity_error(error.into()))?;
+        let program = program
+            .import_into(&context, &options.lowering.cancel)
+            .map_err(artifact_identity_error)?;
+        let artifact = KbcArtifact::from_program(program.into_records(), build, &context)
+            .map_err(EmbeddingError::artifact_validation)?;
+        DefinitionMetadata::checked(context.snapshot(), artifact, &options.lowering.cancel)
+            .map_err(artifact_identity_error)
     }
 
     pub fn compile_to_artifact(
         &self,
         source: SourceFile,
         artifact_options: ArtifactOptions,
-    ) -> CompileResult<BytecodeArtifact> {
+    ) -> CompileResult<DefinitionMetadata<BytecodeArtifact>> {
         let checked = self.compile_source(source)?;
         self.emit_bytecode(&checked, artifact_options)
+    }
+}
+
+fn artifact_identity_error(error: DefinitionMappingError) -> EmbeddingError {
+    match error {
+        DefinitionMappingError::Cancelled => EmbeddingError::Cancelled,
+        error => EmbeddingError::artifact_validation(error.into()),
     }
 }

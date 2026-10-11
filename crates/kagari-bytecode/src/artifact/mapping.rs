@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for KbcArtifact {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(KbcArtifact {
@@ -43,7 +43,7 @@ impl DefinitionReferences for KbcArtifact {
 impl RemapDefinitions for VerificationMetadata {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(VerificationMetadata {
@@ -79,7 +79,7 @@ impl DefinitionReferences for VerificationMetadata {
 impl RemapDefinitions for FunctionLayoutMetadata {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FunctionLayoutMetadata {

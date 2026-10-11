@@ -172,12 +172,12 @@ impl InstancePlanner<'_> {
             ));
         };
         if matches!(receiver, TypeId::Trait(_))
-            && Protocol::from_reference(&interface.declaration, Some(&self.definitions()))
+            && Protocol::from_definition(&interface.declaration, &self.definitions())
                 .is_some_and(Protocol::iteration)
         {
             for name in ["Item", "Iter"] {
                 if name == "Iter"
-                    && Protocol::from_reference(&interface.declaration, Some(&self.definitions()))
+                    && Protocol::from_definition(&interface.declaration, &self.definitions())
                         != Some(Protocol::Iterable)
                 {
                     continue;

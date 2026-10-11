@@ -231,7 +231,7 @@ pub(super) fn validate(
                             // Trait implementation identity needs complete members;
                             // standard constraint recovery belongs to the shared checker.
                             if actual.is_unresolved()
-                                && matches!(constraint, ConstraintTarget::Trait(t) if Protocol::from_reference(&t.declaration, Some(definitions)).is_none())
+                                && matches!(constraint, ConstraintTarget::Trait(t) if Protocol::from_definition(&t.declaration, definitions).is_none())
                             {
                                 continue;
                             }
@@ -260,7 +260,7 @@ pub(super) fn validate(
                                         _ => match catalog.implementation_count(definitions, &applied, actual)
                                             + usize::from(hosts.implements(&applied, actual))
                                         {
-                                            0 => Protocol::from_reference(&applied.declaration, Some(definitions)).is_none() && table.implements(definitions, &applied, actual),
+                                            0 => Protocol::from_definition(&applied.declaration, definitions).is_none() && table.implements(definitions, &applied, actual),
                                             1 => true,
                                             _ => false,
                                         },
@@ -610,7 +610,7 @@ pub(super) fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
-                if Protocol::from_reference(&instance.declaration, Some(definitions)).is_some_and(
+                if Protocol::from_definition(&instance.declaration, definitions).is_some_and(
                     |kind| {
                         LangRole::from_protocol(kind)
                             .is_some_and(LangRole::requires_static_dispatch)
@@ -647,12 +647,12 @@ pub(super) fn validate_imported_interface_type(
                         let Some(contract) = catalog.trait_(&parent.declaration) else {
                             continue;
                         };
-                        if Protocol::from_reference(&parent.declaration, Some(definitions))
-                            .is_some_and(|kind| {
+                        if Protocol::from_definition(&parent.declaration, definitions).is_some_and(
+                            |kind| {
                                 LangRole::from_protocol(kind)
                                     .is_some_and(LangRole::requires_static_dispatch)
-                            })
-                            && index != 0
+                            },
+                        ) && index != 0
                         {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidInterfaceType {

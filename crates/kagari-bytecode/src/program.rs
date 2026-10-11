@@ -237,7 +237,7 @@ pub(crate) fn verify_with_suspensions(
             let implementation = definitions
                 .resolve(table.declaration)
                 .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
-            if let Some(kind) = Protocol::from_reference(&instance.declaration, Some(definitions))
+            if let Some(kind) = Protocol::from_definition(&instance.declaration, definitions)
                 && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
                     || trait_id.module() != implementation.module()
                         && owners.owner(&table.for_type, definitions).as_ref()

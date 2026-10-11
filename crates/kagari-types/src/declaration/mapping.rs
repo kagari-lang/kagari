@@ -16,7 +16,7 @@ use kagari_common::{
 impl RemapDefinitions for FnDecl {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FnDecl {
@@ -58,7 +58,7 @@ impl DefinitionReferences for FnDecl {
 impl RemapDefinitions for Param {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(Param {
@@ -84,7 +84,7 @@ impl DefinitionReferences for Param {
 impl RemapDefinitions for ConstDef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ConstDef {
@@ -110,7 +110,7 @@ impl DefinitionReferences for ConstDef {
 impl RemapDefinitions for TypeDef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypeDef {
@@ -152,7 +152,7 @@ impl DefinitionReferences for TypeDef {
 impl RemapDefinitions for FieldDef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FieldDef {
@@ -179,7 +179,7 @@ impl DefinitionReferences for FieldDef {
 impl RemapDefinitions for VariantDef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(VariantDef {
@@ -207,7 +207,7 @@ impl DefinitionReferences for VariantDef {
 impl RemapDefinitions for TraitDef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TraitDef {
@@ -271,7 +271,7 @@ impl DefinitionReferences for TraitDef {
 impl RemapDefinitions for AssociatedConstDef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AssociatedConstDef {
@@ -298,7 +298,7 @@ impl DefinitionReferences for AssociatedConstDef {
 impl RemapDefinitions for AssociatedTypeDef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AssociatedTypeDef {
@@ -339,7 +339,7 @@ impl DefinitionReferences for AssociatedTypeDef {
 impl RemapDefinitions for AssociatedTypeFamily {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(AssociatedTypeFamily {
@@ -375,7 +375,7 @@ impl DefinitionReferences for AssociatedTypeFamily {
 impl RemapDefinitions for NativeDeclaration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeDeclaration {

@@ -1,7 +1,7 @@
 //! Explicit contextual conversion of identity-bearing metadata records.
 use crate::{
     cancellation::CancellationToken,
-    identity::{reference::DefinitionReference, table::DefinitionTableError},
+    identity::table::{DefinitionId, DefinitionTableError},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -36,16 +36,18 @@ impl From<DefinitionTableError> for DefinitionMappingError {
     }
 }
 
-/// Each conversion receives its resolver explicitly. A numeric reference is never
-/// resolved through a global pool, serialization state or thread-local context.
-pub struct DefinitionMapper<'a, I, J> {
-    convert: &'a mut dyn FnMut(&I) -> Result<J, DefinitionMappingError>,
+/// An ID-to-ID mapping receives its resolver explicitly. The converter checks
+/// source ownership and target scope; each reference observes cancellation.
+/// Paths and file references are not semantic mapping targets, and no global
+/// pool, serialization state or thread-local context supplies identity.
+pub struct DefinitionMapper<'a> {
+    convert: &'a mut dyn FnMut(&DefinitionId) -> Result<DefinitionId, DefinitionMappingError>,
     cancel: &'a CancellationToken,
 }
 
-impl<'a, I: DefinitionReference, J: DefinitionReference> DefinitionMapper<'a, I, J> {
+impl<'a> DefinitionMapper<'a> {
     pub fn new(
-        convert: &'a mut dyn FnMut(&I) -> Result<J, DefinitionMappingError>,
+        convert: &'a mut dyn FnMut(&DefinitionId) -> Result<DefinitionId, DefinitionMappingError>,
         cancel: &'a CancellationToken,
     ) -> Self {
         Self { convert, cancel }
@@ -59,28 +61,13 @@ impl<'a, I: DefinitionReference, J: DefinitionReference> DefinitionMapper<'a, I,
         check_cancel(self.cancel)
     }
 
-    pub fn reference(&mut self, source: &I) -> Result<J, DefinitionMappingError> {
+    pub fn reference(
+        &mut self,
+        source: &DefinitionId,
+    ) -> Result<DefinitionId, DefinitionMappingError> {
         self.check()?;
-        if !source.within_path_limit() {
-            return Err(DefinitionMappingError::LimitExceeded);
-        }
         (self.convert)(source)
     }
-}
-
-pub trait DefinitionRecord<I: DefinitionReference> {
-    type Rebind<J: DefinitionReference>;
-
-    fn map_identities<J: DefinitionReference>(
-        &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError>;
-
-    fn visit_definitions(
-        &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError>;
 }
 
 pub fn check_cancel(cancel: &CancellationToken) -> Result<(), DefinitionMappingError> {

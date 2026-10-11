@@ -327,9 +327,9 @@ pub(super) fn resolve_type_in(
                             && (!nominal.arguments.is_empty() || !bindings.is_empty())
                             && !*positional_after_binding
                             && (!*callable_syntax
-                                || Protocol::from_reference(
+                                || Protocol::from_definition(
                                     &nominal.declaration,
-                                    Some(context.declarations.definitions()),
+                                    context.declarations.definitions(),
                                 ) == Some(Protocol::Fn)) =>
                     {
                         nominal.arguments = args;

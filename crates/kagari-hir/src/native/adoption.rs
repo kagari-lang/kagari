@@ -45,7 +45,7 @@ pub(crate) fn adopt(
 mod tests {
     use super::*;
     use crate::native::{paths::array_interfaces, render::declaration_source};
-    use kagari_common::identity::{DefinitionKind, ModuleIdentity, mapping::DefinitionRecord};
+    use kagari_common::identity::{DefinitionKind, ModuleIdentity, scoped::DefinitionReferences};
     use kagari_stdlib::catalog;
 
     #[test]
@@ -90,7 +90,7 @@ mod tests {
             let mut references = vec![];
             module
                 .records()
-                .visit_definitions(
+                .visit_definition_ids(
                     &mut |id| {
                         references.push(*id);
                         Ok(())

@@ -53,7 +53,7 @@ pub fn requirements(
             constraints: vec![Constraint::Trait(interface)],
         }]));
     }
-    if Protocol::from_reference(&interface.declaration, Some(definitions)) == Some(Protocol::From)
+    if Protocol::from_definition(&interface.declaration, definitions) == Some(Protocol::From)
         && interface.associated_types.is_empty()
         && (interface.arguments.as_slice() == [receiver.clone()]
             || matches!((receiver, interface.arguments.as_slice()), (Ty::Builtin(target), [Ty::Builtin(source)]) if numeric::lossless_from(*source, *target)))
@@ -124,7 +124,7 @@ fn operator_output(
     receiver: &Ty,
     definitions: &DefinitionTable,
 ) -> Option<Ty> {
-    let kind = Protocol::from_reference(&interface.declaration, Some(definitions))?;
+    let kind = Protocol::from_definition(&interface.declaration, definitions)?;
     if kind == Protocol::Fn
         && let Ty::Function { params, result } = receiver
     {
@@ -174,8 +174,7 @@ pub fn identity_iterator(
     receiver: &Ty,
     definitions: &DefinitionTable,
 ) -> Option<NominalTy> {
-    if Protocol::from_reference(&interface.declaration, Some(definitions))
-        != Some(Protocol::Iterable)
+    if Protocol::from_definition(&interface.declaration, definitions) != Some(Protocol::Iterable)
         || !interface.arguments.is_empty()
     {
         return None;

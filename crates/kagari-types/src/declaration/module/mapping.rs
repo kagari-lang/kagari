@@ -15,7 +15,7 @@ use kagari_common::{
 impl RemapDefinitions for ImplDecl {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImplDecl {
@@ -61,7 +61,7 @@ impl DefinitionReferences for ImplDecl {
 impl RemapDefinitions for ModuleDecl {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ModuleDecl {

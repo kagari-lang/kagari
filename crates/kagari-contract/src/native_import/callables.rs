@@ -25,12 +25,12 @@ pub fn normalize_requirement(
     };
     let receiver = catalog.normalize(&requirement.receiver, cancel)?;
     if matches!(receiver, Ty::Trait(_))
-        && Protocol::from_reference(&interface.declaration, Some(definitions))
+        && Protocol::from_definition(&interface.declaration, definitions)
             .is_some_and(Protocol::iteration)
     {
         for name in ["Item", "Iter"] {
             if name == "Iter"
-                && Protocol::from_reference(&interface.declaration, Some(definitions))
+                && Protocol::from_definition(&interface.declaration, definitions)
                     != Some(Protocol::Iterable)
             {
                 continue;

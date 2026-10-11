@@ -129,9 +129,9 @@ pub(super) fn validate_trait_surface(
                             );
                         }
                         ConstraintTarget::Trait(required_trait) => {
-                            let satisfied = Protocol::from_reference(
+                            let satisfied = Protocol::from_definition(
                                 &required_trait.declaration,
-                                Some(declarations.definitions()),
+                                declarations.definitions(),
                             )
                             .is_some_and(|kind| {
                                 required_trait.arguments.is_empty()
@@ -192,9 +192,9 @@ pub(super) fn validate_trait_surface(
         };
         let type_name = display_type_id(declarations.definitions(), &for_ty);
         let erased_iterator_identity = lowered.registered_native_api
-            && Protocol::from_reference(&id.declaration, Some(declarations.definitions()))
+            && Protocol::from_definition(&id.declaration, declarations.definitions())
                 == Some(Protocol::Iterable)
-            && matches!(&for_ty, TypeId::Trait(receiver) if Protocol::from_reference(&receiver.declaration, Some(declarations.definitions())) == Some(Protocol::Iterator));
+            && matches!(&for_ty, TypeId::Trait(receiver) if Protocol::from_definition(&receiver.declaration, declarations.definitions()) == Some(Protocol::Iterator));
         if matches!(for_ty, TypeId::Trait(_) | TypeId::Generic(_)) && !erased_iterator_identity {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
@@ -226,7 +226,7 @@ pub(super) fn validate_trait_surface(
         }
         seen_impls.push((id.clone(), for_ty.clone()));
 
-        let standard = Protocol::from_reference(&id.declaration, Some(declarations.definitions()));
+        let standard = Protocol::from_definition(&id.declaration, declarations.definitions());
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
                 || !lowered.registered_native_api

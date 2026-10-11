@@ -62,11 +62,9 @@ pub fn links(
     {
         // Static language protocols are proved by bounds and operation witnesses;
         // they have no boxed parent table (including implicit implementations).
-        if Protocol::from_reference(&parent.declaration, Some(definitions)).is_some_and(
-            |protocol| {
-                LangRole::from_protocol(protocol).is_some_and(LangRole::requires_static_dispatch)
-            },
-        ) {
+        if Protocol::from_definition(&parent.declaration, definitions).is_some_and(|protocol| {
+            LangRole::from_protocol(protocol).is_some_and(LangRole::requires_static_dispatch)
+        }) {
             continue;
         }
         parents.push(select(

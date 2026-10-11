@@ -19,7 +19,7 @@ use kagari_common::{
 impl RemapDefinitions for ConstraintTarget {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -49,7 +49,7 @@ impl DefinitionReferences for ConstraintTarget {
 impl RemapDefinitions for TypeTarget {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -95,7 +95,7 @@ impl DefinitionReferences for TypeTarget {
 impl RemapDefinitions for ResolvedTypeRef {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedTypeRef {
@@ -127,7 +127,7 @@ impl DefinitionReferences for ResolvedTypeRef {
 impl RemapDefinitions for CallTarget {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -175,7 +175,7 @@ impl DefinitionReferences for CallTarget {
 impl RemapDefinitions for ResolvedCall {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedCall {
@@ -214,7 +214,7 @@ impl DefinitionReferences for ResolvedCall {
 impl RemapDefinitions for ResolvedStructInit {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedStructInit {
@@ -250,7 +250,7 @@ impl DefinitionReferences for ResolvedStructInit {
 impl RemapDefinitions for ResolvedEnumConstructor {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedEnumConstructor {
@@ -283,7 +283,7 @@ impl DefinitionReferences for ResolvedEnumConstructor {
 impl RemapDefinitions for TraitImplementation {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TraitImplementation {
@@ -336,7 +336,7 @@ impl DefinitionReferences for TraitImplementation {
 impl RemapDefinitions for ResolvedIteration {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedIteration {
@@ -366,7 +366,7 @@ impl DefinitionReferences for ResolvedIteration {
 impl RemapDefinitions for TypeTable {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypeTable {
@@ -688,7 +688,7 @@ impl DefinitionReferences for TypeTable {
 impl RemapDefinitions for ResolvedAssociatedConst {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedAssociatedConst {
@@ -717,7 +717,7 @@ impl DefinitionReferences for ResolvedAssociatedConst {
 impl RemapDefinitions for ResolvedInterfaceCoercion {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedInterfaceCoercion {
@@ -745,7 +745,7 @@ impl DefinitionReferences for ResolvedInterfaceCoercion {
 impl RemapDefinitions for ResolvedInterfaceImplementation {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -790,7 +790,7 @@ impl DefinitionReferences for ResolvedInterfaceImplementation {
 impl RemapDefinitions for ResolvedHostPath {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedHostPath {
@@ -818,7 +818,7 @@ impl DefinitionReferences for ResolvedHostPath {
 impl RemapDefinitions for ResolvedHostPlacePath {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedHostPlacePath {

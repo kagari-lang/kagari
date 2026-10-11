@@ -1,9 +1,7 @@
 //! Match required registration authority against the verified executable closure.
 use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::DeclarationCatalog};
 use kagari_bytecode::module::BytecodeModule;
-use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, table::DefinitionId,
-};
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_contract::types::{InterfaceTable, PublicItem};
 use kagari_types::{declaration::module::ImplDecl, language, language::Protocol, ty::Ty};
 
@@ -19,18 +17,14 @@ pub(super) fn validate_installed_traits(
         let PublicItem::Trait(contract) = item else {
             continue;
         };
-        let id = DefinitionPath {
-            module: module.identity.clone(),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Trait,
-                name: contract.name.clone(),
-                occurrence: 0,
-            }],
-        };
-        if (Protocol::from_id(&id).is_some()
-            || contract.storage_access.is_some()
-            || contract.conversion_adapter.is_some())
-            && installed.traits.get(&id) != Some(contract)
+        let reserved = Protocol::ALL.into_iter().any(|protocol| {
+            protocol.module() == module.identity && protocol.name() == contract.name
+        });
+        let id = definitions.lookup_root(&module.identity).and_then(|root| {
+            definitions.lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
+        });
+        if (reserved || contract.storage_access.is_some() || contract.conversion_adapter.is_some())
+            && id.and_then(|id| installed.traits.get_id(id)) != Some(contract)
         {
             return Err(RuntimeError::module_validation(
                 "reserved or native trait differs from its installed contract",
@@ -41,7 +35,7 @@ pub(super) fn validate_installed_traits(
         definitions
             .resolve(contract.declaration)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        if (Protocol::from_reference(&contract.declaration, Some(&definitions)).is_some()
+        if (Protocol::from_definition(&contract.declaration, &definitions).is_some()
             || contract.abi.storage_access.is_some()
             || contract.abi.conversion_adapter.is_some())
             && installed.traits.get_id(contract.declaration) != Some(&contract.abi)
@@ -54,12 +48,14 @@ pub(super) fn validate_installed_traits(
     if language::is_language_module(&module.identity) {
         for protocol in Protocol::ALL
             .into_iter()
-            .filter(|protocol| language::identity(*protocol).module == module.identity)
+            .filter(|protocol| protocol.module() == module.identity)
         {
-            let id = language::identity(protocol);
-            let expected = installed.traits.get(&id).ok_or_else(|| {
-                RuntimeError::module_validation("language foundation is not installed")
-            })?;
+            let expected = protocol
+                .definition(&definitions)
+                .and_then(|id| installed.traits.get_id(id))
+                .ok_or_else(|| {
+                    RuntimeError::module_validation("language foundation is not installed")
+                })?;
             if !module
                 .public_items
                 .iter()

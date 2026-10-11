@@ -426,7 +426,7 @@ impl<'a> BodyChecker<'a> {
                 .aggregates
                 .traits()
                 .filter(|contract| {
-                    (Protocol::from_reference(&contract.id, Some(self.declarations.definitions()))
+                    (Protocol::from_definition(&contract.id, self.declarations.definitions())
                         == Some(Protocol::From)
                         || matches!(
                             contract.conversion_adapter,
@@ -528,9 +528,9 @@ impl<'a> BodyChecker<'a> {
         // Unrelated same-named traits retain ordinary ambiguity diagnostics.
         if candidates.len() > 1
             && args.len() == 1
-            && let Some(protocol) = Protocol::from_reference(
+            && let Some(protocol) = Protocol::from_definition(
                 &candidates[0].1.declaration,
-                Some(self.declarations.definitions()),
+                self.declarations.definitions(),
             )
             && (protocol.binary_operator() || protocol == Protocol::Index)
             && candidates.iter().all(|(_, interface)| {

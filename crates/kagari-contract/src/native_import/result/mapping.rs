@@ -12,7 +12,7 @@ use kagari_common::{
 impl RemapDefinitions for NativeResultAdapter {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeResultAdapter {

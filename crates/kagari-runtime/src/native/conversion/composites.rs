@@ -22,7 +22,7 @@ impl<T: KagariType> KagariType for Vec<T> {
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
         if !matches!(expected.ty(), Ty::NativeObject(nominal)
-            if binding::matches(&nominal.declaration, &declaration(), Some(expected.definitions())) && nominal.arguments.len() == 1)
+            if binding::matches(&nominal.declaration, &declaration(), expected.definitions()) && nominal.arguments.len() == 1)
         {
             return Err(RuntimeError::module_validation(
                 "Vec conversion requires a registered Vec type",

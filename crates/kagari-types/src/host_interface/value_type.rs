@@ -158,7 +158,7 @@ impl HostValueType {
             let invalid = || HostInterfaceError::InvalidDeclaration;
             match node {
                 Node::Opaque(id) => {
-                    super::validate_host_type_identity_in(&id, Some(definitions))?;
+                    super::validate_host_type_identity(&id, definitions)?;
                 }
                 Node::Vec(id) | Node::List(id) => {
                     let expected = if matches!(node, Node::Vec(_)) {

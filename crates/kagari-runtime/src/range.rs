@@ -134,7 +134,7 @@ pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeEr
     if !binding::matches(
         &layout.layout().declaration,
         &binding::bound_declaration(),
-        Some(layout.module().definitions()),
+        layout.module().definitions(),
     ) {
         return Err(invalid());
     }

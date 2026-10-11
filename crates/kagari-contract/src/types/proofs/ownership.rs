@@ -21,7 +21,7 @@ impl ProofCatalog<'_> {
             for implementation in &host.trait_implementations {
                 budget.step(0)?;
                 if let Some(kind) =
-                    Protocol::from_reference(&implementation.trait_id, Some(&self.definitions))
+                    Protocol::from_definition(&implementation.trait_id, &self.definitions)
                 {
                     if kind.equality_protocol() || !kind.host_implementable() {
                         return Ok(false);
@@ -57,8 +57,7 @@ impl ProofCatalog<'_> {
         for table in &self.implementations {
             budget.step(0)?;
             if let Some(applied) = table.interface()
-                && Protocol::from_reference(&applied.declaration, Some(&self.definitions))
-                    == Some(other)
+                && Protocol::from_definition(&applied.declaration, &self.definitions) == Some(other)
                 && overlapping(table.receiver(), receiver)
             {
                 return Ok(true);
@@ -67,7 +66,7 @@ impl ProofCatalog<'_> {
         for host in &self.hosts {
             for implementation in &host.trait_implementations {
                 budget.step(0)?;
-                if Protocol::from_reference(&implementation.trait_id, Some(&self.definitions))
+                if Protocol::from_definition(&implementation.trait_id, &self.definitions)
                     == Some(other)
                     && *receiver == Ty::Host(host.id)
                 {
@@ -105,7 +104,7 @@ impl ProofCatalog<'_> {
         let adapter = self
             .trait_contract(&interface.declaration)
             .and_then(|contract| contract.conversion_adapter.as_ref());
-        let kind = Protocol::from_reference(&interface.declaration, Some(&self.definitions));
+        let kind = Protocol::from_definition(&interface.declaration, &self.definitions);
         if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
             return Ok(false);
         }

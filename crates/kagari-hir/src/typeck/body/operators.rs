@@ -293,10 +293,9 @@ impl<'a> BodyChecker<'a> {
             &env.generic_bounds,
         ) {
             let mut interface = requested;
-            if let Some(kind) = Protocol::from_reference(
-                &interface.declaration,
-                Some(self.declarations.definitions()),
-            ) && kind.iteration()
+            if let Some(kind) =
+                Protocol::from_definition(&interface.declaration, self.declarations.definitions())
+                && kind.iteration()
                 && let Some(outputs) = traits::iteration_outputs(
                     self.declarations.definitions(),
                     kind,

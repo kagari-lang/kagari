@@ -144,7 +144,7 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
         .find(|item| !item.engine_owned)
         .unwrap();
     let interface = &implementation.trait_type;
-    assert!(Protocol::from_reference(&interface.declaration, Some(definitions)).is_none());
+    assert!(Protocol::from_definition(&interface.declaration, definitions).is_none());
     assert!(
         facts
             .aggregates

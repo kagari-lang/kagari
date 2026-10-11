@@ -133,7 +133,7 @@ impl AggregateCatalog {
             .trait_(&implementation.trait_type.declaration)
             .and_then(|contract| contract.conversion_adapter.as_ref());
         let protocol =
-            Protocol::from_reference(&implementation.trait_type.declaration, Some(definitions));
+            Protocol::from_definition(&implementation.trait_type.declaration, definitions);
         if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
             return Some("Into and TryInto are derived from From and TryFrom");
         }
@@ -450,8 +450,7 @@ impl AggregateCatalog {
             }
 
             if arguments.is_empty()
-                && let Some(kind) =
-                    Protocol::from_reference(&interface.declaration, Some(definitions))
+                && let Some(kind) = Protocol::from_definition(&interface.declaration, definitions)
                 && kind.iteration()
                 && let Some(outputs) = traits::iteration_outputs(
                     definitions,
@@ -913,9 +912,9 @@ impl AggregateCatalog {
                             }
                             if required.arguments.is_empty()
                                 && required.associated_types.is_empty()
-                                && let Some(protocol) = Protocol::from_reference(
+                                && let Some(protocol) = Protocol::from_definition(
                                     &required.declaration,
-                                    Some(budget.definitions),
+                                    budget.definitions,
                                 )
                                 && self.standard_holds(protocol, &actual, visiting, budget)?
                             {

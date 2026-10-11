@@ -26,9 +26,10 @@ backend and test consumers. This migration precedes native collections.
 HIR, shared type/declaration/Host/contract and executable model representation
 generics are removed. Shared substitution, matching and trait ancestry use fixed
 IDs. KHI, public ABI, MIR and KBC codecs use fixed wire records and explicit scoped
-decoding; semantic models have no direct Serde codec. Remaining SI06 work removes
-obsolete common reference/rebinding/projection APIs and migrates legacy
-library-test/example consumers before final documentation cleanup.
+decoding; semantic models have no direct Serde codec. Common reference/rebinding/
+projection APIs are removed, and SDK emission/preparation retains scoped metadata.
+Remaining SI06 work migrates legacy library-test/example consumers and completes
+focused integration before final documentation cleanup.
 Runtime/VM entrypoints and adoption use fixed IDs with retained-prefix checks;
 selected cross-runtime, reload and Native interface/GC boundaries pass locally.
 Use DefinitionId throughout semantic processing; keep authoring/display paths and

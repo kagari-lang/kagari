@@ -14,7 +14,7 @@ use kagari_common::{
 impl RemapDefinitions for ImportedType {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedType {
@@ -63,7 +63,7 @@ impl DefinitionReferences for ImportedType {
 impl RemapDefinitions for ImportedTraitMethod {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedTraitMethod {
@@ -88,7 +88,7 @@ impl DefinitionReferences for ImportedTraitMethod {
 impl RemapDefinitions for ImportedTypes {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedTypes {

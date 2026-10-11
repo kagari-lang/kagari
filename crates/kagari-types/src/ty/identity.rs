@@ -78,7 +78,7 @@ impl From<DefinitionMappingError> for IdentityTransformError {
 impl RemapDefinitions for Ty {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Ty, DefinitionMappingError> {
         let cancel = mapper.cancellation().clone();
         self.map_definitions(

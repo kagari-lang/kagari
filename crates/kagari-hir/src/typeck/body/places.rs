@@ -69,9 +69,9 @@ impl<'a> BodyChecker<'a> {
                     .trait_bounds_for(&base_ty, env)
                     .into_iter()
                     .find(|bound| {
-                        Protocol::from_reference(
+                        Protocol::from_definition(
                             &bound.declaration,
-                            Some(self.declarations.definitions()),
+                            self.declarations.definitions(),
                         ) == Some(Protocol::Index)
                     })
                     .and_then(|bound| bound.arguments.into_iter().next());
@@ -185,9 +185,9 @@ impl<'a> BodyChecker<'a> {
                     .trait_bounds_for(&base_ty, env)
                     .into_iter()
                     .find(|bound| {
-                        Protocol::from_reference(
+                        Protocol::from_definition(
                             &bound.declaration,
-                            Some(self.declarations.definitions()),
+                            self.declarations.definitions(),
                         ) == Some(Protocol::Index)
                     })
                     .and_then(|bound| bound.arguments.into_iter().next());

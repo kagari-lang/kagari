@@ -216,7 +216,7 @@ impl HostDeclarations {
             for implementation in &host.trait_implementations {
                 cancel.check()?;
                 let standard =
-                    Protocol::from_reference(&implementation.trait_id, Some(&self.definitions));
+                    Protocol::from_definition(&implementation.trait_id, &self.definitions);
                 if self
                     .definitions
                     .resolve(implementation.trait_id)

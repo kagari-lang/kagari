@@ -14,7 +14,7 @@ use kagari_common::{
 impl RemapDefinitions for ModuleContract {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ModuleContract {
@@ -54,7 +54,7 @@ impl DefinitionReferences for ModuleContract {
 impl RemapDefinitions for PublicItem {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
@@ -104,7 +104,7 @@ impl DefinitionReferences for PublicItem {
 impl RemapDefinitions for InterfaceTable {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceTable {
@@ -161,7 +161,7 @@ impl DefinitionReferences for InterfaceTable {
 impl RemapDefinitions for TraitContract {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TraitContract {
@@ -187,7 +187,7 @@ impl DefinitionReferences for TraitContract {
 impl RemapDefinitions for ConcreteFunctionIdentity {
     fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+        mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ConcreteFunctionIdentity {

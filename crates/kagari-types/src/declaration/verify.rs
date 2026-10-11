@@ -2,7 +2,7 @@
 use crate::{
     callable::CallableImplementation,
     declaration::{FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind},
-    host_interface::validate_host_type_identity_in,
+    host_interface::validate_host_type_identity,
     range::RangeKind,
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, Ty},
@@ -11,7 +11,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -89,9 +88,7 @@ pub fn validate_native_declarations(
             || !matches!(
                 &function.implementation,
                 CallableImplementation::Native(binding)
-                    if binding.describe(Some(table)).is_ok_and(|view|
-                        view.nominal(DefinitionKind::Function)
-                            || view.nominal(DefinitionKind::Method))
+                    if callable_identity_valid(*binding, table)
             )
         {
             return Err(DeclarationValidationError::Invalid);
@@ -428,20 +425,15 @@ pub fn function_valid(
     {
         return false;
     }
-    let callable = |id: &DefinitionId| {
-        id.describe(Some(table)).is_ok_and(|view| {
-            view.nominal(DefinitionKind::Function) || view.nominal(DefinitionKind::Method)
-        })
-    };
     let implementation_valid = match &function.implementation {
         CallableImplementation::Required => parent_kind == Some(DefinitionKind::Trait),
         CallableImplementation::Script => true,
-        CallableImplementation::Native(id) => callable(id),
+        CallableImplementation::Native(id) => callable_identity_valid(*id, table),
         CallableImplementation::NativeDefault(application) => {
             matches!(
                 parent_kind,
                 Some(DefinitionKind::Trait | DefinitionKind::Impl)
-            ) && callable(&application.declaration)
+            ) && callable_identity_valid(application.declaration, table)
                 && application.arguments.len() <= 4096
         }
     };
@@ -566,7 +558,7 @@ pub fn type_valid(
             }
             Ty::Builtin(_) => {}
             Ty::Host(id) => {
-                if validate_host_type_identity_in(id, Some(table)).is_err() {
+                if validate_host_type_identity(id, table).is_err() {
                     return false;
                 }
             }
@@ -669,4 +661,16 @@ pub fn type_definition_valid(
                     .flat_map(|variant| &variant.payload)
                     .all(|ty| type_valid(ty, &params, None, cancel, table))
         })
+}
+
+fn callable_identity_valid(id: DefinitionId, table: &DefinitionTable) -> bool {
+    table.resolve(id).is_ok_and(|view| {
+        !view.module().package.0.is_empty()
+            && !view.module().path.is_empty()
+            && !view.module().path.iter().any(String::is_empty)
+            && view.last().is_some_and(|part| {
+                matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
+                    && !part.name.is_empty()
+            })
+    })
 }

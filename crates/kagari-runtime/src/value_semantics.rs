@@ -320,7 +320,7 @@ pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Orderin
                     || !binding::matches(
                         &layout.layout().declaration,
                         &binding::ordering_declaration(),
-                        Some(layout.module().definitions()),
+                        layout.module().definitions(),
                     )
                 {
                     return None;

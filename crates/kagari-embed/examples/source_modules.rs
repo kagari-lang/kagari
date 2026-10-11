@@ -5,10 +5,7 @@ use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        ModuleIdentity, PackageId,
-        mapping::{DefinitionMapper, DefinitionRecord},
-    },
+    identity::{ModuleIdentity, PackageId, map::DefinitionContext},
 };
 use kagari_compiler::{bytecode, source::program};
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
@@ -54,12 +51,7 @@ fn main() {
         function
             .signature
             .return_type
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |id| Ok(file.definitions().resolve(*id)?.to_path()),
-                &CancellationToken::default()
-            ))
-            .unwrap()
-            .display_name()
+            .display_name(file.definitions())
     );
     assert!(
         file.result().diagnostics().is_empty(),
@@ -99,10 +91,17 @@ fn main() {
         }
     }
     let program = bytecode::lower_program_to_bytecode(&ir).unwrap();
-    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-    let encoded = artifact.to_bytes().unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    let program = program
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    let artifact =
+        KbcArtifact::from_program(program.into_records(), Default::default(), &definitions)
+            .unwrap();
+    let encoded = artifact.to_bytes(&definitions.snapshot()).unwrap();
     let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
-    let root_bytecode = &decoded.program.modules[decoded.program.root.index()];
+    let decoded_program = &decoded.records().program;
+    let root_bytecode = &decoded_program.modules[decoded_program.root.index()];
     let PublicItem::Function(make) = root_bytecode
         .public_items
         .iter()
@@ -114,11 +113,13 @@ fn main() {
     let Ty::Struct(result) = &make.return_type else {
         panic!("nominal return type")
     };
-    assert_eq!(result.declaration.module, identity("shared"));
-    println!(
-        "public return type belongs to {}",
-        result.declaration.module
-    );
+    let result_owner = decoded
+        .definitions()
+        .resolve(result.declaration)
+        .unwrap()
+        .module();
+    assert_eq!(result_owner, &identity("shared"));
+    println!("public return type belongs to {}", result_owner);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let program =
@@ -130,6 +131,18 @@ fn main() {
             .return_value
             .value(runtime.runtime().gc())
             .expect("retained execution result"),
+        kagari_runtime::value::Value::I32(42)
+    );
+    let mut second = engine.runtime(ExecutionContext::default());
+    assert!(second.execute(&loaded, "main", &[], &context).is_err());
+    let second_loaded = second.load_program(&program, Default::default()).unwrap();
+    assert_eq!(
+        second
+            .execute(&second_loaded, "main", &[], &context)
+            .unwrap()
+            .return_value
+            .value(second.runtime().gc())
+            .unwrap(),
         kagari_runtime::value::Value::I32(42)
     );
     println!(

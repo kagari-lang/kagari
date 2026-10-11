@@ -29,9 +29,7 @@ pub fn erased_iterator_view<'a>(
     definitions: &DefinitionTable,
     lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
 ) -> Result<Option<NominalTy>, TypeTransformError> {
-    if Protocol::from_reference(&interface.declaration, Some(definitions))
-        != Some(Protocol::Iterable)
-    {
+    if Protocol::from_definition(&interface.declaration, definitions) != Some(Protocol::Iterable) {
         return Ok(None);
     }
     let mut erased = interface.clone();
@@ -61,9 +59,7 @@ pub fn interface_views<'a>(
     let mut closure = trait_closure(interface, receiver, cancel, lookup)?;
     for parent in &mut closure {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        if Protocol::from_reference(&parent.declaration, Some(definitions))
-            != Some(Protocol::Iterable)
-        {
+        if Protocol::from_definition(&parent.declaration, definitions) != Some(Protocol::Iterable) {
             continue;
         }
         let iter = definitions
@@ -89,7 +85,7 @@ pub fn interface_views<'a>(
             continue;
         };
         if !output.generic_params.is_empty()
-            || Protocol::from_reference(&bound.declaration, Some(definitions))
+            || Protocol::from_definition(&bound.declaration, definitions)
                 != Some(Protocol::Iterator)
         {
             continue;

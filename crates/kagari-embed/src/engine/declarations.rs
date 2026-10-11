@@ -27,9 +27,8 @@ pub(super) fn prepare(
     let providers = builder
         .modules
         .iter()
-        .map(|module| module.to_declaration().map(Arc::new))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| EmbeddingError::Registration { error })?;
+        .map(|module| Arc::new(module.to_declaration()))
+        .collect::<Vec<_>>();
     let mut sources = providers
         .iter()
         .map(|module| declaration_source(module, &providers))

@@ -10,7 +10,7 @@ pub fn adapter_arguments(
     definitions: &DefinitionTable,
 ) -> Vec<Ty> {
     let mut arguments = vec![required.receiver.clone()];
-    if Protocol::from_reference(&required.interface.declaration, Some(definitions))
+    if Protocol::from_definition(&required.interface.declaration, definitions)
         .is_some_and(|kind| kind.iteration() || matches!(kind, Protocol::Fn | Protocol::From))
     {
         arguments.push(Ty::Trait(required.interface.clone()));

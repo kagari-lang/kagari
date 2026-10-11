@@ -317,7 +317,7 @@ pub fn verify_program(
                     .map_err(|_| error(&module.identity, ProgramErrorKind::InvalidGraph))?
                     .module(),
             );
-            if Protocol::from_reference(id, Some(&definitions)).is_some()
+            if Protocol::from_definition(id, &definitions).is_some()
                 && !owner.is_some_and(|owner| *owner == index || dependencies.contains(owner))
             {
                 return Err(error(

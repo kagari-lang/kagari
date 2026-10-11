@@ -136,7 +136,7 @@ impl FunctionLowerer<'_, '_> {
             );
         }
         if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
-            && Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+            && Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 .is_some_and(|kind| kind.operator() || kind.iteration())
         {
             let receiver = call
@@ -151,7 +151,7 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
             };
-            if Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+            if Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 == Some(Protocol::Fn)
                 && matches!(&self.analyzed.lowered.module.expr(expr).kind, ExprKind::Call { callee, .. } if *callee == receiver)
             {
@@ -189,7 +189,7 @@ impl FunctionLowerer<'_, '_> {
             ref method,
         } = call.target
             && let Some(protocol) =
-                Protocol::from_reference(&interface.declaration, Some(&self.planner.definitions()))
+                Protocol::from_definition(&interface.declaration, &self.planner.definitions())
             && protocol.equality_protocol()
         {
             let receiver = call
@@ -364,10 +364,8 @@ impl FunctionLowerer<'_, '_> {
                 .catalog
                 .implementation_method(&self.planner.definitions(), &method, &interface, &ty)
                 .is_none()
-                && let Some(protocol) = Protocol::from_reference(
-                    &interface.declaration,
-                    Some(&self.planner.definitions()),
-                )
+                && let Some(protocol) =
+                    Protocol::from_definition(&interface.declaration, &self.planner.definitions())
                 && traits::intrinsic_holds(
                     &self.planner.definitions(),
                     protocol,

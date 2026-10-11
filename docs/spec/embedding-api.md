@@ -384,8 +384,8 @@ The embedding API must expose operations equivalent to:
 
 ```text
 compile_source(source, compile_options) -> CompileResult<CheckedModule>
-emit_bytecode(checked_module, artifact_options) -> CompileResult<BytecodeArtifact>
-compile_to_artifact(source, compile_options, artifact_options) -> CompileResult<BytecodeArtifact>
+emit_bytecode(checked_module, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
+compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
 load_program(prepared_program, load_options) -> LoadResult<LoadedModule>
 execute(module, entry, args, execution_context) -> RunResult<Value>
@@ -411,7 +411,10 @@ The candidate session borrows its staged owner. Ordinary execution rejects stage
 module handles, and publication requires candidate execution to have ended.
 
 `KagariRuntime::execute` runs through the interpreter.
-`PreparedProgram::from_artifact` validates reusable code before runtime linking.
+`PreparedProgram::from_artifact` consumes `DefinitionMetadata<BytecodeArtifact>`,
+checks resource limits against the retained input table, explicitly imports into
+its preparation context, and validates reusable code before runtime linking.
+Identity import never creates executable verification evidence.
 With `native`, it also verifies optional portable MIR and canonical bytecode
 correspondence. `KagariRuntime::prepare_native` uses a trusted, host-supplied
 `CodegenBackend`, caches products by complete configuration/version identity and
@@ -668,7 +671,11 @@ Artifact loading must:
 - preserve debug metadata when available
 
 The artifact format is specified in [artifacts.md](artifacts.md).
-The current `BytecodeArtifact` alias exposes `to_bytes()` and `from_bytes()` helpers for the implemented Rust `.kbc` serialization.
+The current `BytecodeArtifact` alias names the unverified KBC record. Encode scoped
+metadata with `artifact.records().to_bytes(artifact.definitions())`;
+`BytecodeArtifact::from_bytes(bytes)` returns records with their retained identity
+table as `DefinitionMetadata<BytecodeArtifact>`. Loading and preparation still
+validate compatibility and executable semantics.
 
 ## JIT Control
 

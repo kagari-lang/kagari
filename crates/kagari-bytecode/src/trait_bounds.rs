@@ -106,7 +106,7 @@ fn executable_interface(
         return false;
     };
     for view in views {
-        if Protocol::from_reference(&view.declaration, Some(definitions)).is_some_and(|kind| {
+        if Protocol::from_definition(&view.declaration, definitions).is_some_and(|kind| {
             LangRole::from_protocol(kind).is_some_and(LangRole::requires_static_dispatch)
         }) {
             return false;
@@ -542,7 +542,7 @@ fn parents_proven(
     let definitions = catalog.definitions();
     // Offline host declarations may advertise traits outside this program.
     if matches!(receiver, Ty::Host(_))
-        && Protocol::from_reference(&interface.declaration, Some(definitions)).is_none()
+        && Protocol::from_definition(&interface.declaration, definitions).is_none()
         && contract(&interface.declaration, closure, definitions).is_none()
     {
         return Ok(true);
