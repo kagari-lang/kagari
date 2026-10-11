@@ -41,7 +41,6 @@ pub enum IterOp {
     New,
     String(StringIterKind),
     Next,
-    Close,
 }
 
 impl IterOp {
@@ -62,21 +61,14 @@ impl IterOp {
                 Ty::Builtin(BuiltinType::String) => ValueType::Str,
                 _ => return None,
             },
-            Self::Next | Self::Close => {
+            Self::Next => {
                 if !matches!(ty, Ty::Iter(_)) {
                     return None;
                 }
                 ValueType::HeapObject
             }
         };
-        Some((
-            Some(input),
-            if self == Self::Close {
-                ValueType::Unit
-            } else {
-                ValueType::HeapObject
-            },
-        ))
+        Some((Some(input), ValueType::HeapObject))
     }
 }
 

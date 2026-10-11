@@ -418,11 +418,11 @@ between activations; changing slices cannot bypass its limit. Runtime-owned oper
 windows reuse retired identities with generation checks. Out-of-order frame cleanup
 compacts their banks while preserving live window identities and roots.
 
-Owned collection iteration leases stay in parked frames, preserving cursor progress
-and structural-write exclusion. Mutation guards, live scoped host values, native
+Live cursors stay rooted in parked frames, preserving progress. Structural writes
+commit while parked and invalidate the cursor before its next source read. Mutation guards, live scoped host values, native
 borrows and synchronous reentry prevent a slice exit. Drop requests retirement;
 `drain_retired_executions`, the next owned start/drive or runtime destruction releases
-the frames and leases. Host control wakers can be registered on the owner token.
+the frames and roots. Host control wakers can be registered on the owner token.
 Independent-root entry/drive during an activation is rejected; ordinary checked
 synchronous reentry remains available and shares the active root.
 
@@ -442,8 +442,8 @@ define the checked handoff.
 Runtime-owned execution records survive short driver activations. The driver
 returns Runnable, Waiting or Complete, and completion endpoints only publish
 readiness. Direct Future await drives once in the current execution;
-Task await waits for a scope-owned execution. Owned iteration leases remain in parked frames,
-so ordinary for bodies can await with existing structural-mutation exclusion.
+Task await waits for a scope-owned execution. Live cursor values remain in parked frames,
+so ordinary for bodies can await without retaining collection borrows.
 Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
 
 ### Owned readiness and cancellation notifications
@@ -471,7 +471,7 @@ and ordinary closure construction cannot select a resume body; synchronous frame
 entry and native backend installation reject it before entering its body. Owned
 entry can drive it. MIR Await is lowered and encoded with the same type contract.
 Both verifiers check definite initialization and live slots, including debug-visible
-locals, and require matching iteration-stack depth at normal joins/backedges.
+locals; cursor retention uses the same ordinary liveness and rooting rules.
 Return/trap still unwinds owned leases. Live host capabilities cannot cross an
 await; owned iteration resources can. The bytecode verifier derives bounded,
 non-serializable await liveness. Runtime preparation maps it through physical slot

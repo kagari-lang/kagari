@@ -231,7 +231,7 @@ fn async_owned_drive_contract() {
 }
 
 #[test]
-fn async_owned_drive_contract_iteration_leases() {
+fn async_owned_drive_contract_iterator_invalidation() {
     let program = compile_test_bytecode(
         r#"
         fn make() -> Vec<i32> { Vec::from([1, 2, 3]) }
@@ -261,8 +261,8 @@ fn async_owned_drive_contract_iteration_leases() {
     let vm = Vm::new(runtime);
     let slice = NonZeroUsize::new(1).unwrap();
     // Each case parks an actual collection loop after its first item. Normal
-    // completion, cancellation and owner drop must all release the same leases.
-    for exit in 0..3 {
+    // completion, invalidation, cancellation and owner drop retain no native borrows.
+    for exit in 0..4 {
         *seen.lock().unwrap() = 0;
         let source = vm.execute(&loaded, "make").unwrap().return_value;
         let value = source.value(vm.runtime().gc()).unwrap();
@@ -290,12 +290,9 @@ fn async_owned_drive_contract_iteration_leases() {
                 .value(vm.runtime().gc()),
             Some(Value::I32(42))
         );
-        let error = vm
-            .runtime()
-            .gc()
-            .sequence_push(id, Value::I32(9))
-            .unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+        if exit != 0 {
+            vm.runtime().gc().sequence_push(id, Value::I32(9)).unwrap();
+        }
         vm.runtime()
             .gc()
             .sequence_set(id, 1, Value::I32(20))
@@ -322,6 +319,26 @@ fn async_owned_drive_contract_iteration_leases() {
                     vm.drive(&owner, slice).unwrap(),
                     DriveResult::Complete(Err(_))
                 ));
+            }
+            2 => {
+                let mut finished = false;
+                for _ in 0..100 {
+                    if let DriveResult::Complete(result) = vm.drive(&owner, slice).unwrap() {
+                        assert!(
+                            format!("{:?}", result.unwrap_err())
+                                .contains("structurally modified iterator")
+                        );
+                        finished = true;
+                        break;
+                    }
+                }
+                assert!(finished);
+                assert_eq!(
+                    *seen.lock().unwrap(),
+                    1,
+                    "no second item after invalidation"
+                );
+                assert_eq!(vm.runtime().gc().sequence_len(id), Some(4));
             }
             _ => {
                 drop(owner);

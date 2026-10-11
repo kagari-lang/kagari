@@ -93,8 +93,8 @@ generic receivers, custom Iterable implementations and interface values reuse
 checked iter/next selections. The former collections map function is removed.
 Collect, sum and product delegate to FromIterator, Sum and Product on the
 requested destination. Fold consumes one cursor in source order and returns its
-initial accumulator on empty input. Native terminal consumption uses scoped
-iteration protection, released on return or failure.
+initial accumulator on empty input. Native terminal consumption uses
+revision checks that reject stale reads after structural writes.
 
 String also supplies the finite inherent methods documented in
 [builtins](builtins.md). Predecessor APIs outside the accepted surface, including
@@ -251,7 +251,7 @@ Scoped sequence views borrow rooted existing storage. Primitive layouts use
 contiguous typed buffers, including empty sequences whose layout is determined by
 the declared element type. Heap-reference elements use traced Values. Bulk slice
 access does not copy the entire sequence or allocate a per-call scratch buffer.
-Mutable access respects alias/iteration guards and storage revisions. These
+Mutable access respects native borrow/callback guards and storage revisions. These
 sequence codecs and edit leases accept registered nominal sequence storage, never
 builtin arrays. Fixed arrays share internal buffer kernels only after separate
 family and element-contract validation.
@@ -261,7 +261,7 @@ lease excludes receiver-slot access through other aliases and restores storage o
 success, failure or unwind. Primitive edits do not clone the buffer. Traced values
 keep explicit roots while sorting may move elements into Rust scratch space.
 Sort, reverse, retain and dedup preserve completed effects; no rollback guarantee
-or atomic bulk replacement is required. Receiver identity, generation, iteration
+or atomic bulk replacement is required. Receiver identity, generation, callback
 protection and storage revisions remain checked.
 
 `NativePayload` supplies tracing, logical units and ordinary Rust destruction.
@@ -295,12 +295,11 @@ callbacks are GC metadata edges, preserving supplying generations without host
 root cycles. Generic callers carry the immediate associated cursor operations
 promised by their bounds; runtime consumption does not infer types again.
 
-A payload's `iteration_sources` exposes managed cursor dependencies. Those are also
-GC edges. A `for` or native terminal-consumer scope walks this graph, protects source
-collection structure and releases its guards on break, return, failure or
-cancellation. Dropping a scope permits later mutation while a retained cursor may resume if its source remains
-valid. Reentrant next on the same adapter is rejected. The generic execution loop
-does not identify an adapter by its library name.
+A payload traces every retained source cursor and callback through `trace`.
+Native adapters retain no collection iteration leases. Base cursors validate
+source revisions on reads; early termination needs no resource-graph cleanup.
+Reentrant next on the same adapter is rejected. The generic execution loop does
+not identify an adapter by its library name.
 
 Installed conversion adapter records identify the forward trait/method, result
 constructor and associated error members used by checked selection and reverse

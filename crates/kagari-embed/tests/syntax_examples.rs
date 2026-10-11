@@ -201,7 +201,7 @@ fn inline_module_errors_point_into_the_original_source() {
 }
 
 #[test]
-fn for_loop_rejects_structural_change_and_cleans_up_after_trap() {
+fn for_loop_detects_structural_change_and_cleans_up_after_trap() {
     let source = r#"
 fn main() -> i32 {
     val values = Vec::from([1, 2]);
@@ -230,7 +230,7 @@ fn after_trap() -> i32 { 42 }
         )
         .unwrap();
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
-    assert!(format!("{error:?}").contains("structural modification during iteration"));
+    assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
     let result = runtime
         .execute(&loaded, "after_trap", &[], &context)
         .unwrap();

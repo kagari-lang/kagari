@@ -857,9 +857,9 @@ Previous formats are rejected before execution.
 ## Resuming indexed adapters (v100)
 
 KBC/runtime ABI v100 adds a typed private iterator-resume operation. Before a
-window/chunk step reads source slots, it validates retained native source revisions
-and reestablishes source guards released by early pipeline closure. A structurally
-changed source traps; unchanged sources can continue from the saved position.
+window/chunk step read source slots, it validated retained native source revisions
+and reestablished source guards. That internal resume/guard protocol is obsolete:
+current cursors check revisions on reads without lifetime iteration leases.
 
 KBC/runtime ABI v101 adds the standard `Fn` protocol identity and callable
 specializations. Callable adapters use the existing closure instruction and

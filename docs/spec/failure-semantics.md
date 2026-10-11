@@ -10,7 +10,7 @@ closure. Result propagation converts the error payload through the destination's
 `From` implementation when needed and preserves the original Err metadata.
 It does not capture a second origin for the propagated Err, roll back prior
 side effects, catch a trap, or clear root termination. Normal frame return
-releases that frame's iteration guards, roots and host resources. Constructors,
+releases that frame's roots and host resources. Constructors,
 explicit conversions and matching are defined in [builtins](builtins.md#option-and-result).
 See [error origins and diagnostic stacks](error-reporting.md) for reporting rules.
 A general propagation trait and Error/cause protocol are deferred.
@@ -24,7 +24,7 @@ A general propagation trait and Error/cause protocol are deferred.
 - An internal invariant failure makes recovery unsupported; isolate or discard
   the affected runtime rather than presenting it as an ordinary business error.
 
-Ordinary traps and termination release frames, host leases, iteration guards,
+Ordinary traps and termination release frames, host leases,
 temporary roots, and reentry state. Cleanup does not poll cancellation or invoke
 arbitrary user code. The runtime may be reused after cleanup; completed business
 mutations are still present. Rust panic recovery is not a transaction mechanism.

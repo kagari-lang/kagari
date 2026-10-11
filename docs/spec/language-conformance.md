@@ -66,14 +66,11 @@ cleanup is checked before post-execution collection and observation. Cancellatio
 and host-rejection positions count the full host-call sequence, including the array
 provider call. The enclosing cancellation session is released before collection.
 
-Host-iteration fixtures keep a collection guard alive while script code receives
-the rooted array. They verify that element replacement succeeds but push, insert,
-pop, remove and clear each trap before changing structure. Earlier host effects
-and element writes survive. After execution the host drops its guard, collects,
-checks contents, and performs a push/pop to prove structural access is restored.
-These run on all four routes and check the standard-library error category and
-operation context. They establish script enforcement of a host-owned guard;
-source callback and for-loop integration is still a separate incomplete requirement.
+Iteration fixtures receive a rooted Vec and create a cursor in script. They
+verify that push, insert, pop, remove and clear commit, including subsequent host
+effects, before a stale next call traps. Element replacement remains valid.
+Source and artifact routes check the resulting heap contents and error category;
+the full backend matrix belongs to CI.
 
 All fixtures compile through one SourceDatabase, immutable analysis snapshot and
 checked-program boundary. `.modules(&[("dependency", "pub fn answer() -> i32 { 42 }")])`

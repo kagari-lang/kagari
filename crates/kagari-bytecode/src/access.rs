@@ -472,7 +472,6 @@ pub(super) fn verify(
                             Fact::typed(match op {
                                 IterOp::New | IterOp::String(_) => Ty::Iter(Box::new(item)),
                                 IterOp::Next => binding::option(item),
-                                _ => Ty::Builtin(B::Unit),
                             }),
                         )
                     });

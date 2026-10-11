@@ -318,12 +318,12 @@ fn slice() -> NonZeroUsize {
 }
 
 #[test]
-fn async_wait_live_storage_and_iteration_contract() {
+fn async_wait_live_storage_contract() {
     let f = Fixture::with_functions(|functions| {
         let array = functions[0].metadata.semantic.params[&0].clone();
         let mut function = functions[1].clone();
         function.id = FunctionRef::new(2);
-        function.name = "wait_with_lease".into();
+        function.name = "wait_with_storage".into();
         function.parameter_count = 3;
         function.local_count = 3;
         function.register_count = 5;
@@ -370,9 +370,6 @@ fn async_wait_live_storage_and_iteration_contract() {
                 dst: Register::new(2),
                 local: LocalSlot::new(1),
             },
-            I::BeginIteration {
-                collection: Register::new(2),
-            },
             I::LoadLocal {
                 dst: Register::new(0),
                 local: LocalSlot::new(0),
@@ -383,7 +380,6 @@ fn async_wait_live_storage_and_iteration_contract() {
                 callee: CallTarget::Native(NativeImportId::new(1)),
                 args: vec![Register::new(2), Register::new(1)],
             },
-            I::EndIteration,
             I::Return(Some(Register::new(4))),
         ];
         functions.push(function);
@@ -407,7 +403,7 @@ fn async_wait_live_storage_and_iteration_contract() {
         let execution =
             f.vm.start(
                 &f.module,
-                "wait_with_lease",
+                "wait_with_storage",
                 &[
                     future.value(f.vm.runtime().gc()).unwrap(),
                     Value::GcHandle(live),
@@ -430,8 +426,8 @@ fn async_wait_live_storage_and_iteration_contract() {
             f.vm.runtime()
                 .gc()
                 .sequence_push(live, Value::I32(3))
-                .is_err(),
-            "iteration lease survives an actual wait"
+                .is_ok(),
+            "parked values do not block structural writes"
         );
         f.vm.runtime()
             .gc()

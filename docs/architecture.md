@@ -583,8 +583,9 @@ Vec stable sorting edits its actual buffer through a scoped lease. Roots
 protect reference elements during callback reentry. Cleanup restores valid storage
 on every exit; failure may change ordering but preserves the original elements.
 Completed payload mutations remain. No universal collection rollback is promised.
-Lazy native adapters trace their source/callback edges; iteration scopes retain
-guards through completion or failure. Generic execution does not name MapIterator.
+Lazy native adapters trace source/callback edges and retain pinned selections.
+Collection cursors check structural revisions on each read; writes commit without
+iteration leases, including while a cursor is parked. Generic execution does not name MapIterator.
 
 ### Prepared native type facts
 
@@ -1547,8 +1548,8 @@ crate is needed.
 Runtime session storage owns both synchronous and independently parked frame stacks.
 An owned execution token requests cancellation/retirement without keeping a Runtime
 borrow. `session::owned` validates entry/activation identity and drains abandoned
-records; `frame::owned` admits only safe slice exits, retaining owned iteration
-leases while excluding mutation/host/native borrows. Call depth is parked/restored
+records; `frame::owned` admits only safe slice exits, retaining live cursor
+values while excluding mutation/host/native borrows. Call depth is parked/restored
 per root. Operand windows can be released out of order and compact their backing
 banks without changing live generational identities.
 
@@ -1562,7 +1563,7 @@ returns Waiting and resumes the same PC after checked driver-side conversion.
 Heap Future state is claimed once, so aliases cannot repeat submission. Ordinary
 entry and native installation reject resume bodies. MIR Await lowers into the same
 instruction; both MIR and bytecode independently check initialized live values,
-iteration-stack joins and host capabilities at suspension points. Sealed bytecode
+host capabilities at suspension points. Sealed bytecode
 retains computed await liveness, which physical allocation maps to retained managed
 locations. The runtime discards dead slots before its resource check, preserving
 live aliases and debugger-visible locals. These facts are rebuilt after decoding,

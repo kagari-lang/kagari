@@ -21,10 +21,7 @@ impl<I: DefinitionReference> BytecodeInstruction<I> {
                 vec![*src]
             }
             BytecodeInstruction::Unary { operand, .. } => vec![*operand],
-            BytecodeInstruction::BeginIteration { collection } => vec![*collection],
-            BytecodeInstruction::EndIteration
-            | BytecodeInstruction::Jump { .. }
-            | BytecodeInstruction::Unreachable => vec![],
+            BytecodeInstruction::Jump { .. } | BytecodeInstruction::Unreachable => vec![],
             BytecodeInstruction::Branch { cond, .. } => vec![*cond],
             BytecodeInstruction::Return(value) => value.iter().copied().collect(),
             BytecodeInstruction::RangeBound { value, .. } => vec![*value],
@@ -149,9 +146,7 @@ impl<I: DefinitionReference> BytecodeInstruction<I> {
             | BytecodeInstruction::WriteAggregateIndex { .. }
             | BytecodeInstruction::SetPath { .. } => None,
             BytecodeInstruction::WriteCell { .. } => None,
-            BytecodeInstruction::BeginIteration { .. }
-            | BytecodeInstruction::EndIteration
-            | BytecodeInstruction::Return(_)
+            BytecodeInstruction::Return(_)
             | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. }
             | BytecodeInstruction::Unreachable => None,

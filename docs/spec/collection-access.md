@@ -79,8 +79,8 @@ fn main() -> usize {
 
 Replacing `readable[0]` or calling `readable.push(...)` is rejected. Updating its
 referenced Cell is permitted and requires no container writeback. Read-only views
-provide neither deep freezing nor snapshots. Native structural iteration guards
-cover the underlying object across all views and aliases.
+provide neither deep freezing nor snapshots. Structural edits through any writable alias
+invalidate existing native cursors, which check revisions on subsequent reads.
 
 ## Conversion and dispatch
 
@@ -158,8 +158,8 @@ bulk commit or rollback-only storage buffer is required.
 Iterable owns the finite transformation and terminal API described in
 [builtins](builtins.md#iteration-protocols). MapIterator retains its source cursor and mapper. Constructing it does not call
 the mapper. Aliases share progress, and next consumes its input before invoking
-the mapper. Managed cursor dependencies participate in scoped iteration guards,
-including through erased Iterator interfaces. See [native declarations](standard-declarations.md).
+the mapper. Source cursors remain ordinary GC edges, including through erased Iterator
+interfaces; structural changes are detected on their next read. See [native declarations](standard-declarations.md).
 
 APIs outside the plan's accepted rows, including windows/chunks, capacity APIs,
 set algebra, joining, grouping and additional constructors, remain deferred.
@@ -188,7 +188,7 @@ proof demonstrates how an optional native function supplies that algorithm.
 HashSet deduplicates Eq + Hash items; HashMap collects `(K, V)` pairs with Eq +
 Hash keys and preserves the last value for an equal key. Custom destinations
 retain their own consumption rules, including short circuit. Construction keeps
-source items' shared identity and releases native iteration guards on every exit.
+source items' shared identity and checks source revisions before subsequent reads.
 
 ## Compiler, artifacts and host boundaries
 

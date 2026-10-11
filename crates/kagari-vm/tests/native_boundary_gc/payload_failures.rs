@@ -147,7 +147,7 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
 }
 
 #[test]
-fn root_and_collection_leases_do_not_keep_heap_payloads_alive_after_teardown() {
+fn roots_do_not_keep_heap_payloads_alive_after_teardown() {
     use kagari_types::{scalar::BuiltinType, ty::Ty};
     let faults = Arc::new(Faults::default());
     let (vm, loaded) = compile(
@@ -169,11 +169,7 @@ fn root_and_collection_leases_do_not_keep_heap_payloads_alive_after_teardown() {
         .runtime()
         .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
-    let iteration = vm
-        .runtime()
-        .gc()
-        .begin_collection_iteration(&Value::Array(array))
-        .unwrap();
+    let array_root = vm.runtime().gc().root_value(Value::Array(array)).unwrap();
     assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
     drop(session);
     assert!(vm.runtime().execution_root().is_none());
@@ -181,7 +177,7 @@ fn root_and_collection_leases_do_not_keep_heap_payloads_alive_after_teardown() {
     assert_eq!(faults.drops.load(Ordering::SeqCst), 1);
     std::thread::spawn(move || {
         drop(root);
-        drop(iteration);
+        drop(array_root);
     })
     .join()
     .unwrap();

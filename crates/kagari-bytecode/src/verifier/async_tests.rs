@@ -137,17 +137,14 @@ fn loop_program() -> BytecodeProgram {
             dst: Register::new(3),
             local: LocalSlot::new(1),
         },
-        I::BeginIteration {
-            collection: Register::new(3),
-        },
         I::LoadLocal {
             dst: Register::new(2),
             local: LocalSlot::new(2),
         },
         I::Branch {
             cond: Register::new(2),
-            then_target: JumpTarget::new(4),
-            else_target: JumpTarget::new(9),
+            then_target: JumpTarget::new(3),
+            else_target: JumpTarget::new(8),
         },
         I::LoadLocal {
             dst: Register::new(4),
@@ -163,9 +160,8 @@ fn loop_program() -> BytecodeProgram {
             src: Register::new(1),
         },
         I::Jump {
-            target: JumpTarget::new(2),
+            target: JumpTarget::new(1),
         },
-        I::EndIteration,
         I::LoadLocal {
             dst: Register::new(1),
             local: LocalSlot::new(1),
@@ -175,8 +171,8 @@ fn loop_program() -> BytecodeProgram {
     // The host parameter is dead after its pre-await read, including the next
     // iteration. Overwrite that local with another host value before a backedge
     // would still make it live, so use a single iteration's terminal path here.
-    function.instructions[8] = I::Jump {
-        target: JumpTarget::new(9),
+    function.instructions[7] = I::Jump {
+        target: JumpTarget::new(8),
     };
     module.function_table[0].params = function.metadata.params.clone();
     program
@@ -189,51 +185,41 @@ fn async_flow_validation_contract() {
     let points = verified.suspensions(ModuleRef::new(0)).unwrap();
     assert_eq!(points[0].len(), 1);
     let live: Vec<_> = points[0][0].live_slots().collect();
-    assert_eq!(points[0][0].instruction(), 6);
+    assert_eq!(points[0][0].instruction(), 5);
     assert!(!live.contains(&4), "dead host temporary must be discarded");
     assert!(!live.contains(&9), "dead host parameter must be discarded");
-    for mutation in 0..7 {
+    for mutation in 0..5 {
         let mut invalid = valid.clone();
         let function = &mut invalid.modules[0].functions[0];
         let reason = match mutation {
             0 => {
-                function.instructions[0] = I::Jump {
-                    target: JumpTarget::new(1),
+                function.instructions[1] = I::Jump {
+                    target: JumpTarget::new(2),
                 };
                 "uninitialized slot in resume body"
             }
             1 => {
-                function.instructions[5] = I::StoreLocal {
+                function.instructions[4] = I::StoreLocal {
                     local: LocalSlot::new(1),
                     src: Register::new(1),
                 };
                 "uninitialized slot in resume body"
             }
             2 => {
-                function.instructions[10] = I::LoadLocal {
+                function.instructions[8] = I::LoadLocal {
                     dst: Register::new(1),
                     local: LocalSlot::new(4),
                 };
                 "uninitialized slot in resume body"
             }
             3 => {
-                function.instructions[1] = I::EndIteration;
-                "iteration resource underflow"
-            }
-            4 => {
-                function.instructions[8] = I::Jump {
-                    target: JumpTarget::new(1),
-                };
-                "inconsistent iteration resource stack"
-            }
-            5 => {
-                function.instructions[7] = I::Move {
+                function.instructions[6] = I::Move {
                     dst: Register::new(5),
                     src: Register::new(4),
                 };
                 "host capability live across await"
             }
-            6 => {
+            4 => {
                 function
                     .metadata
                     .debug
@@ -262,11 +248,11 @@ fn async_flow_validation_contract() {
     }
     let mut backedge = valid;
     let function = &mut backedge.modules[0].functions[0];
-    function.instructions[4] = I::Jump {
-        target: JumpTarget::new(5),
+    function.instructions[3] = I::Jump {
+        target: JumpTarget::new(4),
     };
-    function.instructions[8] = I::Jump {
-        target: JumpTarget::new(2),
+    function.instructions[7] = I::Jump {
+        target: JumpTarget::new(1),
     };
     verify_program(&backedge).unwrap();
 }

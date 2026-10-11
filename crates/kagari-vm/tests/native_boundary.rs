@@ -705,10 +705,7 @@ fn typed_sequence_bulk_changes_validate_before_committing_and_trace_reference_el
         heap.sequence_snapshot(id).unwrap(),
         vec![Value::I32(1), Value::I32(1), Value::I32(2), Value::I32(3)]
     );
-    let guard = heap.begin_collection_iteration(&value).unwrap();
-    assert!(heap.sequence_reverse(id).is_err());
     heap.sequence_set(id, 0, Value::I32(20)).unwrap();
-    drop(guard);
     heap.sequence_reverse(id).unwrap();
     heap.sequence_truncate(id, 2).unwrap();
     heap.sequence_push(id, Value::I32(7)).unwrap();

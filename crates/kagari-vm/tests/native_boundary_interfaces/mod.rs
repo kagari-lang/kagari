@@ -324,7 +324,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
 }
 
 #[test]
-fn dynamic_iteration_preserves_gc_roots_and_mutation_guards() {
+fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
     let mut builder = ModuleBuilder::new(
         "example::collection_gc",
         &StandardDeclarations::default()

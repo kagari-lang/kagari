@@ -555,32 +555,28 @@ impl Runtime {
                 })?;
                 self.gc.new_iter(value, ty, item, owner)
             }
-            _ => {
+            IterOp::Next => {
                 self.check_iterator_contract(owner, value, ty)?;
-                if op == IterOp::Next {
-                    let declaration = self
-                        .definition_context()
-                        .intern(&binding::option_declaration())
-                        .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-                    let applied = ty.derive(self, owner, |ty| match ty {
-                        Ty::Iter(item) => Some(Ty::Enum(NominalTy {
-                            declaration,
-                            arguments: vec![(**item).clone()],
-                            associated_types: Default::default(),
-                        })),
-                        _ => None,
-                    })?;
-                    self.gc.advance_iter_with(value, ty.ty(), |payload| {
-                        self.make_enum_member(
-                            owner,
-                            &applied,
-                            if payload.is_some() { "Some" } else { "None" },
-                            payload.into_iter().collect(),
-                        )
-                    })
-                } else {
-                    self.gc.advance_iter(value, ty.ty(), op)
-                }
+                let declaration = self
+                    .definition_context()
+                    .intern(&binding::option_declaration())
+                    .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+                let applied = ty.derive(self, owner, |ty| match ty {
+                    Ty::Iter(item) => Some(Ty::Enum(NominalTy {
+                        declaration,
+                        arguments: vec![(**item).clone()],
+                        associated_types: Default::default(),
+                    })),
+                    _ => None,
+                })?;
+                self.gc.advance_iter_with(value, ty.ty(), |payload| {
+                    self.make_enum_member(
+                        owner,
+                        &applied,
+                        if payload.is_some() { "Some" } else { "None" },
+                        payload.into_iter().collect(),
+                    )
+                })
             }
         }
     }

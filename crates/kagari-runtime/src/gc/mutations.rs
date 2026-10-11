@@ -2,7 +2,7 @@
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
+    gc::{CollectionMutation, GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     native::{
         hashed::{MapPayload, SetPayload},
         sequence::{SequencePayload, SequenceStorage},
@@ -163,7 +163,7 @@ impl GcHeap {
     pub(crate) fn begin_collection_mutation(
         &self,
         value: &Value,
-    ) -> Result<CollectionIteration, RuntimeError> {
+    ) -> Result<CollectionMutation, RuntimeError> {
         self.ensure_execution_allowed()?;
         let id = match value {
             Value::GcHandle(id) if self.object_kind(*id) == Some(GcObjectKind::Native) => *id,
@@ -182,12 +182,10 @@ impl GcHeap {
         })?;
         let lease = self
             .mutations
-            .acquire(id, None)
+            .acquire(id)
             .map_err(|_| self.resource_limit("mutation registry"))?;
-        Ok(CollectionIteration {
-            _children: Vec::new(),
-            loop_leases: Vec::new(),
-            _lease: Some(lease),
+        Ok(CollectionMutation {
+            _lease: lease,
             _root: root,
         })
     }

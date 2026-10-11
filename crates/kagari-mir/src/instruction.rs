@@ -118,10 +118,6 @@ pub enum Instruction<I = DefinitionPath> {
         #[serde(deserialize_with = "crate::codec::small_operands")]
         args: ValueBuffer,
     },
-    BeginIteration {
-        collection: MirValue,
-    },
-    EndIteration,
     MakeTuple {
         dst: MirValue,
         #[serde(deserialize_with = "crate::codec::small_operands")]
@@ -366,7 +362,6 @@ impl<I: DefinitionReference> Instruction<I> {
             Self::LoadModule { .. } => EffectSet::module_read(),
             Self::StoreModule { .. } => EffectSet::module_write(),
             Self::Call { callee, .. } => callee.effects(),
-            Self::BeginIteration { .. } | Self::EndIteration => EffectSet::runtime_call(),
             Self::MakeRange { .. } => EffectSet {
                 may_trap: true,
                 ..EffectSet::default()

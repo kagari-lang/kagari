@@ -109,87 +109,82 @@ fn heap_loop_cancellation_preserves_earlier_write() {
 }
 
 #[test]
-fn iteration_rejects_push() {
+fn iteration_invalidated_by_push() {
     let operation = "a.push(9)";
     let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
+        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
     );
-    let mut case = Case::new(
-        "host-iteration-rejects-script-structural-write",
+    let case = Case::new(
+        "iteration-detects-committed-write",
         &source,
-        Expected::ScriptTrap("structural modification during iteration"),
+        Expected::ScriptTrap("invalid or structurally modified iterator"),
     )
-    .vector(&[1, 2], &[42, 2])
-    .effects(&["before"], &["before"]);
-    case.iterating = true;
+    .vector(&[1, 2], &[42, 2, 9])
+    .effects(&["before", "committed"], &["before", "committed"]);
     run_routes(&case);
 }
 
 #[test]
-fn iteration_rejects_insert() {
+fn iteration_invalidated_by_insert() {
     let operation = "a.insert(a.len(), 9)";
     let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
+        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
     );
-    let mut case = Case::new(
-        "host-iteration-rejects-script-structural-write",
+    let case = Case::new(
+        "iteration-detects-committed-write",
         &source,
-        Expected::ScriptTrap("structural modification during iteration"),
+        Expected::ScriptTrap("invalid or structurally modified iterator"),
     )
-    .vector(&[1, 2], &[42, 2])
-    .effects(&["before"], &["before"]);
-    case.iterating = true;
+    .vector(&[1, 2], &[42, 2, 9])
+    .effects(&["before", "committed"], &["before", "committed"]);
     run_routes(&case);
 }
 
 #[test]
-fn iteration_rejects_pop() {
+fn iteration_invalidated_by_pop() {
     let operation = "a.pop()";
     let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
+        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
     );
-    let mut case = Case::new(
-        "host-iteration-rejects-script-structural-write",
+    let case = Case::new(
+        "iteration-detects-committed-write",
         &source,
-        Expected::ScriptTrap("structural modification during iteration"),
+        Expected::ScriptTrap("invalid or structurally modified iterator"),
     )
-    .vector(&[1, 2], &[42, 2])
-    .effects(&["before"], &["before"]);
-    case.iterating = true;
+    .vector(&[1, 2], &[42])
+    .effects(&["before", "committed"], &["before", "committed"]);
     run_routes(&case);
 }
 
 #[test]
-fn iteration_rejects_remove() {
+fn iteration_invalidated_by_remove() {
     let operation = "a.remove(a.len() - a.len())";
     let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
+        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
     );
-    let mut case = Case::new(
-        "host-iteration-rejects-script-structural-write",
+    let case = Case::new(
+        "iteration-detects-committed-write",
         &source,
-        Expected::ScriptTrap("structural modification during iteration"),
+        Expected::ScriptTrap("invalid or structurally modified iterator"),
     )
-    .vector(&[1, 2], &[42, 2])
-    .effects(&["before"], &["before"]);
-    case.iterating = true;
+    .vector(&[1, 2], &[2])
+    .effects(&["before", "committed"], &["before", "committed"]);
     run_routes(&case);
 }
 
 #[test]
-fn iteration_rejects_clear() {
+fn iteration_invalidated_by_clear() {
     let operation = "a.clear()";
     let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); a[0] = 42; print(\"before\"); {operation}; print(\"unreachable\"); }}"
+        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
     );
-    let mut case = Case::new(
-        "host-iteration-rejects-script-structural-write",
+    let case = Case::new(
+        "iteration-detects-committed-write",
         &source,
-        Expected::ScriptTrap("structural modification during iteration"),
+        Expected::ScriptTrap("invalid or structurally modified iterator"),
     )
-    .vector(&[1, 2], &[42, 2])
-    .effects(&["before"], &["before"]);
-    case.iterating = true;
+    .vector(&[1, 2], &[])
+    .effects(&["before", "committed"], &["before", "committed"]);
     run_routes(&case);
 }
 

@@ -5,10 +5,7 @@ use kagari_common::identity::reference::DefinitionReference;
 impl<I: DefinitionReference> Instruction<I> {
     pub(crate) fn rewrite_inputs(&mut self, mut rewrite: impl FnMut(&mut MirValue)) {
         match self {
-            Self::LoadConst { .. }
-            | Self::LoadLocal { .. }
-            | Self::LoadModule { .. }
-            | Self::EndIteration => {}
+            Self::LoadConst { .. } | Self::LoadLocal { .. } | Self::LoadModule { .. } => {}
             Self::Convert { src, .. }
             | Self::StoreLocal { src, .. }
             | Self::StoreModule { src, .. }
@@ -38,7 +35,6 @@ impl<I: DefinitionReference> Instruction<I> {
                     rewrite(value);
                 }
             }
-            Self::BeginIteration { collection } => rewrite(collection),
             Self::MakeTuple { elements, .. }
             | Self::MakeArray { elements, .. }
             | Self::MakeEnum {

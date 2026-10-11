@@ -30,7 +30,7 @@ fn map_is_lazy_and_aliases_share_cursor_progress_and_gc_captures() {
 }
 
 #[test]
-fn break_releases_wrapped_sources_and_dynamic_views_preserve_shared_progress() {
+fn break_allows_source_writes_and_dynamic_views_preserve_shared_progress() {
     for erased in [false, true] {
         let annotation = if erased { ": Iterator<Item = i32>" } else { "" };
         assert_eq!(
@@ -53,7 +53,7 @@ fn break_releases_wrapped_sources_and_dynamic_views_preserve_shared_progress() {
 }
 
 #[test]
-fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
+fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
     let library = foundation::modules()
         .unwrap()
         .into_iter()
@@ -78,7 +78,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
         .unwrap();
     let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, "main").unwrap_err();
-    assert!(format!("{error:?}").contains("structural modification during iteration"));
+    assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
     let Value::GcHandle(array) = probe
         .retained
         .lock()
@@ -90,7 +90,7 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
     else {
         panic!("array");
     };
-    assert_eq!(vm.runtime().gc().sequence_len(array), Some(2));
+    assert_eq!(vm.runtime().gc().sequence_len(array), Some(3));
     vm.runtime()
         .gc()
         .sequence_push(array, Value::I32(3))

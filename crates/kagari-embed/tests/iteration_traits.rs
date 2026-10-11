@@ -185,7 +185,7 @@ fn main()->i32 {
 }
 
 #[test]
-fn breaking_native_loops_releases_guards_and_allows_resuming() {
+fn breaking_native_loops_allows_resuming_unchanged_sources() {
     execute(
         r#"
 fn main()->i32 {
@@ -202,7 +202,7 @@ fn main()->i32 {
 }
 
 #[test]
-fn returning_from_native_loop_releases_its_guard_before_caller_resumes() {
+fn returning_from_native_loop_does_not_block_caller_mutation() {
     execute(
         r#"
 fn head(values:Vec<i32>)->i32 {for x in values {return x;}0}
@@ -212,7 +212,7 @@ fn main()->i32 {val a=Vec::from([20]);val b=head(a);a.push(22);b+a[1]}
 }
 
 #[test]
-fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
+fn native_iterators_validate_revisions_and_survive_gc_and_failure() {
     use {
         kagari_contract::operations::IterOp,
         kagari_types::{scalar::BuiltinType, ty::Ty},
@@ -227,7 +227,7 @@ fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
                 r#"
 fn fail()->i32{val a=Vec::from([20]);for x in a {a.push(1);}0}
 fn nested()->i32{val a=Vec::from([20]);for x in a {for y in a {break;}a.push(1);}0}
-fn manual()->i32{val a=Vec::from([20]);val c=a.iter();c.next();a.push(1);0}
+fn manual()->i32{val a=Vec::from([20]);val c=a.iter();c.next();a.push(1);c.next();0}
 fn trap()->i32{val a=Vec::from([20]);for x in a {return x/0;}0}
 fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
 "#,
@@ -284,7 +284,7 @@ fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         )
         .unwrap();
     let iter = rt.root_value(value).unwrap();
-    assert!(rt.gc().sequence_push(array, Value::I32(1)).is_err());
+    rt.gc().sequence_set(array, 0, Value::I32(20)).unwrap();
     cancellation.cancel();
     assert!(rt.gc_safepoint().is_err());
     drop(session);
@@ -303,7 +303,7 @@ fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         );
         drop(session);
     }
-    // Between root calls guards are released; resumed iterators reject a changed structure.
+    // Structural edits commit between calls; the old cursor rejects its next read.
     rt.gc().sequence_push(array, Value::I32(1)).unwrap();
     let session = rt.begin_execution(&loaded, Default::default()).unwrap();
     assert!(
@@ -588,7 +588,7 @@ fn main()->i32 {
 }
 
 #[test]
-fn short_circuit_terminals_share_progress_and_release_nested_source_scopes() {
+fn short_circuit_terminals_share_progress_without_blocking_source_writes() {
     execute(
         r#"
 fn main()->i32 {
@@ -609,6 +609,37 @@ fn main()->i32 {
     val unit=values.enumerate().for_each(|pair| {output.push(pair[1]);});
     if unit!=() || output.len()!=5usize || output[4]!=5 {return 0;}
     values.push(6);
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn lazy_cursors_allow_edits_when_no_further_source_read_is_needed() {
+    execute(
+        r#"
+fn main()->i32 {
+    val values=Vec::from([1,2,3]);
+    val unused=values.iter();
+    values.push(4);
+    val zero=values.take(0usize);
+    if zero.next()!=None {return 0;}
+    values.push(5);
+    val one=values.take(1usize);
+    if one.next()!=Some(1) {return 0;}
+    values.push(6);
+    if one.next()!=None {return 0;}
+    val empty:Vec<i32> =Vec::new();
+    val paired=empty.zip(values);
+    if paired.next()!=None {return 0;}
+    values.push(7);
+    val short=values.iter();
+    if !short.any(|x| {values.push(8);true}) {return 0;}
+    for x in values {values.push(9);break;}
+    val fresh=values.iter();
+    values[0]=42;
+    if fresh.next()!=Some(42) || values.len()!=9usize {return 0;}
     42
 }
 "#,

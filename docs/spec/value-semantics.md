@@ -42,13 +42,11 @@ Default object identity is unaffected by content mutation; custom equality/hash
 requires the user to preserve equality-relevant state while keys are stored.
 See [standard protocols](builtins.md#collection-types).
 
-Iteration prevents structural mutation of the iterated collection through any
-alias: insert, remove, clear, reorder, and length-changing operations fail before
-changing it. Replacing an existing element without changing structure is allowed.
-Mutating an object referenced by an element is allowed. Iteration protection ends
-on exhaustion, break, return, or failure for native for loops, including nested
-iteration. Direct native iterators and custom iterator wrappers follow the
-[iteration protocol lifecycle](builtins.md#iteration-protocols).
+Structural edits through an alias commit and invalidate existing native collection
+cursors. A stale cursor traps on its next source read; retaining a cursor never
+blocks writes. Replacing an element or mutating its referenced object remains
+allowed. See [iteration protocols](builtins.md#iteration-protocols) for the exact
+invalidation, short-circuit and custom iterator rules.
 
 String lengths and slices use byte offsets; slices validate UTF-8 boundaries.
 Unicode scalar counting is a separately named operation. Integer arithmetic is
@@ -319,7 +317,7 @@ tuple does not replace the tuple.
 - Separately allocated mutable objects with identical fields compare unequal.
 - Separately constructed equal enum values compare equal.
 - A shallow copy has new container identity but shares referenced elements.
-- Structural mutation through an alias during iteration fails without mutation.
+- Structural mutation through an alias commits; the old cursor traps on its next read.
 - A compound assignment evaluates root/index/RHS once, reads after RHS, and never
   writes after a failed RHS, invalidated location, or overflow.
 
@@ -328,13 +326,12 @@ returns, independent storage from explicit constructors, and shared referenced
 elements. Source, artifact and JIT-enabled paths retain these contracts; native
 preparation may use interpreter fallback.
 
-Iterator terminal operations hold source iteration guards until callbacks finish,
-short-circuit or fail. Hosts use
-`GcHeap::begin_collection_iteration` when they retain the same iteration scope;
-the guard roots the collection and nested guards release independently. Structural
-builtin failures occur before result allocation or collection mutation. Updating
-an existing Map key and inserting an already-present Set member do not change
-structure. Array element replacement remains allowed.
+Iterator terminals and host collection traversals retain source values without
+blocking structural writes. Native cursors check structural revisions before
+reading again, including a read that would report exhaustion. Optimized Vec and
+host traversal paths perform equivalent checks around callback-driven traversal.
+See [the iteration contract](builtins.md#iteration-protocols) for invalidation,
+short circuit, replacements and custom iterator policy.
 
 Callbacks run on ordinary script frames with their arguments and accumulator
 registered as execution roots. Completed callback side effects survive later
@@ -343,9 +340,9 @@ items available through the same iterator and its aliases.
 
 Heap pop/remove/clear APIs return `Result` for operational failure. `Ok(None)`
 from Vec pop/remove or Map remove, and `Ok(false)` from Set remove, indicate
-normal absence only. Invalid keys/handles, iteration protection and execution
+normal absence only. Invalid keys/handles, callback protection and execution
 rejection are errors. Clear returns `Result<(), RuntimeError>`. Standard helpers
-preserve this distinction and check iteration protection before allocating their
+preserve this distinction and check callback protection before allocating their
 script-level Option result; rejected operations do not change contents or live occupancy.
 
 Array element and Struct field-slot replacement return `Result<(), RuntimeError>`.

@@ -164,10 +164,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
                 callee: (callee).map_identities(mapper)?,
                 args: (args).clone(),
             },
-            Self::BeginIteration { collection } => Instruction::BeginIteration {
-                collection: *(collection),
-            },
-            Self::EndIteration => Instruction::EndIteration,
             Self::MakeTuple { dst, elements } => Instruction::MakeTuple {
                 dst: *(dst),
                 elements: (elements).clone(),
@@ -431,8 +427,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for Instruction<I> {
             } => {
                 (callee).visit_definitions(visit, cancel)?;
             }
-            Self::BeginIteration { collection: _ } => {}
-            Self::EndIteration => {}
             Self::MakeTuple {
                 dst: _,
                 elements: _,

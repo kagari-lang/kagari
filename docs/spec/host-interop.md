@@ -965,8 +965,7 @@ nonzero. A pending wait belongs to the owned execution session. Cancellation,
 owner retirement and runtime destruction release it; provider cleanup panic
 quarantines the runtime. Late endpoints cannot restart or retain the execution.
 MIR lowering, encoded bytecode `Await` and VM Waiting are implemented. Independent
-bounded MIR/bytecode flow checks reject uninitialized resume reads, inconsistent
-iteration stacks and statically visible host capabilities live across an await.
+bounded MIR/bytecode flow checks reject uninitialized resume reads and statically visible host capabilities live across an await.
 Runtime checks remain mandatory for actual values and active native/host resources.
 The SDK exposes start/drive, rooted terminal values, owner wakers and explicit
 retirement draining. `start_future` queues a supplied script or native Future;

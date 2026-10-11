@@ -213,10 +213,6 @@ pub(super) fn verify(
             };
             context.expect(dst.ty, ty, "constant destination")?;
         }
-        Instruction::BeginIteration { collection } => {
-            context.expect(collection.ty, ValueType::HeapObject, "iteration collection")?;
-        }
-        Instruction::EndIteration => {}
         Instruction::LoadLocal { dst, local } => {
             context.expect(dst.ty, context.local(function, *local)?, "local load")?
         }

@@ -47,7 +47,6 @@ mod collector;
 pub(crate) mod custom_keys;
 pub(crate) mod interfaces;
 mod iter;
-mod iteration;
 pub(crate) mod leases;
 pub mod mutations;
 pub mod roots;
@@ -173,13 +172,11 @@ pub enum GcObjectKind {
     Cell,
 }
 
-/// Keeps the iterated collection alive and blocks structural writes through aliases.
-#[must_use = "retain the guard until iteration finishes"]
+/// Keeps a mutation target alive and rejects conflicting callback writes.
+#[must_use = "retain the guard until the mutation finishes"]
 #[derive(Debug)]
-pub struct CollectionIteration {
-    _children: Vec<CollectionIteration>,
-    loop_leases: Vec<OwnedLease>,
-    _lease: Option<OwnedLease>,
+pub(crate) struct CollectionMutation {
+    _lease: OwnedLease,
     _root: RootedValue,
 }
 
@@ -197,8 +194,6 @@ pub struct GcHeap {
     stats: RefCell<CollectorStats>,
     resources: ResourceState,
     next_collection: Cell<usize>,
-    iterations: LeaseTable,
-    iterator_loops: LeaseTable,
     mutations: LeaseTable,
     key_lookups: LeaseTable,
     native_operations: LeaseTable,
@@ -244,8 +239,6 @@ impl GcHeap {
         Self {
             owner,
             config,
-            iterations: Default::default(),
-            iterator_loops: Default::default(),
             mutations: Default::default(),
             key_lookups: Default::default(),
             native_operations: Default::default(),
@@ -381,12 +374,6 @@ impl GcHeap {
 
     pub(crate) fn ensure_structure_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_key_mutable(id)?;
-        if self.iterations.is_active(id) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "structural modification during iteration",
-            ));
-        }
         Ok(())
     }
 

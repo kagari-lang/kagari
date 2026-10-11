@@ -117,7 +117,6 @@ struct Case<'a> {
     require_native: bool,
     cancel_at: Option<usize>,
     reflection: bool,
-    iterating: bool,
     vector: Option<(&'static [i32], &'static [i32])>,
 }
 
@@ -137,7 +136,6 @@ impl<'a> Case<'a> {
             require_native: false,
             cancel_at: None,
             reflection: false,
-            iterating: false,
             vector: None,
         }
     }
@@ -454,18 +452,6 @@ fn run(
         *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
     });
-    let iteration = case.iterating.then(|| {
-        runtime
-            .gc()
-            .begin_collection_iteration(
-                &retained
-                    .as_ref()
-                    .expect("iteration fixture needs a Vec")
-                    .value(runtime.gc())
-                    .unwrap(),
-            )
-            .unwrap()
-    });
     if let Some(at) = case.cancel_at {
         runtime
             .set_execution_observer(CancelAt {
@@ -552,7 +538,6 @@ fn run(
         case.name
     );
     drop(session);
-    drop(iteration);
     if let Some((_, expected)) = case.vector {
         assert_eq!(
             vm.runtime().gc().active_roots(),
@@ -569,21 +554,6 @@ fn run(
             Some(expected.iter().copied().map(Value::I32).collect()),
             "{} ({route:?}): post-execution heap state",
             case.name
-        );
-    }
-    if case.iterating {
-        let Value::GcHandle(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
-        else {
-            unreachable!()
-        };
-        vm.runtime()
-            .gc()
-            .sequence_push(array, Value::I32(99))
-            .unwrap();
-        assert_eq!(
-            vm.runtime().gc().sequence_pop(array).unwrap(),
-            Some(Value::I32(99)),
-            "released guard must permit structural mutation"
         );
     }
     let host = host.lock().unwrap();

@@ -212,10 +212,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
                 callee: (callee).map_identities(mapper)?,
                 args: (args).clone(),
             },
-            Self::BeginIteration { collection } => BytecodeInstruction::BeginIteration {
-                collection: *(collection),
-            },
-            Self::EndIteration => BytecodeInstruction::EndIteration,
             Self::MakeTuple { dst, elements } => BytecodeInstruction::MakeTuple {
                 dst: *(dst),
                 elements: (elements).clone(),
@@ -509,8 +505,6 @@ impl<I: DefinitionReference> DefinitionRecord<I> for BytecodeInstruction<I> {
             } => {
                 (callee).visit_definitions(visit, cancel)?;
             }
-            Self::BeginIteration { collection: _ } => {}
-            Self::EndIteration => {}
             Self::MakeTuple {
                 dst: _,
                 elements: _,

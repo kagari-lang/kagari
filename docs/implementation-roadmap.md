@@ -12,17 +12,19 @@ registration, nominal enums/propagation, runtime-owned roots, pinned reload,
 typed host access and host-driven async execution are implemented. Builtin `[T]`
 arrays have construction-time fixed length; Vec is distinct. Iterable defaults
 provide lazy adapters, terminal operations and explicit FromIterator collection.
+Collection cursors check structural revisions on reads; retaining or parking a
+cursor does not block source edits.
 The interpreter uses compact values and prepared execution/call/layout contracts.
 These capabilities are foundations to reuse, not migrations to replay.
 
 ## Library-owned native collections
 
 [NC01-NC06](native-collections-plan.md) are queued and unstarted. Baseline 9cd90557
-includes the completed Iterable APIs, retained selected-call slots, consumer scopes
+includes the completed Iterable APIs, retained selected-call slots
 and Vec/HashMap/HashSet FromIterator implementations.
 
 Libraries should own concrete storage and algorithms; runtime should supply checked
-dynamic access, accounting, GC, source protection and pinned calls. NC01 identifies
+dynamic access, accounting, GC, short operation protection, revision checks and pinned calls. NC01 identifies
 missing public storage and constructor/host evidence capabilities before migration.
 The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and source-free
 consumers, with an external collection proof. Builtin Array and the full SA21

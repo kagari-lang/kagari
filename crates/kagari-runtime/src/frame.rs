@@ -7,7 +7,7 @@ use crate::{
         types::TypeEnvironment,
         values::{FrameMetadata, FrameSlots},
     },
-    gc::CollectionIteration,
+    gc::CollectionMutation,
     module::{
         LoadedModule,
         execution::{
@@ -412,8 +412,7 @@ pub struct ExecutionFrame {
     registers: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
     invocation: Option<MethodInvocation>,
-    iterations: Vec<CollectionIteration>,
-    mutations: Vec<(Value, CollectionIteration)>,
+    mutations: Vec<(Value, CollectionMutation)>,
 }
 
 impl Debug for ExecutionFrame {
@@ -608,7 +607,6 @@ impl ExecutionFrame {
                 ReturnDestination::Prepared(call.destination)
             }),
             invocation,
-            iterations: Vec::new(),
             mutations: Vec::new(),
         })
     }
@@ -681,25 +679,6 @@ impl ExecutionFrame {
             ));
         }
         self.mutations.pop();
-        Ok(())
-    }
-
-    pub fn begin_iteration(
-        &mut self,
-        runtime: &Runtime,
-        collection: Register,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        let value = self.read_register(runtime, collection)?;
-        self.iterations
-            .push(runtime.gc.begin_collection_iteration(&value)?);
-        Ok(())
-    }
-
-    pub fn end_iteration(&mut self) -> Result<(), RuntimeError> {
-        let _guard = self.iterations.pop().ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "iteration guard underflow")
-        })?;
         Ok(())
     }
 

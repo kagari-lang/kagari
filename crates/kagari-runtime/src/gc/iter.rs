@@ -2,18 +2,14 @@ use super::string_iter::StringTraversal;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    gc::{
-        GcHeap, GcObjectKind, HeapObjectId,
-        leases::{LeaseScope, OwnedLease},
-        storage::HeapObject,
-    },
+    gc::{GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     module::LoadedModule,
-    native::{storage::NativePayload, storage_type::StorageType},
+    native::{sequence::SequencePayload, storage::NativePayload, storage_type::StorageType},
     value::{MapKey, Value},
     value_check::matches_type,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::operations::{IterOp, StringIterKind};
+use kagari_contract::operations::StringIterKind;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 struct IterTypeScope<'a> {
@@ -53,7 +49,6 @@ pub(super) struct NativeIter {
     /// Unordered tables retain keys once; next performs a direct checked lookup.
     pub(super) keys: Vec<MapKey>,
     pub(super) revision: u64,
-    pub(super) guard: Option<OwnedLease>,
 }
 
 impl NativePayload for NativeIter {
@@ -80,106 +75,25 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
-    fn begin_iteration_lease(
-        &self,
-        source: &Value,
-        scope: &LeaseScope,
-    ) -> Result<OwnedLease, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        let (id, expected) = match source {
-            Value::Array(id) => (*id, GcObjectKind::Array),
-            Value::GcHandle(id) => {
-                self.ensure_sequence(*id)?;
-                (*id, GcObjectKind::Native)
-            }
-            Value::Map(id) => (*id, GcObjectKind::Map),
-            Value::Set(id) => (*id, GcObjectKind::Set),
-            Value::Str(_) | Value::Range(_) => return Ok(OwnedLease::new(Some(scope))),
-            _ => return Err(invalid()),
-        };
-        if self.object_kind(id) != Some(expected) {
-            return Err(invalid());
-        }
-        self.iterations
-            .acquire(id, Some(scope))
-            .map_err(|_| self.resource_limit("iterator registry"))
-    }
-
-    /// Reopening an indexed adapter must validate and protect its retained source.
-    pub fn resume_iter(&self, value: &Value) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        let session = self.resources.active_session().ok_or_else(invalid)?;
-        self.resources.poll_execution()?;
-        let Value::GcHandle(id) = value else {
-            return Err(invalid());
-        };
-        let (source, revision, needs_guard) = {
-            let objects = self.objects.borrow();
-            let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
-                return Err(invalid());
-            };
-            let iter = object.payload::<NativeIter>()?;
-            (
-                iter.source,
-                iter.revision,
-                !iter.guard.as_ref().is_some_and(OwnedLease::is_active)
-                    && !self.iterator_loops.is_active(*id),
-            )
-        };
-        if self.collection_revision(&source) != Some(revision) {
-            return Err(invalid());
-        }
-        if needs_guard {
-            let guard = self.begin_iteration_lease(&source, &session.leases)?;
-            let mut objects = self.objects_mut()?;
-            let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, *id) else {
-                return Err(invalid());
-            };
-            let iter = object.payload_mut::<NativeIter>()?;
-            iter.guard = Some(guard);
-        }
-        Ok(())
-    }
-
-    pub(super) fn validate_iter(
-        &self,
-        value: &Value,
-        ty: &Ty<DefinitionId>,
-    ) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        let (Value::GcHandle(id), Ty::Iter(item)) = (value, ty) else {
-            return Err(invalid());
-        };
-        let objects = self.objects.borrow();
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
-            return Err(invalid());
-        };
-        let iter = object.payload::<NativeIter>()?;
-        if iter.item_type != **item {
-            return Err(invalid());
-        }
-        Ok(())
-    }
-
-    fn close_iter_tree(&self, value: &Value) -> Result<(), RuntimeError> {
-        let Value::GcHandle(id) = value else {
-            return Err(invalid());
-        };
-        let mut objects = self.objects_mut()?;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, *id) else {
-            return Err(invalid());
-        };
-        let iter = object.payload_mut::<NativeIter>()?;
-        iter.guard = None;
-        Ok(())
-    }
-
-    pub(super) fn collection_revision(&self, source: &Value) -> Option<u64> {
+    /// Structural revision used by native cursors and callback-driven traversals.
+    /// Element replacement does not change this revision. Invalid handles and
+    /// sequence storage temporarily detached for editing have no readable revision.
+    pub fn collection_revision(&self, source: &Value) -> Option<u64> {
         match source {
             Value::Str(_) | Value::Range(_) => Some(0),
             Value::Array(id) | Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => {
                 let objects = self.objects.borrow();
-                self.readable_object(&objects, *id)?;
+                let object = self.readable_object(&objects, *id)?;
+                if let HeapObject::Native(object) = object
+                    && object.storage.accepts_payload::<SequencePayload>()
+                    && object
+                        .payload::<SequencePayload>()
+                        .ok()?
+                        .leased_units
+                        .is_some()
+                {
+                    return None;
+                }
                 Some(objects[id.index()].revision)
             }
             _ => None,
@@ -189,6 +103,20 @@ impl GcHeap {
     pub(crate) fn matches_iter_type(&self, id: HeapObjectId, element: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
+    }
+
+    /// Reject a stale traversal before reading another element. Writes already
+    /// performed by callbacks remain committed; no collection borrow is retained.
+    pub fn check_collection_revision(
+        &self,
+        source: &Value,
+        revision: u64,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if self.collection_revision(source) != Some(revision) {
+            return Err(invalid());
+        }
+        Ok(())
     }
 
     pub(crate) fn new_iter(
@@ -255,8 +183,6 @@ impl GcHeap {
             None => StorageType::prepare(item_type.clone(), owner)?,
         };
         let revision = self.collection_revision(source).ok_or_else(invalid)?;
-        let session = self.resources.active_session().ok_or_else(invalid)?;
-        let guard = Some(self.begin_iteration_lease(source, &session.leases)?);
         let count = match source {
             Value::Map(id) => self.map_len(*id),
             Value::Set(id) => self.set_len(*id),
@@ -284,7 +210,6 @@ impl GcHeap {
             string,
             keys,
             revision,
-            guard,
         };
         let object = self
             .cursor_storage
@@ -317,21 +242,6 @@ impl GcHeap {
         )
     }
 
-    pub(crate) fn advance_iter(
-        &self,
-        value: &Value,
-        ty: &Ty<DefinitionId>,
-        op: IterOp,
-    ) -> Result<Value, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        if op == IterOp::Close {
-            self.validate_iter(value, ty)?;
-            self.close_iter_tree(value)?;
-            return Ok(Value::Unit);
-        }
-        Err(invalid())
-    }
-
     pub(crate) fn advance_iter_with<R>(
         &self,
         value: &Value,
@@ -342,7 +252,7 @@ impl GcHeap {
         let (Value::GcHandle(id), Ty::Iter(item)) = (value, ty) else {
             return Err(invalid());
         };
-        let (needs_guard, payload, next_position, string_cursor) = {
+        let (payload, next_position, string_cursor) = {
             let objects = self.objects.borrow();
             let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
                 return Err(invalid());
@@ -413,8 +323,6 @@ impl GcHeap {
                 }
             };
             (
-                !iter.guard.as_ref().is_some_and(OwnedLease::is_active)
-                    && !self.iterator_loops.is_active(*id),
                 payload,
                 iter.position.checked_add(advance).ok_or_else(invalid)?,
                 string_cursor,
@@ -426,22 +334,6 @@ impl GcHeap {
             .filter(|value| value.object_id().is_some())
             .map(|value| self.root_value(*value).ok_or_else(invalid))
             .transpose()?;
-        let session = self.resources.active_session().ok_or_else(invalid)?;
-        let new_guard = if needs_guard && payload.is_some() {
-            let source = {
-                let objects = self.objects.borrow();
-                let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
-                    return Err(invalid());
-                };
-                object.payload::<NativeIter>()?.source
-            };
-            Some(self.begin_iteration_lease(&source, &session.leases)?)
-        } else {
-            None
-        };
-        // Prepare the public result before committing. Native adapters can take
-        // an item directly, without allocating an intermediate script Option.
-        drop(session);
         let has_item = payload.is_some();
         let result = finish(payload)?;
         let mut objects = self.objects_mut()?;
@@ -454,11 +346,6 @@ impl GcHeap {
         }
         if has_item {
             iter.position = next_position;
-            if needs_guard {
-                iter.guard = new_guard;
-            }
-        } else {
-            iter.guard = None;
         }
         Ok(result)
     }

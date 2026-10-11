@@ -60,9 +60,6 @@ pub(super) fn vector(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 pub(super) fn set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let source = source(cx)?;
-    let _source = cx
-        .heap()
-        .begin_collection_iteration(&Value::Array(source))?;
     let count = cx.heap().array_len(source).ok_or_else(invalid)?;
     let result = cx.allocate_result()?;
     let _root = cx.heap().root_value(result).ok_or_else(invalid)?;

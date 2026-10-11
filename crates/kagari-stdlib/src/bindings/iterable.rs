@@ -42,9 +42,6 @@ impl NativePayload for Adapter {
         if let Some(callback) = &self.callback {
             callback.trace(visit);
         }
-    }
-
-    fn iteration_sources<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
         visit(&self.source);
         if let Some(second) = &self.second {
             visit(second);
@@ -153,7 +150,6 @@ fn fold(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let root = cx.heap().root_value(accumulator).ok_or_else(invalid)?;
     let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
     let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
-    let _scope = cx.heap().begin_collection_iteration(&cursor)?;
     loop {
         cx.poll()?;
         let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
@@ -174,7 +170,6 @@ fn consume(cx: &mut CallContext<'_>, terminal: Terminal) -> NativeResult<Value> 
     };
     let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
     let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
-    let _scope = cx.heap().begin_collection_iteration(&cursor)?;
     let mut count = 0usize;
     loop {
         cx.poll()?;

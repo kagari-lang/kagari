@@ -180,8 +180,8 @@ impl<K: IntoKagari, V: IntoKagari> ScriptMap<K, V> {
 }
 
 impl<K: FromKagari, V: FromKagari> ScriptMap<K, V> {
-    /// Visit a rooted snapshot. Existing values may be replaced by callbacks;
-    /// structural changes through any alias remain forbidden until return.
+    /// Visit a rooted snapshot. Structural callback edits commit, then invalidate
+    /// the traversal before its next read (including exhaustion).
     pub fn for_each(
         &self,
         cx: &mut NativeContext<'_>,
@@ -189,7 +189,9 @@ impl<K: FromKagari, V: FromKagari> ScriptMap<K, V> {
     ) -> NativeResult<()> {
         let (collection, id) = self.handle.value(cx, false)?;
         let heap = cx.runtime().gc();
-        let _iteration = heap.begin_collection_iteration(&collection)?;
+        let revision = heap
+            .collection_revision(&collection)
+            .ok_or_else(|| RuntimeError::module_validation("collection revision"))?;
         cx.conversion.check_elements(self.len(cx)?)?;
         let entries = heap
             .map_snapshot(id)
@@ -204,6 +206,9 @@ impl<K: FromKagari, V: FromKagari> ScriptMap<K, V> {
             .ok_or_else(|| RuntimeError::module_validation("map snapshot retention"))?;
         for index in 0..self.len(cx)? {
             cx.poll()?;
+            cx.runtime()
+                .gc()
+                .check_collection_revision(&collection, revision)?;
             let key = roots
                 .get(heap, index * 2)
                 .ok_or_else(|| RuntimeError::module_validation("map snapshot key"))?;
@@ -215,6 +220,9 @@ impl<K: FromKagari, V: FromKagari> ScriptMap<K, V> {
             visit(cx, key, value)?;
             cx.poll()?;
         }
+        cx.runtime()
+            .gc()
+            .check_collection_revision(&collection, revision)?;
         Ok(())
     }
 }

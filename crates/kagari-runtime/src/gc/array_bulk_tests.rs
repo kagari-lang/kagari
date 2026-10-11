@@ -61,9 +61,6 @@ fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
         assert_eq!(heap.array_snapshot(target).unwrap(), original);
         assert_eq!(heap.stats().current_heap_units, before);
     }
-    let guard = heap
-        .begin_collection_iteration(&Value::Array(target))
-        .unwrap();
     heap.array_copy_within(target, Included(0), Excluded(3), 1)
         .unwrap();
     assert_eq!(
@@ -71,7 +68,6 @@ fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
         vec![Value::I32(1), Value::I32(1), Value::I32(2), Value::I32(3)]
     );
     assert_eq!(heap.stats().current_heap_units, before);
-    drop(guard);
 }
 
 #[test]

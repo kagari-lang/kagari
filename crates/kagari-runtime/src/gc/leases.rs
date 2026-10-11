@@ -6,56 +6,22 @@ use std::{
     sync::{Arc, Weak},
 };
 
-/// Ending a session immediately expires all of its cursor leases.
-#[derive(Debug, Default)]
-pub(crate) struct LeaseScope(Arc<()>);
-
 #[derive(Debug)]
-struct LeaseLife {
-    scope: Option<Weak<()>>,
-}
-
-impl LeaseLife {
-    fn is_active(&self) -> bool {
-        self.scope
-            .as_ref()
-            .is_none_or(|scope| scope.strong_count() != 0)
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct OwnedLease(Arc<LeaseLife>);
-
-impl OwnedLease {
-    pub(crate) fn new(scope: Option<&LeaseScope>) -> Self {
-        Self(Arc::new(LeaseLife {
-            scope: scope.map(|scope| Arc::downgrade(&scope.0)),
-        }))
-    }
-
-    pub(crate) fn is_active(&self) -> bool {
-        self.0.is_active()
-    }
-}
+pub(crate) struct OwnedLease(Arc<()>);
 
 #[derive(Debug, Default)]
 struct Entry {
     borrowed: usize,
-    owned: Vec<Weak<LeaseLife>>,
+    owned: Vec<Weak<()>>,
 }
 
 impl Entry {
     fn prune(&mut self) {
-        self.owned
-            .retain(|lease| lease.upgrade().is_some_and(|lease| lease.is_active()));
+        self.owned.retain(|lease| lease.strong_count() != 0);
     }
 
     fn is_active(&self) -> bool {
-        self.borrowed != 0
-            || self
-                .owned
-                .iter()
-                .any(|lease| lease.upgrade().is_some_and(|lease| lease.is_active()))
+        self.borrowed != 0 || self.owned.iter().any(|lease| lease.strong_count() != 0)
     }
 }
 
@@ -86,11 +52,7 @@ impl LeaseTable {
         self.entries.borrow().get(&id).is_some_and(Entry::is_active)
     }
 
-    pub(crate) fn acquire(
-        &self,
-        id: HeapObjectId,
-        scope: Option<&LeaseScope>,
-    ) -> Result<OwnedLease, RuntimeError> {
+    pub(crate) fn acquire(&self, id: HeapObjectId) -> Result<OwnedLease, RuntimeError> {
         let mut entries = self.entries.borrow_mut();
         entries
             .try_reserve(1)
@@ -101,7 +63,7 @@ impl LeaseTable {
             .owned
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("storage lease capacity"))?;
-        let lease = OwnedLease::new(scope);
+        let lease = OwnedLease(Arc::new(()));
         entry.owned.push(Arc::downgrade(&lease.0));
         Ok(lease)
     }

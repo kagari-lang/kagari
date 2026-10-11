@@ -445,21 +445,35 @@ its position; converting a collection again creates independent progress.
 A custom iterator owns its state and consistency rules; no automatic clone,
 reset, exact-length or fused-iterator promise is imposed on its implementation.
 
-Native iterators reject structural modification of their source while actively
-iterating. For-loop and terminal-consumer guards end on exhaustion, short circuit, break,
-return or failed execution;
-nested loops retain independent guards. Direct iter/next use keeps its guard
-until None or the end of the root execution session. Root-session cleanup also
-runs after trap, cancellation and call-depth failure, independently of GC timing.
-A rooted cursor can survive between calls and resume. Resuming after its source
-was structurally changed traps; nonstructural replacements are visible when their
-positions are subsequently visited. Already yielded values remain ordinary values.
-For loops suspend a native iterator on exit, so the same iterator may resume later
-if the source structure is unchanged. Native wrappers declare retained iteration
-resources through `NativePayload::iteration_sources`. Their consumer scopes retain and
-release those resources through the same generic guard mechanism, including
-erased Iterator views. A custom iterator without declared resource edges owns its
-own consistency rules.
+Native collection cursors record their source's structural revision. Structural
+edits through any alias commit normally and invalidate existing cursors; the next
+source read traps before yielding an item or reporting exhaustion. This includes
+resuming after a loop break, callback, root call or async suspension. Revision
+checks are deterministic within the isolate, not a cross-thread synchronization
+mechanism. Length/key-set changes and sequence reordering invalidate cursors;
+element replacement, replacing an existing Map value and inserting an already
+present Set member do not. No-op removals do not invalidate a cursor.
+
+Creating or retaining a cursor never blocks collection writes. Cursor lifetime
+needs no close call or GC-triggered release. Adapters check sources only when
+pulling them: take at its limit returns None without reading its source, and zip
+with an exhausted left side does not read the right side. Short-circuit terminals
+and break perform no extra reads. Already completed callback effects and writes
+survive a later invalidation error; yielded values remain ordinary values.
+
+```text
+val values = Vec::from([1, 2]);
+val cursor = values.iter();
+values[0] = 10;       // Replacement is visible to cursor.next().
+values.push(3);      // Commits and invalidates the existing cursor.
+cursor.next();       // Traps: invalid or structurally modified iterator.
+```
+
+Native payloads trace retained source cursors and callbacks through NativePayload::trace.
+Roots and pinned selected calls preserve GC and reload safety independently of
+iteration validity. Native storage borrows, sorting/mutation commits and hash
+callback guards remain enforced. Custom iterators own their consistency policy;
+the Iterator/Iterable traits do not impose a universal collection lock.
 
 Host retention uses the normal rooted-value API. Cursor handles are runtime-owned,
 generation checked, and trace their source, callbacks and adapter state. They retain their

@@ -208,15 +208,6 @@ pub(super) fn verify_instruction(
         BytecodeInstruction::Call { dst, callee, args } => {
             verify_call(module, function, *dst, callee, args, program)?;
         }
-        BytecodeInstruction::BeginIteration { collection } => {
-            expect_register_ty(
-                function,
-                *collection,
-                ValueType::HeapObject,
-                "iteration collection",
-            )?;
-        }
-        BytecodeInstruction::EndIteration => {}
         BytecodeInstruction::RangeBound {
             dst,
             value,

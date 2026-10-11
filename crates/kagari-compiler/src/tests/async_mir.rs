@@ -104,7 +104,7 @@ fn async_mir_suspension_contract() {
         .unwrap()
         .into_verified(&Default::default())
         .unwrap();
-    for mutation in 0..4 {
+    for mutation in 0..3 {
         let mut module = modules[root].clone();
         let function = module
             .functions
@@ -121,15 +121,6 @@ fn async_mir_suspension_contract() {
                 *value = *dst;
             }
             2 => {
-                block.instructions.insert(0, Instruction::EndIteration);
-                block
-                    .instruction_spans
-                    .insert(0, block.instruction_spans[0]);
-                block
-                    .instruction_scopes
-                    .insert(0, block.instruction_scopes[0]);
-            }
-            3 => {
                 let PublicItem::Type(ty) = module
                     .abi
                     .public_items

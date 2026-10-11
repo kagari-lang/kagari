@@ -115,11 +115,30 @@ fn custom_receiver_failures_preserve_completed_writes_and_removals() {
 }
 
 #[test]
-fn active_iteration_rejects_list_edits_and_releases_the_guard_on_failure() {
-    for operation in ["sort()", "reverse()", "retain(|value| true)", "dedup()"] {
+fn list_edits_commit_before_invalidating_an_active_cursor() {
+    for (operation, expected) in [
+        ("sort()", vec![1, 1, 2, 3]),
+        ("reverse()", vec![2, 1, 1, 3]),
+        ("retain(|value| value != 1)", vec![3, 2]),
+        ("dedup()", vec![3, 1, 2]),
+    ] {
         let source = format!(
-            "use test::probe::keep; fn main() {{ val values = Vec::from([3,1,2]); keep(values); for value in values {{ values.{operation}; }} }}"
+            "use test::probe::keep; fn main() {{ val values = Vec::from([3,1,1,2]); keep(values); for value in values {{ values.{operation}; }} }}"
         );
-        failed_array(&source, &[3, 1, 2], 0);
+        failed_array(&source, &expected, 0);
     }
+}
+
+#[test]
+fn cursor_reads_cannot_observe_a_buffer_detached_for_sorting() {
+    failed_array(
+        r#"use test::probe::keep;
+        fn main() {
+            val values=Vec::from([3,1,2]); keep(values);
+            val cursor=values.iter();
+            values.sort_by(|a,b| { cursor.next(); a.cmp(b) });
+        }"#,
+        &[3, 1, 2],
+        0,
+    );
 }

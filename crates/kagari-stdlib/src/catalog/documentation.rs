@@ -18,7 +18,7 @@ fn trait_docs(name: &str) -> (&'static str, &'static str) {
             "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
         ),
         "Iterable" => (
-            "Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Consumer scopes release structural protection on every exit.",
+            "Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.",
             "fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }",
         ),
         "PartialEq" => (
@@ -154,7 +154,7 @@ fn trait_docs(name: &str) -> (&'static str, &'static str) {
             "fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }",
         ),
         "MutableList" => (
-            "A mutable sequence interface. Structural edits validate active borrows and iteration guards. Completed writes and callback effects survive later failures.",
+            "A mutable sequence interface. Structural edits validate active borrows and invalidate existing cursors. Completed writes and callback effects survive later failures.",
             "fn append(values: std::collections::MutableList<i32>) { values.push(3); }",
         ),
         "Map" => (
@@ -170,7 +170,7 @@ fn trait_docs(name: &str) -> (&'static str, &'static str) {
             "fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }",
         ),
         "MutableSet" => (
-            "A mutable membership interface. Insertion retains one representative of each equal value. Structural edits honor active borrow, iteration and lookup guards.",
+            "A mutable membership interface. Insertion retains one representative of each equal value. Structural edits honor active borrow and lookup guards.",
             "fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }",
         ),
         _ => unreachable!("standard trait documentation inventory: {name}"),
@@ -267,7 +267,7 @@ pub(super) fn complete(module: &mut ModuleDecl) {
             "Builtin shared arrays have construction-time fixed length and checked element access."
         }
         "iter" => {
-            "Shared iteration and iterable construction. Iterator values retain progress and obey guarded structural mutation."
+            "Shared iteration and iterable construction. Iterator values retain progress and reject stale source reads after structural mutation."
         }
         "ops" => {
             "Operator contracts, range values and boundary policies. Operators dispatch through checked implementations and preserve evaluation order."
@@ -390,7 +390,7 @@ pub(super) fn complete(module: &mut ModuleDecl) {
                 "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
             ),
             "Vec" => (
-                "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and iteration guards.",
+                "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.",
                 "fn append(values: Vec<i32>) -> usize { values.push(3); values.len() }",
             ),
             "String" => (
@@ -406,7 +406,7 @@ pub(super) fn complete(module: &mut ModuleDecl) {
                 "fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }",
             ),
             "CollectionCursor" => (
-                "A shared built-in cursor. Copies share progress. next returns None when exhausted; active iteration guards its source against structural edits.",
+                "A shared built-in cursor. Copies share progress. next returns None when exhausted; structural source edits invalidate subsequent reads.",
                 "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
             ),
             "MapIterator" | "FilterIterator" | "TakeIterator" | "FilterMapIterator"
@@ -482,7 +482,7 @@ pub(super) fn complete(module: &mut ModuleDecl) {
                     module.documentation.entry(id).or_insert(text);
                 }
             } else {
-                let text = module.documentation.entry(id).or_insert_with(|| member_docs("collection", &method.name, "Creates or accesses checked shared collection storage. Structural mutation honors active borrow and iteration guards."));
+                let text = module.documentation.entry(id).or_insert_with(|| member_docs("collection", &method.name, "Creates or accesses checked shared collection storage. Structural mutation honors active borrow and callback guards."));
                 if !text.contains("```kgr") {
                     *text = example(
                         text,

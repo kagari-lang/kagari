@@ -218,28 +218,36 @@ impl<T: FromKagari> ScriptVec<T> {
             .transpose()
     }
 
-    /// Each callback runs without a storage borrow. The iteration lease rejects
-    /// structural changes through every alias and releases on error or unwind.
+    /// Each callback runs without a storage borrow. Structural edits commit,
+    /// then invalidate the traversal at its next read (including exhaustion).
     pub fn for_each(
         &self,
         cx: &mut NativeContext<'_>,
         mut visit: impl FnMut(&mut NativeContext<'_>, T) -> NativeResult<()>,
     ) -> NativeResult<()> {
         let id = self.id(cx, false)?;
-        let _iteration = cx
+        let collection = Value::GcHandle(id);
+        let revision = cx
             .runtime()
             .gc()
-            .begin_collection_iteration(&Value::GcHandle(id))?;
+            .collection_revision(&collection)
+            .ok_or_else(|| RuntimeError::module_validation("collection revision"))?;
         let count = self.len(cx)?;
         cx.conversion.check_elements(count)?;
         for index in 0..count {
             cx.poll()?;
+            cx.runtime()
+                .gc()
+                .check_collection_revision(&collection, revision)?;
             let value = self.get(cx, index)?.ok_or_else(|| {
                 RuntimeError::module_validation("collection changed during iteration")
             })?;
             visit(cx, value)?;
             cx.poll()?;
         }
+        cx.runtime()
+            .gc()
+            .check_collection_revision(&collection, revision)?;
         Ok(())
     }
 }

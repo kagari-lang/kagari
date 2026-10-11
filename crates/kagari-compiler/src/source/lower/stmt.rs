@@ -289,14 +289,6 @@ impl FunctionLowerer<'_, '_> {
             &self.protocol_method(Protocol::Iterable, 0)?,
             &[source],
         )?;
-        // Any heap-backed iterator may retain managed native iteration sources.
-        // The storage descriptor, rather than a named library type, owns them.
-        let scoped = iterator.ty == ValueType::HeapObject;
-        if scoped {
-            self.emit(Instruction::BeginIteration {
-                collection: iterator,
-            });
-        }
         let next_block = self.new_block();
         let body_block = self.new_block();
         let exit = self.new_block();
@@ -332,9 +324,6 @@ impl FunctionLowerer<'_, '_> {
         self.ensure_jump(next_block);
         self.loops.pop();
         self.switch_to_block(exit);
-        if scoped {
-            self.emit(Instruction::EndIteration);
-        }
         Ok(())
     }
 }

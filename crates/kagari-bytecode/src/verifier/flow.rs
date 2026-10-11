@@ -17,7 +17,7 @@ struct Block {
     end: usize,
     successors: Vec<usize>,
     predecessors: Vec<usize>,
-    depth: Option<usize>,
+    reachable: bool,
     uses: Vec<u64>,
     defines: Vec<u64>,
     initialized: Vec<u64>,
@@ -53,7 +53,7 @@ pub(super) fn verify(
         words: (registers + usize::from(function.local_count)).div_ceil(64),
     };
     flow.graph()?;
-    flow.resources()?;
+    flow.reachability()?;
     flow.fixed_points()?;
     flow.check_points()
 }
@@ -114,7 +114,7 @@ impl Flow<'_> {
                 end,
                 successors: vec![],
                 predecessors: vec![],
-                depth: None,
+                reachable: false,
                 uses: vec![0; self.words],
                 defines: vec![0; self.words],
                 initialized: vec![u64::MAX; self.words],
@@ -190,33 +190,15 @@ impl Flow<'_> {
         instruction.register_output().map(|r| r.index())
     }
 
-    fn resources(&mut self) -> Result<(), Error> {
-        self.blocks[0].depth = Some(0);
+    fn reachability(&mut self) -> Result<(), Error> {
+        self.blocks[0].reachable = true;
         let mut pending = vec![0];
         while let Some(index) = pending.pop() {
-            let mut depth = self.blocks[index].depth.expect("reachable block");
-            for pc in self.blocks[index].start..self.blocks[index].end {
-                self.charge(1)?;
-                match &self.function.instructions[pc] {
-                    I::BeginIteration { .. } => depth += 1,
-                    I::EndIteration => {
-                        depth = depth
-                            .checked_sub(1)
-                            .ok_or_else(|| self.invalid("iteration resource underflow"))?
-                    }
-                    _ => {}
-                }
-            }
             for successor in self.blocks[index].successors.clone() {
-                match self.blocks[successor].depth {
-                    Some(previous) if previous != depth => {
-                        return Err(self.invalid("inconsistent iteration resource stack"));
-                    }
-                    Some(_) => {}
-                    None => {
-                        self.blocks[successor].depth = Some(depth);
-                        pending.push(successor);
-                    }
+                self.charge(1)?;
+                if !self.blocks[successor].reachable {
+                    self.blocks[successor].reachable = true;
+                    pending.push(successor);
                 }
             }
         }
@@ -233,7 +215,7 @@ impl Flow<'_> {
         } else {
             let mut state = vec![u64::MAX; self.words];
             for &previous in &self.blocks[index].predecessors {
-                if self.blocks[previous].depth.is_some() {
+                if self.blocks[previous].reachable {
                     for (word, &initialized) in
                         state.iter_mut().zip(&self.blocks[previous].initialized)
                     {
@@ -259,7 +241,7 @@ impl Flow<'_> {
         loop {
             let mut changed = false;
             for index in 0..self.blocks.len() {
-                if self.blocks[index].depth.is_none() {
+                if !self.blocks[index].reachable {
                     continue;
                 }
                 self.charge(
@@ -290,7 +272,7 @@ impl Flow<'_> {
     fn check_points(&mut self) -> Result<Vec<AwaitLiveness>, Error> {
         let mut points = Vec::new();
         for index in 0..self.blocks.len() {
-            if self.blocks[index].depth.is_none() {
+            if !self.blocks[index].reachable {
                 continue;
             }
             let (start, end) = (self.blocks[index].start, self.blocks[index].end);

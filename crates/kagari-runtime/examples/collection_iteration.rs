@@ -23,8 +23,8 @@ fn main() {
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
     let value = Value::Array(id);
-    let iteration = gc.begin_collection_iteration(&value).unwrap();
-    // Aliases may replace an existing element, but cannot change structure.
+    let revision = gc.collection_revision(&value).unwrap();
+    // Fixed arrays permit element replacement without invalidating traversal.
     gc.array_set(id, 0, Value::I32(42)).unwrap();
     assert_eq!(
         gc.array_set(id, 1, Value::I32(9)).unwrap_err().kind(),
@@ -34,8 +34,8 @@ fn main() {
     assert!(gc.sequence_push(id, Value::I32(2)).is_err());
     assert_eq!(gc.array_len(id), Some(1));
     assert!(gc.sequence_pop(id).is_err());
-    drop(iteration);
-    // Fixed length remains an object invariant after the iteration guard ends.
+    gc.check_collection_revision(&value, revision).unwrap();
+    // Fixed length is an array invariant, independent of any iterator.
     assert!(gc.sequence_push(id, Value::I32(2)).is_err());
     assert!(gc.sequence_clear(id).is_err());
     gc.array_set(id, 0, Value::I32(7)).unwrap();

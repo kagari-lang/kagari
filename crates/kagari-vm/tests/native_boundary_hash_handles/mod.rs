@@ -76,7 +76,7 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
 }
 
 #[test]
-fn hash_snapshots_root_replaced_values_and_release_iteration_guards() {
+fn hash_snapshots_root_replaced_values_and_detect_structural_edits() {
     let (vm, owner) = fixture(
         r#"
         use std::collections::{HashMap, HashSet};
@@ -98,8 +98,6 @@ fn hash_snapshots_root_replaced_values_and_release_iteration_guards() {
     let replacement = cx.create_vec(vec![0]).unwrap();
     let mut sum = 0;
     map.for_each(&mut cx, |cx, _, value| {
-        assert!(map.clear(cx).is_err());
-        assert!(map.insert(cx, 3, replacement.clone()).is_err());
         map.insert(cx, 1, replacement.clone())?;
         map.insert(cx, 2, replacement.clone())?;
         cx.collect_garbage()?;
@@ -328,4 +326,43 @@ fn typed_native_hash_arguments_share_script_storage_and_return_handles() {
         .unwrap();
     assert_eq!(vm.call(&run, ()).unwrap(), 42);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn host_hash_traversals_detect_committed_edits_including_the_final_callback() {
+    let (vm, owner) = fixture(
+        r#"use std::collections::{HashMap, HashSet};
+        pub fn make()->(HashMap<i32,i32>,HashSet<i32>) {
+            val map=HashMap::new();map.insert(1,10);
+            val set=HashSet::new();set.insert(1);(map,set)
+        }"#,
+        None,
+    );
+    type Containers = (ScriptMap<i32, i32>, ScriptSet<i32>);
+    let make = vm
+        .runtime()
+        .bind_function::<(), Containers>(&owner, "make")
+        .unwrap();
+    let (map, set) = vm.call(&make, ()).unwrap();
+    let mut cx = vm.context(&owner).unwrap();
+    let error = map
+        .for_each(&mut cx, |cx, key, value| {
+            assert_eq!((key, value), (1, 10));
+            map.insert(cx, 2, 20)?;
+            cx.collect_garbage()?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(error.message().contains("structurally modified iterator"));
+    assert_eq!(map.get(&mut cx, 2).unwrap(), Some(20));
+    let error = set
+        .for_each(&mut cx, |cx, value| {
+            assert_eq!(value, 1);
+            set.insert(cx, 2)?;
+            cx.collect_garbage()?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(error.message().contains("structurally modified iterator"));
+    assert!(set.contains(&cx, 2).unwrap());
 }

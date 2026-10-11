@@ -1,4 +1,4 @@
-//! Parking preserves owned iteration resources, never transient native borrows.
+//! Parking retains live values, never transient native borrows.
 use crate::{
     Runtime,
     error::RuntimeError,

@@ -70,7 +70,7 @@ Recheck implementation at NC01 without reopening the completed Iterable API work
 | [Iterable declarations](../crates/kagari-stdlib/src/catalog/iterable.rs), [default requirements](../crates/kagari-stdlib/src/catalog/iterable_defaults.rs), [bindings](../crates/kagari-stdlib/src/bindings/iterable.rs) | Uniform defaults, Iterator identity adaptation and nominal lazy adapters are implemented. Reuse these algorithms and checked iter/next calls; the old Vec-only free map and NativeCursor SDK were removed. |
 | [Call context](../crates/kagari-runtime/src/native/context.rs), [stored selections](../crates/kagari-runtime/src/native/stored_selection.rs) | Payload allocation retains selected calls as metadata edges and later invokes them through the rooted receiver. Reuse this mechanism for collection key calls; public constructor/factory ergonomics still need NC01 review. |
 | [Construction requirements](../crates/kagari-stdlib/src/catalog/construction_defaults.rs), [construction bindings](../crates/kagari-stdlib/src/bindings/construction.rs) | Vec/HashMap/HashSet FromIterator and collect delegation already work. Hash construction selects insert, but still declares Ty::Map/Set and branches on Value::Map; migrate representation without replacing consumption semantics. |
-| [Consumer scopes](../crates/kagari-runtime/src/gc/iteration.rs), [base cursors](../crates/kagari-runtime/src/gc/iter.rs) | Wrappers propagate iteration_sources recursively. Actual source leases still recognize Sequence/Map/Set and base cursors through Ty::Iter/NativeIter. General nominal collection protection is a remaining storage boundary, not a missing terminal algorithm. |
+| [Base cursors](../crates/kagari-runtime/src/gc/iter.rs) | Cursors check structural revisions on reads; wrappers retain ordinary traced edges, without iteration leases or consumer-scope traversal. Revision ownership for general library storage remains a native storage boundary. |
 
 Today map insertion passes through Value::Map and GcHeap map operations into a
 runtime-owned table. That path also enforces key/value typing, allocation
@@ -109,7 +109,7 @@ Allocation copies the chosen selected calls into object metadata slots, in the
 supplied order. StoredSelection stays runtime-private; libraries do not construct
 owning metadata roots inside payloads. StoredCallable remains the mechanism for
 traced script closure values. These are existing capabilities, not new NC APIs.
-They do not by themselves provide checked resizing, arbitrary source leases or a
+They do not by themselves provide checked resizing, library-owned cursor revisions or a
 public factory-level key-call registration contract.
 
 ## Ownership and representation
@@ -212,7 +212,7 @@ only gaps required by these collections and the external proof.
 | Scoped access | References cannot escape; no storage borrow spans GC or callback/reentry. Safe APIs cannot overwrite traced slots with unchecked values. |
 | GC edges/roots | Trace stored values and call dependencies; root reads/removals/candidates across allocations or callbacks; deterministically release failed-construction and temporary roots. |
 | Retained calls | Reuse allocate_result_payload selected slots and call_stored_values. Preserve signatures/generations and metadata edges versus external roots. Complete only constructor/host-path gaps; no borrowed CallContext or repeated name lookup. |
-| Operation/iteration protection | Reuse begin_collection_iteration, iteration_sources and operation guards. Generalize source lease/revision admission beyond Sequence/Map/Set and Ty::Iter so library-defined storage participates across aliases, interfaces and nested cursors. Preserve cleanup independently of finalization. |
+| Operation guards and iterator validity | Preserve short native borrow, hashing and mutation-commit guards. Libraries own cursor revision checks: structural writes commit and stale reads trap. Generalize revision ownership beyond builtin storage without reintroducing lifetime iteration leases. Source/callback retention uses ordinary GC tracing and pinned calls. |
 
 Do not expose arbitrary safe &mut P for reference-bearing or variable-allocation
 payloads. Reuse/extend managed storage or define a bounded audited storage-provider
@@ -241,15 +241,15 @@ lease guarantees. Failed in-place algorithms preserve their specified completed
 effects and element-multiset guarantees; do not add rollback semantics.
 
 Iteration preserves declared order, shared progress, structural mutation rules and
-live shallow views. Release scoped guards on exhaustion, short circuit, break,
-traps, cancellation and depth exhaustion. Direct iter/next session behavior and
-resumed-cursor invalidation remain unchanged.
+live shallow views. Structural edits commit and invalidate subsequent source reads;
+short-circuit consumers do not force an extra read. Release temporary roots on
+completion and failure, without introducing cursor lifetime leases.
 
 ## Consumers and optimizations
 
 Inventory type substitution/formatting, interface coercions, executable schemas,
 codecs, bytecode verification, lowering, host ScriptVec/ScriptMap/ScriptSet
-adapters, source guards, reflection/tooling and artifact producers. Separate
+adapters, source revision checks, reflection/tooling and artifact producers. Separate
 concrete native handles from generic List/Map/Set handles: interface adapters
 invoke selected methods rather than infer storage from the trait name.
 
@@ -273,18 +273,18 @@ The [Iterable APIs](spec/builtins.md#iteration-protocols) and
 [retained native cursors](spec/standard-declarations.md#sorting-and-lazy-iteration)
 are implemented at this baseline; NC01-NC06 remain queued and unstarted.
 Implementation begins with NC01,
-using the existing retained slots, adapters, terminal scopes and FromIterator
+using the existing retained slots, adapters, terminal consumers and FromIterator
 implementations. Do not add another Iterable phase or make the trait surface
 depend on this storage migration. The full SA21 host-registration work remains
 separate; the roadmap owns subsequent activation changes.
 
 | Phase | Scope and exit condition |
 | --- | --- |
-| NC01: inventory and API contract | Trace dynamic edits, source leases/revisions, factories, key calls, host conversions and artifacts against 9cd90557. Record exact reuse of retained slots/consumer scopes, constructor evidence, builtin cursor disposition, optimization review and baseline commands. Establish the external fixture and only the missing public capabilities. |
-| NC02: general storage capabilities | Complete checked dynamic edits, allocation/accounting and nominal source protection. Extend retention only for proven constructor/host gaps. Demonstrate public-API-only reference-bearing storage participating in existing nested/paired adapter scopes with mutation and callback failure cleanup. No second guard or selected-call subsystem. |
+| NC01: inventory and API contract | Trace dynamic edits, source revisions, factories, key calls, host conversions and artifacts against 9cd90557. Record exact reuse of retained slots/revision checks, constructor evidence, builtin cursor disposition, optimization review and baseline commands. Establish the external fixture and only the missing public capabilities. |
+| NC02: general storage capabilities | Complete checked dynamic edits, allocation/accounting and nominal revision ownership. Extend retention only for proven constructor/host gaps. Demonstrate public-API-only reference-bearing storage participating in existing nested/paired adapters with invalidation and callback failure cleanup. No second guard or selected-call subsystem. |
 | NC03: Vec migration | Move concrete storage/operation policy and its base cursor to the library; replace Sequence admission and consumers while retaining builtin Array support. Preserve defaults, indexing, sorting, existing FromIterator/pipelines, host adapters and compact buffers. Remove the obsolete parallel Vec path. |
 | NC04: HashMap/HashSet migration | Register both as nominal objects; move table/key policy and base cursors to the library, replace special type/value/layout branches and migrate host/contract/backend consumers. Rebind existing FromIterator insert/iter/next requirements to nominal types. Preserve collisions, last-value-wins/dedup rules, custom Hash/Eq, cleanup and pinned calls. |
-| NC05: external extensibility and cursors | Close remaining collection cursor consumers and prove a public-API-only BTreeMap<i32, T> fixture implements Map/MutableMap/Iterable with reference-bearing values and source guards. Exercise existing adapters and collection terminals without core enum changes or new default algorithms. Separately prove retained script comparison calls, not only Hash/Eq. No production ordered collection required. |
+| NC05: external extensibility and cursors | Close remaining collection cursor consumers and prove a public-API-only BTreeMap<i32, T> fixture implements Map/MutableMap/Iterable with reference-bearing values and source revision checks. Exercise existing adapters and collection terminals without core enum changes or new default algorithms. Separately prove retained script comparison calls, not only Hash/Eq. No production ordered collection required. |
 | NC06: final integration | Remove obsolete paths/bridges, update implemented docs/examples/tooling, refresh affected artifacts once, complete host/source-free acceptance, repeat focused measurements and run final local checks. Report CI separately. |
 
 The external BTreeMap fixture can use Rust integer ordering because its keys are
@@ -310,7 +310,7 @@ Reuse existing semantic owners, extending only distinct missing contracts:
 | --- | --- |
 | [Interfaces](../crates/kagari-embed/tests/collection_interfaces.rs), [access](../crates/kagari-embed/tests/collection_access.rs), [arrays](../crates/kagari-embed/tests/array_operations.rs) | Nominal distinction, generic/interface dispatch, invariance, shallow views, aliases, bounds, Array separation and once-only mutation targets. |
 | [Iteration](../crates/kagari-embed/tests/iteration_traits.rs), [conversions](../crates/kagari-embed/tests/conversion_traits.rs), [library collections](../crates/kagari-vm/tests/library_collections.rs) | Preserve implemented adapter/terminal behavior while changing source/destination storage: generic/interface traversal, custom destination dispatch, HashMap last-value-wins, HashSet deduplication, early exit and shared progress. |
-| [Lazy cursor boundaries](../crates/kagari-vm/tests/library_mapping/mod.rs), [source-free pipeline fixture](../crates/kagari-embed/tests/fixtures/feature_artifact.kgr) | Reuse retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload and existing recursive-next/cycle/guard coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
+| [Lazy cursor boundaries](../crates/kagari-vm/tests/library_mapping/mod.rs), [source-free pipeline fixture](../crates/kagari-embed/tests/fixtures/feature_artifact.kgr) | Reuse retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload and existing recursive-next/cycle/invalidation coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
 | [Native builder](../crates/kagari-runtime/tests/native_builder.rs), [native boundary](../crates/kagari-vm/tests/native_boundary.rs) | Public extensions, wrong nominal/payload/type/owner rejection, dynamic edges, roots, reentry/traps/cancellation, cyclic collection cleanup and host retention. |
 | [Reload](../crates/kagari-embed/tests/generic_reload.rs), [artifacts](../crates/kagari-embed/tests/artifact_features.rs), [native artifacts](../crates/kagari-embed/tests/native_artifacts.rs) | Pinned types/callbacks/cursors, source-free linking, forged storage/call evidence rejection and backend agreement. |
 
@@ -366,7 +366,7 @@ design work, not acceptance waivers. Update this ledger rather than create a
 parallel progress/review queue.
 
 Planning refresh: inspected Iterable declarations/default requirements, adapter
-bindings, retained-call APIs, destination construction and source lease traversal
+bindings, retained-call APIs, destination construction and source revision validation
 at 9cd90557. The old NativeCursor/mapping path is not a migration prerequisite.
 Historical Iterable validation remains in Git; it does not establish NC acceptance.
 Earlier test-cost measurements at 35de1818 remain historical and are

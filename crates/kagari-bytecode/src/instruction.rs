@@ -341,10 +341,6 @@ pub enum BytecodeInstruction<I = DefinitionPath> {
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         args: Vec<Register>,
     },
-    BeginIteration {
-        collection: Register,
-    },
-    EndIteration,
     MakeTuple {
         dst: Register,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]

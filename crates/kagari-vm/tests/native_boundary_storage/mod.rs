@@ -303,7 +303,7 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
 }
 
 #[test]
-fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() {
+fn removal_results_distinguish_absence_from_stale_handle_errors() {
     let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
@@ -332,27 +332,11 @@ fn removal_results_distinguish_absence_from_iteration_and_stale_handle_errors() 
     assert!(!heap.set_remove(set, &Value::I32(1)).unwrap());
     assert!(heap.map_remove(map, &Value::F64(1.0)).is_err());
     assert!(heap.set_remove(set, &Value::F64(1.0)).is_err());
-    let guards = [Value::GcHandle(array), Value::Map(map), Value::Set(set)]
-        .map(|value| heap.begin_collection_iteration(&value).unwrap());
     let before = heap.stats().current_heap_units;
-    for result in [
-        heap.sequence_pop(array).map(|_| ()),
-        heap.sequence_remove(array, 0).map(|_| ()),
-        heap.sequence_clear(array),
-        heap.map_remove(map, &Value::I32(1)).map(|_| ()),
-        heap.map_clear(map),
-        heap.set_remove(set, &Value::I32(1)).map(|_| ()),
-        heap.set_clear(set),
-    ] {
-        let error = result.unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
-        assert_eq!(error.message(), "structural modification during iteration");
-    }
-    assert_eq!(heap.stats().current_heap_units, before);
-    drop(guards);
     heap.sequence_clear(array).unwrap();
     heap.map_clear(map).unwrap();
     heap.set_clear(set).unwrap();
+    assert_eq!(heap.stats().current_heap_units, before);
     vm.runtime().collect_garbage().unwrap();
     assert!(heap.sequence_pop(array).is_err());
     assert!(heap.sequence_remove(array, 0).is_err());
@@ -491,7 +475,7 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
 }
 
 #[test]
-fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
+fn collection_revisions_distinguish_replacements_from_structural_writes() {
     let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
 
@@ -518,44 +502,31 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
     };
     let (array, map, set) = (*array, *map, *set);
     let heap = vm.runtime().gc();
-    let guards = [Value::GcHandle(array), Value::Map(map), Value::Set(set)]
-        .map(|value| heap.begin_collection_iteration(&value).unwrap());
-    let before = heap.stats();
-    for result in [
-        heap.sequence_push(array, Value::I32(2)),
-        heap.sequence_pop(array).map(|_| ()),
-        heap.sequence_insert(array, 0, Value::I32(2)),
-        heap.sequence_remove(array, 0).map(|_| ()),
-        heap.sequence_clear(array),
-        heap.map_insert(map, Value::I32(3), Value::I32(4)),
-        heap.map_remove(map, &Value::I32(1)).map(|_| ()),
-        heap.map_clear(map),
-        heap.set_insert(set, Value::I32(2)).map(|_| ()),
-        heap.set_remove(set, &Value::I32(1)).map(|_| ()),
-        heap.set_clear(set),
-    ] {
-        assert_eq!(
-            result.unwrap_err().message(),
-            "structural modification during iteration"
-        );
-        assert_eq!(heap.stats(), before);
-        assert_eq!(heap.sequence_snapshot(array).unwrap(), vec![Value::I32(1)]);
-        assert_eq!(
-            heap.map_snapshot(map).unwrap(),
-            vec![(Value::I32(1), Value::I32(2))]
-        );
-        assert_eq!(heap.set_snapshot(set).unwrap(), vec![Value::I32(1)]);
-    }
+    let sources = [Value::GcHandle(array), Value::Map(map), Value::Set(set)];
+    let revisions = sources.map(|value| heap.collection_revision(&value).unwrap());
     heap.sequence_set(array, 0, Value::I32(9)).unwrap();
-    let nested = heap
-        .begin_collection_iteration(&Value::GcHandle(array))
-        .unwrap();
-    drop(nested);
-    assert!(heap.sequence_push(array, Value::I32(2)).is_err());
     heap.map_insert(map, Value::I32(1), Value::I32(9)).unwrap();
     assert!(!heap.set_insert(set, Value::I32(1)).unwrap());
-    drop(guards);
+    for (source, revision) in sources.iter().zip(revisions) {
+        heap.check_collection_revision(source, revision).unwrap();
+    }
     heap.sequence_push(array, Value::I32(2)).unwrap();
+    heap.map_insert(map, Value::I32(2), Value::I32(3)).unwrap();
+    assert!(heap.set_insert(set, Value::I32(2)).unwrap());
+    for (source, revision) in sources.iter().zip(revisions) {
+        assert_eq!(
+            heap.check_collection_revision(source, revision)
+                .unwrap_err()
+                .message(),
+            "invalid or structurally modified iterator"
+        );
+    }
+    assert_eq!(
+        heap.sequence_snapshot(array).unwrap(),
+        vec![Value::I32(9), Value::I32(2)]
+    );
+    assert_eq!(heap.map_len(map), Some(2));
+    assert_eq!(heap.set_len(set), Some(2));
 }
 
 #[test]
@@ -599,7 +570,7 @@ fn native_map_and_set_allocations_update_resource_counters() {
 }
 
 #[test]
-fn custom_set_removal_rejects_iteration_even_when_the_key_is_absent() {
+fn custom_set_absent_removal_does_not_invalidate_iteration() {
     let (vm, loaded) = compile(
         r#"use std::collections::{HashSet};
 use std::hash::{Hash};
@@ -615,11 +586,7 @@ use std::hash::{Hash};
     "#,
         None,
     );
-    let error = vm.execute(&loaded, "main").unwrap_err();
-    assert!(
-        format!("{error:?}").contains("structural modification during iteration"),
-        "{error:?}"
-    );
+    vm.execute(&loaded, "main").unwrap();
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(vm.runtime().gc().allocated_objects(), 0);

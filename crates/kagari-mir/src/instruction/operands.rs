@@ -49,8 +49,6 @@ impl<I: DefinitionReference> Instruction<I> {
                 smallvec::smallvec![*src]
             }
             Instruction::Unary { operand, .. } => smallvec::smallvec![*operand],
-            Instruction::BeginIteration { collection } => smallvec::smallvec![*collection],
-            Instruction::EndIteration => smallvec::smallvec![],
             Instruction::RangeBound { value, .. } => smallvec::smallvec![*value],
             Instruction::MakeRange { start, end, .. } => start.iter().chain(end).copied().collect(),
             Instruction::RepeatArray { value, count, .. } => smallvec::smallvec![*value, *count],
@@ -167,7 +165,6 @@ impl<I: DefinitionReference> Instruction<I> {
             | Instruction::WriteAggregateIndex { .. }
             | Instruction::SetPath { .. } => None,
             Instruction::WriteCell { .. } => None,
-            Instruction::BeginIteration { .. } | Instruction::EndIteration => None,
         }
     }
 }

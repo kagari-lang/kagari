@@ -158,7 +158,7 @@ impl<T: IntoKagari> ScriptSet<T> {
 }
 
 impl<T: FromKagari> ScriptSet<T> {
-    /// Visit a rooted snapshot with structural mutation blocked across aliases.
+    /// Visit a rooted snapshot, checking structural revisions after callbacks.
     pub fn for_each(
         &self,
         cx: &mut NativeContext<'_>,
@@ -166,7 +166,9 @@ impl<T: FromKagari> ScriptSet<T> {
     ) -> NativeResult<()> {
         let (collection, id) = self.handle.value(cx, false)?;
         let heap = cx.runtime().gc();
-        let _iteration = heap.begin_collection_iteration(&collection)?;
+        let revision = heap
+            .collection_revision(&collection)
+            .ok_or_else(|| RuntimeError::module_validation("collection revision"))?;
         cx.conversion.check_elements(self.len(cx)?)?;
         let entries = heap
             .set_snapshot(id)
@@ -176,6 +178,9 @@ impl<T: FromKagari> ScriptSet<T> {
             .ok_or_else(|| RuntimeError::module_validation("set snapshot retention"))?;
         for index in 0..self.len(cx)? {
             cx.poll()?;
+            cx.runtime()
+                .gc()
+                .check_collection_revision(&collection, revision)?;
             let value = roots
                 .get(heap, index)
                 .ok_or_else(|| RuntimeError::module_validation("set snapshot value"))?;
@@ -183,6 +188,9 @@ impl<T: FromKagari> ScriptSet<T> {
             visit(cx, value)?;
             cx.poll()?;
         }
+        cx.runtime()
+            .gc()
+            .check_collection_revision(&collection, revision)?;
         Ok(())
     }
 }

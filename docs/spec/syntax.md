@@ -47,8 +47,8 @@ Module execution rules are defined separately in [modules.md](modules.md).
 The executable subset currently includes field shorthand, remainder, inherent
 method calls, tuple/struct/enum destructuring, `for` over built-in iterable
 collections and strings, and `loop` expressions with `break` values.
-Collection iteration blocks structural modification through aliases until
-the loop exits. Closures use lexical capture; `var` captures share a GC-managed
+Structural modification through aliases invalidates existing collection cursors;
+the next source read traps. Closures use lexical capture; `var` captures share a GC-managed
 cell, and `val` captures copy the value under the ordinary value model.
 Function types use `fn(T, ...) -> R`.
 

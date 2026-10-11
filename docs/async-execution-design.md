@@ -480,23 +480,19 @@ temporaries; runtime checks cover the complete active frame chain and native
 resources. Artifact validation must enforce the same facts without trusting HIR.
 Suspension checks apply even when a particular await happens to complete immediately.
 
-Ordinary `for` bodies support `.await`. Native collection iteration already uses
-owned `CollectionIteration` records: rooted sources plus `OwnedLease` tokens,
-without a retained Rust Ref/RefMut or storage pointer. These iteration records
-are suspend-safe and stay in the parked frame. Preserve the existing exclusion
-of structural mutation until exhaustion, break, return, trap or cancellation;
-another execution attempting structural mutation receives the existing trap.
-Nonstructural replacements remain visible to later steps. Do not copy the source,
-restart `iter`/`next`, release/reacquire leases or change to fail-fast iteration at
-an await. Nested loops, erased Iterator views and native adapters retain their
-existing declared resource edges. Custom script iterators retain ordinary rooted
-state and use their existing consistency rules. Their `iter` and `next` calls
-remain synchronous; awaiting in the loop body needs no async iterator protocol.
+Ordinary `for` bodies support `.await`. Parked frames retain live cursor values
+and their traced sources without a Rust borrow, storage pointer or iteration
+lease. Another execution may structurally mutate a source while the loop is
+parked; the resumed cursor traps before its next source read. Nonstructural
+replacements remain visible. Suspension does not copy sources or restart iter/next.
+Native adapters retain source and callback GC edges and pinned executable selections.
+Custom script iterators retain ordinary rooted state and own their consistency
+rules. Their iter and next calls remain synchronous; awaiting in a loop body needs
+no async iterator protocol.
 
 Frame mutation guards, prepared writable paths, ephemeral host access and native
-storage borrows remain non-suspendable. Even though a mutation guard may share
-an owned representation with an iteration guard, its operation is unfinished and
-its semantics differ. Ordinary `retain`/`sort_by` callbacks cannot contain await
+storage borrows remain non-suspendable. A mutation guard protects an unfinished operation
+and cannot cross suspension. Ordinary `retain`/`sort_by` callbacks cannot contain await
 under the selected callable rules: `Fn(T) -> Bool` is not `Fn(T) -> Future<Bool>`.
 No additional user restriction or async collection algorithm is introduced.
 
@@ -650,7 +646,7 @@ only the execution and its dependency waiters.
 | Future / Claimed | completion or failure | Terminal; release input/frame/operation state after moving the result into the caller. |
 | Future / Cold | becomes unreachable | GC releases captured values and code pins; no external work started. |
 | Execution / Queued or Runnable | drive | Running, after identity/cancellation validation. |
-| Execution / Running | safe slice exit or incomplete await | Runnable or Waiting; retain owned stack and iteration leases. |
+| Execution / Running | safe slice exit or incomplete await | Runnable or Waiting; retain owned stack and live cursor values. |
 | Execution / Waiting | authorized completion or target terminal | Runnable; publication does not enter VM. |
 | Execution / nonterminal | cancellation | Runnable for cleanup, then terminal Cancelled; no remote reply required. |
 | Task / Queued | first drive | Invoke admitted factory once, drive its one returned Future; factory failure is Task failure. |
@@ -729,15 +725,13 @@ report/result handle has been dropped or remote IO has been rolled back.
 ### Suspension audit and candidate boundaries
 
 Allowed retained state: owned scalar/managed values, code pins, checked stable IDs,
-closure environments and owned collection iteration leases. Prohibited retained
-state: Rust Ref/RefMut, host scoped borrows/ephemerals, prepared writable paths,
-frame mutation guards and an unfinished synchronous native/reentry activation.
-Frame checks distinguish iteration from mutation even when their lease types match.
-`for` tests must park on a real deferred result, run another execution, force GC,
-and resume without repeating `iter`, `next` or earlier effects. They must cover
-nested/custom/erased iterators and release leases after exit/cancel/trap. The
-existing native structural-write trap is retained while the original loop waits;
-nonstructural replacements remain observable. No snapshot requirement is added.
+closure environments and rooted cursors. Prohibited retained state: Rust Ref/RefMut,
+host scoped borrows/ephemerals, prepared writable paths, frame mutation guards and
+an unfinished synchronous native/reentry activation. For-loop tests park real
+executions, force GC, permit source edits and verify that subsequent stale reads
+trap without repeating earlier effects. Nonstructural replacements remain visible.
+Completion, cancellation and owner retirement release frame roots independently
+of GC timing. No source snapshot is required.
 
 Cold capture validation follows reachable managed values/cells with cycle detection,
 not just static outer types. Reject ephemeral or scoped host resources at creation

@@ -335,7 +335,7 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
 }
 
 #[test]
-fn collection_handles_preserve_identity_access_and_iteration_cleanup() {
+fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
     let (runtime, owner) = fixture();
     let mut cx = NativeContext::new(&runtime, &owner).unwrap();
     let values = cx.create_vec(vec![1i32, 2, 3]).unwrap();
@@ -355,7 +355,6 @@ fn collection_handles_preserve_identity_access_and_iteration_cleanup() {
     values
         .for_each(&mut cx, |cx, value| {
             cx.collect_garbage()?;
-            assert!(alias.push(cx, 99).is_err());
             seen.push(value);
             Ok(())
         })
@@ -366,7 +365,19 @@ fn collection_handles_preserve_identity_access_and_iteration_cleanup() {
             .for_each(&mut cx, |_, _| Err(RuntimeError::module_validation("stop")))
             .is_err()
     );
-    // The failed callback released its structural-mutation exclusion.
+    let mut count = 0;
+    let error = values
+        .for_each(&mut cx, |cx, _| {
+            count += 1;
+            alias.push(cx, 99)?;
+            cx.collect_garbage()?;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(error.message().contains("structurally modified iterator"));
+    assert_eq!(count, 1);
+    assert_eq!(values.get(&mut cx, 3).unwrap(), Some(99));
+    // Callback failure and invalidation do not roll back completed edits.
     alias.push(&mut cx, 4).unwrap();
     values.truncate(&cx, 1).unwrap();
     assert_eq!(alias.len(&cx).unwrap(), 1);

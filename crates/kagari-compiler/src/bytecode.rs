@@ -671,10 +671,6 @@ fn lower_instruction(
             },
             args: args.iter().map(|arg| lower_value(*arg)).collect(),
         },
-        Instruction::BeginIteration { collection } => BytecodeInstruction::BeginIteration {
-            collection: lower_value(*collection),
-        },
-        Instruction::EndIteration => BytecodeInstruction::EndIteration,
         Instruction::MakeTuple { dst, elements } => BytecodeInstruction::MakeTuple {
             dst: lower_value(*dst),
             elements: elements

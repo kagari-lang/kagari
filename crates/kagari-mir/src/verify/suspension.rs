@@ -2,7 +2,6 @@
 use crate::{
     analysis::FunctionAnalysis,
     function::MirFunction,
-    ids::BlockId,
     instruction::Instruction,
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error, analysis::Budget},
 };
@@ -34,11 +33,10 @@ pub(super) fn verify(
     let invalid = |context: Context<'_>, reason| {
         context.error(Error::Contract(ContractError::InvalidOperation { reason }))
     };
-    let mut depths = vec![None; function.blocks.len()];
-    depths[function.entry.index()] = Some(0usize);
+    let mut visited = vec![false; function.blocks.len()];
+    visited[function.entry.index()] = true;
     let mut pending = vec![function.entry];
     while let Some(id) = pending.pop() {
-        let mut depth = depths[id.index()].expect("queued block");
         let block = &function.blocks[id.index()];
         let facts = analysis.block(id).expect("verified analysis");
         for (index, instruction) in block.instructions.iter().enumerate() {
@@ -49,37 +47,26 @@ pub(super) fn verify(
                 ..context
             };
             budget.work(1, context)?;
-            match instruction {
-                Instruction::BeginIteration { .. } => depth += 1,
-                Instruction::EndIteration => {
-                    depth = depth
-                        .checked_sub(1)
-                        .ok_or_else(|| invalid(context, "iteration resource underflow"))?;
+            if let Instruction::Await { .. } = instruction {
+                let live = facts.instruction(index).expect("instruction facts").live();
+                budget.work(function.temps.len() + function.locals.len(), context)?;
+                let unsafe_temp = live.temps().any(|temp| {
+                    ephemeral(
+                        function.temps[temp.index()].ty,
+                        function.semantic.registers.get(&temp.index()),
+                    )
+                });
+                let unsafe_local = live.locals().any(|local| {
+                    ephemeral(
+                        function.locals[local.index()].ty,
+                        function.semantic.locals.get(&local.index()),
+                    )
+                });
+                if unsafe_temp || unsafe_local {
+                    return Err(invalid(context, "host capability live across await"));
                 }
-                Instruction::Await { .. } => {
-                    let live = facts.instruction(index).expect("instruction facts").live();
-                    budget.work(function.temps.len() + function.locals.len(), context)?;
-                    let unsafe_temp = live.temps().any(|temp| {
-                        ephemeral(
-                            function.temps[temp.index()].ty,
-                            function.semantic.registers.get(&temp.index()),
-                        )
-                    });
-                    let unsafe_local = live.locals().any(|local| {
-                        ephemeral(
-                            function.locals[local.index()].ty,
-                            function.semantic.locals.get(&local.index()),
-                        )
-                    });
-                    if unsafe_temp || unsafe_local {
-                        return Err(invalid(context, "host capability live across await"));
-                    }
-                }
-                _ => {}
             }
         }
-        // Return/trap unwinds all owned iteration leases. Normal CFG joins must
-        // have the same stack shape, including loop backedges and continue edges.
         for successor in block
             .terminator
             .as_ref()
@@ -87,21 +74,9 @@ pub(super) fn verify(
             .successors()
         {
             budget.work(1, context)?;
-            match depths[successor.index()] {
-                None => {
-                    depths[successor.index()] = Some(depth);
-                    pending.push(successor);
-                }
-                Some(previous) if previous != depth => {
-                    return Err(invalid(
-                        Context {
-                            block: Some(BlockId::new(successor.index())),
-                            ..context
-                        },
-                        "inconsistent iteration resource stack",
-                    ));
-                }
-                Some(_) => {}
+            if !visited[successor.index()] {
+                visited[successor.index()] = true;
+                pending.push(successor);
             }
         }
     }

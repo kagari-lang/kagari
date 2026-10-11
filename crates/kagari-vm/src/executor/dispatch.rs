@@ -135,13 +135,6 @@ impl<'a> Executor<'a> {
                 self.dispatch_iterator(&source, ty, op, Some(dst))?;
             }
 
-            BytecodeInstruction::BeginIteration { collection } => {
-                self.current_frame_mut()?
-                    .begin_iteration(self.runtime, collection)?;
-            }
-            BytecodeInstruction::EndIteration => {
-                self.current_frame_mut()?.end_iteration()?;
-            }
             BytecodeInstruction::TestEnumVariant { dst, value, .. } => {
                 let result = self.test_enum_variant(value)?;
                 self.current_frame_mut()?
