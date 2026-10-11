@@ -57,12 +57,12 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
                 )
             })
     );
-    let authoring = file.authoring(&Default::default()).unwrap();
-    let original = &authoring.lowered;
+    let prepared = &file.prepared;
+    let original = &prepared.lowered;
     assert!(
         reuse_signatures(
             original,
-            &authoring.signatures,
+            &prepared.signatures,
             original,
             &Default::default()
         )
@@ -74,7 +74,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     assert!(
         reuse_signatures(
             original,
-            &authoring.signatures,
+            &prepared.signatures,
             &changed,
             &Default::default()
         )
@@ -85,7 +85,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     assert!(
         reuse_signatures(
             original,
-            &authoring.signatures,
+            &prepared.signatures,
             &changed,
             &Default::default()
         )

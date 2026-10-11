@@ -6,26 +6,23 @@ use crate::{
     tests::test_analysis,
     types::{NominalType, TypeId},
 };
+use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_stdlib::{catalog as foundation_catalog, identity as library};
 use kagari_types::{collection::CollectionAccess, language::Protocol};
 
-fn foundation_vec(item: TypeId) -> TypeId {
-    let module = kagari_types::declaration::module::ModuleDecl::new(
-        kagari_stdlib::namespaces::type_owner("Vec"),
-    );
+fn foundation_vec(definitions: &DefinitionTable, item: TypeId) -> TypeId {
     TypeId::NativeObject(NominalType {
-        declaration: module.definition(
-            kagari_common::identity::DefinitionKind::AssociatedType,
-            "Vec",
-        ),
+        declaration: definitions
+            .lookup(&library::type_id("Vec", DefinitionKind::AssociatedType))
+            .unwrap(),
         arguments: vec![item],
         associated_types: Default::default(),
     })
 }
 
-fn foundation_interface(name: &str) -> NominalType {
+fn foundation_interface(definitions: &DefinitionTable, name: &str) -> NominalType {
     NominalType {
-        declaration: library::trait_id(name),
+        declaration: definitions.lookup(&library::trait_id(name)).unwrap(),
         arguments: vec![],
         associated_types: Default::default(),
     }
@@ -112,17 +109,27 @@ mod tests {
         let item_type = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));
         let authoring_catalog = analysis.to_unverified(&Default::default()).unwrap();
+        let definitions = authoring_catalog.definitions();
         let catalog = &authoring_catalog.records().facts().aggregates;
-        let interface = Protocol::Iterator.nominal();
+        let interface = Protocol::Iterator.nominal(definitions).unwrap();
         let (implementation, arguments) = catalog
-            .engine_implementation(&interface, &receiver, &Default::default())
+            .engine_implementation(definitions, &interface, &receiver, &Default::default())
             .unwrap();
-        let member = kagari_common::identity::associated_type_id(&interface.declaration, "Item");
+        let member = definitions
+            .lookup_child(
+                interface.declaration,
+                DefinitionKind::AssociatedType,
+                "Item",
+                0,
+            )
+            .unwrap();
         assert_eq!(
             implementation.trait_type.associated_types[&member].instantiate(&arguments),
             item_type
         );
-        let impl_member = kagari_common::identity::associated_type_id(&implementation.id, "Item");
+        let impl_member = definitions
+            .lookup_child(implementation.id, DefinitionKind::AssociatedType, "Item", 0)
+            .unwrap();
         assert_ne!(impl_member, member);
         assert!(
             snapshot
@@ -136,7 +143,7 @@ mod tests {
         );
         assert!(
             catalog
-                .engine_implementation(&interface, &item_type, &Default::default())
+                .engine_implementation(definitions, &interface, &item_type, &Default::default())
                 .is_none()
         );
 
@@ -147,7 +154,14 @@ mod tests {
             let api = matches[0];
             assert_eq!(
                 match &api.declaration {
-                    DeclarationId::Definition(id) => id.path[0].kind,
+                    DeclarationId::Definition(id) =>
+                        definitions
+                            .resolve(*id)
+                            .unwrap()
+                            .segments()
+                            .next()
+                            .unwrap()
+                            .kind,
                     _ => panic!("source method"),
                 },
                 if name == "next" {
@@ -198,6 +212,7 @@ mod tests {
             .unwrap()
             .to_unverified(&Default::default())
             .unwrap();
+        let definitions = authoring_catalog.definitions();
         let catalog = &authoring_catalog.records().facts().aggregates;
         let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let string = TypeId::Builtin(kagari_types::scalar::BuiltinType::String);
@@ -211,19 +226,19 @@ mod tests {
             ("MutableMap", vec![integer.clone(), string.clone()]),
             ("Iterable", vec![]),
         ] {
-            let mut interface = foundation_interface(kind);
+            let mut interface = foundation_interface(definitions, kind);
             interface.arguments = arguments;
             assert!(
                 catalog
-                    .engine_implementation(&interface, &target, &Default::default())
+                    .engine_implementation(definitions, &interface, &target, &Default::default())
                     .is_some(),
                 "{kind:?}"
             );
         }
-        let mut interface = foundation_interface("Map");
+        let mut interface = foundation_interface(definitions, "Map");
         interface.arguments = vec![integer.clone(), string.clone()];
         let (collect, arguments) = catalog
-            .engine_implementation(&interface, &target, &Default::default())
+            .engine_implementation(definitions, &interface, &target, &Default::default())
             .unwrap();
         let constraints = collect
             .bounds
@@ -237,7 +252,12 @@ mod tests {
                 let ConstraintTarget::Trait(bound) = constraint else {
                     panic!("declared trait bound")
                 };
-                bound.declaration.path.last().unwrap().name.as_str()
+                definitions
+                    .resolve(bound.declaration)
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .name
             })
             .collect::<Vec<_>>();
         names.sort();
@@ -316,7 +336,10 @@ mod tests {
         assert!(signature.parameters.is_empty());
         assert_eq!(
             signature.result,
-            foundation_vec(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
+            foundation_vec(
+                analysis.definitions(),
+                TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)
+            )
         );
         let signature = analysis
             .call_signature_at(text.find("len()").unwrap())
@@ -445,11 +468,12 @@ mod trait_tests {
         assert_eq!(user.declaration.location.file, file);
         assert!(user.documentation.is_empty());
         let authoring_iterator = analysis.to_unverified(&Default::default()).unwrap();
+        let definitions = authoring_iterator.definitions();
         let iterator = authoring_iterator
             .records()
             .facts()
             .aggregates
-            .trait_(&Protocol::Iterator.nominal().declaration)
+            .trait_(&Protocol::Iterator.nominal(definitions).unwrap().declaration)
             .unwrap();
         let member = iterator.associated_types.keys().next().unwrap();
         let declaration = snapshot
@@ -598,10 +622,11 @@ mod collection_access_tests {
             .unwrap()
             .to_unverified(&Default::default())
             .unwrap();
+        let definitions = authoring_catalog.definitions();
         let catalog = &authoring_catalog.records().facts().aggregates;
         let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receivers = [
-            foundation_vec(integer.clone()),
+            foundation_vec(definitions, integer.clone()),
             TypeId::Map {
                 key: Box::new(integer.clone()),
                 value: Box::new(integer.clone()),
@@ -623,10 +648,10 @@ mod collection_access_tests {
                 _ => unreachable!(),
             };
             for kind in kinds {
-                let mut interface = foundation_interface(kind);
+                let mut interface = foundation_interface(definitions, kind);
                 interface.arguments = arguments.clone();
                 let (implementation, arguments) = catalog
-                    .engine_implementation(&interface, &receiver, &Default::default())
+                    .engine_implementation(definitions, &interface, &receiver, &Default::default())
                     .unwrap();
                 let contract = catalog.trait_(&interface.declaration).unwrap();
                 let substitution = contract
@@ -650,13 +675,13 @@ mod collection_access_tests {
                         .signature_snapshot()
                         .file(declaration.location.file)
                         .unwrap();
-                    let authoring = file.authoring(&Default::default()).unwrap();
+                    let prepared = &file.prepared;
                     let Some(ResolvedName::Function(function)) =
-                        authoring.declarations.definition_target(target)
+                        prepared.declarations.definition_target(target)
                     else {
                         panic!("implementation method")
                     };
-                    let method = authoring
+                    let method = prepared
                         .signatures
                         .facts()
                         .functions()

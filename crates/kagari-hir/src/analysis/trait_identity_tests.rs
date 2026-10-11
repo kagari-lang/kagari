@@ -5,7 +5,7 @@ use crate::{
     tests::test_analysis,
     typeck::table::{CallTarget, ConstraintTarget},
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 const SOURCE: &str = "trait Get { fn get(self) -> i32; } struct Point { val n: i32 } impl Get for Point { fn get(self) -> i32 { self.n } } fn read<T: Get>(p: T) -> i32 { p.get() } fn main() -> i32 { read(Point { n: 7 }) }";
@@ -15,7 +15,7 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
         .unwrap()
 }
 
-fn targets(facts: &AnalyzedModule) -> (DefinitionPath, DefinitionPath, TypeId) {
+fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
     let definition = facts
         .declarations
         .definition(ResolvedName::Trait(facts.lowered.module.traits[0].id))
@@ -42,10 +42,10 @@ fn targets(facts: &AnalyzedModule) -> (DefinitionPath, DefinitionPath, TypeId) {
     (definition, method, point)
 }
 
-fn interface(id: &DefinitionPath) -> crate::types::NominalType {
+fn interface(id: &DefinitionId) -> crate::types::NominalType {
     crate::types::NominalType {
         associated_types: Default::default(),
-        declaration: id.clone(),
+        declaration: *id,
         arguments: Vec::new(),
     }
 }
@@ -88,17 +88,23 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
     for (facts, own_trait, own_method, point, foreign_trait, foreign_method) in
         [(fa, &ta, &ma, &pa, &tb, &mb), (fb, &tb, &mb, &pb, &ta, &ma)]
     {
+        let definitions = facts.declarations.definitions();
         let table = &facts.typed.type_table;
-        assert!(table.implements(&interface(own_trait), point));
-        assert!(!table.implements(&interface(foreign_trait), point));
+        assert!(table.implements(definitions, &interface(own_trait), point));
+        assert!(!table.implements(definitions, &interface(foreign_trait), point));
         assert!(
             table
-                .implementation_method(own_method, &interface(own_trait), point)
+                .implementation_method(definitions, own_method, &interface(own_trait), point)
                 .is_some()
         );
         assert!(
             table
-                .implementation_method(foreign_method, &interface(foreign_trait), point)
+                .implementation_method(
+                    definitions,
+                    foreign_method,
+                    &interface(foreign_trait),
+                    point
+                )
                 .is_none()
         );
         let read = facts
@@ -127,11 +133,11 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
     let offset = SOURCE.find("p.get").unwrap() + 2;
     assert_eq!(
         a.definition_at(offset).unwrap().id,
-        DeclarationId::Definition(a.definitions().lookup(&ma).unwrap())
+        DeclarationId::Definition(ma)
     );
     assert_eq!(
         b.definition_at(offset).unwrap().id,
-        DeclarationId::Definition(b.definitions().lookup(&mb).unwrap())
+        DeclarationId::Definition(mb)
     );
 }
 
@@ -153,7 +159,12 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
     let previous_impl = before
         .typed
         .type_table
-        .implementation_method(&method_id, &interface(&trait_id), &point)
+        .implementation_method(
+            before.declarations.definitions(),
+            &method_id,
+            &interface(&trait_id),
+            &point,
+        )
         .unwrap();
     let edited = format!("trait Earlier {{ fn other(self); }} fn earlier() {{}} {SOURCE}");
     sources
@@ -168,10 +179,11 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
     );
     let authoring_facts = after.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.records().facts();
+    let definitions = facts.declarations.definitions();
     let table = &facts.typed.type_table;
-    assert!(table.implements(&interface(&trait_id), &point));
+    assert!(table.implements(definitions, &interface(&trait_id), &point));
     let next_impl = table
-        .implementation_method(&method_id, &interface(&trait_id), &point)
+        .implementation_method(definitions, &method_id, &interface(&trait_id), &point)
         .unwrap();
     assert_ne!(previous_impl, next_impl);
     let read = facts
@@ -190,7 +202,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
             .definition_at(edited.find("p.get").unwrap() + 2)
             .unwrap()
             .id,
-        DeclarationId::Definition(after.definitions().lookup(&method_id).unwrap())
+        DeclarationId::Definition(method_id)
     );
     assert_eq!(
         old.file(file)
@@ -198,16 +210,11 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
             .definition_at(SOURCE.find("p.get").unwrap() + 2)
             .unwrap()
             .id,
-        DeclarationId::Definition(
-            old.file(file)
-                .unwrap()
-                .definitions()
-                .lookup(&method_id)
-                .unwrap()
-        )
+        DeclarationId::Definition(method_id)
     );
     assert_eq!(
         before.typed.type_table.implementation_method(
+            before.declarations.definitions(),
             &targets(before).1,
             &interface(&trait_id),
             &point
@@ -285,8 +292,20 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         old_call.1.receiver.unwrap().arena(),
         new_call.receiver.unwrap().arena()
     );
-    let fresh = test_analysis()
-        .body(sources.snapshot(), owner, &Default::default())
+    let mut fresh_db = test_analysis();
+    let fresh_declarations = fresh_db
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let query = original.definitions().resolve(*owner).unwrap().to_path();
+    let fresh_owner = fresh_declarations
+        .file(file)
+        .unwrap()
+        .declarations()
+        .definitions()
+        .lookup(&query)
+        .unwrap();
+    let fresh = fresh_db
+        .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
     reused.type_table().assert_same_source_facts(

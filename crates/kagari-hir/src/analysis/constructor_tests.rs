@@ -5,7 +5,7 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_types::scalar::BuiltinType;
+use kagari_types::{language::binding, scalar::BuiltinType};
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -50,12 +50,15 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
             .enumeration(&constructor.enumeration)
             .unwrap();
         assert_eq!(
-            owner.id == kagari_types::language::binding::option_declaration(),
+            Some(owner.id)
+                == analysis
+                    .definitions()
+                    .lookup(&binding::option_declaration()),
             name == "Some"
         );
         let actual = facts.typed.type_table.expr_type(id).unwrap();
         assert_eq!(
-            matches!(&actual, TypeId::Enum(nominal) if nominal.declaration == kagari_types::language::binding::option_declaration()),
+            matches!(&actual, TypeId::Enum(nominal) if Some(nominal.declaration) == analysis.definitions().lookup(&binding::option_declaration())),
             name == "Some"
         );
         assert!(matches!(actual, TypeId::Enum(_)));
@@ -80,7 +83,16 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
             .unwrap();
         let variant = facts.typed.type_table.pattern_variant(pattern).unwrap();
         let variant = facts.aggregates.variant(variant).unwrap();
-        assert_eq!(variant.owner.module.package.0, "kagari-core");
+        assert_eq!(
+            analysis
+                .definitions()
+                .resolve(variant.owner)
+                .unwrap()
+                .module()
+                .package
+                .0,
+            "kagari-core"
+        );
     }
     let native = snapshot
         .definition_at(file, text.find("Some(value)").unwrap())
@@ -124,11 +136,13 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
         let DeclarationId::Definition(id) = &declaration.id else {
             panic!("variant declaration")
         };
-        let path = analysis.definitions().resolve(*id).unwrap().to_path();
-        let variant = facts.aggregates.variant(&path).unwrap();
+        let variant = facts.aggregates.variant(id).unwrap();
         let enumeration = facts.aggregates.enumeration(&variant.owner).unwrap();
         assert_eq!(
-            enumeration.id == kagari_types::language::binding::option_declaration(),
+            Some(enumeration.id)
+                == analysis
+                    .definitions()
+                    .lookup(&binding::option_declaration()),
             native,
             "{needle}"
         );
@@ -279,9 +293,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
         analysis.definition_at(wrong + "Event::".len())
     );
     assert_eq!(
-        analysis
-            .definition_at(good + "Event::".len())
-            .cloned(),
+        analysis.definition_at(good + "Event::".len()).cloned(),
         Some(enumeration.variants[1].declaration.clone())
     );
     assert_eq!(
@@ -446,8 +458,20 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .unwrap();
     assert_eq!(reused.reused_bodies(), 1);
     assert!(reused.type_table().enum_constructor(old_expr).is_none());
-    let fresh = test_analysis()
-        .body(sources.snapshot(), owner, &Default::default())
+    let mut fresh_db = test_analysis();
+    let fresh_declarations = fresh_db
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let query = body.definitions().resolve(*owner).unwrap().to_path();
+    let fresh_owner = fresh_declarations
+        .file(file)
+        .unwrap()
+        .declarations()
+        .definitions()
+        .lookup(&query)
+        .unwrap();
+    let fresh = fresh_db
+        .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
     reused.type_table().assert_same_source_facts(

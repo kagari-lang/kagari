@@ -411,7 +411,7 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
             .member_receiver_type(offset)
             .expect("assignment receiver");
         assert!(
-            matches!(&receiver, TypeId::Struct(ty) if ty.declaration.path.last().unwrap().name == "Inner")
+            matches!(&receiver, TypeId::Struct(ty) if original.definitions().resolve(ty.declaration).unwrap().last().unwrap().name == "Inner")
         );
         let valid = target == "p.inner.value";
         assert_eq!(original.diagnostics().is_empty(), valid);

@@ -49,7 +49,16 @@ fn generic<T: Read>(value: T) { value. }
         let DeclarationId::Definition(identity) = &candidate.declaration else {
             panic!("source identity")
         };
-        assert_eq!(identity.path[0].kind, owner);
+        assert_eq!(
+            file.definitions()
+                .resolve(*identity)
+                .unwrap()
+                .segments()
+                .next()
+                .unwrap()
+                .kind,
+            owner
+        );
         let declaration = snapshot.declaration(&candidate.declaration).unwrap();
         assert_eq!(declaration.location.file, id);
         assert_eq!(
@@ -74,7 +83,16 @@ fn generic<T: Read>(value: T) { value. }
         let DeclarationId::Definition(identity) = &method.declaration else {
             panic!("trait identity")
         };
-        assert_eq!(identity.path[0].kind, DefinitionKind::Trait);
+        assert_eq!(
+            file.definitions()
+                .resolve(*identity)
+                .unwrap()
+                .segments()
+                .next()
+                .unwrap()
+                .kind,
+            DefinitionKind::Trait
+        );
     }
     assert!(
         !generic

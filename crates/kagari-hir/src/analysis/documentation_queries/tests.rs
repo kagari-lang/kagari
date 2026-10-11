@@ -40,15 +40,21 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             let range = site.name_span;
             // Impl header spans name a receiver type, not a named declaration.
             if range.start == range.end
-                || id
-                    .path
+                || generated
+                    .definitions
+                    .resolve(*id)
+                    .unwrap()
                     .last()
                     .is_some_and(|part| part.kind == kagari_common::identity::DefinitionKind::Impl)
             {
                 continue;
             }
+            // Generated sites belong to the installed provider scope. Resolve the
+            // exact external query separately in each independent snapshot.
+            let query = generated.definitions.resolve(*id).unwrap().to_path();
+            let scoped = file.declarations().definitions().lookup(&query).unwrap();
             let declaration = snapshot
-                .declaration(&DeclarationId::Definition(id.clone()))
+                .declaration(&DeclarationId::Definition(scoped))
                 .unwrap_or_else(|| panic!("missing generated declaration: {id:?}"));
             assert_eq!(file.source().local_range(declaration.location), Some(range));
             assert_eq!(&generated.text[range.start..range.end], declaration.name);
@@ -67,8 +73,17 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             );
             assert!(metadata.written_signature.contains(&declaration.name));
             assert!(independent.documentation(&declaration.id).is_none());
+            let other_file = independent
+                .files()
+                .find(|file| file.source().name() == generated.uri)
+                .unwrap();
+            let other_id = other_file
+                .declarations()
+                .definitions()
+                .lookup(&query)
+                .unwrap();
             let other = independent
-                .documentation(&DeclarationId::Definition(id.clone()))
+                .documentation(&DeclarationId::Definition(other_id))
                 .unwrap();
             assert_ne!(other.declaration.id, declaration.id);
             assert_eq!(other.declaration.name, declaration.name);

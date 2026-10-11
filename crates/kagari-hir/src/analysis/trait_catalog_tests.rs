@@ -7,7 +7,9 @@ use crate::{
     typeck::table::CallTarget,
     types::NominalType,
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    DefinitionKind, ModuleIdentity, PackageId, metadata::DefinitionMetadata,
+};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -62,6 +64,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         file.result().diagnostics()
     );
     let authoring_catalog = file.to_unverified(&Default::default()).unwrap();
+    let definitions = authoring_catalog.definitions();
     let catalog = &authoring_catalog.records().facts().aggregates;
     let local = catalog
         .traits()
@@ -83,10 +86,17 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             .iter()
             .find(|method| method.name == name)
             .unwrap();
-        let template = fixture::module().definition(
-            kagari_common::identity::DefinitionKind::Function,
-            &format!("default_{name}"),
-        );
+        let module = definitions
+            .lookup_root(&fixture::module().records().identity)
+            .unwrap();
+        let template = definitions
+            .lookup_child(
+                module,
+                DefinitionKind::Function,
+                &format!("default_{name}"),
+                0,
+            )
+            .unwrap();
         assert_eq!(
             method.default,
             Some(MethodDefault::Native(NativeBinding::Default(
@@ -156,16 +166,16 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         associated_types: Default::default(),
     };
     let (default, _) = catalog
-        .implementation_method(&local.methods[1].id, &interface, &point)
+        .implementation_method(definitions, &local.methods[1].id, &interface, &point)
         .unwrap();
     assert_eq!(
-        catalog.default_method(&default).unwrap().1.id,
+        catalog.default_method(definitions, &default).unwrap().1.id,
         local.methods[1].id
     );
     let (overridden, _) = catalog
-        .implementation_method(&local.methods[2].id, &interface, &point)
+        .implementation_method(definitions, &local.methods[2].id, &interface, &point)
         .unwrap();
-    assert!(catalog.default_method(&overridden).is_none());
+    assert!(catalog.default_method(definitions, &overridden).is_none());
 }
 
 #[test]
@@ -185,13 +195,19 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         file.result().diagnostics()
     );
     let authoring_catalog = file.to_unverified(&Default::default()).unwrap();
+    let definitions = authoring_catalog.definitions();
     let catalog = &authoring_catalog.records().facts().aggregates;
     let implementation = catalog
         .implementations()
         .find(|item| !item.engine_owned)
         .unwrap();
     assert!(implementation.methods.is_empty());
-    assert_eq!(catalog.implementation_methods(implementation).len(), 2);
+    assert_eq!(
+        catalog
+            .implementation_methods(definitions, implementation)
+            .len(),
+        2
+    );
     assert!(file.result().facts().typed.functions.is_empty());
     let contract = catalog
         .trait_(&implementation.trait_type.declaration)
@@ -234,7 +250,7 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
     assert!(Arc::ptr_eq(native, retained.file(native_file).unwrap()));
 
     // Signatures stay usable when an unused forwarding body has an invalid bound.
-    let mut invalid = fixture::module().as_ref().clone();
+    let (definitions, mut invalid) = fixture::module().as_ref().clone().into_parts();
     let helper = invalid
         .functions
         .iter_mut()
@@ -250,7 +266,9 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         foundation_catalog::shared()
             .unwrap()
             .into_iter()
-            .chain([Arc::new(invalid)])
+            .chain([Arc::new(
+                DefinitionMetadata::checked(definitions, invalid, &Default::default()).unwrap(),
+            )])
             .collect(),
     );
     let signatures = db
@@ -438,15 +456,25 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
         facts
             .aggregates
             .traits()
-            .filter(|t| t.id.module.package.0 == "pkg")
+            .filter(|t| analysis
+                .definitions()
+                .resolve(t.id)
+                .unwrap()
+                .module()
+                .package
+                .0
+                == "pkg")
             .count(),
         2
     );
     assert!(
-        facts
-            .aggregates
-            .traits()
-            .all(|t| t.id.module.path != ["unused"])
+        facts.aggregates.traits().all(|t| analysis
+            .definitions()
+            .resolve(t.id)
+            .unwrap()
+            .module()
+            .path
+            != ["unused"])
     );
     assert_eq!(
         analysis.type_at(text.find("x.read(7)").unwrap() + 2),

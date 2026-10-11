@@ -110,16 +110,30 @@ mod tests {
     use super::*;
     use crate::{tests::test_analysis, types::NominalType};
     use kagari_common::identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        DefinitionKind, ModuleIdentity,
+        map::DefinitionContext,
+        table::{DefinitionId, DefinitionTable},
     };
     use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
     use kagari_stdlib::identity as library;
     use kagari_types::scalar::BuiltinType;
     use std::sync::Arc;
 
-    fn foundation_interface(name: &str) -> NominalType {
+    fn definition(
+        context: &DefinitionContext,
+        module: &str,
+        kind: DefinitionKind,
+        name: &str,
+    ) -> DefinitionId {
+        let root = context
+            .intern_root(&ModuleIdentity::single_file(module))
+            .unwrap();
+        context.intern_child(root, kind, name, 0).unwrap()
+    }
+
+    fn foundation_interface(definitions: &DefinitionTable, name: &str) -> NominalType {
         NominalType {
-            declaration: library::trait_id(name),
+            declaration: definitions.lookup(&library::trait_id(name)).unwrap(),
             arguments: vec![],
             associated_types: Default::default(),
         }
@@ -127,7 +141,7 @@ mod tests {
 
     #[test]
     fn collection_context_infers_slots_across_native_and_declared_views() {
-        let source = Arc::new(SourceFile::new("memory://views.kgr", "fn main() {}"));
+        let source = Arc::new(SourceFile::new("memory://views.kgr", "fn consume<T>() {}"));
         let id = source.id();
         let snapshot = test_analysis()
             .snapshot(SourceSnapshot::single_file(source), &Default::default())
@@ -137,22 +151,25 @@ mod tests {
             .unwrap()
             .to_unverified(&Default::default())
             .unwrap();
+        let definitions = facts.definitions();
         let parameter = GenericParameterType {
-            owner: DefinitionPath {
-                module: ModuleIdentity::single_file("views.kgr"),
-                path: vec![DefinitionPathSegment {
-                    kind: DefinitionKind::Function,
-                    name: "consume".into(),
-                    occurrence: 0,
-                }],
-            },
+            owner: definitions
+                .lookup_child(
+                    definitions
+                        .lookup_root(facts.records().facts().lowered.source.module_identity())
+                        .unwrap(),
+                    DefinitionKind::Function,
+                    "consume",
+                    0,
+                )
+                .unwrap(),
             position: 0,
             name: "T".into(),
         };
-        let mut expected = foundation_interface("Set");
+        let mut expected = foundation_interface(definitions, "Set");
         expected.arguments = vec![TypeId::Generic(parameter.clone())];
         let integer = TypeId::Builtin(BuiltinType::I32);
-        let mut writable = foundation_interface("MutableSet");
+        let mut writable = foundation_interface(definitions, "MutableSet");
         writable.arguments = vec![integer.clone()];
         for actual in [
             TypeId::Set(Box::new(integer.clone()), CollectionAccess::Mutable),
@@ -174,15 +191,9 @@ mod tests {
 
     #[test]
     fn deep_inference_is_iterative_cancellable_and_preserves_member_order() {
+        let context = DefinitionContext::new().unwrap();
         let parameter = GenericParameterType {
-            owner: DefinitionPath {
-                module: ModuleIdentity::single_file("deep.kgr"),
-                path: vec![DefinitionPathSegment {
-                    kind: DefinitionKind::Function,
-                    name: "infer".into(),
-                    occurrence: 0,
-                }],
-            },
+            owner: definition(&context, "deep.kgr", DefinitionKind::Function, "infer"),
             position: 0,
             name: "T".into(),
         };
@@ -294,24 +305,21 @@ mod tests {
         let mut different_arity: TypeId = TypeId::Tuple(vec![TypeId::Error]);
         different_arity.recover_from(&TypeId::Tuple(vec![TypeId::Builtin(BuiltinType::I32); 2]));
         assert_eq!(different_arity, TypeId::Tuple(vec![TypeId::Error]));
-        let declaration = DefinitionPath {
-            module: ModuleIdentity::single_file("a.kgr"),
-            path: vec![],
-        };
+        let context = DefinitionContext::new().unwrap();
+        let declaration = definition(&context, "a.kgr", DefinitionKind::Struct, "Box");
         let mut nominal = TypeId::Struct(NominalType {
             associated_types: Default::default(),
-            declaration: declaration.clone(),
+            declaration,
             arguments: vec![TypeId::Error],
         });
         let before = nominal.clone();
         nominal.recover_from(&TypeId::Enum(NominalType {
             associated_types: Default::default(),
-            declaration: declaration.clone(),
+            declaration,
             arguments: vec![TypeId::Builtin(BuiltinType::I32)],
         }));
         assert_eq!(nominal, before);
-        let mut foreign = declaration;
-        foreign.module = ModuleIdentity::single_file("b.kgr");
+        let foreign = definition(&context, "b.kgr", DefinitionKind::Struct, "Box");
         nominal.recover_from(&TypeId::Struct(NominalType {
             associated_types: Default::default(),
             declaration: foreign,
@@ -322,16 +330,10 @@ mod tests {
 
     #[test]
     fn nominal_inference_requires_matching_declaration_kind_and_arity() {
-        let declaration = DefinitionPath {
-            module: ModuleIdentity::single_file("generic.kgr"),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Struct,
-                name: "Box".into(),
-                occurrence: 0,
-            }],
-        };
+        let context = DefinitionContext::new().unwrap();
+        let declaration = definition(&context, "generic.kgr", DefinitionKind::Struct, "Box");
         let parameter = GenericParameterType {
-            owner: declaration.clone(),
+            owner: declaration,
             position: 0,
             name: "T".into(),
         };
@@ -343,12 +345,12 @@ mod tests {
         ] {
             let template = make(NominalType {
                 associated_types: Default::default(),
-                declaration: declaration.clone(),
+                declaration,
                 arguments: vec![TypeId::Array(Box::new(TypeId::Generic(parameter.clone())))],
             });
             let actual = make(NominalType {
                 associated_types: Default::default(),
-                declaration: declaration.clone(),
+                declaration,
                 arguments: vec![TypeId::Array(Box::new(TypeId::Builtin(BuiltinType::I32)))],
             });
             let mut substitution = TypeSubstitution::default();
@@ -363,8 +365,7 @@ mod tests {
             .unwrap();
             assert_eq!(template.instantiate(&substitution), actual);
             assert_eq!(substitution.len(), 1);
-            let mut foreign = declaration.clone();
-            foreign.module = ModuleIdentity::single_file("other.kgr");
+            let foreign = definition(&context, "other.kgr", DefinitionKind::Struct, "Box");
             let wrong_kind = match &actual {
                 TypeId::Struct(ty) => TypeId::Enum(ty.clone()),
                 TypeId::NativeObject(ty) | TypeId::Enum(ty) | TypeId::Trait(ty) => {
@@ -380,7 +381,7 @@ mod tests {
                 }),
                 make(NominalType {
                     associated_types: Default::default(),
-                    declaration: declaration.clone(),
+                    declaration,
                     arguments: Vec::new(),
                 }),
                 wrong_kind,

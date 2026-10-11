@@ -1583,3 +1583,52 @@ formatting and diff checks pass. Reviewed test/production cfg boundaries, import
 explicit context ownership and preservation of comparison assertions. The checkpoint
 still carries the lib-test build failure; SI03 focused behavioral acceptance and the
 remaining SI04-SI06 integration/removal/documentation work remain incomplete.
+
+### SI03 scoped protocol/query and inference fixtures
+
+Migrated Native implementation and source-query fixtures to the retained analysis
+DefinitionTable. Foundation receiver/trait expectations resolve exact external
+queries once; protocol/associated-member queries consume scoped IDs and the same
+table as the catalog. Concrete implementation searches retain their original
+4096-check/64-depth limits. Constructor, method, trait and diagnostic-name assertions
+now inspect borrowed identity views rather than materialize semantic path records.
+Signature tests borrow the existing prepared facts instead of the removed authoring
+projection. The invalid Native default-body fixture explicitly separates and reseals
+its metadata after changing a bound, retaining the table and its rejection assertions.
+
+The installed documentation inventory resolves generated provider-site identities
+separately in each independent snapshot. It still asserts that an ID from one
+snapshot cannot query the other, while canonical declaration names, byte ranges,
+documentation and written signatures agree. Two independent body-reuse comparison
+fixtures now resolve the requested owner in the fresh database before calling its
+body query; they no longer submit the older database's scoped ID. The remaining
+cross-snapshot/cache audit from the preceding checkpoint is still required.
+
+Inference fixtures register nominal and generic owners in explicit local contexts.
+The collection-inference case obtains its generic function owner from ordinary
+source registration in the same snapshot as the Native aggregate catalog. Deep
+10,000-level traversal, cancellation, first-member inference, mismatched nominal
+owners/kinds/arity and recovery assertions remain intact.
+
+Validation and carried work:
+
+- The selected `cargo test -p kagari-hir --lib
+  analysis::prelude_tests::standard_variants_and_propagation_rebase_on_body_reuse
+  --message-format=short -- --exact` still fails compiling the lib-test target:
+  115 errors, no warnings, down from 249 at the preceding checkpoint. Related
+  fixture batches were followed by compiler attempts; the selected test has not run.
+  Remaining errors are primarily Host input/construction, old common type-checking
+  helper expectations and a few callable/source metadata queries. SI03 owns their
+  repair and execution of the selected cases after the target builds.
+- All Rust changes in this checkpoint are test-only. Existing production HIR check,
+  Clippy and focused integration results remain evidence for unaffected production
+  code; no workspace suite or redundant integration rerun was performed.
+- Structure passes 1055 Rust files with zero violations or documented exceptions;
+  formatting and diff checks pass. Reviewed explicit table ownership, unchanged
+  rejection/constraint assertions, scope of test helpers, imports and module access.
+  No public API, re-export, LOC exception or ABI identifier was added or changed.
+
+Host construction at its shared owner, the common type-checking helper's retained
+scope/registration lifecycle, BindingId visitor/remapping, remaining snapshot audits,
+SI04 integration and SI05/SI06 representation removal/documentation cleanup remain
+required. The reduced diagnostic count is not behavioral acceptance.

@@ -9,7 +9,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::declaration::names::NameNamespace;
+use kagari_types::{declaration::names::NameNamespace, language::binding};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -104,7 +104,13 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
         .find(|item| item.declaration.id == option.declaration.id)
         .unwrap();
     assert_eq!(enumeration.declaration, option.declaration);
-    assert!(enumeration.id == kagari_types::language::binding::option_declaration());
+    assert_eq!(
+        Some(enumeration.id),
+        facts
+            .declarations
+            .definitions()
+            .lookup(&binding::option_declaration())
+    );
 }
 
 #[test]
@@ -639,7 +645,7 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
         analysis.type_at(later),
         Some(TypeId::Struct(crate::types::NominalType {
             associated_types: Default::default(),
-            declaration: analysis.definitions().resolve(*id).unwrap().to_path(),
+            declaration: *id,
             arguments: Vec::new()
         }))
     );
@@ -649,7 +655,7 @@ fn type_navigation_retains_later_tuple_members_and_local_annotations() {
         analysis.type_at(annotation),
         Some(TypeId::Struct(crate::types::NominalType {
             associated_types: Default::default(),
-            declaration: analysis.definitions().resolve(*id).unwrap().to_path(),
+            declaration: *id,
             arguments: Vec::new()
         }))
     );
@@ -794,7 +800,10 @@ fn same_spelled_nominal_types_in_different_modules_are_distinct() {
         let offset = text.find(annotation).unwrap() + 3;
         let a = left.type_at(offset).unwrap();
         let b = right.type_at(offset).unwrap();
-        assert_eq!(a.display_name(), b.display_name());
+        assert_eq!(
+            a.display_name(left.definitions()),
+            b.display_name(right.definitions())
+        );
         assert_ne!(a, b);
         let definition = match &a {
             TypeId::Struct(id) | TypeId::Enum(id) | TypeId::Trait(id) => &id.declaration,
@@ -802,7 +811,7 @@ fn same_spelled_nominal_types_in_different_modules_are_distinct() {
         };
         assert_eq!(
             left.definition_at(offset).unwrap().id,
-            DeclarationId::Definition(left.definitions().lookup(definition).unwrap())
+            DeclarationId::Definition(*definition)
         );
     }
 }
@@ -842,8 +851,11 @@ fn generic_type_equality_and_hash_use_owner_and_position() {
         .unwrap();
     assert_eq!(first, updated);
     assert_eq!(hash(&first), hash(&updated));
-    assert_eq!(first.display_name(), "T");
-    assert_eq!(updated.display_name(), "U");
+    assert_eq!(first.display_name(analysis.definitions()), "T");
+    assert_eq!(
+        updated.display_name(edited.file(file).unwrap().definitions()),
+        "U"
+    );
 }
 
 #[test]
@@ -1008,7 +1020,15 @@ fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
             let DeclarationId::Definition(id) = &decl.id else {
                 unreachable!()
             };
-            (id.path[0].kind, id.path[0].occurrence)
+            let segment = facts
+                .declarations
+                .definitions()
+                .resolve(*id)
+                .unwrap()
+                .segments()
+                .next()
+                .unwrap();
+            (segment.kind, segment.occurrence)
         })
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(

@@ -1,5 +1,5 @@
 use crate::{
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     analysis::AnalysisSnapshot,
     language::{semantics as traits, semantics::ProtocolSemantics},
     native::NativeBinding,
@@ -7,18 +7,17 @@ use crate::{
     typeck::FunctionImplementation,
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::{identity as library, namespaces};
-use kagari_types::declaration::module::ModuleDecl;
+use kagari_stdlib::identity as library;
 use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType};
 
-fn foundation_interface(name: &str) -> NominalType {
+fn foundation_interface(definitions: &DefinitionTable, name: &str) -> NominalType {
     NominalType {
-        declaration: library::trait_id(name),
+        declaration: definitions.lookup(&library::trait_id(name)).unwrap(),
         arguments: vec![],
         associated_types: Default::default(),
     }
@@ -43,24 +42,27 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
+    let definitions = authoring_catalog.definitions();
     let catalog = &authoring_catalog.records().facts().aggregates;
     let item = TypeId::Builtin(BuiltinType::I32);
     let mutable = TypeId::NativeObject(NominalType {
-        declaration: ModuleDecl::new(namespaces::type_owner("Vec"))
-            .definition(DefinitionKind::AssociatedType, "Vec"),
+        declaration: definitions
+            .lookup(&library::type_id("Vec", DefinitionKind::AssociatedType))
+            .unwrap(),
         arguments: vec![item.clone()],
         associated_types: Default::default(),
     });
     let array = TypeId::Array(Box::new(item.clone()));
     for kind in ["List", "MutableList"] {
-        let mut interface = foundation_interface(kind);
+        let mut interface = foundation_interface(definitions, kind);
         interface.arguments.push(item.clone());
         assert!(
             AggregateCatalog::default()
-                .engine_implementation(&interface, &mutable, &Default::default())
+                .engine_implementation(definitions, &interface, &mutable, &Default::default())
                 .is_none()
         );
         assert!(!traits::intrinsic_applies(
+            definitions,
             &interface,
             &mutable,
             None,
@@ -68,23 +70,26 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
         ));
         assert!(
             catalog
-                .engine_implementation(&interface, &mutable, &Default::default())
+                .engine_implementation(definitions, &interface, &mutable, &Default::default())
                 .is_some()
         );
         // Fixed arrays cannot acquire List/MutableList from shared buffer layout.
         assert!(
             catalog
-                .engine_implementation(&interface, &array, &Default::default())
+                .engine_implementation(definitions, &interface, &array, &Default::default())
                 .is_none()
         );
         assert!(
             catalog
                 .concrete_interface_implementation(
+                    definitions,
                     &interface,
                     &array,
                     &Default::default(),
-                    4096,
-                    64,
+                    ImplementationSearchLimits {
+                        max_checks: 4096,
+                        max_depth: 64
+                    },
                     &Default::default()
                 )
                 .unwrap()
@@ -93,6 +98,7 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
     }
     assert!(
         traits::iteration_outputs(
+            definitions,
             Protocol::Iterator,
             &TypeId::Iter(Box::new(item)),
             None,
@@ -106,7 +112,7 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
         value: Box::new(TypeId::Builtin(BuiltinType::I32)),
         access: CollectionAccess::Mutable,
     };
-    let mut interface = foundation_interface("Map");
+    let mut interface = foundation_interface(definitions, "Map");
     interface.arguments = vec![key, TypeId::Builtin(BuiltinType::I32)];
     assert!(
         catalog
@@ -115,7 +121,7 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
     );
     assert!(
         catalog
-            .engine_implementation(&interface, &target, &Default::default())
+            .engine_implementation(definitions, &interface, &target, &Default::default())
             .is_none()
     );
 }
@@ -130,6 +136,7 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
+    let definitions = authoring_facts.definitions();
     let facts = authoring_facts.records().facts();
     let implementation = facts
         .aggregates
@@ -137,22 +144,30 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
         .find(|item| !item.engine_owned)
         .unwrap();
     let interface = &implementation.trait_type;
-    assert!(Protocol::from_id(&interface.declaration).is_none());
+    assert!(Protocol::from_reference(&interface.declaration, Some(definitions)).is_none());
     assert!(
         facts
             .aggregates
-            .engine_implementation(interface, &implementation.for_type, &Default::default())
+            .engine_implementation(
+                definitions,
+                interface,
+                &implementation.for_type,
+                &Default::default()
+            )
             .is_none()
     );
     assert!(
         facts
             .aggregates
             .concrete_interface_implementation(
+                definitions,
                 interface,
                 &implementation.for_type,
                 &Default::default(),
-                4096,
-                64,
+                ImplementationSearchLimits {
+                    max_checks: 4096,
+                    max_depth: 64
+                },
                 &Default::default()
             )
             .unwrap()
@@ -164,11 +179,14 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
         facts
             .aggregates
             .concrete_interface_implementation(
+                definitions,
                 &wrong,
                 &implementation.for_type,
                 &Default::default(),
-                4096,
-                64,
+                ImplementationSearchLimits {
+                    max_checks: 4096,
+                    max_depth: 64
+                },
                 &Default::default()
             )
             .unwrap()
@@ -177,7 +195,7 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
     for kind in ["Sum", "Product", "FromIterator"] {
         let contract = facts
             .aggregates
-            .trait_(&library::trait_id(kind))
+            .trait_(&definitions.lookup(&library::trait_id(kind)).unwrap())
             .expect("foundation construction contract");
         assert_eq!(contract.methods.len(), 1);
         assert_eq!(contract.methods[0].generic_params.len(), 2);
@@ -201,6 +219,7 @@ fn main() {}
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
+    let definitions = authoring_facts.definitions();
     let facts = authoring_facts.records().facts();
     let implementation = facts
         .aggregates
@@ -208,16 +227,19 @@ fn main() {}
         .find(|implementation| !implementation.engine_owned)
         .unwrap();
     let receiver = &implementation.for_type;
-    let interface = Protocol::Iterator.nominal();
+    let interface = Protocol::Iterator.nominal(definitions).unwrap();
     assert!(
         facts
             .aggregates
             .concrete_interface_implementation(
+                definitions,
                 &interface,
                 receiver,
                 &Default::default(),
-                4096,
-                64,
+                ImplementationSearchLimits {
+                    max_checks: 4096,
+                    max_depth: 64
+                },
                 &Default::default()
             )
             .unwrap()
@@ -226,30 +248,46 @@ fn main() {}
     assert!(
         facts
             .aggregates
-            .engine_implementation(&interface, receiver, &Default::default())
+            .engine_implementation(definitions, &interface, receiver, &Default::default())
             .is_none()
     );
     // Iteration is a language protocol, even when its selected body is script.
     assert!(traits::intrinsic_applies(
+        definitions,
         &interface,
         receiver,
         Some(&facts.aggregates),
         &Default::default()
     ));
     let outputs = traits::iteration_outputs(
+        definitions,
         Protocol::Iterable,
         receiver,
         Some(&facts.aggregates),
         &Default::default(),
     )
     .unwrap();
-    let iterable = Protocol::Iterable.nominal();
+    let iterable = Protocol::Iterable.nominal(definitions).unwrap();
     assert_eq!(
-        outputs[&kagari_common::identity::associated_type_id(&iterable.declaration, "Item")],
+        outputs[&definitions
+            .lookup_child(
+                iterable.declaration,
+                DefinitionKind::AssociatedType,
+                "Item",
+                0
+            )
+            .unwrap()],
         TypeId::Builtin(BuiltinType::I32)
     );
     assert_eq!(
-        outputs[&kagari_common::identity::associated_type_id(&iterable.declaration, "Iter")],
+        outputs[&definitions
+            .lookup_child(
+                iterable.declaration,
+                DefinitionKind::AssociatedType,
+                "Iter",
+                0
+            )
+            .unwrap()],
         *receiver
     );
 }
@@ -317,6 +355,7 @@ fn checked_native_enum_signatures_preserve_slots_and_payloads() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
+    let definitions = authoring_catalog.definitions();
     let catalog = &authoring_catalog.records().facts().aggregates;
     for (kind, arity, expected) in [
         ("Option", 1, vec![("Some", 1), ("None", 0)]),
@@ -329,7 +368,13 @@ fn checked_native_enum_signatures_preserve_slots_and_payloads() {
     ] {
         let enumeration = catalog
             .enumerations()
-            .find(|item| item.id.path.last().is_some_and(|part| part.name == kind))
+            .find(|item| {
+                definitions
+                    .resolve(item.id)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.name == kind)
+            })
             .unwrap();
         assert_eq!(enumeration.generic_params.len(), arity);
         assert_eq!(
