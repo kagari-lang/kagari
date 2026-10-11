@@ -1,7 +1,13 @@
-use kagari_bytecode::program::verify_program as Kagaribytecodeverify_program;
+use kagari_bytecode::{
+    artifact::{ArtifactFingerprint, KbcArtifact, encode_program_facts},
+    program::{BytecodeProgram, identity, verify_program as verify_bytecode_program},
+};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, PackageId},
+    identity::{
+        ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+        scoped::RemapDefinitions,
+    },
 };
 use kagari_compiler::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
@@ -18,12 +24,14 @@ use kagari_hir::{
 use kagari_mir::{
     codec::{decode_program, encode_program},
     instruction::{CallTarget, Instruction},
-    program::{ProgramErrorKind, verify_program},
+    program::{ProgramErrorKind, VerifiedMirProgram, verify_program},
     verify::{MirVerificationError, MirVerificationErrorKind},
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
     identity::FileId,
+    line_index::PositionEncoding,
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
@@ -55,6 +63,7 @@ fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
 
 #[test]
 fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit() {
+    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     insert(
         &mut db,
@@ -77,8 +86,18 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
     let decoded = decode_program(&wire, &Default::default()).unwrap();
     assert_eq!(wire, encode_program(&decoded, &Default::default()).unwrap());
     assert_eq!(
-        bincode::serialize(&lower_program_to_bytecode(&ir).unwrap()).unwrap(),
-        bincode::serialize(&lower_program_to_bytecode(&decoded).unwrap()).unwrap(),
+        encode_program_facts(
+            &bytecode(&context, &ir),
+            &context.snapshot(),
+            &Default::default()
+        )
+        .unwrap(),
+        encode_program_facts(
+            &bytecode(&context, &decoded),
+            &context.snapshot(),
+            &Default::default()
+        )
+        .unwrap(),
     );
     let model = ir
         .modules()
@@ -106,7 +125,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         function.instance.arguments == [Ty::Builtin(BuiltinType::I32)]
             && ir.function(&function.instance).is_some()
     }));
-    let mut forged = ir.clone().into_unverified();
+    let mut forged = adopt(&context, ir.clone().into_unverified());
     let contract = forged
         .iter_mut()
         .flat_map(|module| &mut module.functions)
@@ -122,7 +141,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         .unwrap();
     contract.arguments[0] = Ty::Builtin(BuiltinType::F32);
     assert!(matches!(
-        verify_program(ir.root().clone(), forged, &Default::default())
+        verify_program(ir.root().clone(), forged, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::UnresolvedFunction(_)
@@ -169,7 +188,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
 
 #[test]
 fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
-    use kagari_bytecode::artifact::{ArtifactFingerprint, KbcArtifact};
+    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     for name in ["left", "right"] {
         insert(&mut db, name, "pub struct Item { val value: i32 }");
@@ -182,10 +201,14 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
         let root = insert(&mut db, "root", &source);
         let ir = lower_program_to_mir(&checked(&db, root), &Default::default()).unwrap();
         let artifact =
-            KbcArtifact::from_program(lower_program_to_bytecode(&ir).unwrap(), Default::default())
+            KbcArtifact::from_program(bytecode(&context, &ir), Default::default(), &context)
                 .unwrap();
-        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        decoded.validate_for_loader(&Default::default()).unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+            .map(|metadata| adopt(&context, metadata))
+            .unwrap();
+        decoded
+            .validate_for_loader(&Default::default(), &context)
+            .unwrap();
         artifacts.push(decoded);
     }
     let roots = artifacts
@@ -206,8 +229,8 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
             .find(|item| item.name() == name)
             .unwrap();
         assert_ne!(
-            ArtifactFingerprint::of_serialized(a),
-            ArtifactFingerprint::of_serialized(b),
+            ArtifactFingerprint::of_public_item(a, &context.snapshot()).unwrap(),
+            ArtifactFingerprint::of_public_item(b, &context.snapshot()).unwrap(),
             "{name}"
         );
     }
@@ -220,12 +243,13 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
         panic!("trait")
     };
     assert!(
-        matches!(&interface.methods[0].bounds[0].constraints[0], Constraint::Trait(id) if id.declaration.module.path == ["root"] && id.declaration.path.last().unwrap().name == "LeftMarker")
+        matches!(&interface.methods[0].bounds[0].constraints[0], Constraint::Trait(id) if context.snapshot().resolve(id.declaration).unwrap().module().path == ["root"] && context.snapshot().resolve(id.declaration).unwrap().last().unwrap().name == "LeftMarker")
     );
 }
 
 #[test]
 fn public_generic_abi_ignores_binder_spelling_and_constraint_source_order() {
+    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     let mut items = Vec::new();
     for source in [
@@ -234,7 +258,7 @@ fn public_generic_abi_ignores_binder_spelling_and_constraint_source_order() {
     ] {
         let root = insert(&mut db, "generic", source);
         let ir = lower_program_to_mir(&checked(&db, root), &Default::default()).unwrap();
-        let program = lower_program_to_bytecode(&ir).unwrap();
+        let program = bytecode(&context, &ir);
         items.push(program.modules[program.root.index()].public_items.clone());
     }
     assert_eq!(items[0], items[1]);
@@ -268,6 +292,7 @@ fn fixture() -> CheckedProgram {
 
 #[test]
 fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
+    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     insert(
         &mut db,
@@ -296,8 +321,8 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     assert_eq!(layouts[0].declaration, layouts[1].declaration);
     assert_ne!(layouts[0].arguments, layouts[1].arguments);
     assert_ne!(layouts[0].fields[0].ty, layouts[1].fields[0].ty);
-    let mut program = lower_program_to_bytecode(&ir).unwrap();
-    Kagaribytecodeverify_program(&program).unwrap();
+    let mut program = bytecode(&context, &ir);
+    verify_bytecode_program(&program, &context.snapshot()).unwrap();
     // The owner need not execute an instance for its public template to be checked.
     // Installed standard enum layouts are independent of that user declaration.
     let owner = program
@@ -305,12 +330,15 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         .iter_mut()
         .find(|module| module.identity.path == ["types"])
         .unwrap();
-    assert!(
-        owner
-            .enumerations
-            .iter()
-            .all(|layout| layout.declaration.module.package == PackageId("kagari-core".into()))
-    );
+    assert!(owner.enumerations.iter().all(|layout| {
+        context
+            .snapshot()
+            .resolve(layout.declaration)
+            .unwrap()
+            .module()
+            .package
+            == PackageId("kagari-core".into())
+    }));
     let PublicItem::Type(template) = owner
         .public_items
         .iter_mut()
@@ -320,7 +348,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         unreachable!()
     };
     template.variants[0].payload[0] = Ty::Builtin(BuiltinType::Bool);
-    assert!(Kagaribytecodeverify_program(&program).is_err());
+    assert!(verify_bytecode_program(&program, &context.snapshot()).is_err());
     let error = lower_program_to_mir(
         &checked,
         &MirLoweringOptions {
@@ -420,9 +448,10 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
 
 #[test]
 fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
+    let context = DefinitionContext::new().unwrap();
     let program = lower_program_to_mir(&fixture(), &Default::default()).unwrap();
     let root = program.root().clone();
-    let raw = program.into_unverified();
+    let raw = adopt(&context, program.into_unverified());
     let mut schema = raw.clone();
     schema
         .iter_mut()
@@ -432,7 +461,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         .fields[0]
         .mutable = false;
     assert!(matches!(
-        verify_program(root.clone(), schema, &Default::default())
+        verify_program(root.clone(), schema, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::Verification(MirVerificationError {
@@ -455,11 +484,17 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
             ..
         } = instruction
         {
-            contract.declaration.path.last_mut().unwrap().name = "absent".into();
+            let mut path = context
+                .snapshot()
+                .resolve(contract.declaration)
+                .unwrap()
+                .to_path();
+            path.path.last_mut().unwrap().name = "absent".into();
+            contract.declaration = context.intern(&path).unwrap();
         }
     }
     assert!(matches!(
-        verify_program(root.clone(), unresolved, &Default::default())
+        verify_program(root.clone(), unresolved, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::UnresolvedFunction(_)
@@ -467,7 +502,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
     let mut missing = raw.clone();
     missing.remove(0);
     assert!(matches!(
-        verify_program(root.clone(), missing, &Default::default())
+        verify_program(root.clone(), missing, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::InvalidGraph
@@ -479,7 +514,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         .unwrap()
         .dependencies
         .push(root.clone());
-    assert!(verify_program(root.clone(), cycle, &Default::default()).is_ok());
+    assert!(verify_program(root.clone(), cycle, &context, &Default::default()).is_ok());
     let mut wrong = raw.clone();
     let other = wrong
         .iter()
@@ -490,8 +525,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         .find(|f| f.name == "flag")
         .unwrap()
         .instance
-        .declaration
-        .clone();
+        .declaration;
     for instruction in wrong
         .iter_mut()
         .find(|module| module.identity.path == ["root"])
@@ -506,16 +540,18 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
             ..
         } = instruction
         {
-            contract.declaration = other.clone();
+            contract.declaration = other;
         }
     }
     assert!(
-        matches!(verify_program(root.clone(), wrong, &Default::default()).unwrap_err().kind, ProgramErrorKind::FunctionContract(id) if id == other)
+        matches!(verify_program(root.clone(), wrong, &context, &Default::default()).unwrap_err().kind, ProgramErrorKind::FunctionContract(path) if path == context.snapshot().resolve(other).unwrap().to_path())
     );
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(matches!(
-        verify_program(root, raw, &cancel).unwrap_err().kind,
+        verify_program(root, raw, &context, &cancel)
+            .unwrap_err()
+            .kind,
         ProgramErrorKind::Cancelled
     ));
 }
@@ -607,7 +643,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
 
 #[test]
 fn portable_default_method_origins_remain_with_the_definition_module() {
-    use kagari_source::{line_index::PositionEncoding, source::SourceFile};
+    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     let model = "pub trait Read { fn read(self) -> i32;\n fn again(self) -> i32 { self.read() }\n}";
     insert(&mut db, "model", model);
@@ -652,7 +688,7 @@ fn portable_default_method_origins_remain_with_the_definition_module() {
     assert_eq!(inherited.debug.source.as_ref().unwrap().uri, "mem://model");
     drop(checked);
     drop(db);
-    let bytecode = lower_program_to_bytecode(&ir).unwrap();
+    let bytecode = bytecode(&context, &ir);
     let root_module = bytecode
         .modules
         .iter()
@@ -683,7 +719,7 @@ fn portable_default_method_origins_remain_with_the_definition_module() {
 
 #[test]
 fn portable_inline_module_origins_keep_physical_offsets() {
-    use kagari_source::{line_index::PositionEncoding, source::SourceFile};
+    let context = DefinitionContext::new().unwrap();
     let text = "// 中文😀\r\nmod child {\r\n pub fn value() -> i32 { 42 }\r\n}\r\nuse self::child::value; fn main() -> i32 { value() }";
     let mut db = SourceDatabase::default();
     let root = insert(&mut db, "root", text);
@@ -723,7 +759,7 @@ fn portable_inline_module_origins_keep_physical_offsets() {
     );
     drop(checked);
     drop(db);
-    let bytecode = lower_program_to_bytecode(&ir).unwrap();
+    let bytecode = bytecode(&context, &ir);
     let child = bytecode
         .modules
         .iter()
@@ -745,6 +781,20 @@ fn portable_inline_module_origins_keep_physical_offsets() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().unwrap());
     database
+}
+
+/// Keep one explicit writer for independently lowered fixture products.
+fn adopt<T: RemapDefinitions>(context: &DefinitionContext, metadata: DefinitionMetadata<T>) -> T {
+    metadata
+        .import_into(context, &Default::default())
+        .unwrap()
+        .into_records()
+}
+
+fn bytecode(context: &DefinitionContext, program: &VerifiedMirProgram) -> BytecodeProgram {
+    let program = adopt(context, lower_program_to_bytecode(program).unwrap());
+    identity::collect(&program.modules.iter().collect::<Vec<_>>(), context).unwrap();
+    program
 }

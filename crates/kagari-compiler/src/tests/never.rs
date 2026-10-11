@@ -4,21 +4,24 @@ use kagari_bytecode::{
     program::verify_program,
     verifier::BytecodeVerificationError,
 };
+use kagari_common::identity::map::DefinitionContext;
 
 use {kagari_abi::representation::ValueType, kagari_contract::contracts::ContractError};
 
 use kagari_mir::{
     ids::TempId,
     instruction::{MirValue, Terminator},
-    verify::{MirVerificationErrorKind, verify_mir},
+    verify::MirVerificationErrorKind,
 };
 
 #[test]
 fn never_functions_reject_even_never_typed_return_operands() {
+    let context = DefinitionContext::new().unwrap();
     let input = common::program_ok("fn impossible(value: !) -> ! { value }");
     let mir = lower_to_mir(input.root(), &Default::default()).unwrap();
-    let mut bytecode = common::bytecode_with_edited_root(&input, &mir);
-    let mut raw = mir.into_unverified();
+    let mut bytecode =
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &mir));
+    let mut raw = common::adopt(&context, mir.into_unverified());
     let function = raw
         .functions
         .iter_mut()
@@ -34,7 +37,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
         ty: ValueType::Never,
     })));
     assert!(matches!(
-        verify_mir(raw, &Default::default()).unwrap_err().kind,
+        common::verify_edited(&context, raw).unwrap_err().kind,
         MirVerificationErrorKind::Contract(ContractError::InvalidOperation {
             reason: "Never function cannot return"
         })
@@ -58,7 +61,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
         .unwrap();
     *point = BytecodeInstruction::Return(Some(Register::new(register)));
     assert!(matches!(
-        verify_program(&bytecode).unwrap_err(),
+        verify_program(&bytecode, &context.snapshot()).unwrap_err(),
         BytecodeVerificationError::InvalidOperation {
             reason: "Never function cannot return",
             ..
@@ -68,6 +71,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
 
 #[test]
 fn never_calls_terminate_without_emitting_following_effects() {
+    let context = DefinitionContext::new().unwrap();
     let input = common::program_ok(
         "fn fail() -> ! { fail() } fn effect() {} fn main() -> i32 { fail(); effect(); 42 }",
     );
@@ -78,6 +82,7 @@ fn never_calls_terminate_without_emitting_following_effects() {
             .iter()
             .all(|block| !matches!(block.terminator, Some(Terminator::Return(_))))
     );
-    let bytecode = common::bytecode_with_edited_root(&input, &mir);
-    verify_program(&bytecode).unwrap();
+    let bytecode =
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &mir));
+    verify_program(&bytecode, &context.snapshot()).unwrap();
 }

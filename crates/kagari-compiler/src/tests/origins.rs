@@ -1,13 +1,12 @@
 use crate::{source::lower::lower_to_mir, tests::common};
-use kagari_mir::{
-    debug::SourcePosition,
-    verify::{MirVerificationErrorKind, verify_mir},
-};
+use kagari_common::identity::map::DefinitionContext;
+use kagari_mir::{debug::SourcePosition, verify::MirVerificationErrorKind};
 use std::sync::Arc;
 use {kagari_common::span::Span, kagari_source::line_index::PositionEncoding};
 
 #[test]
 fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
+    let context = DefinitionContext::new().unwrap();
     for text in [
         "fn main() -> i32 {\n    val text = \"雪😀\"; 7\n}\n",
         "fn main() -> i32 {\r\n    val text = \"雪😀\"; 7\r\n}\r\n",
@@ -40,13 +39,16 @@ fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
                 )
             })
             .collect::<Vec<_>>();
-        let mut raw = verified.into_unverified();
+        let mut raw = common::adopt(&context, verified.into_unverified());
         for function in &mut raw.functions {
             let encoded = bincode::serialize(function.debug.source.as_ref().unwrap()).unwrap();
             function.debug.source = Some(bincode::deserialize(&encoded).unwrap());
         }
-        let verified = verify_mir(raw, &Default::default()).unwrap();
-        let bytecode = common::bytecode_with_edited_root(&checked, &verified);
+        let verified = common::verify_edited(&context, raw).unwrap();
+        let bytecode = common::adopt_bytecode(
+            &context,
+            common::bytecode_with_edited_root(&checked, &verified),
+        );
         drop(checked);
         assert!(
             weak_source.upgrade().is_none(),
@@ -69,10 +71,14 @@ fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
 
 #[test]
 fn malformed_origins_and_unmapped_ranges_are_rejected_before_lowering() {
+    let context = DefinitionContext::new().unwrap();
     let checked = common::program_ok("fn main() -> i32 { val x = 1; x + 2 }");
-    let original = lower_to_mir(checked.root(), &Default::default())
-        .unwrap()
-        .into_unverified();
+    let original = common::adopt(
+        &context,
+        lower_to_mir(checked.root(), &Default::default())
+            .unwrap()
+            .into_unverified(),
+    );
     for mutation in 0..9 {
         let mut raw = original.clone();
         let function = &mut raw.functions[0];
@@ -117,7 +123,7 @@ fn malformed_origins_and_unmapped_ranges_are_rejected_before_lowering() {
             _ => unreachable!(),
         }
         assert_eq!(
-            verify_mir(raw, &Default::default()).unwrap_err().kind,
+            common::verify_edited(&context, raw).unwrap_err().kind,
             MirVerificationErrorKind::InvalidDebugMetadata,
             "mutation {mutation}"
         );
@@ -126,15 +132,22 @@ fn malformed_origins_and_unmapped_ranges_are_rejected_before_lowering() {
 
 #[test]
 fn origin_free_mir_keeps_spans_but_does_not_invent_source_coordinates() {
+    let context = DefinitionContext::new().unwrap();
     let checked = common::program_ok("fn main() -> i32 { 7 }");
-    let mut raw = lower_to_mir(checked.root(), &Default::default())
-        .unwrap()
-        .into_unverified();
+    let mut raw = common::adopt(
+        &context,
+        lower_to_mir(checked.root(), &Default::default())
+            .unwrap()
+            .into_unverified(),
+    );
     for function in &mut raw.functions {
         function.debug.source = None;
     }
-    let verified = verify_mir(raw, &Default::default()).unwrap();
-    let bytecode = common::bytecode_with_edited_root(&checked, &verified);
+    let verified = common::verify_edited(&context, raw).unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_with_edited_root(&checked, &verified),
+    );
     let debug = &bytecode.modules[bytecode.root.index()].functions[0]
         .metadata
         .debug;

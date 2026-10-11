@@ -1,23 +1,30 @@
 use crate::{source::lower::lower_to_mir, tests::common};
-
-use kagari_mir::verify::verify_mir;
+use kagari_common::identity::map::DefinitionContext;
+use kagari_mir::ids::BlockId;
 
 #[test]
 fn logical_offsets_follow_the_verified_entry_and_bytecode_charge_order() {
-    use kagari_mir::ids::BlockId;
+    let context = DefinitionContext::new().unwrap();
+
     let checked = common::program_ok("fn main() -> i32 { 7 }");
-    let mut raw = lower_to_mir(checked.root(), &Default::default())
-        .unwrap()
-        .into_unverified();
+    let mut raw = common::adopt(
+        &context,
+        lower_to_mir(checked.root(), &Default::default())
+            .unwrap()
+            .into_unverified(),
+    );
     let function = &mut raw.functions[0];
     function.blocks.push(function.blocks[0].clone());
     function.entry = BlockId::new(1);
-    let verified = verify_mir(raw, &Default::default()).unwrap();
+    let verified = common::verify_edited(&context, raw).unwrap();
     let function = &verified.functions[0];
     let facts = verified.analysis(function.id).unwrap();
     assert_eq!(facts.block(function.entry).unwrap().start_offset(), 0);
     assert!(facts.block(BlockId::new(0)).unwrap().start_offset() > 0);
-    let bytecode = common::bytecode_with_edited_root(&checked, &verified);
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_with_edited_root(&checked, &verified),
+    );
     let mut offsets = Vec::new();
     for (index, block) in function.emission_order() {
         let facts = facts.block(BlockId::new(index)).unwrap();

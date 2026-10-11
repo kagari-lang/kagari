@@ -1,12 +1,16 @@
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_bytecode::program::BytecodeProgram;
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_bytecode::program::{BytecodeProgram, identity};
+use kagari_common::identity::{
+    DefinitionPath, map::DefinitionContext, metadata::DefinitionMetadata, scoped::RemapDefinitions,
+    table::DefinitionId,
+};
 use kagari_hir::{
     CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
 };
 use kagari_mir::{
+    function::MirModule,
     program::{VerifiedMirProgram, verify_program},
-    verify::VerifiedMirModule,
+    verify::{MirVerificationError, VerifiedMirModule, verify_mir},
 };
 use kagari_source::{
     source::SourceFile,
@@ -82,4 +86,48 @@ fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
     database.set_native_modules(foundation_catalog::shared().unwrap());
     database
+}
+
+/// Adopt editable fixture records into the context retained by the calling test.
+/// This preserves reference validation; the test still invokes the real verifier.
+pub fn adopt<T: RemapDefinitions>(
+    context: &DefinitionContext,
+    metadata: DefinitionMetadata<T>,
+) -> T {
+    metadata
+        .import_into(context, &Default::default())
+        .unwrap()
+        .into_records()
+}
+
+/// Build a deliberately altered authoring identity for verifier rejection fixtures.
+/// Only the selected reference changes; the semantic record still stores an ID.
+pub fn edit_definition(
+    context: &DefinitionContext,
+    id: &mut DefinitionId,
+    edit: impl FnOnce(&mut DefinitionPath),
+) {
+    let mut path = context.snapshot().resolve(*id).unwrap().to_path();
+    edit(&mut path);
+    *id = context.intern(&path).unwrap();
+}
+
+/// Register the implicit ABI names needed by source-free bytecode verification.
+pub fn adopt_bytecode(
+    context: &DefinitionContext,
+    metadata: DefinitionMetadata<BytecodeProgram>,
+) -> BytecodeProgram {
+    let program = adopt(context, metadata);
+    identity::collect(&program.modules.iter().collect::<Vec<_>>(), context).unwrap();
+    program
+}
+
+/// Recheck an edited MIR fixture with its retained definition scope.
+pub fn verify_edited(
+    context: &DefinitionContext,
+    module: MirModule,
+) -> Result<VerifiedMirModule, MirVerificationError> {
+    let metadata =
+        DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap();
+    verify_mir(metadata, &Default::default())
 }

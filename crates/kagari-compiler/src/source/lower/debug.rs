@@ -41,15 +41,19 @@ pub(super) fn capture_origin(
 mod tests {
     use super::*;
     use crate::{source::lower::lower_to_mir, tests::common};
+    use kagari_common::identity::map::DefinitionContext;
     use kagari_common::span::Span;
-    use kagari_mir::verify::verify_mir;
 
     #[test]
     fn origin_capture_preserves_unlocatable_crlf_offsets_and_cancellation() {
+        let context = DefinitionContext::new().unwrap();
         let checked = common::analyze_ok("fn main() {}\r\n");
-        let mut raw = lower_to_mir(&checked, &Default::default())
-            .unwrap()
-            .into_unverified();
+        let mut raw = common::adopt(
+            &context,
+            lower_to_mir(&checked, &Default::default())
+                .unwrap()
+                .into_unverified(),
+        );
         let function = &mut raw.functions[0];
         let offset = checked.lowered.source.text().find('\n').unwrap();
         function.blocks[0].terminator_span = Some(Span::new(offset, offset));
@@ -70,6 +74,6 @@ mod tests {
             Err(MirLoweringError::Cancelled)
         ));
         function.debug.source = Some(origin);
-        assert!(verify_mir(raw, &Default::default()).is_ok());
+        assert!(common::verify_edited(&context, raw).is_ok());
     }
 }

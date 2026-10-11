@@ -2,7 +2,7 @@
 use crate::{bytecode::lower_program_to_bytecode, tests::common};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_contract::types::PublicItem;
 use kagari_mir::{
     codec::{decode_program, encode_program},
@@ -10,18 +10,17 @@ use kagari_mir::{
     ids::{LocalId, TempId},
     instruction::{Instruction, MirValue},
     program::{VerifiedMirProgram, verify_program},
-    verify::verify_mir,
 };
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
 };
 
-fn program() -> (Vec<MirModule>, usize) {
+fn program(context: &DefinitionContext) -> (Vec<MirModule>, usize) {
     let program =
         common::mir_ok("pub struct Future<T> {} fn wait(value: Future<i32>) -> i32 { 0 }");
     let root = program.root().clone();
-    let mut modules = program.into_unverified();
+    let mut modules = common::adopt(context, program.into_unverified());
     let index = modules
         .iter()
         .position(|module| module.identity == root)
@@ -31,8 +30,9 @@ fn program() -> (Vec<MirModule>, usize) {
         if let PublicItem::Type(ty) = item {
             assert_eq!(ty.name, "Future");
             ty.kind = TypeDefKind::NativeStorage(NativeStorageLayout::Future);
-            ty.generic_params[0].owner.path.last_mut().unwrap().kind =
-                DefinitionKind::AssociatedType;
+            common::edit_definition(context, &mut ty.generic_params[0].owner, |path| {
+                path.path.last_mut().unwrap().kind = DefinitionKind::AssociatedType
+            });
         }
     }
     module.structures.clear();
@@ -44,7 +44,9 @@ fn program() -> (Vec<MirModule>, usize) {
     let Ty::Struct(mut nominal) = function.semantic.params[&0].clone() else {
         panic!("Future parameter");
     };
-    nominal.declaration.path.last_mut().unwrap().kind = DefinitionKind::AssociatedType;
+    common::edit_definition(context, &mut nominal.declaration, |path| {
+        path.path.last_mut().unwrap().kind = DefinitionKind::AssociatedType
+    });
     let future = Ty::NativeObject(nominal);
     function.semantic.params.insert(0, future.clone());
     function.semantic.locals.insert(0, future.clone());
@@ -81,17 +83,28 @@ fn program() -> (Vec<MirModule>, usize) {
     (modules, index)
 }
 
-fn verified(modules: Vec<MirModule>, root: usize) -> VerifiedMirProgram {
-    verify_program(modules[root].identity.clone(), modules, &Default::default()).unwrap()
+fn verified(
+    context: &DefinitionContext,
+    modules: Vec<MirModule>,
+    root: usize,
+) -> VerifiedMirProgram {
+    verify_program(
+        modules[root].identity.clone(),
+        modules,
+        context,
+        &Default::default(),
+    )
+    .unwrap()
 }
 
 #[test]
 fn async_mir_suspension_contract() {
-    let (modules, root) = program();
-    let verified = verified(modules.clone(), root);
+    let context = DefinitionContext::new().unwrap();
+    let (modules, root) = program(&context);
+    let verified = verified(&context, modules.clone(), root);
     let bytes = encode_program(&verified, &Default::default()).unwrap();
     let decoded = decode_program(&bytes, &Default::default()).unwrap();
-    let bytecode = lower_program_to_bytecode(&decoded).unwrap();
+    let bytecode = common::adopt_bytecode(&context, lower_program_to_bytecode(&decoded).unwrap());
     assert!(
         bytecode
             .modules
@@ -100,9 +113,9 @@ fn async_mir_suspension_contract() {
             .flat_map(|function| &function.instructions)
             .any(|instruction| matches!(instruction, BytecodeInstruction::Await { .. }))
     );
-    KbcArtifact::from_program(bytecode, Default::default())
+    KbcArtifact::from_program(bytecode, Default::default(), &context)
         .unwrap()
-        .into_verified(&Default::default())
+        .into_verified(&Default::default(), &context)
         .unwrap();
     for mutation in 0..3 {
         let mut module = modules[root].clone();
@@ -135,7 +148,7 @@ fn async_mir_suspension_contract() {
             _ => unreachable!(),
         }
         assert!(
-            verify_mir(module, &Default::default()).is_err(),
+            common::verify_edited(&context, module).is_err(),
             "MIR mutation {mutation}"
         );
     }

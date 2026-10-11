@@ -303,12 +303,14 @@ fn save(point: &mut PointAnalysis, state: &[u64], heap: &[u64]) {
 mod tests {
     use super::*;
     use crate::verify::MirVerificationErrorKind;
-    use kagari_common::cancellation::CancellationToken;
+    use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 
     #[test]
     fn work_is_bounded_across_fixed_points_and_observes_cancellation() {
         let cancel = CancellationToken::default();
+        let definitions = DefinitionContext::new().unwrap().snapshot();
         let context = Context {
+            definitions: &definitions,
             function: None,
             block: None,
             instruction: None,

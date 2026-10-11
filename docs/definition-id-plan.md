@@ -3143,3 +3143,64 @@ Manual review covers table provenance, identity Copy changes and graph revalidat
 Structure checks 1085 Rust files with zero violations/exceptions; formatting and
 diff checks pass. Previous contract and production checks remain evidence for
 unchanged code; full-workspace/backend checks and final cleanup remain outstanding.
+
+
+### SI06 compiler and MIR fixture migration
+
+Migrated all remaining compiler library fixtures and the source_programs integration
+fixture to retained DefinitionContext/DefinitionMetadata ownership. Editable MIR
+records are explicitly adopted, mutated and reverified with their current table;
+bytecode fixtures collect implicit ABI names through the existing identity owner
+before source-free verification. Manual modules register their roots. Single-ID
+fault injection interns an altered authoring path without converting semantic
+records back to a path representation. Public ABI, specialization, imported method,
+Host trait and executable-layout assertions continue to compare IDs in one scope.
+Independent codec comparisons use canonical file facts and PortableTypes instead
+of serializing semantic models. The last scope_record/to_portable consumers are
+removed; a repository crate search finds neither obsolete entrypoint.
+
+Moved the forged control-flow and whole-program analysis-budget decoder cases to
+kagari-mir's private codec wire test owner. They build real file records from
+source-free MIR, first establish valid baseline verification, and retain the
+specific InvalidBlock and cumulative analysis-state-limit rejection assertions.
+The production encoder still accepts only VerifiedMirProgram. No new unverified
+public encoder, identity compatibility model or verifier relaxation was introduced.
+
+The carried compiler library compilation failures are resolved. Initial execution
+found seven bytecode fixture setup failures: missing roots on manually constructed
+modules and missing implicit-name collection on one imported lowering result.
+All seven were repaired without changing their semantic assertions. Clippy also
+exposed 39 old-API errors in source_programs and Copy/slice lint findings in migrated
+unit fixtures; these are repaired. A discarded attempt to restrict Clippy by passing
+`--test` as a rustc flag affected dependency builds and failed crate resolution;
+the standard package-scoped command below succeeds and is the validation evidence.
+
+Focused local evidence (103 distinct selected tests, no workspace/backend sweep):
+
+- `cargo test -p kagari-compiler --lib tests::bytecode:: --no-fail-fast
+  --message-format=short`: 56 initially passed; exact-name reruns of all seven
+  repaired cases pass, completing all 63 selected cases.
+- Compiler library selection: all seven codec cases, three ABI contract cases,
+  six visibility cases, two interface-signature cases, the async MIR case, three
+  origin cases, program-points case, four source ABI cases, edited-root and analysis
+  storage-limit cases, scalar-folding and non-SSA pass cases, and applied-nominal,
+  enum-layout and cancelled-verification cases. All 34 pass. This completes the
+  previously blocked source ABI selection while covering scope adoption, canonical
+  codecs, snapshot ownership, reanalysis and rejection boundaries.
+- `cargo test -p kagari-mir --lib codec::wire::tests:: --no-fail-fast
+  --message-format=short`: both moved decoder rejection cases pass.
+- source_programs selected by the exact names imported_generic_methods_have_distinct_program_instances_and_share_the_limit,
+  missing_dependencies_and_mismatched_link_signatures_are_rejected,
+  public_abi_distinguishes_same_named_imported_types_and_constraints, and
+  public_generic_abi_ignores_binder_spelling_and_constraint_source_order: all four pass.
+- `cargo clippy -p kagari-compiler -p kagari-mir --lib --tests
+  --message-format=short -- -D warnings` passes. Manual review includes fixture
+  table lifetime, registration-before-snapshot ordering, negative assertions,
+  cancellation and wire-owner access. Imports in changed compiler unit fixtures
+  are consolidated at module scope; globs remain confined to test modules.
+- Structure checks 1086 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Unchanged previously passing production evidence remains valid.
+
+Runtime/SDK/VM consumers and bytecode codec fixtures remain SI06 work, as do the
+final architecture/specification documentation transfer and plan retirement.
+Exhaustive workspace, feature/backend and CI acceptance remains unrun locally.

@@ -4,14 +4,19 @@ use kagari_bytecode::{
     module::CallableTarget,
     program::verify_program,
 };
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
     instruction::{CallTarget, Instruction},
     program as mir_program,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::ty::{Constraint, Ty};
+use kagari_types::{
+    scalar::BuiltinType,
+    ty::{Constraint, Ty},
+};
 
 fn script_target(target: CallableTarget) -> FunctionRef {
     let CallableTarget::Script(function) = target else {
@@ -22,10 +27,14 @@ fn script_target(target: CallableTarget) -> FunctionRef {
 
 #[test]
 fn applied_trait_bounds_change_public_abi_fingerprint() {
+    let context = DefinitionContext::new().unwrap();
     let fingerprint = |argument: &str| {
-        let module = common::bytecode_ok(&format!(
-            "pub trait Echo<T> {{}} pub struct Bag<T: Echo<{argument}>> {{ val value: T }} fn main() {{}}"
-        ));
+        let module = common::adopt_bytecode(
+            &context,
+            common::bytecode_ok(&format!(
+                "pub trait Echo<T> {{}} pub struct Bag<T: Echo<{argument}>> {{ val value: T }} fn main() {{}}"
+            )),
+        );
         let bag = module.modules[module.root.index()]
             .public_items
             .iter()
@@ -36,7 +45,8 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
             .unwrap();
         assert!(matches!(&bag.bounds[0].constraints[0],
             Constraint::Trait(ty) if ty.arguments.len() == 1));
-        let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
+        let artifact =
+            KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
         artifact
             .verification
             .public_abi_fingerprints
@@ -50,8 +60,12 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
 
 #[test]
 fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
-    let mut module = common::bytecode_ok(
-        "pub trait Echo<T> {} pub struct Bag<T: Echo<T>> { val value: T } fn main() {}",
+    let context = DefinitionContext::new().unwrap();
+    let mut module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "pub trait Echo<T> {} pub struct Bag<T: Echo<T>> { val value: T } fn main() {}",
+        ),
     );
     let bag = module.modules[module.root.index()]
         .public_items
@@ -67,21 +81,25 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
     let kagari_types::ty::Ty::Parameter { owner, .. } = &mut ty.arguments[0] else {
         panic!("template argument");
     };
-    *owner = ty.declaration.clone();
+    *owner = ty.declaration;
     assert!(matches!(
-        verify_program(&module),
+        verify_program(&module, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     assert!(matches!(
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(),),
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context),
         Err(ArtifactValidationError::Bytecode(_))
     ));
 }
 
 #[test]
 fn applied_trait_interface_table_preserves_method_contract() {
-    let module = common::bytecode_ok(
-        "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn main() {}",
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn main() {}",
+        ),
     );
     assert_eq!(
         module.modules[module.root.index()].interface_tables.len(),
@@ -93,26 +111,36 @@ fn applied_trait_interface_table_preserves_method_contract() {
             .len(),
         1
     );
-    verify_program(&module).unwrap();
-    let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
-    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+    verify_program(&module, &context.snapshot()).unwrap();
+    let artifact =
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .validate_for_loader(&ArtifactCompatibility::default())
+        .validate_for_loader(&ArtifactCompatibility::default(), &context)
         .unwrap();
 }
 
 #[test]
 fn applied_trait_method_bounds_match_across_binder_owners() {
-    let module = common::bytecode_ok(
-        "pub trait Marker<T> {} pub struct Holder {} impl Marker<i32> for Holder {} pub trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } } fn main() {}",
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "pub trait Marker<T> {} pub struct Holder {} impl Marker<i32> for Holder {} pub trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } } fn main() {}",
+        ),
     );
-    verify_program(&module).unwrap();
+    verify_program(&module, &context.snapshot()).unwrap();
 }
 
 #[test]
 fn applied_trait_template_keeps_impl_and_trait_arguments() {
-    let module = common::bytecode_ok(
-        "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn main() {}",
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn main() {}",
+        ),
     );
     assert_eq!(
         module.modules[module.root.index()].interface_tables.len(),
@@ -132,8 +160,12 @@ fn applied_trait_template_keeps_impl_and_trait_arguments() {
 
 #[test]
 fn generic_interface_implementation_specializes_reachable_method() {
-    let module = common::bytecode_ok(
-        "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read(x: Get) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read(x: Get) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
+        ),
     );
     assert_eq!(
         module.modules[module.root.index()].interface_tables.len(),
@@ -184,15 +216,19 @@ fn generic_interface_implementation_specializes_reachable_method() {
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&wrong_arity),
+        verify_program(&wrong_arity, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
 
 #[test]
 fn generic_interface_slot_requires_instantiated_method_layout() {
-    let module = common::bytecode_ok(
-        "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read(x: Echo<i32>) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 7 }) }",
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read(x: Echo<i32>) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 7 }) }",
+        ),
     );
     assert_eq!(
         module.modules[module.root.index()]
@@ -202,7 +238,7 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
             .sum::<usize>(),
         1
     );
-    verify_program(&module).unwrap();
+    verify_program(&module, &context.snapshot()).unwrap();
     let mut wrong_instance = module;
     let method = wrong_instance.modules[wrong_instance.root.index()]
         .interface_tables
@@ -222,15 +258,19 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&wrong_instance),
+        verify_program(&wrong_instance, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
 
 #[test]
 fn concrete_interface_methods_have_verified_executable_slots() {
-    let module = common::bytecode_ok(
-        "pub struct Pair { val number: i32 } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { 1 }",
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "pub struct Pair { val number: i32 } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { 1 }",
+        ),
     );
     assert_eq!(
         module.modules[module.root.index()].interface_tables.len(),
@@ -239,23 +279,51 @@ fn concrete_interface_methods_have_verified_executable_slots() {
     let table = &module.modules[module.root.index()].interface_tables[0];
     assert_eq!(table.methods.len(), 1);
     let slot = &table.methods[0];
-    assert_eq!(slot.method.path.last().unwrap().name, "get");
+    assert_eq!(
+        context
+            .snapshot()
+            .resolve(slot.method)
+            .unwrap()
+            .last()
+            .unwrap()
+            .name,
+        "get"
+    );
     let function =
         &module.modules[module.root.index()].functions[script_target(slot.target).index()];
     let identity = function.identity.as_ref().unwrap();
-    assert_eq!(identity.declaration.path.last().unwrap().name, "get");
     assert_eq!(
-        identity.declaration.path[0].kind,
+        context
+            .snapshot()
+            .resolve(identity.declaration)
+            .unwrap()
+            .last()
+            .unwrap()
+            .name,
+        "get"
+    );
+    assert_eq!(
+        context
+            .snapshot()
+            .resolve(identity.declaration)
+            .unwrap()
+            .segments()
+            .next()
+            .unwrap()
+            .kind,
         kagari_common::identity::DefinitionKind::Impl
     );
     assert!(identity.arguments.is_empty());
-    verify_program(&module).unwrap();
+    verify_program(&module, &context.snapshot()).unwrap();
 
     let artifact =
-        KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default(), &context)
+            .unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
+        .unwrap();
     decoded
-        .validate_for_loader(&ArtifactCompatibility::default())
+        .validate_for_loader(&ArtifactCompatibility::default(), &context)
         .unwrap();
     assert_eq!(
         decoded.program.modules[decoded.program.root.index()].interface_tables[0].methods[0].target,
@@ -267,7 +335,7 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         .methods
         .clear();
     assert!(matches!(
-        verify_program(&missing),
+        verify_program(&missing, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut wrong_target = module.clone();
@@ -281,18 +349,17 @@ fn concrete_interface_methods_have_verified_executable_slots() {
                 .id,
         );
     assert!(matches!(
-        verify_program(&wrong_target),
+        verify_program(&wrong_target, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut wrong_method = module.clone();
-    wrong_method.modules[wrong_method.root.index()].interface_tables[0].methods[0]
-        .method
-        .path
-        .last_mut()
-        .unwrap()
-        .name = "other".into();
+    common::edit_definition(
+        &context,
+        &mut wrong_method.modules[wrong_method.root.index()].interface_tables[0].methods[0].method,
+        |path| path.path.last_mut().unwrap().name = "other".into(),
+    );
     assert!(matches!(
-        verify_program(&wrong_method),
+        verify_program(&wrong_method, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut missing_table = module;
@@ -300,17 +367,14 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         .interface_tables
         .clear();
     assert!(matches!(
-        verify_program(&missing_table),
+        verify_program(&missing_table, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
 
 #[test]
 fn source_interface_coercion_links_an_imported_implementation_table() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::{SourceDatabase, SourceLayer},
-    };
+    let context = DefinitionContext::new().unwrap();
 
     let mut sources = SourceDatabase::default();
     let mut root = None;
@@ -346,7 +410,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let mut forged = ir.clone().into_unverified();
+    let mut forged = common::adopt(&context, ir.clone().into_unverified());
     let root_ir = forged
         .iter_mut()
         .find(|module| module.identity.path == ["root"])
@@ -361,15 +425,17 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
             _ => None,
         })
         .unwrap();
-    implementation.path.last_mut().unwrap().name = "forged".into();
+    common::edit_definition(&context, implementation, |path| {
+        path.path.last_mut().unwrap().name = "forged".into()
+    });
     assert!(matches!(
-        mir_program::verify_program(ir.root().clone(), forged, &Default::default()),
+        mir_program::verify_program(ir.root().clone(), forged, &context, &Default::default()),
         Err(mir_program::ProgramError {
             kind: mir_program::ProgramErrorKind::InterfaceContract(_),
             ..
         })
     ));
-    let mut forged_call = ir.clone().into_unverified();
+    let mut forged_call = common::adopt(&context, ir.clone().into_unverified());
     let method_slot = forged_call
         .iter_mut()
         .find(|module| module.identity.path == ["root"])
@@ -388,13 +454,21 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .unwrap();
     *method_slot = 99;
     assert!(matches!(
-        mir_program::verify_program(ir.root().clone(), forged_call, &Default::default()),
+        mir_program::verify_program(
+            ir.root().clone(),
+            forged_call,
+            &context,
+            &Default::default()
+        ),
         Err(mir_program::ProgramError {
             kind: mir_program::ProgramErrorKind::InterfaceContract(_),
             ..
         })
     ));
-    let bytecode = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
+    let bytecode = common::adopt(
+        &context,
+        crate::bytecode::lower_program_to_bytecode(&ir).unwrap(),
+    );
     let root_module = &bytecode.modules[bytecode.root.index()];
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
         |instruction| matches!(instruction, BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
@@ -402,7 +476,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
         |instruction| matches!(instruction, BytecodeInstruction::Call { callee: KagaribytecodeCallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())
     ));
-    verify_program(&bytecode).unwrap();
+    verify_program(&bytecode, &context.snapshot()).unwrap();
     let mut invalid = bytecode.clone();
     let call = invalid.modules[bytecode.root.index()]
         .functions
@@ -417,7 +491,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         })
         .unwrap();
     *call = 99;
-    assert!(verify_program(&invalid).is_err());
+    assert!(verify_program(&invalid, &context.snapshot()).is_err());
     let mut wrong_owner = bytecode.clone();
     let owner_slot = wrong_owner.modules[bytecode.root.index()]
         .functions
@@ -432,15 +506,19 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         })
         .unwrap();
     *owner_slot = bytecode.root;
-    assert!(verify_program(&wrong_owner).is_err());
+    assert!(verify_program(&wrong_owner, &context.snapshot()).is_err());
 }
 
 #[test]
 fn forged_interface_method_slots_are_rejected_before_execution() {
-    let original = common::bytecode_ok(
-        "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self } } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }",
+    let context = DefinitionContext::new().unwrap();
+    let original = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self } } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }",
+        ),
     );
-    verify_program(&original).unwrap();
+    verify_program(&original, &context.snapshot()).unwrap();
     for corruption in ["slot", "owner", "argument"] {
         let mut forged = original.clone();
         let function = forged.modules[forged.root.index()]
@@ -470,21 +548,29 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
         match corruption {
             "slot" => contract.method_slot = 99,
             "owner" => {
-                contract.interface.declaration.path.last_mut().unwrap().name = "Other".into()
+                common::edit_definition(&context, &mut contract.interface.declaration, |path| {
+                    path.path.last_mut().unwrap().name = "Other".into()
+                })
             }
             "argument" => args[0] = Register::new(999),
             _ => unreachable!(),
         }
-        assert!(verify_program(&forged).is_err(), "accepted {corruption}");
+        assert!(
+            verify_program(&forged, &context.snapshot()).is_err(),
+            "accepted {corruption}"
+        );
     }
 }
 
 #[test]
 fn private_interface_tables_must_match_their_trait_contract() {
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
+    let context = DefinitionContext::new().unwrap();
 
-    let original = common::bytecode_ok(
-        "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",
+    let original = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",
+        ),
     );
     let index = original.modules[original.root.index()]
         .public_items
@@ -497,7 +583,7 @@ fn private_interface_tables_must_match_their_trait_contract() {
             .len(),
         1
     );
-    verify_program(&original).unwrap();
+    verify_program(&original, &context.snapshot()).unwrap();
     for corruption in ["result", "roster", "missing trait"] {
         let mut forged = original.clone();
         match corruption {
@@ -522,7 +608,7 @@ fn private_interface_tables_must_match_their_trait_contract() {
         }
         assert!(
             matches!(
-                verify_program(&forged),
+                verify_program(&forged, &context.snapshot()),
                 Err(BytecodeVerificationError::InvalidPublicAbi)
             ),
             "{corruption}"
@@ -532,6 +618,6 @@ fn private_interface_tables_must_match_their_trait_contract() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().unwrap());
     database
 }

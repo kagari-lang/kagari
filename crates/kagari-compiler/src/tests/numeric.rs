@@ -1,9 +1,11 @@
 use crate::tests::common;
 use kagari_bytecode::{instruction::BytecodeInstruction, program::verify_program};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType};
 
 #[test]
 fn narrow_arithmetic_retains_source_width_without_assert_expansion() {
+    let context = DefinitionContext::new().unwrap();
     for (name, input) in [
         ("i8", BuiltinType::I8),
         ("i16", BuiltinType::I16),
@@ -22,7 +24,7 @@ fn narrow_arithmetic_retains_source_width_without_assert_expansion() {
                 "fn calc(a: {name}, b: {name}) -> {name} {{ a {operator} b }}
                  fn main() -> {name} {{ calc(6{name}, 3{name}) }}"
             );
-            let program = common::bytecode_ok(&source);
+            let program = common::adopt_bytecode(&context, common::bytecode_ok(&source));
             let function = program.modules[program.root.index()]
                 .functions
                 .iter()
@@ -61,7 +63,7 @@ fn narrow_arithmetic_retains_source_width_without_assert_expansion() {
                 .unwrap();
             let original = *operation;
             operation.rhs = Some(BuiltinType::F32);
-            assert!(verify_program(&malformed).is_err());
+            assert!(verify_program(&malformed, &context.snapshot()).is_err());
             let operation = malformed.modules[malformed.root.index()]
                 .functions
                 .iter_mut()
@@ -77,17 +79,21 @@ fn narrow_arithmetic_retains_source_width_without_assert_expansion() {
             *operation = original;
             operation.input = BuiltinType::I64;
             operation.rhs = Some(BuiltinType::I64);
-            assert!(verify_program(&malformed).is_err());
+            assert!(verify_program(&malformed, &context.snapshot()).is_err());
         }
     }
 }
 
 #[test]
 fn narrow_negation_uses_the_checked_source_domain() {
+    let context = DefinitionContext::new().unwrap();
     for (name, input) in [("i8", BuiltinType::I8), ("i16", BuiltinType::I16)] {
-        let program = common::bytecode_ok(&format!(
-            "fn neg(a: {name}) -> {name} {{ -a }} fn main() -> {name} {{ neg(6{name}) }}"
-        ));
+        let program = common::adopt_bytecode(
+            &context,
+            common::bytecode_ok(&format!(
+                "fn neg(a: {name}) -> {name} {{ -a }} fn main() -> {name} {{ neg(6{name}) }}"
+            )),
+        );
         let function = program.modules[program.root.index()]
             .functions
             .iter()

@@ -3,12 +3,13 @@ use crate::{
     tests::common,
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::{effects::EffectSet, operations::BinaryOp};
 use kagari_mir::{
     ids::BlockId,
     instruction::{CallTarget, Constant, Instruction, Terminator},
     passes::{PassOptions, PassResult, optimize},
-    verify::{MirVerificationErrorKind, VerifiedMirModule, verify_mir},
+    verify::{MirVerificationErrorKind, VerifiedMirModule},
 };
 
 fn checked(source: &str) -> VerifiedMirModule {
@@ -21,9 +22,13 @@ fn optimized(module: VerifiedMirModule) -> PassResult {
 
 #[test]
 fn scalar_folding_removes_dead_points_and_rebuilds_verified_metadata() {
+    let context = DefinitionContext::new().unwrap();
     let input = common::program_ok("fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }");
     let original = lower_to_mir(input.root(), &Default::default()).unwrap();
-    let before = common::bytecode_with_edited_root(&input, &original);
+    let before = common::adopt_bytecode(
+        &context,
+        common::bytecode_with_edited_root(&input, &original),
+    );
     let result = optimized(original.clone());
     assert!(result.statistics.constants_folded >= 2);
     assert_eq!(result.statistics.branches_simplified, 1);
@@ -40,7 +45,10 @@ fn scalar_folding_removes_dead_points_and_rebuilds_verified_metadata() {
         before_facts.block(BlockId::new(index)).unwrap().reachable()
             && !after_facts.block(BlockId::new(index)).unwrap().reachable()
     }));
-    let after = common::bytecode_with_edited_root(&input, &result.module);
+    let after = common::adopt_bytecode(
+        &context,
+        common::bytecode_with_edited_root(&input, &result.module),
+    );
     assert!(
         after.modules[after.root.index()].functions[0]
             .instructions
@@ -58,6 +66,7 @@ fn scalar_folding_removes_dead_points_and_rebuilds_verified_metadata() {
 
 #[test]
 fn checked_traps_calls_and_allocations_are_not_discarded() {
+    let context = DefinitionContext::new().unwrap();
     for source in [
         "fn main() { 2147483647 + 1; }",
         "fn main() { 1 / 0; }",
@@ -68,8 +77,14 @@ fn checked_traps_calls_and_allocations_are_not_discarded() {
         let input = common::program_ok(source);
         let original = lower_to_mir(input.root(), &Default::default()).unwrap();
         let result = optimized(original.clone());
-        let before = common::bytecode_with_edited_root(&input, &original);
-        let after = common::bytecode_with_edited_root(&input, &result.module);
+        let before = common::adopt_bytecode(
+            &context,
+            common::bytecode_with_edited_root(&input, &original),
+        );
+        let after = common::adopt_bytecode(
+            &context,
+            common::bytecode_with_edited_root(&input, &result.module),
+        );
         assert_eq!(
             before.modules[before.root.index()].functions[0].instructions,
             after.modules[after.root.index()].functions[0].instructions,
@@ -92,8 +107,11 @@ fn checked_traps_calls_and_allocations_are_not_discarded() {
 
 #[test]
 fn non_ssa_redefinitions_and_unavailable_loads_kill_constant_facts() {
-    let mut raw =
-        checked("fn main(flag: bool) -> i32 { if true { 1 } else { 2 } }").into_unverified();
+    let context = DefinitionContext::new().unwrap();
+    let mut raw = common::adopt(
+        &context,
+        checked("fn main(flag: bool) -> i32 { if true { 1 } else { 2 } }").into_unverified(),
+    );
     let function = &mut raw.functions[0];
     let block = &mut function.blocks[0];
     let Some(Terminator::Branch { cond, .. }) = block.terminator else {
@@ -107,7 +125,7 @@ fn non_ssa_redefinitions_and_unavailable_loads_kill_constant_facts() {
     block.instruction_spans.push(Default::default());
     block.instruction_scopes.push(0);
     function.effects = function.effects.union(EffectSet::local_read());
-    let result = optimized(verify_mir(raw, &Default::default()).unwrap());
+    let result = optimized(common::verify_edited(&context, raw).unwrap());
     assert_eq!(result.statistics.branches_simplified, 0);
     assert!(matches!(
         result.module.functions[0].blocks[0].terminator,
@@ -134,7 +152,11 @@ fn scalar_facts_do_not_flow_through_heap_reads_or_calls() {
 
 #[test]
 fn raw_unsigned_arithmetic_is_trapping_even_without_a_result_use() {
-    let mut raw = checked("fn main(value: u64) { value + 1u64; }").into_unverified();
+    let context = DefinitionContext::new().unwrap();
+    let mut raw = common::adopt(
+        &context,
+        checked("fn main(value: u64) { value + 1u64; }").into_unverified(),
+    );
     let mut replaced = false;
     for instruction in &mut raw.functions[0].blocks[0].instructions {
         if let Instruction::Binary { op, .. } = instruction {
@@ -158,7 +180,7 @@ fn raw_unsigned_arithmetic_is_trapping_even_without_a_result_use() {
         }
     }
     assert!(replaced);
-    let result = optimized(verify_mir(raw, &Default::default()).unwrap());
+    let result = optimized(common::verify_edited(&context, raw).unwrap());
     assert!(
         result.module.functions[0].blocks[0]
             .instructions
@@ -201,6 +223,7 @@ fn pass_limits_and_cancellation_do_not_publish_partial_modules() {
 
 #[test]
 fn compiler_options_apply_the_public_frontend_free_pass_pipeline() {
+    let context = DefinitionContext::new().unwrap();
     let source = common::program_ok("fn main() -> i32 { 6 * 7 }");
     let module = lower_to_mir(
         source.root(),
@@ -223,11 +246,15 @@ fn compiler_options_apply_the_public_frontend_free_pass_pipeline() {
             ))
     );
     assert_eq!(module.functions[0].blocks[0].instructions.len(), 1);
-    common::bytecode_with_edited_root(&source, &module);
+    common::adopt_bytecode(
+        &context,
+        common::bytecode_with_edited_root(&source, &module),
+    );
 }
 
 #[test]
 fn folded_integers_respect_width_signedness_and_shift_rules() {
+    let context = DefinitionContext::new().unwrap();
     for (source, expected) in [
         ("fn main() -> i8 { 126i8 + 1i8 }", Constant::I32(127)),
         ("fn main() -> u8 { 255u8 << 1 }", Constant::I64(254)),
@@ -250,14 +277,21 @@ fn folded_integers_respect_width_signedness_and_shift_rules() {
             )),
             "{source}"
         );
-        common::bytecode_with_edited_root(&input, &result.module);
+        common::adopt_bytecode(
+            &context,
+            common::bytecode_with_edited_root(&input, &result.module),
+        );
     }
 }
 
 #[test]
 fn calls_invalidate_previously_known_branch_conditions() {
-    let mut raw = checked("fn touch() {} fn main() -> i32 { touch(); if true { 1 } else { 2 } }")
-        .into_unverified();
+    let context = DefinitionContext::new().unwrap();
+    let mut raw = common::adopt(
+        &context,
+        checked("fn touch() {} fn main() -> i32 { touch(); if true { 1 } else { 2 } }")
+            .into_unverified(),
+    );
     let function = raw.functions.iter_mut().find(|f| f.name == "main").unwrap();
     let block = &mut function.blocks[0];
     let call = block
@@ -272,12 +306,13 @@ fn calls_invalidate_previously_known_branch_conditions() {
     block.instructions.push(instruction);
     block.instruction_spans.push(span);
     block.instruction_scopes.push(scope);
-    let result = optimized(verify_mir(raw, &Default::default()).unwrap());
+    let result = optimized(common::verify_edited(&context, raw).unwrap());
     assert_eq!(result.statistics.branches_simplified, 0);
 }
 
 #[test]
 fn live_float_arithmetic_and_potentially_trapping_casts_are_preserved() {
+    let context = DefinitionContext::new().unwrap();
     for source in [
         "fn main() -> f64 { 1.25 + 2.5 }",
         "fn main(value: i8) { value as i32; }",
@@ -285,8 +320,14 @@ fn live_float_arithmetic_and_potentially_trapping_casts_are_preserved() {
         let input = common::program_ok(source);
         let original = lower_to_mir(input.root(), &Default::default()).unwrap();
         let result = optimized(original.clone());
-        let before = common::bytecode_with_edited_root(&input, &original);
-        let after = common::bytecode_with_edited_root(&input, &result.module);
+        let before = common::adopt_bytecode(
+            &context,
+            common::bytecode_with_edited_root(&input, &original),
+        );
+        let after = common::adopt_bytecode(
+            &context,
+            common::bytecode_with_edited_root(&input, &result.module),
+        );
         assert_eq!(
             before.modules[before.root.index()].functions[0].instructions,
             after.modules[after.root.index()].functions[0].instructions,

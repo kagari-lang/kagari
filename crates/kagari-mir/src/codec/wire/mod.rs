@@ -3,6 +3,9 @@ mod calls;
 mod function;
 mod instruction;
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     codec::{RawProgram, wire::function::MirModuleRecord},
     program::VerifiedMirProgram,

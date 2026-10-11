@@ -1,61 +1,40 @@
-use bincode::{DefaultOptions, Options};
-use kagari_abi::{
-    representation::ValueType,
-    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
-};
-use kagari_bytecode::{
-    artifact::ArtifactValidationError, instruction::ConstantOperand,
-    program::verified::VerifiedBytecodeProgram,
-};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{ModuleIdentity, metadata::scope_record},
-};
-use kagari_mir::{
-    codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
-    function::{MirModule, MirTemp},
-    ids::BlockId,
-    instruction::{Constant, Instruction, Terminator},
-    program::{ProgramErrorKind, VerifiedMirProgram, verify_program},
-    verify::{MirVerificationErrorKind, verify_mir},
-};
-use std::sync::Arc;
-
 use crate::{
     bytecode::lower_program_to_bytecode,
     native_input::{NativeInputError, verify_native_input},
     source::program::lower_program_to_mir,
     tests::common,
 };
+use bincode::{DefaultOptions, Options};
+use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
+use kagari_bytecode::{
+    artifact::{ArtifactBuildOptions, ArtifactValidationError, KbcArtifact, encode_program_facts},
+    instruction::ConstantOperand,
+    native_input::PortableMir,
+    program::verified::VerifiedBytecodeProgram,
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, map::DefinitionContext},
+};
+use kagari_mir::{
+    codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
+    function::MirModule,
+    instruction::{Constant, Instruction},
+    program::{VerifiedMirProgram, verify_program},
+    verify::MirVerificationErrorKind,
+};
+use std::sync::Arc;
 
 fn program(source: &str) -> VerifiedMirProgram {
     common::mir_ok(source)
 }
 
-fn forged(root: &ModuleIdentity, modules: &[MirModule]) -> Vec<u8> {
-    let cancel = CancellationToken::default();
-    let portable = scope_record(&modules.to_vec(), &cancel)
-        .unwrap()
-        .to_portable(&cancel)
-        .unwrap();
-    DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .serialize(&(
-            MIR_MAGIC,
-            MIR_FORMAT_VERSION,
-            KAGARI_RUNTIME_ABI_VERSION,
-            KAGARI_RUNTIME_HELPER_ABI_VERSION,
-            root,
-            portable,
-        ))
-        .unwrap()
-}
-
 fn assert_same_bytecode(before: &VerifiedMirProgram, after: &VerifiedMirProgram) {
+    let before = lower_program_to_bytecode(before).unwrap();
+    let after = lower_program_to_bytecode(after).unwrap();
     assert_eq!(
-        bincode::serialize(&lower_program_to_bytecode(before).unwrap()).unwrap(),
-        bincode::serialize(&lower_program_to_bytecode(after).unwrap()).unwrap()
+        encode_program_facts(before.records(), before.definitions(), &Default::default()).unwrap(),
+        encode_program_facts(after.records(), after.definitions(), &Default::default()).unwrap()
     );
 }
 
@@ -149,23 +128,8 @@ fn codec_retains_unicode_origins_without_retaining_source_objects() {
 }
 
 #[test]
-fn codec_rejects_forged_control_flow_instead_of_accepting_serialized_proof() {
-    let original = program("fn main() {}");
-    let root = original.root().clone();
-    let mut raw = original.into_unverified();
-    let slot = raw
-        .iter()
-        .position(|module| module.identity == root)
-        .unwrap();
-    raw[slot].functions[0].blocks[0].terminator = Some(Terminator::Jump(BlockId::new(999)));
-    assert!(matches!(
-        decode_program(&forged(&root, &raw), &Default::default()),
-        Err(MirCodecError::Verification(_))
-    ));
-}
-
-#[test]
 fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
+    let context = DefinitionContext::new().unwrap();
     // Exhaust every truncation offset of a small, source-free dependency graph.
     // The compiled stdlib closure is exercised by the semantic roundtrip tests.
     let root = ModuleIdentity::single_file("wire-root");
@@ -189,6 +153,7 @@ fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
             empty(root, vec![dependency.clone()]),
             empty(dependency, vec![]),
         ],
+        &context,
         &Default::default(),
     )
     .unwrap();
@@ -256,94 +221,47 @@ fn codec_rejects_impossible_module_counts_before_element_decoding() {
 }
 
 #[test]
-fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
-    let original = program("fn main() {}");
-    let root = original.root().clone();
-    let mut dependencies = original.into_unverified();
-    let slot = dependencies
-        .iter()
-        .position(|module| module.identity == root)
-        .unwrap();
-    let mut template = dependencies.remove(slot);
-    let function = &mut template.functions[0];
-    function.temps = vec![
-        MirTemp {
-            ty: ValueType::Unit
-        };
-        32_768
-    ];
-    let block = &mut function.blocks[0];
-    block.instructions = vec![
-        Instruction::LoadConst {
-            dst: kagari_mir::instruction::MirValue {
-                temp: kagari_mir::ids::TempId::new(0),
-                ty: ValueType::Unit
-            },
-            constant: kagari_mir::instruction::Constant::Unit
-        };
-        256
-    ];
-    block.instruction_spans = vec![Default::default(); 256];
-    block.instruction_scopes = vec![0; 256];
-    block.terminator = Some(Terminator::Return(None));
-    verify_mir(template.clone(), &Default::default()).unwrap();
-    let mut modules = (0..24)
-        .map(|index| {
-            let mut module = template.clone();
-            module.identity = ModuleIdentity::single_file(format!("member{index}"));
-            module.functions[0].instance.declaration.module = module.identity.clone();
-            module
-        })
-        .collect::<Vec<_>>();
-    let linked: Vec<_> = modules
-        .iter()
-        .skip(1)
-        .map(|module| module.identity.clone())
-        .collect();
-    modules[0].dependencies.extend(linked);
-    let root = modules[0].identity.clone();
-    modules.extend(dependencies);
-    let error = decode_program(&forged(&root, &modules), &Default::default()).unwrap_err();
-    assert!(
-        matches!(error, MirCodecError::Verification(error) if matches!(error.kind,
-            ProgramErrorKind::Verification(ref error) if matches!(error.kind,
-                MirVerificationErrorKind::Limit { resource: "MIR analysis state bytes", .. }
-            )
-        ))
-    );
-}
-
-#[test]
 fn native_preparation_requires_canonical_semantics_not_independent_valid_payloads() {
+    let context = DefinitionContext::new().unwrap();
     let original = program("fn main() -> i32 { 42 }");
     let other = program("fn main() -> i32 { 43 }");
     let wire = encode_program(&original, &Default::default()).unwrap();
-    let bytecode =
-        VerifiedBytecodeProgram::new(lower_program_to_bytecode(&original).unwrap()).unwrap();
+    let bytecode = VerifiedBytecodeProgram::new(
+        lower_program_to_bytecode(&original)
+            .map(|metadata| common::adopt_bytecode(&context, metadata))
+            .unwrap(),
+        &context,
+    )
+    .unwrap();
     let prepared = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
     assert_same_bytecode(&original, &prepared);
-    let different_bytecode =
-        VerifiedBytecodeProgram::new(lower_program_to_bytecode(&other).unwrap()).unwrap();
+    let different_bytecode = VerifiedBytecodeProgram::new(
+        lower_program_to_bytecode(&other)
+            .map(|metadata| common::adopt_bytecode(&context, metadata))
+            .unwrap(),
+        &context,
+    )
+    .unwrap();
     // Both programs are independently valid and have identical function signatures.
     assert!(matches!(
         verify_native_input(&wire, &different_bytecode, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
-    let mut changed_origin = bytecode.to_unverified(&Default::default()).unwrap();
+    let mut changed_origin = common::adopt_bytecode(&context, bytecode.to_unverified());
     changed_origin.modules[changed_origin.root.index()]
         .source_name
         .push_str("-changed");
-    let changed_origin = VerifiedBytecodeProgram::new(changed_origin).unwrap();
+    let changed_origin = VerifiedBytecodeProgram::new(changed_origin, &context).unwrap();
     assert!(matches!(
         verify_native_input(&wire, &changed_origin, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
-    let mut forged = bytecode.to_unverified(&Default::default()).unwrap();
+    let mut forged = common::adopt_bytecode(&context, bytecode.to_unverified());
     forged.modules[forged.root.index()].functions[0]
         .instructions
         .clear();
     assert!(matches!(
-        VerifiedBytecodeProgram::new(forged),
+        VerifiedBytecodeProgram::new(forged, &context),
         Err(ArtifactValidationError::Bytecode(_))
     ));
     let cancel = CancellationToken::default();
@@ -356,6 +274,7 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
 
 #[test]
 fn codec_preserves_float_bits_and_constant_pool_identity() {
+    let context = DefinitionContext::new().unwrap();
     for (ty, pairs) in [
         (
             "f32",
@@ -379,7 +298,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                 "fn main() -> {ty} {{ val a: {ty} = 0.0; val b: {ty} = 1.0; a + b }}"
             ));
             let root = original.root().clone();
-            let mut modules = original.into_unverified();
+            let mut modules = common::adopt(&context, original.into_unverified());
             let mut bits = [first, second].into_iter();
             let slot = modules
                 .iter()
@@ -403,11 +322,15 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                 }
             }
             assert!(bits.next().is_none());
-            let original = verify_program(root, modules, &Default::default()).unwrap();
+            let original = verify_program(root, modules, &context, &Default::default()).unwrap();
             let wire = encode_program(&original, &Default::default()).unwrap();
-            let bytecode =
-                VerifiedBytecodeProgram::new(lower_program_to_bytecode(&original).unwrap())
-                    .unwrap();
+            let bytecode = VerifiedBytecodeProgram::new(
+                lower_program_to_bytecode(&original)
+                    .map(|metadata| common::adopt_bytecode(&context, metadata))
+                    .unwrap(),
+                &context,
+            )
+            .unwrap();
             assert_eq!(
                 bytecode.program().modules[bytecode.program().root.index()]
                     .constants
@@ -416,7 +339,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             );
             let decoded = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
             assert_same_bytecode(&original, &decoded);
-            let mut changed = bytecode.to_unverified(&Default::default()).unwrap();
+            let mut changed = common::adopt_bytecode(&context, bytecode.to_unverified());
             let module = &mut changed.modules[changed.root.index()];
             // Indexed instructions keep their identity while the authoritative
             // pool changes, including NaN payloads and signed zero.
@@ -428,7 +351,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                     constant => panic!("expected float constant, got {constant:?}"),
                 }
             }
-            let changed = VerifiedBytecodeProgram::new(changed).unwrap();
+            let changed = VerifiedBytecodeProgram::new(changed, &context).unwrap();
             assert!(matches!(
                 verify_native_input(&wire, &changed, &Default::default()),
                 Err(NativeInputError::Mismatch)
@@ -439,26 +362,30 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
 
 #[test]
 fn artifact_integrity_does_not_substitute_for_native_correspondence() {
-    use kagari_bytecode::{
-        artifact::{ArtifactBuildOptions, KbcArtifact},
-        native_input::PortableMir,
-    };
+    let context = DefinitionContext::new().unwrap();
 
     let first = program("fn main() -> i32 { 42 }");
     let second = program("fn main() -> i32 { 43 }");
     for (mir, matches) in [(&first, true), (&second, false)] {
         let artifact = KbcArtifact::from_program(
-            lower_program_to_bytecode(&first).unwrap(),
+            lower_program_to_bytecode(&first)
+                .map(|metadata| common::adopt_bytecode(&context, metadata))
+                .unwrap(),
             ArtifactBuildOptions {
                 portable_mir: Some(PortableMir {
                     bytes: encode_program(mir, &Default::default()).unwrap(),
                 }),
                 ..Default::default()
             },
+            &context,
         )
         .unwrap();
-        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        let decoded = decoded.into_verified(&Default::default()).unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+            .map(|metadata| common::adopt(&context, metadata))
+            .unwrap();
+        let decoded = decoded
+            .into_verified(&Default::default(), &context)
+            .unwrap();
         let result = verify_native_input(
             &decoded.portable_mir().unwrap().bytes,
             decoded.bytecode(),

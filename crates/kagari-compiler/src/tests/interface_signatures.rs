@@ -4,6 +4,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
     program::verify_program,
 };
+use kagari_common::identity::map::DefinitionContext;
 use kagari_mir::codec::{decode_program, encode_program};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -27,17 +28,25 @@ pub fn main() -> i32 {
 
 #[test]
 fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
+    let context = DefinitionContext::new().unwrap();
     let mir = common::mir_ok(SOURCE);
     let mir = decode_program(
         &encode_program(&mir, &Default::default()).unwrap(),
         &Default::default(),
     )
     .unwrap();
-    let artifact =
-        KbcArtifact::from_program(lower_program_to_bytecode(&mir).unwrap(), Default::default())
-            .unwrap();
-    let artifact = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    verify_program(&artifact.program).unwrap();
+    let artifact = KbcArtifact::from_program(
+        lower_program_to_bytecode(&mir)
+            .map(|metadata| common::adopt_bytecode(&context, metadata))
+            .unwrap(),
+        Default::default(),
+        &context,
+    )
+    .unwrap();
+    let artifact = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
+        .unwrap();
+    verify_program(&artifact.program, &context.snapshot()).unwrap();
     let facts = artifact
         .program
         .modules
@@ -58,12 +67,15 @@ fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
     assert!(
         matches!(&facts[0].result, Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::Struct(_)]))
     );
-    artifact.into_verified(&Default::default()).unwrap();
+    artifact
+        .into_verified(&Default::default(), &context)
+        .unwrap();
 }
 
 #[test]
 fn interface_signature_normalizations_are_evidence_not_trusted_type_overrides() {
-    let program = common::bytecode_ok(SOURCE);
+    let context = DefinitionContext::new().unwrap();
+    let program = common::adopt_bytecode(&context, common::bytecode_ok(SOURCE));
     for mutation in 0..5 {
         let mut forged = program.clone();
         let call = forged
@@ -94,9 +106,12 @@ fn interface_signature_normalizations_are_evidence_not_trusted_type_overrides() 
             4 => call.normalizations[0].result = call.normalizations[0].source.clone(),
             _ => unreachable!(),
         }
-        assert!(verify_program(&forged).is_err(), "mutation {mutation}");
         assert!(
-            KbcArtifact::from_program(forged, Default::default()).is_err(),
+            verify_program(&forged, &context.snapshot()).is_err(),
+            "mutation {mutation}"
+        );
+        assert!(
+            KbcArtifact::from_program(forged, Default::default(), &context).is_err(),
             "mutation {mutation}"
         );
     }

@@ -1,26 +1,25 @@
 use crate::{
-    source::{lower::lower_to_mir, program::lower_program_to_mir},
+    source::{
+        lower::{MirLoweringError, instances::MirLoweringOptions, lower_to_mir},
+        program::lower_program_to_mir,
+    },
     tests::common,
 };
-use kagari_common::identity::table::DefinitionId;
-use {
-    crate::source::lower::{MirLoweringError, instances::MirLoweringOptions},
-    kagari_common::span::Span,
-    kagari_mir::ids::TempId,
-};
-use {
-    kagari_bytecode::instruction::BytecodeInstruction, kagari_source::diagnostic::DiagnosticKind,
-};
-
-use {kagari_abi::representation::ValueType, kagari_contract::operations::BinaryOp};
-
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_common::{identity::map::DefinitionContext, span::Span};
+use kagari_contract::{operations::BinaryOp, types::PublicItem};
 use kagari_mir::{
     function::MirFunction,
+    ids::TempId,
     instruction::{CallTarget, Instruction, MirValue, RuntimeHelper, Terminator},
+    verify::MirVerificationErrorKind,
 };
+use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
 fn generic_interface_instances_share_the_instantiation_budget() {
+    let context = DefinitionContext::new().unwrap();
     let checked = common::program_ok(
         "trait Read {} struct Holder<T> { val value: T } impl<T> Read for Holder<T> {} fn main() -> i32 { val first: Read = Holder { value: 20 }; val second: Read = Holder { value: 22 }; 42 }",
     );
@@ -32,7 +31,8 @@ fn generic_interface_instances_share_the_instantiation_budget() {
         },
     )
     .unwrap();
-    let bytecode = common::bytecode_with_edited_root(&checked, &ir);
+    let bytecode =
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&checked, &ir));
     assert_eq!(
         bytecode.modules[bytecode.root.index()]
             .interface_tables
@@ -61,6 +61,7 @@ fn generic_interface_instances_share_the_instantiation_budget() {
 
 #[test]
 fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
+    let context = DefinitionContext::new().unwrap();
     let checked = common::program_ok(
         "struct Cell<T> { var value: T } enum Packet<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool) { val a = Cell { value: 1 }; val b = Cell { value: 2 }; val c = Cell { value: true }; val p = Packet::Data(a); (get(b), c.value) }",
     );
@@ -86,7 +87,7 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
         1
     );
     assert_eq!(ir.functions.len(), 2);
-    common::bytecode_with_edited_root(&checked, &ir);
+    common::adopt_bytecode(&context, common::bytecode_with_edited_root(&checked, &ir));
     let Err(MirLoweringError::Diagnostic(d)) = lower_to_mir(
         checked.root(),
         &MirLoweringOptions {
@@ -263,6 +264,7 @@ fn main() -> i32 {
 
 #[test]
 fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
+    let context = DefinitionContext::new().unwrap();
     let analyzed = common::program_ok(
         "fn unused<T>(x: T) -> T { x } fn echo<T>(x: T) -> T { x } fn wrap<U>(x: U) -> U { echo(x) } fn main() -> (i32, i32, String) { (wrap(7), echo(8), echo(\"ok\")) }",
     );
@@ -302,11 +304,12 @@ fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
         .collect::<Vec<_>>();
     assert!(representations.contains(&ValueType::I32));
     assert!(representations.contains(&ValueType::Str));
-    common::bytecode_with_edited_root(&analyzed, &ir);
+    common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
 }
 
 #[test]
 fn unreachable_calls_after_return_do_not_create_instances() {
+    let context = DefinitionContext::new().unwrap();
     let analyzed =
         common::program_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { return; grow(1); }");
     let ir = lower_to_mir(
@@ -318,11 +321,12 @@ fn unreachable_calls_after_return_do_not_create_instances() {
     )
     .unwrap();
     assert_eq!(ir.functions.len(), 1);
-    common::bytecode_with_edited_root(&analyzed, &ir);
+    common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
 }
 
 #[test]
 fn irrefutable_match_arms_stop_unreachable_instantiation() {
+    let context = DefinitionContext::new().unwrap();
     for pattern in ["_", "value"] {
         let analyzed = common::program_ok(&format!(
             "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn main() -> i32 {{ match 42 {{ {pattern} => 42, _ => grow(1) }} }}"
@@ -336,12 +340,13 @@ fn irrefutable_match_arms_stop_unreachable_instantiation() {
         )
         .unwrap();
         assert_eq!(ir.functions.len(), 1);
-        common::bytecode_with_edited_root(&analyzed, &ir);
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
     }
 }
 
 #[test]
 fn returning_call_argument_stops_later_arguments_and_instantiation() {
+    let context = DefinitionContext::new().unwrap();
     let analyzed = common::program_ok(
         "fn grow<T>(x: T) { grow((x, x)); } fn take<T>(first: (), second: T) {} fn main() -> i32 { take(if true { return 42; } else { return 7; }, grow(1)); }",
     );
@@ -354,11 +359,12 @@ fn returning_call_argument_stops_later_arguments_and_instantiation() {
     )
     .unwrap();
     assert_eq!(ir.functions.len(), 1);
-    common::bytecode_with_edited_root(&analyzed, &ir);
+    common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
 }
 
 #[test]
 fn returning_aggregate_member_stops_later_members() {
+    let context = DefinitionContext::new().unwrap();
     for expression in [
         "(if true { return 42; } else { return 7; }, grow(1))",
         "[if true { return 42; } else { return 7; }, grow(1)]",
@@ -385,12 +391,13 @@ fn returning_aggregate_member_stops_later_members() {
                 .all(|block| block.instructions.is_empty()),
             "{expression}"
         );
-        common::bytecode_with_edited_root(&analyzed, &ir);
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
     }
 }
 
 #[test]
 fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
+    let context = DefinitionContext::new().unwrap();
     for expression in [
         "(if true { return 42; } else { return 7; }) == grow(1)",
         "type_of(if true { return 42; } else { return 7; })",
@@ -415,12 +422,13 @@ fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
                 .all(|block| block.instructions.is_empty()),
             "{expression}"
         );
-        common::bytecode_with_edited_root(&analyzed, &ir);
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
     }
 }
 
 #[test]
 fn terminating_place_components_stop_remaining_indexes_and_rhs() {
+    let context = DefinitionContext::new().unwrap();
     for target in [
         "grid[index(if true { return 42; } else { return 7; })][grow(1)]",
         "matrix(if true { return 42; } else { return 7; })[grow(1)][0]",
@@ -462,12 +470,13 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
                 .all(|block| block.instructions.is_empty()),
             "{target}"
         );
-        common::bytecode_with_edited_root(&analyzed, &ir);
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
     }
 }
 
 #[test]
 fn recursive_instantiation_reuses_the_current_instance() {
+    let context = DefinitionContext::new().unwrap();
     let analyzed = common::program_ok(
         "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }",
     );
@@ -480,7 +489,7 @@ fn recursive_instantiation_reuses_the_current_instance() {
     )
     .unwrap();
     assert_eq!(ir.functions.len(), 2);
-    common::bytecode_with_edited_root(&analyzed, &ir);
+    common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
 }
 
 #[test]
@@ -602,12 +611,14 @@ fn normalizes_ir_operands_as_typed_values() {
 
 #[test]
 fn integer_operations_expose_traps_to_downstream_backends() {
+    let context = DefinitionContext::new().unwrap();
     for expression in ["value + 1", "value - 1", "value * 2", "value / 2", "-value"] {
         let analyzed =
             common::program_ok(&format!("fn main(value: i32) -> i32 {{ {expression} }}"));
         let ir = lower_to_mir(analyzed.root(), &Default::default()).unwrap();
         assert!(ir.functions[0].effects.may_trap, "{expression}");
-        let bytecode = common::bytecode_with_edited_root(&analyzed, &ir);
+        let bytecode =
+            common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
         assert!(
             bytecode.modules[bytecode.root.index()].functions[0]
                 .metadata
@@ -989,19 +1000,17 @@ fn terminator_values(terminator: &Terminator) -> Vec<MirValue> {
 
 #[test]
 fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
-    use kagari_common::cancellation::CancellationToken;
-    use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
-    use {kagari_abi::representation::ValueType, kagari_contract::types::PublicItem};
+    let context = DefinitionContext::new().unwrap();
 
     let checked = common::program_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
     let original = lower_to_mir(checked.root(), &Default::default()).unwrap();
-    let mut module = original.into_unverified();
+    let mut module = common::adopt(&context, original.into_unverified());
     let declaration = module
         .abi
         .public_items
         .iter()
         .find_map(|item| match item {
-            PublicItem::InterfaceTable(table) => Some(table.declaration.clone()),
+            PublicItem::InterfaceTable(table) => Some(table.declaration),
             _ => None,
         })
         .unwrap();
@@ -1038,8 +1047,11 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         .instruction_scopes
         .push(block.terminator_scope.unwrap());
 
-    let verified = verify_mir(module.clone(), &CancellationToken::default()).unwrap();
-    let bytecode = common::bytecode_with_edited_root(&checked, &verified);
+    let verified = common::verify_edited(&context, module.clone()).unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_with_edited_root(&checked, &verified),
+    );
     assert!(bytecode.modules[bytecode.root.index()].functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
 
     let function = module
@@ -1056,8 +1068,10 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
     let Instruction::MakeInterface { implementation, .. } = instruction else {
         unreachable!()
     };
-    implementation.path.last_mut().unwrap().name = "missing".into();
+    common::edit_definition(&context, implementation, |path| {
+        path.path.last_mut().unwrap().name = "missing".into()
+    });
     assert!(
-        matches!(verify_mir(module, &CancellationToken::default()), Err(error) if error.kind == MirVerificationErrorKind::InvalidInterfaceTable)
+        matches!(common::verify_edited(&context, module), Err(error) if error.kind == MirVerificationErrorKind::InvalidInterfaceTable)
     );
 }

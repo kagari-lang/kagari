@@ -1,15 +1,34 @@
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::host_interface::value_type::HostValueType;
+use kagari_types::{
+    host_interface::{
+        type_declaration::{
+            HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
+            HostTypeDeclaration, HostTypeOwnership,
+        },
+        value_type::HostValueType,
+    },
+    scalar::BuiltinType,
+    ty::Ty,
+};
 
 #[test]
 fn host_imports_are_interned_and_checked_before_execution() {
-    let module = common::bytecode_ok(r#"fn main() { print("one"); print("two"); }"#);
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(r#"fn main() { print("one"); print("two"); }"#),
+    );
     assert_eq!(
         module.modules[module.root.index()].host_interface.functions,
-        vec![kagari_types::host_interface::standard_log()]
+        vec![common::adopt(
+            &context,
+            kagari_types::host_interface::standard_log().unwrap()
+        )]
     );
     let mut absent = module.clone();
     absent.modules[absent.root.index()]
@@ -17,7 +36,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .functions
         .clear();
     assert!(matches!(
-        verify_program(&absent),
+        verify_program(&absent, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let mut wrong_parameter = module.clone();
@@ -32,7 +51,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .params[0]
         .passing = kagari_types::host_interface::HostPassingStyle::Owned;
     assert!(matches!(
-        verify_program(&wrong_parameter),
+        verify_program(&wrong_parameter, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let mut wrong_arity = module.clone();
@@ -42,7 +61,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .params
         .clear();
     assert!(matches!(
-        verify_program(&wrong_arity),
+        verify_program(&wrong_arity, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let mut duplicate = module;
@@ -55,15 +74,17 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .functions
         .push(duplicated);
     assert!(matches!(
-        verify_program(&duplicate),
+        verify_program(&duplicate, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }
 
 #[test]
 fn unsupported_dynamic_calls_fail_before_artifact_execution() {
-    let module = common::bytecode_ok("fn main() {}");
-    let valid = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let module = common::adopt_bytecode(&context, common::bytecode_ok("fn main() {}"));
+    let valid =
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
     for callee in [
         CallTarget::Register(Register::new(0)),
         CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
@@ -80,9 +101,11 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
                 },
             );
 
-        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
+            .map(|metadata| common::adopt(&context, metadata))
+            .unwrap();
         assert!(matches!(
-            decoded.validate_for_loader(&ArtifactCompatibility::default()),
+            decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
             Err(ArtifactValidationError::Bytecode(
                 BytecodeVerificationError::InvalidOperation { .. }
             ))
@@ -92,18 +115,21 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
 
 #[test]
 fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
-    use kagari_types::host_interface::value_type::HostValueType;
+    let context = DefinitionContext::new().unwrap();
 
-    let module =
-        host_trait_test_program("pub trait Readable<T> { fn get(self) -> T; } fn main() {}");
+    let module = host_trait_test_program(
+        "pub trait Readable<T> { fn get(self) -> T; } fn main() {}",
+        &context,
+    );
     assert!(
         module.modules[module.root.index()]
             .trait_contracts
             .is_empty()
     );
-    verify_program(&module).unwrap();
+    verify_program(&module, &context.snapshot()).unwrap();
 
-    let valid = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
+    let valid =
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
     for corrupt in ["argument", "return", "method"] {
         let mut forged = valid.clone();
         let host = &mut forged.program.modules[forged.program.root.index()]
@@ -121,10 +147,12 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
             "method" => host.trait_implementations[0].methods.clear(),
             _ => unreachable!(),
         }
-        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
+            .map(|metadata| common::adopt(&context, metadata))
+            .unwrap();
         assert!(
             matches!(
-                decoded.validate_for_loader(&ArtifactCompatibility::default()),
+                decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
                 Err(ArtifactValidationError::Bytecode(
                     BytecodeVerificationError::InvalidHostInterface(_)
                 ))
@@ -143,26 +171,30 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
         host_interface: owner.host_interface.clone(),
         ..Default::default()
     };
+    context.intern_root(&importer.identity).unwrap();
     let imported = |importer| {
         let mut program = valid.program.clone();
         program.root = ModuleRef::new(program.modules.len());
         program.modules.push(importer);
         program
     };
-    verify_program(&imported(importer.clone())).unwrap();
+    verify_program(&imported(importer.clone()), &context.snapshot()).unwrap();
     importer.host_interface.types[0].trait_implementations[0].trait_arguments =
         vec![HostValueType::Bool];
     assert!(matches!(
-        verify_program(&imported(importer)),
+        verify_program(&imported(importer), &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }
 
 #[test]
 fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
+    let context = DefinitionContext::new().unwrap();
 
-    let module = host_trait_test_program("trait Readable<T> { fn get(self) -> T; } fn main() {}");
+    let module = host_trait_test_program(
+        "trait Readable<T> { fn get(self) -> T; } fn main() {}",
+        &context,
+    );
     assert!(
         !module.modules[module.root.index()]
             .public_items
@@ -170,11 +202,14 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
             .any(|item| matches!(item, PublicItem::Trait(_)))
     );
     assert_eq!(module.modules[module.root.index()].trait_contracts.len(), 1);
-    verify_program(&module).unwrap();
-    let valid = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&valid.to_bytes().unwrap()).unwrap();
+    verify_program(&module, &context.snapshot()).unwrap();
+    let valid =
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    let decoded = KbcArtifact::from_bytes(&valid.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
+        .unwrap();
     decoded
-        .validate_for_loader(&ArtifactCompatibility::default())
+        .validate_for_loader(&ArtifactCompatibility::default(), &context)
         .unwrap();
     for corruption in ["missing", "signature"] {
         let mut forged = valid.clone();
@@ -187,10 +222,12 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
             }
             _ => unreachable!(),
         }
-        let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+        let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
+            .map(|metadata| common::adopt(&context, metadata))
+            .unwrap();
         assert!(
             matches!(
-                decoded.validate_for_loader(&ArtifactCompatibility::default()),
+                decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
                 Err(ArtifactValidationError::Bytecode(
                     BytecodeVerificationError::InvalidHostInterface(_)
                 ))
@@ -204,7 +241,7 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
         .trait_contracts
         .push(member.trait_contracts[0].clone());
     assert!(matches!(
-        verify_program(&duplicate),
+        verify_program(&duplicate, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     let mut public_collision = valid.program.clone();
@@ -213,30 +250,38 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
         .public_items
         .push(PublicItem::Trait(member.trait_contracts[0].abi.clone()));
     assert!(matches!(
-        verify_program(&public_collision),
+        verify_program(&public_collision, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     let mut foreign_identity = valid.program.clone();
     let member = &mut foreign_identity.modules[foreign_identity.root.index()];
-    member.trait_contracts[0].declaration.module = ModuleIdentity {
-        package: PackageId("foreign".into()),
-        path: vec!["api".into()],
-    };
+    common::edit_definition(
+        &context,
+        &mut member.trait_contracts[0].declaration,
+        |path| {
+            path.module = ModuleIdentity {
+                package: PackageId("foreign".into()),
+                path: vec!["api".into()],
+            }
+        },
+    );
     assert!(matches!(
-        verify_program(&foreign_identity),
+        verify_program(&foreign_identity, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
 }
 
 #[test]
 fn host_trait_standard_bounds_are_rechecked_after_decode() {
-    use kagari_types::host_interface::value_type::HostValueType;
+    let context = DefinitionContext::new().unwrap();
 
     let module = host_trait_test_program(
         "use std::hash::{Hash};\ntrait Readable<T: Eq + Hash> { fn get(self) -> T; } fn main() {}",
+        &context,
     );
-    verify_program(&module).unwrap();
-    let valid = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
+    verify_program(&module, &context.snapshot()).unwrap();
+    let valid =
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
     let mut forged = valid.clone();
     let host = &mut forged.program.modules[forged.program.root.index()]
         .host_interface
@@ -247,9 +292,11 @@ fn host_trait_standard_bounds_are_rechecked_after_decode() {
         .host_interface
         .functions[0]
         .return_type = HostValueType::F32;
-    let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
+        .unwrap();
     assert!(matches!(
-        decoded.validate_for_loader(&ArtifactCompatibility::default()),
+        decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::InvalidHostInterface(_)
         ))
@@ -258,79 +305,73 @@ fn host_trait_standard_bounds_are_rechecked_after_decode() {
 
 #[test]
 fn host_trait_bounds_accept_host_implementation_evidence() {
-    use {
-        kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
-        kagari_types::host_interface::{
-            type_declaration::{
-                HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
-            },
-            value_type::HostValueType,
-        },
-    };
+    let context = DefinitionContext::new().unwrap();
 
     let mut module = host_trait_test_program(
         "trait Marker { fn mark(self) -> i32; } trait Readable<T: Marker> { fn get(self) -> T; } fn main() {}",
+        &context,
     );
     let member = &mut module.modules[module.root.index()];
     let host = &mut member.host_interface.types[0];
-    let host_id = host.id.clone();
-    let method = HostMethodDeclaration::new(&host_id, "mark", vec![], HostValueType::I32);
+    let host_id = host.id;
+    let method =
+        HostMethodDeclaration::new(&context, host_id, "mark", vec![], HostValueType::I32).unwrap();
     host.methods.push(method.clone());
-    let trait_id = DefinitionPath {
-        module: member.identity.clone(),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: "Marker".into(),
-            occurrence: 0,
-        }],
-    };
-    let mut trait_method = trait_id.clone();
-    trait_method.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: "mark".into(),
-        occurrence: 0,
-    });
+    let root = context.intern_root(&member.identity).unwrap();
+    let trait_id = context
+        .intern_child(root, DefinitionKind::Trait, "Marker", 0)
+        .unwrap();
+    let trait_method = context
+        .intern_child(trait_id, DefinitionKind::Method, "mark", 0)
+        .unwrap();
+    context
+        .intern_child(host.id, DefinitionKind::Impl, "", 1)
+        .unwrap();
     host.trait_implementations
         .push(HostTraitImplementationDeclaration::new(
             trait_id,
             vec![],
             vec![HostTraitMethodBinding {
                 trait_method,
-                host_method: method.id.clone(),
+                host_method: method.id,
             }],
         ));
-    host.trait_implementations[0].trait_arguments = vec![HostValueType::Opaque(host_id.clone())];
+    host.trait_implementations[0].trait_arguments = vec![HostValueType::Opaque(host_id)];
     host.methods[0].return_type = HostValueType::Opaque(host_id);
     member.host_interface.functions[0].return_type = host.methods[0].return_type.clone();
-    member
-        .host_interface
-        .functions
-        .push(host.method_contract(&method.id).unwrap());
-    verify_program(&module).unwrap();
+    member.host_interface.functions.push(
+        host.method_contract(&method.id, &context.snapshot())
+            .unwrap(),
+    );
+    verify_program(&module, &context.snapshot()).unwrap();
     let artifact =
-        KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default()).unwrap();
-    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+        KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default(), &context)
+            .unwrap();
+    KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .validate_for_loader(&ArtifactCompatibility::default())
+        .validate_for_loader(&ArtifactCompatibility::default(), &context)
         .unwrap();
     module.modules[module.root.index()].host_interface.types[0]
         .trait_implementations
         .pop();
     assert!(matches!(
-        verify_program(&module),
+        verify_program(&module, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }
 
 #[test]
 fn host_trait_script_bounds_are_rechecked_after_decode() {
-    use kagari_types::host_interface::value_type::HostValueType;
+    let context = DefinitionContext::new().unwrap();
 
     let module = host_trait_test_program(
         "trait Marker { fn mark(self) -> i32; } impl Marker for i32 { fn mark(self) -> i32 { self } } trait Readable<T: Marker> { fn get(self) -> T; } fn main() {}",
+        &context,
     );
-    verify_program(&module).unwrap();
-    let valid = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
+    verify_program(&module, &context.snapshot()).unwrap();
+    let valid =
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
     let mut forged = valid.clone();
     let host = &mut forged.program.modules[forged.program.root.index()]
         .host_interface
@@ -341,9 +382,11 @@ fn host_trait_script_bounds_are_rechecked_after_decode() {
         .host_interface
         .functions[0]
         .return_type = HostValueType::Bool;
-    let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
+        .unwrap();
     assert!(matches!(
-        decoded.validate_for_loader(&ArtifactCompatibility::default()),
+        decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::InvalidHostInterface(_)
         ))
@@ -352,11 +395,7 @@ fn host_trait_script_bounds_are_rechecked_after_decode() {
 
 #[test]
 fn host_trait_bounds_use_imported_script_implementations() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::{SourceDatabase, SourceLayer},
-        kagari_types::host_interface::value_type::HostValueType,
-    };
+    let context = DefinitionContext::new().unwrap();
 
     let mut sources = SourceDatabase::default();
     let mut root = None;
@@ -389,10 +428,13 @@ fn host_trait_bounds_use_imported_script_implementations() {
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let mut program = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
+    let mut program = common::adopt_bytecode(
+        &context,
+        crate::bytecode::lower_program_to_bytecode(&ir).unwrap(),
+    );
     let root_index = program.root.index();
-    add_readable_host(&mut program.modules[root_index]);
-    verify_program(&program).unwrap();
+    add_readable_host(&mut program.modules[root_index], &context);
+    verify_program(&program, &context.snapshot()).unwrap();
     let mut forged = program.clone();
     let root = &mut forged.modules[root_index];
     root.host_interface.types[0].trait_implementations[0].trait_arguments =
@@ -400,21 +442,23 @@ fn host_trait_bounds_use_imported_script_implementations() {
     root.host_interface.types[0].methods[0].return_type = HostValueType::Bool;
     root.host_interface.functions[0].return_type = HostValueType::Bool;
     assert!(matches!(
-        verify_program(&forged),
+        verify_program(&forged, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
-    let artifact = KbcArtifact::from_program(program, ArtifactBuildOptions::default()).unwrap();
-    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+    let artifact =
+        KbcArtifact::from_program(program, ArtifactBuildOptions::default(), &context).unwrap();
+    KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .validate_for_loader(&ArtifactCompatibility::default())
+        .validate_for_loader(&ArtifactCompatibility::default(), &context)
         .unwrap();
 }
 
 #[test]
 fn program_rejects_conflicting_host_types_before_linking() {
-    use kagari_types::host_interface::type_declaration::{HostTypeDeclaration, HostTypeOwnership};
+    let context = DefinitionContext::new().unwrap();
 
-    let base = HostTypeDeclaration::new("demo.Counter");
+    let base = HostTypeDeclaration::new(&context, "demo.Counter").unwrap();
     let program = |other: HostTypeDeclaration| BytecodeProgram {
         root: ModuleRef::new(1),
         modules: vec![
@@ -443,20 +487,23 @@ fn program_rejects_conflicting_host_types_before_linking() {
             },
         ],
     };
+    for module in &program(base.clone()).modules {
+        context.intern_root(&module.identity).unwrap();
+    }
     let mut documentation_only = base.clone();
     documentation_only.documentation = "editor help".into();
-    verify_program(&program(documentation_only)).unwrap();
+    verify_program(&program(documentation_only), &context.snapshot()).unwrap();
 
     let mut conflict = base.clone();
     conflict.ownership = HostTypeOwnership::HostRoot;
     assert!(matches!(
-        verify_program(&program(conflict)),
+        verify_program(&program(conflict), &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().unwrap());
     database
 }

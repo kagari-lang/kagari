@@ -1,18 +1,20 @@
 use crate::{source::lower::lower_to_mir, tests::common};
+use kagari_abi::representation::ValueType;
+use kagari_common::identity::map::DefinitionContext;
 use kagari_mir::{
     analysis::SafepointKind,
-    function::MirModule,
+    function::{MirModule, MirTemp},
     ids::{BlockId, LocalId, TempId},
     instruction::{Instruction, Terminator},
-    verify::{VerifiedMirModule, verify_mir},
+    verify::{MirVerificationErrorKind, VerifiedMirModule},
 };
 
 fn checked(source: &str) -> VerifiedMirModule {
     lower_to_mir(&common::analyze_ok(source), &Default::default()).unwrap()
 }
 
-fn seal(module: MirModule) -> VerifiedMirModule {
-    verify_mir(module, &Default::default()).unwrap()
+fn seal(context: &DefinitionContext, module: MirModule) -> VerifiedMirModule {
+    common::verify_edited(context, module).unwrap()
 }
 
 #[test]
@@ -69,17 +71,18 @@ fn call_operands_and_visible_heap_locals_are_roots_before_the_result_exists() {
 
 #[test]
 fn loops_keep_heap_values_live_and_do_not_root_scalar_slots() {
+    let context = DefinitionContext::new().unwrap();
     let module = checked(
         "fn main(flag: bool) -> (i32, bool) { val keep = (1, true); var n = 0; while n < 3 { n += 1; } if flag { keep } else { (2, false) } }",
     );
-    let mut raw = module.into_unverified();
+    let mut raw = common::adopt(&context, module.into_unverified());
     // Hide non-parameter locals from the debugger so the backedge roots must
     // follow script reads after the loop, rather than lexical visibility.
     for block in &mut raw.functions[0].blocks {
         block.instruction_scopes.fill(0);
         block.terminator_scope = Some(0);
     }
-    let module = seal(raw);
+    let module = seal(&context, raw);
     let function = &module.functions[0];
     let facts = module.analysis(function.id).unwrap();
     let keep = function
@@ -110,11 +113,15 @@ fn loops_keep_heap_values_live_and_do_not_root_scalar_slots() {
 
 #[test]
 fn debugger_availability_requires_initialization_on_every_incoming_edge() {
+    let context = DefinitionContext::new().unwrap();
     let input =
         common::program_ok("fn main(flag: bool) { if flag { val branch_only = \"value\"; } }");
-    let mut module = lower_to_mir(input.root(), &Default::default())
-        .unwrap()
-        .into_unverified();
+    let mut module = common::adopt(
+        &context,
+        lower_to_mir(input.root(), &Default::default())
+            .unwrap()
+            .into_unverified(),
+    );
     let function = &mut module.functions[0];
     let local = function
         .debug
@@ -137,7 +144,7 @@ fn debugger_availability_requires_initialization_on_every_incoming_edge() {
         .position(|block| matches!(block.terminator, Some(Terminator::Return(_))))
         .unwrap();
     function.blocks[join].terminator_scope = Some(scope);
-    let module = seal(module);
+    let module = seal(&context, module);
     let facts = module.analysis(module.functions[0].id).unwrap();
     assert!(
         !facts
@@ -147,7 +154,8 @@ fn debugger_availability_requires_initialization_on_every_incoming_edge() {
             .debug_available()
             .contains_local(local)
     );
-    let bytecode = common::bytecode_with_edited_root(&input, &module);
+    let bytecode =
+        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &module));
     let offset = module.functions[0].blocks[..join]
         .iter()
         .map(|block| block.instructions.len() + 1)
@@ -166,11 +174,15 @@ fn debugger_availability_requires_initialization_on_every_incoming_edge() {
 
 #[test]
 fn unreachable_points_have_no_live_values_or_debugger_availability() {
-    let mut module = checked("fn main(x: String) -> String { x }").into_unverified();
+    let context = DefinitionContext::new().unwrap();
+    let mut module = common::adopt(
+        &context,
+        checked("fn main(x: String) -> String { x }").into_unverified(),
+    );
     let function = &mut module.functions[0];
     let dead = BlockId::new(function.blocks.len());
     function.blocks.push(function.blocks[0].clone());
-    let module = seal(module);
+    let module = seal(&context, module);
     let facts = module
         .analysis(module.functions[0].id)
         .unwrap()
@@ -189,7 +201,11 @@ fn unreachable_points_have_no_live_values_or_debugger_availability() {
 
 #[test]
 fn editing_a_raw_module_recomputes_scope_roots_on_reverification() {
-    let mut raw = checked("fn main() { val visible = (1, true); }").into_unverified();
+    let context = DefinitionContext::new().unwrap();
+    let mut raw = common::adopt(
+        &context,
+        checked("fn main() { val visible = (1, true); }").into_unverified(),
+    );
     let function = &mut raw.functions[0];
     let scope = function
         .debug
@@ -198,7 +214,7 @@ fn editing_a_raw_module_recomputes_scope_roots_on_reverification() {
         .position(|scope| scope.local == Some(function.debug.locals[0].local))
         .unwrap();
     function.blocks[function.entry.index()].terminator_scope = Some(scope);
-    let original = seal(raw);
+    let original = seal(&context, raw);
     let function = &original.functions[0];
     let id = function.id;
     let block = function.entry;
@@ -213,9 +229,9 @@ fn editing_a_raw_module_recomputes_scope_roots_on_reverification() {
             .roots()
             .contains_local(local)
     );
-    let mut raw = original.clone().into_unverified();
+    let mut raw = common::adopt(&context, original.clone().into_unverified());
     raw.functions[id.index()].blocks[block.index()].terminator_scope = Some(0);
-    let changed = seal(raw);
+    let changed = seal(&context, raw);
     assert!(
         !changed
             .analysis(id)
@@ -273,9 +289,12 @@ fn scalar_temporaries_die_after_their_last_use() {
 
 #[test]
 fn point_analysis_storage_is_bounded_before_allocation() {
-    use kagari_abi::representation::ValueType;
-    use kagari_mir::{function::MirTemp, verify::MirVerificationErrorKind};
-    let mut module = checked("fn main() -> i32 { 1 }").into_unverified();
+    let context = DefinitionContext::new().unwrap();
+
+    let mut module = common::adopt(
+        &context,
+        checked("fn main() -> i32 { 1 }").into_unverified(),
+    );
     let function = &mut module.functions[0];
     function.temps.resize(
         u16::MAX as usize,
@@ -294,7 +313,7 @@ fn point_analysis_storage_is_bounded_before_allocation() {
         .instruction_scopes
         .resize(3000, block.instruction_scopes[0]);
     assert_eq!(
-        verify_mir(module, &Default::default()).unwrap_err().kind,
+        common::verify_edited(&context, module).unwrap_err().kind,
         MirVerificationErrorKind::Limit {
             resource: "MIR analysis state bytes",
             limit: 64 * 1024 * 1024,
@@ -304,8 +323,12 @@ fn point_analysis_storage_is_bounded_before_allocation() {
 
 #[test]
 fn parameter_debug_metadata_cannot_be_replaced_by_an_unscoped_local() {
-    use kagari_mir::verify::MirVerificationErrorKind;
-    let mut module = checked("fn main(x: i32) -> i32 { val y = x; y }").into_unverified();
+    let context = DefinitionContext::new().unwrap();
+
+    let mut module = common::adopt(
+        &context,
+        checked("fn main(x: i32) -> i32 { val y = x; y }").into_unverified(),
+    );
     let function = &mut module.functions[0];
     function.debug.locals.retain(|local| !local.is_parameter);
     function.debug.lexical_scopes.truncate(1);
@@ -314,7 +337,7 @@ fn parameter_debug_metadata_cannot_be_replaced_by_an_unscoped_local() {
         block.terminator_scope = Some(0);
     }
     assert_eq!(
-        verify_mir(module, &Default::default()).unwrap_err().kind,
+        common::verify_edited(&context, module).unwrap_err().kind,
         MirVerificationErrorKind::InvalidDebugMetadata
     );
 }

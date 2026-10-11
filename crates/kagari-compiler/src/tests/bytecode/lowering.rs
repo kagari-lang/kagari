@@ -7,7 +7,11 @@ use kagari_bytecode::{
 
 #[test]
 fn lowers_function_metadata_into_bytecode() {
-    let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }");
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }"),
+    );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert_eq!(function.id, FunctionRef::new(0));
@@ -32,14 +36,18 @@ fn lowers_function_metadata_into_bytecode() {
 
 #[test]
 fn lowers_debugger_metadata_into_bytecode() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 fn main(value: i32) -> i32 {
     val next = value + 1;
     print("debug");
     next
 }
 "#,
+        ),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
     let debug = &function.metadata.debug;
@@ -111,6 +119,7 @@ fn main(value: i32) -> i32 {
 
 #[test]
 fn debug_local_ranges_close_when_their_lexical_block_ends() {
+    let context = DefinitionContext::new().unwrap();
     let source = r#"
 fn main() -> i32 {
     val outer = 5;
@@ -123,7 +132,7 @@ fn main() -> i32 {
     outer
 }
 "#;
-    let bytecode = common::bytecode_ok(source);
+    let bytecode = common::adopt_bytecode(&context, common::bytecode_ok(source));
     let function = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
@@ -155,8 +164,11 @@ fn main() -> i32 {
 
 #[test]
 fn populates_bytecode_tables_and_effect_metadata() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 fn add(a: i32, b: i32) -> i32 { a + b }
 
 fn main() -> i32 {
@@ -165,6 +177,7 @@ fn main() -> i32 {
     add(1, 2)
 }
 "#,
+        ),
     );
     let main = bytecode.modules[bytecode.root.index()]
         .functions
@@ -225,12 +238,16 @@ fn main() -> i32 {
     );
     assert!(main.metadata.effects.calls);
     assert!(main.metadata.effects.touches_runtime);
-    assert!(verify_program(&bytecode).is_ok());
+    assert!(verify_program(&bytecode, &context.snapshot()).is_ok());
 }
 
 #[test]
 fn lowers_arithmetic_into_real_bytecode_instructions() {
-    let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }");
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }"),
+    );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
@@ -244,7 +261,11 @@ fn lowers_arithmetic_into_real_bytecode_instructions() {
 
 #[test]
 fn flattens_branch_targets_to_instruction_offsets() {
-    let bytecode = common::bytecode_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn main() -> i32 { if true { 1 } else { 2 } }"),
+    );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     let targets = function
@@ -272,11 +293,15 @@ fn flattens_branch_targets_to_instruction_offsets() {
 
 #[test]
 fn lowers_direct_function_calls_to_function_refs() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 fn callee() -> i32 { 1 }
 fn caller() -> i32 { callee() }
 "#,
+        ),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[1];
 
@@ -291,7 +316,11 @@ fn caller() -> i32 { callee() }
 
 #[test]
 fn lowers_unary_and_short_circuit_expressions() {
-    let bytecode = common::bytecode_ok("fn main() -> bool { !false && true }");
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn main() -> bool { !false && true }"),
+    );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
@@ -312,13 +341,17 @@ fn lowers_unary_and_short_circuit_expressions() {
 
 #[test]
 fn lowers_loops_and_loop_control_to_jumps() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 fn main() -> () {
     while true { break; }
     loop { continue; }
 }
 "#,
+        ),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
@@ -339,8 +372,11 @@ fn main() -> () {
 
 #[test]
 fn lowers_aggregate_and_access_instructions() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 struct Point { var x: i32 }
 
 fn main() -> () {
@@ -352,6 +388,7 @@ fn main() -> () {
     point.x;
 }
 "#,
+        ),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
@@ -376,7 +413,7 @@ fn main() -> () {
     assert!(
         function.instructions.iter().any(|instruction| matches!(
             instruction,
-            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. } if bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding.path.last().is_some_and(|part| part.name == "$foundation_array_index")
+            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. } if context.snapshot().resolve(bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding).unwrap().last().is_some_and(|part| part.name == "$foundation_array_index")
         ))
     );
     assert!(
@@ -401,6 +438,7 @@ fn main() -> () {
 
 #[test]
 fn verifier_accepts_resolved_typed_path_instructions() {
+    let context = DefinitionContext::new().unwrap();
     let mut module = BytecodeModule {
         types: vec![ValueType::HostHandle, ValueType::I32],
         paths: vec![PathRecord {
@@ -447,18 +485,22 @@ fn verifier_accepts_resolved_typed_path_instructions() {
         ..Default::default()
     };
 
-    assert!(verify_module(&module).is_ok());
+    context.intern_root(&module.identity).unwrap();
+    assert!(verify_module(&module, &context.snapshot()).is_ok());
     module.paths[0].root_ty = ValueType::HeapObject;
     assert_eq!(
-        verify_module(&module),
+        verify_module(&module, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidPathLayout)
     );
 }
 
 #[test]
 fn lowers_named_match_pattern_to_local_traffic() {
-    let bytecode =
-        common::bytecode_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn main(value: i32) -> i32 { match value { bound => bound } }"),
+    );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(
@@ -477,7 +519,11 @@ fn lowers_named_match_pattern_to_local_traffic() {
 
 #[test]
 fn lowers_type_of_builtin_to_runtime_helper_call() {
-    let bytecode = common::bytecode_ok("fn main() -> String { type_of(7) }");
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn main() -> String { type_of(7) }"),
+    );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
@@ -491,7 +537,11 @@ fn lowers_type_of_builtin_to_runtime_helper_call() {
 
 #[test]
 fn reflection_helper_operands_are_checked_before_loading() {
-    let valid = common::bytecode_ok("fn main() -> String { type_of(7) }");
+    let context = DefinitionContext::new().unwrap();
+    let valid = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn main() -> String { type_of(7) }"),
+    );
     let mut wrong_arity = valid.clone();
     let call = wrong_arity.modules[wrong_arity.root.index()].functions[0]
         .instructions
@@ -503,7 +553,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     args.clear();
     assert!(matches!(
-        verify_program(&wrong_arity),
+        verify_program(&wrong_arity, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 
@@ -518,7 +568,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     *dst = Some(args[0]);
     assert!(matches!(
-        verify_program(&wrong_result),
+        verify_program(&wrong_result, &context.snapshot()),
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
@@ -533,11 +583,14 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     *callee = CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField("x".into()));
     assert!(matches!(
-        verify_program(&wrong_field_base),
+        verify_program(&wrong_field_base, &context.snapshot()),
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
-    let mut wrong_index = common::bytecode_ok("fn main() -> [i32] { set_index([1], 0, 2) }");
+    let mut wrong_index = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn main() -> [i32] { set_index([1], 0, 2) }"),
+    );
     let call = wrong_index.modules[wrong_index.root.index()].functions[0]
         .instructions
         .iter_mut()
@@ -556,15 +609,18 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     args[1] = args[0];
     assert!(matches!(
-        verify_program(&wrong_index),
+        verify_program(&wrong_index, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 }
 
 #[test]
 fn lowers_reflection_field_builtins_to_runtime_helper_calls() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 struct Point { var x: i32 }
 
 fn main() -> Point {
@@ -574,6 +630,7 @@ fn main() -> Point {
     next
 }
 "#,
+        ),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
@@ -595,12 +652,16 @@ fn main() -> Point {
 
 #[test]
 fn lowers_set_index_builtin_to_runtime_helper_call() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 fn main(values: [i32]) -> [i32] {
     set_index(values, 0, 9)
 }
 "#,
+        ),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
@@ -615,8 +676,11 @@ fn main(values: [i32]) -> [i32] {
 
 #[test]
 fn lowers_place_assignments_to_aggregate_writes() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 struct Point { var x: i32 }
 struct Holder { var inner: Point }
 
@@ -628,6 +692,7 @@ fn main() -> i32 {
     holder.inner.x + values[0]
 }
 "#,
+        ),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
@@ -657,13 +722,17 @@ fn main() -> i32 {
 
 #[test]
 fn does_not_allocate_module_slots_for_const_items() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 const BASE: i32 = 1;
 const VALUE: i32 = BASE + 2;
 
 fn main() -> i32 { VALUE }
 "#,
+        ),
     );
     let function = bytecode.modules[bytecode.root.index()]
         .functions
@@ -692,8 +761,11 @@ fn main() -> i32 { VALUE }
 
 #[test]
 fn foundation_calls_lower_to_provider_qualified_native_imports() {
-    let bytecode = common::bytecode_ok(
-        r#"
+    let context = DefinitionContext::new().unwrap();
+    let bytecode = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(
+            r#"
 fn main() -> usize {
     val values = Vec::from([1, 2]);
     values.push(3);
@@ -701,6 +773,7 @@ fn main() -> usize {
     values.len()
 }
 "#,
+        ),
     );
     let function = bytecode.modules[bytecode.root.index()]
         .functions
@@ -716,7 +789,7 @@ fn main() -> usize {
         let imports = &bytecode.modules[bytecode.root.index()].native_imports;
         assert_eq!(function.instructions.iter().filter(|instruction| matches!(instruction,
             BytecodeInstruction::Call { callee: CallTarget::Native(import), .. }
-                if imports[import.index()].binding.path.last().is_some_and(|part| part.name == expected)
+                if context.snapshot().resolve(imports[import.index()].binding).unwrap().last().is_some_and(|part| part.name == expected)
         )).count(), 1, "{expected:?}");
     }
 }

@@ -1,5 +1,6 @@
 use crate::{bytecode::lower_program_to_bytecode, tests::common};
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::types::PublicItem;
 use kagari_mir::{
     codec::{decode_program, encode_program},
@@ -18,15 +19,19 @@ pub fn make() -> Player { Player { secret: 1, internal: 2, hp: 100 } }
 
 #[test]
 fn field_visibility_survives_source_free_artifacts() {
+    let context = DefinitionContext::new().unwrap();
     let mir = common::mir_ok(SOURCE);
     let bytes = encode_program(&mir, &Default::default()).unwrap();
     let decoded = decode_program(&bytes, &Default::default()).unwrap();
-    let bytecode = lower_program_to_bytecode(&decoded).unwrap();
-    let artifact = KbcArtifact::from_program(bytecode, Default::default()).unwrap();
-    let bytes = artifact.to_bytes().unwrap();
+    let bytecode = lower_program_to_bytecode(&decoded)
+        .map(|metadata| common::adopt_bytecode(&context, metadata))
+        .unwrap();
+    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let decoded = KbcArtifact::from_bytes(&bytes)
+        .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .into_verified(&Default::default())
+        .into_verified(&Default::default(), &context)
         .unwrap();
     let program = decoded.bytecode().program();
     let module = &program.modules[program.root.index()];
@@ -68,7 +73,8 @@ fn field_visibility_survives_source_free_artifacts() {
 
 #[test]
 fn executable_and_declared_field_access_must_agree() {
-    let original = common::bytecode_ok(SOURCE);
+    let context = DefinitionContext::new().unwrap();
+    let original = common::adopt_bytecode(&context, common::bytecode_ok(SOURCE));
     for change_declaration in [false, true] {
         let mut forged = original.clone();
         let module = &mut forged.modules[forged.root.index()];
@@ -90,8 +96,8 @@ fn executable_and_declared_field_access_must_agree() {
                 .unwrap();
             layout.fields[0].visibility = Visibility::Public;
         }
-        assert!(verify_program(&forged).is_err());
-        assert!(KbcArtifact::from_program(forged, Default::default()).is_err());
+        assert!(verify_program(&forged, &context.snapshot()).is_err());
+        assert!(KbcArtifact::from_program(forged, Default::default(), &context).is_err());
     }
 }
 
@@ -108,17 +114,21 @@ pub fn main() -> i32 { val player = Player::create(100); player.damage(20) + pla
 
 #[test]
 fn inherent_visibility_and_receiver_survive_source_free_artifacts() {
+    let context = DefinitionContext::new().unwrap();
     let mir = common::mir_ok(METHODS);
     let decoded = decode_program(
         &encode_program(&mir, &Default::default()).unwrap(),
         &Default::default(),
     )
     .unwrap();
-    let bytecode = lower_program_to_bytecode(&decoded).unwrap();
-    let artifact = KbcArtifact::from_program(bytecode, Default::default()).unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+    let bytecode = lower_program_to_bytecode(&decoded)
+        .map(|metadata| common::adopt_bytecode(&context, metadata))
+        .unwrap();
+    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .into_verified(&Default::default())
+        .into_verified(&Default::default(), &context)
         .unwrap();
     let program = decoded.bytecode().program();
     let module = &program.modules[program.root.index()];
@@ -146,7 +156,8 @@ fn inherent_visibility_and_receiver_survive_source_free_artifacts() {
 
 #[test]
 fn inherent_declaration_receiver_and_executable_signature_are_checked() {
-    let original = common::bytecode_ok(METHODS);
+    let context = DefinitionContext::new().unwrap();
+    let original = common::adopt_bytecode(&context, common::bytecode_ok(METHODS));
     for change_receiver in [false, true] {
         let mut forged = original.clone();
         let module = &mut forged.modules[forged.root.index()];
@@ -163,12 +174,12 @@ fn inherent_declaration_receiver_and_executable_signature_are_checked() {
         } else {
             table.methods[0].params[1].ty = Ty::Builtin(BuiltinType::Bool);
         }
-        assert!(verify_program(&forged).is_err());
-        assert!(KbcArtifact::from_program(forged, Default::default()).is_err());
+        assert!(verify_program(&forged, &context.snapshot()).is_err());
+        assert!(KbcArtifact::from_program(forged, Default::default(), &context).is_err());
     }
     let mir = common::mir_ok(METHODS);
     let root = mir.root().clone();
-    let mut modules = mir.into_unverified();
+    let mut modules = common::adopt(&context, mir.into_unverified());
     let module = modules
         .iter_mut()
         .find(|module| module.identity == root)
@@ -183,12 +194,16 @@ fn inherent_declaration_receiver_and_executable_signature_are_checked() {
         })
         .unwrap();
     table.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
-    assert!(verify_mir_program(root, modules, &Default::default()).is_err());
+    assert!(verify_mir_program(root, modules, &context, &Default::default()).is_err());
 }
 
 #[test]
 fn native_inherent_exports_cannot_redefine_registered_signatures() {
-    let original = common::bytecode_ok("pub fn main() -> usize { \"abc\".len() }");
+    let context = DefinitionContext::new().unwrap();
+    let original = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("pub fn main() -> usize { \"abc\".len() }"),
+    );
     for corruption in 0..4 {
         let mut forged = original.clone();
         let (module, table) = forged
@@ -218,13 +233,14 @@ fn native_inherent_exports_cannot_redefine_registered_signatures() {
                 .native_declarations
                 .retain(|declaration| declaration.function.name != "len"),
         }
-        assert!(verify_program(&forged).is_err());
-        assert!(KbcArtifact::from_program(forged, Default::default()).is_err());
+        assert!(verify_program(&forged, &context.snapshot()).is_err());
+        assert!(KbcArtifact::from_program(forged, Default::default(), &context).is_err());
     }
 }
 
 #[test]
 fn same_named_inherent_members_keep_distinct_owners_and_private_changes_stay_private() {
+    let context = DefinitionContext::new().unwrap();
     let source = r#"
         pub struct Left { val value: i32 }
         pub struct Right { val value: bool }
@@ -232,11 +248,14 @@ fn same_named_inherent_members_keep_distinct_owners_and_private_changes_stay_pri
         impl Right { pub fn get(self) -> bool { self.value } }
         pub fn main() -> (i32, bool) { (Left { value: 1 }.get(), Right { value: true }.get()) }
     "#;
-    let original = common::bytecode_ok(source);
-    let changed = common::bytecode_ok(&source.replace(
-        "private(self) -> i32 { 1 }",
-        "private(self) -> bool { true }",
-    ));
+    let original = common::adopt_bytecode(&context, common::bytecode_ok(source));
+    let changed = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok(&source.replace(
+            "private(self) -> i32 { 1 }",
+            "private(self) -> bool { true }",
+        )),
+    );
     let items = &original.modules[original.root.index()].public_items;
     assert_eq!(items, &changed.modules[changed.root.index()].public_items);
     let tables = items
@@ -244,10 +263,13 @@ fn same_named_inherent_members_keep_distinct_owners_and_private_changes_stay_pri
         .filter(|item| matches!(item, PublicItem::InherentTable(_)))
         .collect::<Vec<_>>();
     assert_eq!(tables.len(), 2);
-    assert_ne!(tables[0].fingerprint_name(), tables[1].fingerprint_name());
+    assert_ne!(
+        tables[0].fingerprint_name(&context.snapshot()),
+        tables[1].fingerprint_name(&context.snapshot())
+    );
     let mut forged = original.clone();
     forged.modules[forged.root.index()]
         .public_items
         .push(tables[0].clone());
-    assert!(verify_program(&forged).is_err());
+    assert!(verify_program(&forged, &context.snapshot()).is_err());
 }
