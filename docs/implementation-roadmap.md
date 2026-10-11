@@ -31,6 +31,20 @@ carried build/test failures; their completion does not establish performance gai
 
 ## Pending work and open acceptance
 
+### Unified Iterable API
+
+The [execution plan](iterable-api-plan.md) records the agreed follow-up to SA20;
+implementation has not started. IA01-IA05 cover one default method surface on
+Iterable, Iterator identity adaptation, lazy transformations, terminal operations
+and explicit collection through FromIterator. Both container.map(...) and
+container.iter().map(...) use the same default algorithm; cursors retain shared
+progress. The plan replaces the Vec-only free map function, reuses Sum/Product,
+and includes HashSet/HashMap collection without a storage-model migration.
+
+The plan owns the finite API inventory, runtime retention/guard contracts,
+phase acceptance and progress ledger. SA18/SA19/SA21 and the separate performance
+follow-up remain outside this task. No implementation or CI acceptance is claimed.
+
 ### Builtin fixed-length arrays (SA20)
 
 BA01-BA05 are implemented and locally accepted.
@@ -49,7 +63,8 @@ The subsequent SA20 review repaired generic assignment root capture and native
 iterator consumption by `sum`, `product` and `Vec::from_iter`. All 22 affected
 array/conversion cases are verified through the focused suites and reruns
 recorded in the execution plan; the earlier workspace acceptance was not repeated.
-Generalizing the `map` API remains deferred.
+Generalizing the `map` API is queued in the separate
+[Iterable API plan](iterable-api-plan.md).
 
 ### Name resolution (SA8, SA2, SA3, CI pending)
 

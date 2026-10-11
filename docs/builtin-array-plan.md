@@ -581,4 +581,5 @@ Validation record:
   handwritten includes or visibility expansion; CRLF working-tree endings remain.
 
 Generalizing `map` to all iterables and providing method-call syntax remain
-deferred API design work, outside this repair.
+outside this repair. The agreed follow-up now belongs to the separate
+[Iterable API execution plan](iterable-api-plan.md).

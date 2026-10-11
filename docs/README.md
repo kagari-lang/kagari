@@ -29,6 +29,9 @@ parallel migration documents.
 - [Builtin fixed-length array execution plan (SA20)](builtin-array-plan.md):
   runtime-stored lengths, Array/Vec separation and explicit collection constructors;
   implementation and local acceptance are complete; full CI remains open.
+- [Unified Iterable API execution plan](iterable-api-plan.md): agreed default
+  method ownership, lazy adapters, terminal operations and collection contracts;
+  implementation has not started.
 - [Runnable examples](../examples/README.md).
 - [HIR reading guide](architecture/hir.md) and the completed
   [HIR](hir-documentation-plan.md) / [syntax](syntax-documentation-plan.md)
