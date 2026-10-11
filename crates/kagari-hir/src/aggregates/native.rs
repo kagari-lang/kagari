@@ -5,6 +5,7 @@ use crate::{
     typeck::{GenericBounds, table::match_implementation},
     types::{NominalType, TypeId, TypeSubstitution},
 };
+use kagari_common::identity::table::DefinitionTable;
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +42,7 @@ impl AggregateCatalog {
     /// implementation whose obligations hold in the current generic context.
     pub(crate) fn engine_implementation(
         &self,
+        definitions: &DefinitionTable,
         interface: &NominalType,
         receiver: &TypeId,
         bounds: &GenericBounds,
@@ -49,6 +51,7 @@ impl AggregateCatalog {
             self.engine_implementation_pattern(interface, receiver)?;
         let (selected, _) = self
             .concrete_interface_implementation(
+                definitions,
                 interface,
                 receiver,
                 bounds,

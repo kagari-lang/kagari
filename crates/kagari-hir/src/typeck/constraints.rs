@@ -23,7 +23,7 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     declaration::names::NameNamespace, language::Protocol, surface::StandardTypeConstraint,
@@ -411,6 +411,7 @@ pub(super) fn parameter_bounds(
 /// Generic/projection types can use explicit `bounds`; equality/hash checks can consult
 /// `catalog` for declared implementations. This predicate does not emit diagnostics.
 pub fn type_satisfies_standard_constraint(
+    definitions: &DefinitionTable,
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     bounds: &super::GenericBounds,
@@ -418,11 +419,11 @@ pub fn type_satisfies_standard_constraint(
 ) -> bool {
     match constraint {
         StandardTypeConstraint::HashKey => {
-            intrinsic_holds(Protocol::Eq, ty, catalog, bounds)
-                && intrinsic_holds(Protocol::Hash, ty, catalog, bounds)
+            intrinsic_holds(definitions, Protocol::Eq, ty, catalog, bounds)
+                && intrinsic_holds(definitions, Protocol::Hash, ty, catalog, bounds)
         }
         StandardTypeConstraint::Comparable => {
-            intrinsic_holds(Protocol::PartialEq, ty, catalog, bounds)
+            intrinsic_holds(definitions, Protocol::PartialEq, ty, catalog, bounds)
         }
         _ if matches!(ty, TypeId::Generic(_) | TypeId::Projection { .. }) => bounds
             .get(ty)
@@ -434,6 +435,7 @@ pub fn type_satisfies_standard_constraint(
 
 /// Recovery holes do not decide a constraint, but known siblings still can fail it.
 pub(super) fn known_type_violates_constraint(
+    definitions: &DefinitionTable,
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     bounds: &super::GenericBounds,
@@ -445,7 +447,9 @@ pub(super) fn known_type_violates_constraint(
             TypeId::Tuple(members) if constraint == StandardTypeConstraint::Comparable => {
                 pending.extend(members)
             }
-            _ if !type_satisfies_standard_constraint(ty, constraint, bounds, None) => return true,
+            _ if !type_satisfies_standard_constraint(definitions, ty, constraint, bounds, None) => {
+                return true;
+            }
             _ => {}
         }
     }

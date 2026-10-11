@@ -10,7 +10,7 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use std::collections::HashSet;
 
 #[cfg(test)]
@@ -51,6 +51,7 @@ impl FileAnalysis {
             .unwrap_or(&empty);
         let cancel = CancellationToken::default();
         let query = MemberQuery {
+            definitions: self.definitions(),
             aggregates: &facts.aggregates,
             receiver: &receiver,
             assumptions,
@@ -72,9 +73,13 @@ impl FileAnalysis {
             ) {
                 continue;
             }
-            let Some(mut substitution) =
-                members::inherent_substitution(&facts.aggregates, method, &receiver, &cancel)
-            else {
+            let Some(mut substitution) = members::inherent_substitution(
+                self.definitions(),
+                &facts.aggregates,
+                method,
+                &receiver,
+                &cancel,
+            ) else {
                 continue;
             };
             inherent_names.insert(function.name.clone());
@@ -85,7 +90,7 @@ impl FileAnalysis {
             }
             let expected = facts
                 .aggregates
-                .normalize_type(&parameter.ty.instantiate(&substitution));
+                .normalize_type(self.definitions(), &parameter.ty.instantiate(&substitution));
             if (expected.conflicts_with(&receiver) && !receiver.can_weaken_to(&expected))
                 || !query.bounds_allow(&function.bounds, &substitution, None)
             {
@@ -96,13 +101,20 @@ impl FileAnalysis {
                 name: function.name.clone(),
             });
         }
-        for interface in members::interfaces(&facts.aggregates, &receiver, assumptions, &cancel) {
+        for interface in members::interfaces(
+            self.definitions(),
+            &facts.aggregates,
+            &receiver,
+            assumptions,
+            &cancel,
+        ) {
             let Some(contract) = facts.aggregates.trait_(&interface.declaration) else {
                 continue;
             };
             let implementation = facts
                 .aggregates
                 .concrete_interface_implementation(
+                    self.definitions(),
                     &interface,
                     &receiver,
                     assumptions,
@@ -152,6 +164,7 @@ impl FileAnalysis {
 }
 
 struct MemberQuery<'a> {
+    definitions: &'a DefinitionTable,
     aggregates: &'a AggregateCatalog,
     receiver: &'a TypeId,
     assumptions: &'a GenericBounds,
@@ -173,7 +186,7 @@ impl MemberQuery<'_> {
             } else {
                 ty.instantiate(substitution)
             };
-            self.aggregates.normalize_type(&applied)
+            self.aggregates.normalize_type(self.definitions, &applied)
         };
         bounds.iter().all(|(target, constraints)| {
             let actual = instantiate(target);
@@ -183,6 +196,7 @@ impl MemberQuery<'_> {
             }
             constraints.iter().all(|constraint| match constraint {
                 ConstraintTarget::Standard(standard) => type_satisfies_standard_constraint(
+                    self.definitions,
                     &actual,
                     *standard,
                     self.assumptions,
@@ -196,19 +210,24 @@ impl MemberQuery<'_> {
                     let TypeId::Trait(required) = required else {
                         return false;
                     };
-                    self.aggregates
-                        .intrinsic_implementation(&required, &actual, self.assumptions)
-                        || members::interfaces(
-                            self.aggregates,
-                            &actual,
-                            self.assumptions,
-                            self.cancel,
-                        )
-                        .iter()
-                        .any(|available| available.satisfies(&required))
+                    self.aggregates.intrinsic_implementation(
+                        self.definitions,
+                        &required,
+                        &actual,
+                        self.assumptions,
+                    ) || members::interfaces(
+                        self.definitions,
+                        self.aggregates,
+                        &actual,
+                        self.assumptions,
+                        self.cancel,
+                    )
+                    .iter()
+                    .any(|available| available.satisfies(&required))
                         || self
                             .aggregates
                             .concrete_interface_implementation(
+                                self.definitions,
                                 &required,
                                 &actual,
                                 self.assumptions,

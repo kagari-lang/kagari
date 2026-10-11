@@ -1407,3 +1407,56 @@ Structure passes 1052 Rust files with no violations or documented exceptions; fo
 and diff checks pass. No ABI/format bump or workspace sweep was performed. Continue the
 protocol scope migration and other carried HIR errors, then the required program/codecs,
 identity-generic deletion, selected integration checks and final documentation cleanup.
+
+### SI03 scoped protocol semantics and implementation queries
+
+Protocol lookup now resolves an existing canonical module root and trait child in
+an explicit DefinitionTable. The lookup does not intern identities or confer a
+language role. HIR protocol views, associated outputs, dynamic iterator erasure,
+projection normalization, bounded implementation searches, member queries and
+TypeTable semantic queries retain DefinitionId and accept their owning table.
+Implicit native protocol applications now carry fixed-ID requirements/signatures.
+Body checking threads the analysis snapshot through operator, iteration, callable
+and propagation selection; ControlFlow and associated members are looked up rather
+than constructed as path-shaped semantic records. Host validation uses the complete
+analysis table because its original adopted input prefix predates source identities.
+
+The distinction between intrinsic representation rules and declared nominal views
+is preserved: scalar/tuple equality and hashing still work without a registered
+protocol identity, while producing a nominal protocol/member requires it to exist
+in the supplied prefix. Searches retain candidate/depth limits, cancellation and
+cycle/default guards. Review caught and repaired a shadowed receiver variable in
+standard trait closure comparison; the comparison targets the required protocol.
+No global identity pool, stored per-node table, alternate semantic engine or format
+version change was introduced. Shared authoring path helpers and representation
+parameters still require removal/consolidation under the existing SI06 scope.
+
+Focused evidence:
+
+- `cargo test -p kagari-types --test language_identity -- --exact
+  protocol_lookup_requires_exact_identity_in_the_retained_scope` passes. This checks
+  all canonical protocol identities, same-name/wrong-kind/duplicate-occurrence and
+  foreign-package rejection, immutable retained-prefix visibility, and explicit
+  foreign-context import without accepting the source handle in the target scope.
+  The first attempt used the wrong test-only remap method name; repaired to `map`
+  and rerun successfully.
+- `cargo clippy -p kagari-types --lib --test language_identity -- -D warnings` passes.
+- `cargo check -p kagari-hir --lib --message-format=short` remains an intermediate
+  failure with 43 errors and no warnings (previous checkpoint: 181). The migrated
+  protocol/aggregate/member/TypeTable algorithms have no compiler diagnostics.
+  Remaining errors are associated constants, constructor/member/field consumers,
+  associated-family diagnostics and TypeId display still using path fields or
+  explicit path types. These remain owned by SI03, followed by downstream SI04
+  integration; this count is not behavioral acceptance.
+- HIR protocol/equality/iteration/propagation behavioral tests remain pending until
+  these carried library errors and their scoped fixtures are repaired. Select the
+  existing contract cases for those mechanisms and missing-provider/recovery before
+  claiming acceptance; do not substitute the shared identity test for execution
+  behavior. Compiler consumers of changed query signatures remain pending SI04.
+
+Structure passes 1053 Rust files with no violations or documented exceptions;
+formatting and diff checks pass. Manual review covers explicit scope ownership,
+imports, associated member lookup, host-prefix
+lifetime and retained search guards. No broader Cargo test sweep was performed;
+exhaustive feature/backend acceptance remains CI scope. This is a broken intermediate
+SI03 checkpoint, not completion of SI03 or SI01-SI06.

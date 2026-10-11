@@ -19,12 +19,9 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{cancellation::Cancelled, identity};
+use kagari_common::{cancellation::Cancelled, identity::DefinitionKind};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    language as standard_traits, language::Protocol, scalar::BuiltinType,
-    surface::StandardTypeConstraint,
-};
+use kagari_types::{language::Protocol, scalar::BuiltinType, surface::StandardTypeConstraint};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_prefix_operator(
@@ -68,6 +65,7 @@ impl BodyChecker<'_> {
             PrefixOp::Neg => {
                 if completes
                     && constraints::known_type_violates_constraint(
+                        self.declarations.definitions(),
                         &inner,
                         StandardTypeConstraint::SignedNumber,
                         &env.generic_bounds,
@@ -146,7 +144,10 @@ impl BodyChecker<'_> {
                 let inputs: Vec<_> = self
                     .trait_bounds_for(left, env)
                     .into_iter()
-                    .filter(|bound| bound.declaration == standard_traits::identity(protocol))
+                    .filter(|bound| {
+                        Some(bound.declaration)
+                            == protocol.definition(self.declarations.definitions())
+                    })
                     .filter_map(|bound| bound.arguments.into_iter().next())
                     .collect();
                 if inputs.is_empty() && matches!(left, TypeId::Inference(_) | TypeId::Builtin(_)) {
@@ -212,7 +213,9 @@ impl BodyChecker<'_> {
         let context = self
             .trait_bounds_for(&receiver_ty, env)
             .into_iter()
-            .find(|t| t.declaration == standard_traits::identity(Protocol::Index))
+            .find(|t| {
+                Some(t.declaration) == Protocol::Index.definition(self.declarations.definitions())
+            })
             .and_then(|t| t.arguments.into_iter().next());
         let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
         let Ok(completes) = completion::expr_can_complete(
@@ -257,10 +260,15 @@ impl<'a> BodyChecker<'a> {
                 }
                 let (mut interface, output) = self.select_operator(ty, interface, env)?;
                 interface.associated_types.insert(
-                    identity::associated_type_id(&interface.declaration, "Output"),
+                    self.declarations.definitions().lookup_child(
+                        interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        "Output",
+                        0,
+                    )?,
                     output,
                 );
-                let signature = callable_signature(&interface)?;
+                let signature = callable_signature(self.declarations.definitions(), &interface)?;
                 Some((interface, signature))
             });
         let selected = candidates.next()?;
@@ -278,22 +286,37 @@ impl<'a> BodyChecker<'a> {
         env: &BodyTypeEnv,
     ) -> Option<(NominalType, TypeId)> {
         let interface = if traits::intrinsic_applies(
+            self.declarations.definitions(),
             &requested,
             ty,
             Some(self.aggregates),
             &env.generic_bounds,
         ) {
             let mut interface = requested;
-            if let Some(kind) = Protocol::from_id(&interface.declaration)
-                && kind.iteration()
-                && let Some(outputs) =
-                    traits::iteration_outputs(kind, ty, Some(self.aggregates), &env.generic_bounds)
+            if let Some(kind) = Protocol::from_reference(
+                &interface.declaration,
+                Some(self.declarations.definitions()),
+            ) && kind.iteration()
+                && let Some(outputs) = traits::iteration_outputs(
+                    self.declarations.definitions(),
+                    kind,
+                    ty,
+                    Some(self.aggregates),
+                    &env.generic_bounds,
+                )
             {
                 interface.associated_types.extend(outputs);
             }
-            if let Some(output) = traits::intrinsic_output(&interface, ty) {
+            if let Some(output) =
+                traits::intrinsic_output(self.declarations.definitions(), &interface, ty)
+            {
                 interface.associated_types.insert(
-                    identity::associated_type_id(&interface.declaration, "Output"),
+                    self.declarations.definitions().lookup_child(
+                        interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        "Output",
+                        0,
+                    )?,
                     output,
                 );
             }
@@ -313,6 +336,7 @@ impl<'a> BodyChecker<'a> {
             .collect();
         substitution.insert_receiver(contract.id.clone(), ty.clone());
         let result = self.aggregates.normalize_type(
+            self.declarations.definitions(),
             &method
                 .return_type
                 .with_self(&contract.id, ty)
@@ -452,6 +476,7 @@ impl<'a> BodyChecker<'a> {
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
                             && !traits::intrinsic_holds(
+                                self.declarations.definitions(),
                                 Protocol::PartialEq,
                                 ty,
                                 Some(self.aggregates),
@@ -474,6 +499,7 @@ impl<'a> BodyChecker<'a> {
                             .and_then(|requested| self.select_operator(ty, requested, env))
                             .is_some()
                         || constraints::type_satisfies_standard_constraint(
+                            self.declarations.definitions(),
                             ty,
                             StandardTypeConstraint::OrderedNumber,
                             &env.generic_bounds,
@@ -516,6 +542,7 @@ impl<'a> BodyChecker<'a> {
         {
             return ![lhs, rhs].into_iter().any(|ty| {
                 constraints::known_type_violates_constraint(
+                    self.declarations.definitions(),
                     ty,
                     StandardTypeConstraint::OrderedNumber,
                     &env.generic_bounds,
@@ -526,6 +553,7 @@ impl<'a> BodyChecker<'a> {
             || (lhs == rhs
                 && matches!(lhs, TypeId::Generic(_))
                 && constraints::type_satisfies_standard_constraint(
+                    self.declarations.definitions(),
                     lhs,
                     StandardTypeConstraint::OrderedNumber,
                     &env.generic_bounds,

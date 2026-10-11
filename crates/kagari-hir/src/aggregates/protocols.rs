@@ -6,7 +6,10 @@ use crate::{
         semantic::{lower_nominal_type, lower_type},
     },
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::{
     callable::Signature,
     declaration::requirement::NativeCallableRequirement,
@@ -18,9 +21,9 @@ pub struct ImplicitProtocolApplication {
     /// Recognized language protocol role.
     pub kind: Protocol,
     /// Applied native callable requirement used by executable metadata.
-    pub requirement: NativeCallableRequirement,
+    pub requirement: NativeCallableRequirement<DefinitionId>,
     /// Selected source-independent parameter/result contract.
-    pub signature: Signature,
+    pub signature: Signature<DefinitionId>,
 }
 
 impl AggregateCatalog {
@@ -32,19 +35,21 @@ impl AggregateCatalog {
     /// supported implicit application was selected.
     pub fn implicit_protocol_application(
         &self,
-        required: &NativeCallableRequirement,
+        definitions: &DefinitionTable,
+        required: &NativeCallableRequirement<DefinitionId>,
         receiver: &TypeId,
         interface: &NominalType,
         cancel: &CancellationToken,
     ) -> Result<Option<ImplicitProtocolApplication>, ImplementationSearchError> {
-        let Some((kind, expected)) = adapter_contract(required) else {
+        let Some((kind, expected)) = adapter_contract(required, definitions) else {
             return Ok(None);
         };
         if lower_type(receiver) != required.receiver
             || lower_nominal_type(interface) != required.interface
-            || !self.intrinsic_implementation(interface, receiver, &Default::default())
+            || !self.intrinsic_implementation(definitions, interface, receiver, &Default::default())
             || self
                 .concrete_interface_implementation(
+                    definitions,
                     interface,
                     receiver,
                     &Default::default(),
@@ -79,6 +84,7 @@ impl AggregateCatalog {
         let normalize = |ty: &TypeId| {
             lower_type(
                 &self.normalize_type(
+                    definitions,
                     &ty.instantiate(&substitution)
                         .with_associated_types(interface, receiver),
                 ),

@@ -1,6 +1,7 @@
 //! Core scalar operations over closed engine representation facts.
 use crate::language::semantics as traits;
 use crate::types::TypeId;
+use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     language::Protocol,
     scalar::BuiltinType,
@@ -51,9 +52,9 @@ pub fn supports_const_type(ty: &TypeId) -> bool {
 }
 
 /// Checks intrinsic Eq and Hash capabilities without a user implementation catalog.
-pub fn supports_hash_key(ty: &TypeId) -> bool {
-    traits::intrinsic_holds(Protocol::Eq, ty, None, &Default::default())
-        && traits::intrinsic_holds(Protocol::Hash, ty, None, &Default::default())
+pub fn supports_hash_key(definitions: &DefinitionTable, ty: &TypeId) -> bool {
+    traits::intrinsic_holds(definitions, Protocol::Eq, ty, None, &Default::default())
+        && traits::intrinsic_holds(definitions, Protocol::Hash, ty, None, &Default::default())
 }
 
 fn builtin_family(ty: &TypeId) -> Option<BuiltinTypeFamily> {

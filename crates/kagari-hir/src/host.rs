@@ -208,6 +208,7 @@ impl HostDeclarations {
     pub(crate) fn validate_trait_implementations(
         &self,
         aggregates: &AggregateCatalog,
+        definitions: &DefinitionTable,
         module: &ModuleIdentity,
         cancel: &CancellationToken,
     ) -> Result<DiagnosticBuffer, Cancelled> {
@@ -296,6 +297,7 @@ impl HostDeclarations {
                         let satisfied = match constraint {
                             ConstraintTarget::Standard(standard) => {
                                 type_satisfies_standard_constraint(
+                                    definitions,
                                     actual,
                                     *standard,
                                     &Default::default(),
@@ -313,7 +315,7 @@ impl HostDeclarations {
                                 else {
                                     unreachable!("trait bound")
                                 };
-                                aggregates.implementation_count(&required, actual)
+                                aggregates.implementation_count(definitions, &required, actual)
                                     + usize::from(self.implements(&required, actual))
                                     == 1
                             }
@@ -359,7 +361,7 @@ impl HostDeclarations {
                                 else {
                                     unreachable!("trait bound")
                                 };
-                                aggregates.implementation_count(&required, &actual)
+                                aggregates.implementation_count(definitions, &required, &actual)
                                     + usize::from(self.implements(&required, &actual))
                                     == 1
                             }

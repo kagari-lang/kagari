@@ -17,6 +17,7 @@ use crate::{
         semantic::{lower_type, raise_type},
     },
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::callable::NativeDefaultApplication;
 
 /// Borrowed checked facts for one module; no recipe alone establishes a proof.
@@ -33,7 +34,7 @@ impl NativeDefaultCheck<'_> {
         &self,
         function: &Function,
         signature: &TypedFunction,
-        application: &NativeDefaultApplication,
+        application: &NativeDefaultApplication<DefinitionId>,
         table: &TypeTable,
     ) -> Option<ExprId> {
         let block = self.lowered.module.block(function.body?);
@@ -80,7 +81,9 @@ impl NativeDefaultCheck<'_> {
             return None;
         }
         let normalize = |ty: &TypeId| {
-            let ty = self.aggregates.normalize_type(ty);
+            let ty = self
+                .aggregates
+                .normalize_type(self.declarations.definitions(), ty);
             (!ty.is_unresolved()).then(|| lower_type(&ty))
         };
         if call

@@ -13,9 +13,9 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::identity::{DefinitionPath, associated_type_id};
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::language::{self, Protocol, binding};
+use kagari_types::language::{Protocol, binding};
 
 impl BodyChecker<'_> {
     /// A completed branch can supply the missing payload type of a sibling None.
@@ -93,8 +93,22 @@ impl BodyChecker<'_> {
         let Some(mut requested) = self.aggregates.language_trait(Protocol::Try) else {
             return TypeId::Error;
         };
-        let output_id = associated_type_id(&requested.declaration, "Output");
-        let residual_id = associated_type_id(&requested.declaration, "Residual");
+        let Some(output_id) = self.declarations.definitions().lookup_child(
+            requested.declaration,
+            DefinitionKind::AssociatedType,
+            "Output",
+            0,
+        ) else {
+            return TypeId::Error;
+        };
+        let Some(residual_id) = self.declarations.definitions().lookup_child(
+            requested.declaration,
+            DefinitionKind::AssociatedType,
+            "Residual",
+            0,
+        ) else {
+            return TypeId::Error;
+        };
         requested
             .associated_types
             .insert(output_id.clone(), output.clone());
@@ -121,12 +135,15 @@ impl BodyChecker<'_> {
                 .get(&member)
                 .cloned()
                 .unwrap_or_else(|| {
-                    self.aggregates.normalize_type(&TypeId::Projection {
-                        receiver: Box::new(ty.clone()),
-                        interface: Box::new(projection_interface.clone()),
-                        member: member.clone(),
-                        arguments: vec![],
-                    })
+                    self.aggregates.normalize_type(
+                        self.declarations.definitions(),
+                        &TypeId::Projection {
+                            receiver: Box::new(ty.clone()),
+                            interface: Box::new(projection_interface.clone()),
+                            member: member.clone(),
+                            arguments: vec![],
+                        },
+                    )
                 });
             let _ = self.solver.constrain(&fallback, &value, self.cancel);
             outputs.push(self.solver.resolve(&value));
@@ -167,8 +184,15 @@ impl BodyChecker<'_> {
         else {
             return TypeId::Error;
         };
+        let Some(control_flow) = self
+            .declarations
+            .definitions()
+            .lookup(&binding::control_flow_declaration())
+        else {
+            return TypeId::Error;
+        };
         let expected_branch = TypeId::Enum(NominalType {
-            declaration: binding::control_flow_declaration(),
+            declaration: control_flow,
             arguments: vec![residual.clone(), output.clone()],
             associated_types: Default::default(),
         });
@@ -180,10 +204,7 @@ impl BodyChecker<'_> {
             self.propagation_bound_error(site, &ty, "checked Try/FromResidual signatures".into());
             return TypeId::Error;
         }
-        let Some(enumeration) = self
-            .aggregates
-            .enumeration(&binding::control_flow_declaration())
-        else {
+        let Some(enumeration) = self.aggregates.enumeration(&control_flow) else {
             return TypeId::Error;
         };
         let Some(break_variant) = enumeration
@@ -286,7 +307,8 @@ impl BodyChecker<'_> {
         for (target, constraints) in &implementation.bounds {
             for constraint in constraints {
                 if let ConstraintTarget::Trait(bound) = constraint
-                    && bound.declaration == language::identity(Protocol::From)
+                    && Some(bound.declaration)
+                        == Protocol::From.definition(self.declarations.definitions())
                     && let [input] = bound.arguments.as_slice()
                 {
                     let source = input.instantiate(substitution);
@@ -316,6 +338,7 @@ impl BodyChecker<'_> {
         substitution.insert_receiver(contract.id.clone(), receiver.clone());
         let resolve = |ty: &TypeId| {
             self.aggregates.normalize_type(
+                self.declarations.definitions(),
                 &ty.instantiate(&substitution)
                     .with_associated_types(interface, receiver),
             )
@@ -338,12 +361,13 @@ impl BodyChecker<'_> {
         })
     }
 
-    fn propagation_return_context(&self, receiver: &TypeId, output: &DefinitionPath) -> TypeId {
+    fn propagation_return_context(&self, receiver: &TypeId, output: &DefinitionId) -> TypeId {
         let candidates: Vec<_> = self
             .aggregates
             .implementations()
             .filter(|implementation| {
-                implementation.trait_type.declaration == language::identity(Protocol::Try)
+                Some(implementation.trait_type.declaration)
+                    == Protocol::Try.definition(self.declarations.definitions())
             })
             .take(4096)
             .filter_map(|implementation| {

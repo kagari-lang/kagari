@@ -191,11 +191,12 @@ impl AggregateCatalog {
     /// Checks whether intrinsic protocol rules apply under the supplied generic bounds.
     pub fn intrinsic_implementation(
         &self,
+        definitions: &DefinitionTable,
         interface: &NominalType,
         ty: &TypeId,
         bounds: &GenericBounds,
     ) -> bool {
-        builtin_traits::intrinsic_applies(interface, ty, Some(self), bounds)
+        builtin_traits::intrinsic_applies(definitions, interface, ty, Some(self), bounds)
     }
 
     pub(crate) fn add_module(
@@ -375,7 +376,13 @@ impl AggregateCatalog {
         for host in declarations.hosts.type_declarations() {
             for implementation in &host.trait_implementations {
                 cancel.check()?;
-                if implementation.trait_id.module == *lowered.source.module_identity() {
+                if declarations
+                    .definitions()
+                    .resolve(implementation.trait_id)
+                    .expect("adopted host trait identity")
+                    .module()
+                    == lowered.source.module_identity()
+                {
                     self.host_implementations.push((
                         HostDeclarations::trait_type(implementation),
                         TypeId::Host(host.id.clone()),

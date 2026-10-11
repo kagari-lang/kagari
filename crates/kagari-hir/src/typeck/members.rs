@@ -6,9 +6,11 @@ use crate::{
     typeck::{GenericBounds, inference, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionTable},
+};
 use kagari_types::{
-    language as standard_traits,
     language::{Protocol, role::LangRole},
     scalar::BuiltinType,
 };
@@ -16,6 +18,7 @@ use kagari_types::{
 /// Inference alone does not prove that an impl owns this receiver. A method
 /// on writable storage cannot be selected through a readonly storage type.
 pub(crate) fn inherent_substitution(
+    definitions: &DefinitionTable,
     aggregates: &AggregateCatalog,
     method: &InherentMethodSignature,
     receiver: &TypeId,
@@ -31,11 +34,12 @@ pub(crate) fn inherent_substitution(
         Some(aggregates),
     )
     .ok()?;
-    let owner = aggregates.normalize_type(&method.owner.instantiate(&substitution));
+    let owner = aggregates.normalize_type(definitions, &method.owner.instantiate(&substitution));
     (!owner.conflicts_with(receiver) || receiver.can_weaken_to(&owner)).then_some(substitution)
 }
 
 pub(crate) fn interfaces(
+    definitions: &DefinitionTable,
     aggregates: &AggregateCatalog,
     ty: &TypeId,
     assumptions: &GenericBounds,
@@ -43,7 +47,7 @@ pub(crate) fn interfaces(
 ) -> Vec<NominalType> {
     if let TypeId::Trait(interface) = ty {
         let mut bounds = aggregates
-            .interface_closure(interface, ty, cancel)
+            .interface_closure(definitions, interface, ty, cancel)
             .unwrap_or_default();
         if aggregates
             .trait_(&interface.declaration)
@@ -56,10 +60,11 @@ pub(crate) fn interfaces(
                     Protocol::Hash,
                     Protocol::Debug,
                 ]
-                .map(|kind| kind.nominal()),
+                .into_iter()
+                .filter_map(|kind| kind.nominal(definitions)),
             );
         }
-        add_iterator_view(aggregates, ty, &mut bounds);
+        add_iterator_view(definitions, aggregates, ty, &mut bounds);
         return bounds;
     }
     if !matches!(
@@ -82,6 +87,7 @@ pub(crate) fn interfaces(
                 let applied = implementation.trait_type.instantiate(&substitution);
                 if matches!(
                     aggregates.concrete_interface_implementation(
+                        definitions,
                         &applied,
                         ty,
                         assumptions,
@@ -97,8 +103,10 @@ pub(crate) fn interfaces(
             }
         }
         for kind in LangRole::ALL.map(LangRole::protocol) {
-            let interface = kind.intrinsic_view(ty);
-            if traits::intrinsic_holds(kind, ty, Some(aggregates), assumptions)
+            let Some(interface) = kind.intrinsic_view(definitions, ty) else {
+                continue;
+            };
+            if traits::intrinsic_holds(definitions, kind, ty, Some(aggregates), assumptions)
                 && !implemented.iter().any(|available| {
                     available.declaration == interface.declaration
                         && available.arguments == interface.arguments
@@ -108,7 +116,7 @@ pub(crate) fn interfaces(
             }
         }
         if !implemented.is_empty() {
-            add_iterator_view(aggregates, ty, &mut implemented);
+            add_iterator_view(definitions, aggregates, ty, &mut implemented);
             return implemented;
         }
     }
@@ -191,11 +199,12 @@ pub(crate) fn interfaces(
             }
         }
     }
-    add_iterator_view(aggregates, ty, &mut expanded);
+    add_iterator_view(definitions, aggregates, ty, &mut expanded);
     expanded
 }
 
 fn add_iterator_view(
+    definitions: &DefinitionTable,
     aggregates: &AggregateCatalog,
     receiver: &TypeId,
     views: &mut Vec<NominalType>,
@@ -209,52 +218,76 @@ fn add_iterator_view(
                 | TypeId::Map { .. }
                 | TypeId::Set(_, _)
                 | TypeId::Builtin(BuiltinType::String)
-        ) && let Some(outputs) =
-            traits::iteration_outputs(kind, receiver, Some(aggregates), &Default::default())
-        {
+        ) && let Some(outputs) = traits::iteration_outputs(
+            definitions,
+            kind,
+            receiver,
+            Some(aggregates),
+            &Default::default(),
+        ) {
             if let Some(view) = views
                 .iter_mut()
-                .find(|n| n.declaration == standard_traits::identity(kind))
+                .find(|n| Some(n.declaration) == kind.definition(definitions))
             {
                 view.associated_types.extend(outputs);
                 continue;
             }
-            let mut view = kind.nominal();
+            let Some(mut view) = kind.nominal(definitions) else {
+                continue;
+            };
             view.associated_types = outputs;
             views.push(view);
         }
     }
     if views
         .iter()
-        .any(|n| n.declaration == standard_traits::identity(Protocol::Iterable))
+        .any(|n| Some(n.declaration) == Protocol::Iterable.definition(definitions))
     {
         return;
     }
     let Some(iterator) = views
         .iter()
-        .find(|n| n.declaration == standard_traits::identity(Protocol::Iterator))
+        .find(|n| Some(n.declaration) == Protocol::Iterator.definition(definitions))
     else {
         return;
     };
-    let member = associated_type_id(&iterator.declaration, "Item");
+    let Some(member) = definitions.lookup_child(
+        iterator.declaration,
+        DefinitionKind::AssociatedType,
+        "Item",
+        0,
+    ) else {
+        return;
+    };
     let item = iterator
         .associated_types
         .get(&member)
         .cloned()
         .unwrap_or_else(|| {
-            aggregates.normalize_type(&TypeId::Projection {
-                receiver: Box::new(receiver.clone()),
-                interface: Box::new(iterator.clone()),
-                member,
-                arguments: vec![],
-            })
+            aggregates.normalize_type(
+                definitions,
+                &TypeId::Projection {
+                    receiver: Box::new(receiver.clone()),
+                    interface: Box::new(iterator.clone()),
+                    member,
+                    arguments: vec![],
+                },
+            )
         });
-    let mut into = Protocol::Iterable.nominal();
-    into.associated_types
-        .insert(associated_type_id(&into.declaration, "Item"), item);
-    into.associated_types.insert(
-        associated_type_id(&into.declaration, "Iter"),
-        receiver.clone(),
-    );
+    let Some(mut into) = Protocol::Iterable.nominal(definitions) else {
+        return;
+    };
+    let Some(item_id) =
+        definitions.lookup_child(into.declaration, DefinitionKind::AssociatedType, "Item", 0)
+    else {
+        return;
+    };
+    let Some(iter_id) =
+        definitions.lookup_child(into.declaration, DefinitionKind::AssociatedType, "Iter", 0)
+    else {
+        return;
+    };
+    into.associated_types.insert(item_id, item);
+    into.associated_types.insert(iter_id, receiver.clone());
     views.push(into);
 }

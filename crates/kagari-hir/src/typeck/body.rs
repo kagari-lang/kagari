@@ -1022,6 +1022,7 @@ impl<'a> BodyChecker<'a> {
         };
 
         applications::validate(
+            self.declarations.definitions(),
             &ty,
             &env.generic_bounds,
             (self.aggregates, &self.declarations.hosts),

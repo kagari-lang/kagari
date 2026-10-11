@@ -3,7 +3,9 @@
 //! never acquires syntax or implicit-value semantics.
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use kagari_common::identity::{
-    ModuleIdentity, PackageId, reference::DefinitionReference, table::DefinitionTable,
+    ModuleIdentity, PackageId,
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
 };
 
 pub mod adapter;
@@ -43,10 +45,22 @@ pub enum Protocol {
 
 pub fn identity(protocol: Protocol) -> DefinitionPath {
     DefinitionPath {
-        module: ModuleIdentity {
+        module: protocol.module(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: protocol.name().into(),
+            occurrence: 0,
+        }],
+    }
+}
+
+impl Protocol {
+    /// Canonical owning module, independent of the scope that supplies its identity.
+    pub fn module(self) -> ModuleIdentity {
+        ModuleIdentity {
             package: PackageId("kagari-core".into()),
             path: vec![
-                match protocol {
+                match self {
                     Protocol::Iterator | Protocol::Iterable => "iter",
                     Protocol::PartialEq | Protocol::Eq | Protocol::PartialOrd | Protocol::Ord => {
                         "cmp"
@@ -58,16 +72,16 @@ pub fn identity(protocol: Protocol) -> DefinitionPath {
                 }
                 .into(),
             ],
-        },
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: protocol.name().into(),
-            occurrence: 0,
-        }],
+        }
     }
-}
 
-impl Protocol {
+    /// Looks up an existing exact protocol identity without registering a declaration.
+    /// Presence does not prove a valid installed language role or trait contract.
+    pub fn definition(self, definitions: &DefinitionTable) -> Option<DefinitionId> {
+        let root = definitions.lookup_root(&self.module())?;
+        definitions.lookup_child(root, DefinitionKind::Trait, self.name(), 0)
+    }
+
     pub const ALL: [Self; 26] = [
         Self::Iterator,
         Self::Iterable,
@@ -146,7 +160,7 @@ impl Protocol {
         }
         Self::ALL
             .into_iter()
-            .find(|kind| kind.name() == part.name && view.module() == &identity(*kind).module)
+            .find(|kind| kind.name() == part.name && view.module() == &kind.module())
     }
 
     pub fn iteration(self) -> bool {

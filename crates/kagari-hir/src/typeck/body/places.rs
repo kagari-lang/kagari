@@ -367,9 +367,10 @@ impl<'a> BodyChecker<'a> {
                         .allows(&field.owner.module, self.lowered.source.module_identity())
             })?
             .clone();
-        field.ty = self
-            .aggregates
-            .normalize_type(&field.ty.instantiate(&substitution));
+        field.ty = self.aggregates.normalize_type(
+            self.declarations.definitions(),
+            &field.ty.instantiate(&substitution),
+        );
         Some(field)
     }
 

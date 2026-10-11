@@ -7,7 +7,7 @@ use crate::{
     typeck::{BodyTypeEnv, body::BodyChecker, table::ResolvedIteration},
     types::TypeId,
 };
-use kagari_common::identity::associated_type_id;
+use kagari_common::identity::DefinitionKind;
 use kagari_types::language::Protocol;
 
 impl BodyChecker<'_> {
@@ -22,22 +22,37 @@ impl BodyChecker<'_> {
             self.aggregates.language_trait(Protocol::Iterable)?,
             env,
         )?;
-        let member = associated_type_id(&interface.declaration, "Item");
+        let member = self.declarations.definitions().lookup_child(
+            interface.declaration,
+            DefinitionKind::AssociatedType,
+            "Item",
+            0,
+        )?;
         let item = interface
             .associated_types
             .get(&member)
             .cloned()
             .unwrap_or_else(|| {
-                self.aggregates.normalize_type(&TypeId::Projection {
-                    receiver: Box::new(receiver.clone()),
-                    interface: Box::new(interface.clone()),
-                    member,
-                    arguments: vec![],
-                })
+                self.aggregates.normalize_type(
+                    self.declarations.definitions(),
+                    &TypeId::Projection {
+                        receiver: Box::new(receiver.clone()),
+                        interface: Box::new(interface.clone()),
+                        member,
+                        arguments: vec![],
+                    },
+                )
             });
         let mut next = self.aggregates.language_trait(Protocol::Iterator)?;
-        next.associated_types
-            .insert(associated_type_id(&next.declaration, "Item"), item.clone());
+        next.associated_types.insert(
+            self.declarations.definitions().lookup_child(
+                next.declaration,
+                DefinitionKind::AssociatedType,
+                "Item",
+                0,
+            )?,
+            item.clone(),
+        );
         self.type_table.insert_iteration(
             expr,
             ResolvedIteration {

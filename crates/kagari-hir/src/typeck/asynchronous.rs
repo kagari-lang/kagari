@@ -5,13 +5,13 @@ use crate::{
     native::NativeTypeKind,
     types::{NominalType, TypeId},
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::declaration::native::NativeStorageLayout;
 
 fn storage_declaration(
     declarations: &Declarations,
     role: NativeStorageLayout,
-) -> Option<&DefinitionPath> {
+) -> Option<&DefinitionId> {
     let mut found = None;
     for representation in declarations.native_types() {
         if let NativeTypeKind::Storage {

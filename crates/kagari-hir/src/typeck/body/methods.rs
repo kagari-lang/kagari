@@ -109,6 +109,7 @@ impl<'a> BodyChecker<'a> {
             return target.clone();
         }
         match self.aggregates.concrete_interface_implementation(
+            self.declarations.definitions(),
             interface,
             &source,
             &env.generic_bounds,
@@ -182,6 +183,7 @@ impl<'a> BodyChecker<'a> {
             .filter_map(|method| {
                 let function = method.function.clone();
                 let substitution = members::inherent_substitution(
+                    self.declarations.definitions(),
                     self.aggregates,
                     method,
                     &receiver_ty,
@@ -377,7 +379,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<NominalType> {
-        members::interfaces(self.aggregates, ty, &env.generic_bounds, self.cancel)
+        members::interfaces(
+            self.declarations.definitions(),
+            self.aggregates,
+            ty,
+            &env.generic_bounds,
+            self.cancel,
+        )
     }
 
     pub(super) fn infer_trait_method_call_type(
@@ -407,7 +415,8 @@ impl<'a> BodyChecker<'a> {
                 .aggregates
                 .traits()
                 .filter(|contract| {
-                    (Protocol::from_id(&contract.id) == Some(Protocol::From)
+                    (Protocol::from_reference(&contract.id, Some(self.declarations.definitions()))
+                        == Some(Protocol::From)
                         || matches!(
                             contract.conversion_adapter,
                             Some(ConversionAdapter::Forward { .. })
@@ -508,7 +517,10 @@ impl<'a> BodyChecker<'a> {
         // Unrelated same-named traits retain ordinary ambiguity diagnostics.
         if candidates.len() > 1
             && args.len() == 1
-            && let Some(protocol) = Protocol::from_id(&candidates[0].1.declaration)
+            && let Some(protocol) = Protocol::from_reference(
+                &candidates[0].1.declaration,
+                Some(self.declarations.definitions()),
+            )
             && (protocol.binary_operator() || protocol == Protocol::Index)
             && candidates
                 .iter()
@@ -608,6 +620,7 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .map(|param| {
                 self.aggregates.normalize_type(
+                    self.declarations.definitions(),
                     &param
                         .ty
                         .with_self(self_owner, &self_ty)
@@ -662,6 +675,7 @@ impl<'a> BodyChecker<'a> {
                             }
                             ConstraintTarget::Trait(bound) => {
                                 let TypeId::Trait(bound) = self.aggregates.normalize_type(
+                                    self.declarations.definitions(),
                                     &TypeId::Trait(bound.clone())
                                         .with_self(self_owner, &self_ty)
                                         .instantiate(&substitution)
@@ -700,9 +714,10 @@ impl<'a> BodyChecker<'a> {
             );
         }
 
-        let return_type = self
-            .aggregates
-            .normalize_type(&return_pattern.instantiate(&substitution));
+        let return_type = self.aggregates.normalize_type(
+            self.declarations.definitions(),
+            &return_pattern.instantiate(&substitution),
+        );
         self.record_protocol_application(call_expr, &self_ty, return_type.clone());
         Some(return_type)
     }

@@ -4,13 +4,16 @@ use crate::builtin::surface;
 use crate::{
     aggregates::AggregateCatalog,
     typeck::{GenericBounds, table::ConstraintTarget},
-    types::{NominalType, TypeId, semantic::raise_type},
+    types::{NominalType, TypeId},
 };
-use kagari_common::identity::{DefinitionPath, associated_type_id};
+use kagari_common::identity::{
+    DefinitionKind,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::{
     conversion as scalar_numeric,
     declaration::conversion::ConversionAdapter,
-    language::{Protocol, binding, identity, role::LangRole},
+    language::{Protocol, binding, role::LangRole},
     scalar::BuiltinType,
 };
 use std::collections::{BTreeMap, HashSet};
@@ -18,23 +21,31 @@ use std::collections::{BTreeMap, HashSet};
 /// HIR type views of compiler-recognized protocols whose declarations remain ordinary traits.
 pub trait ProtocolSemantics {
     /// Builds the protocol's canonical nominal identity before applying arguments.
-    fn nominal(self) -> NominalType;
+    fn nominal(self, definitions: &DefinitionTable) -> Option<NominalType>;
 
     /// Applies intrinsic receiver-dependent arguments and associated outputs.
-    fn intrinsic_view(self, receiver: &TypeId) -> NominalType;
+    fn intrinsic_view(
+        self,
+        definitions: &DefinitionTable,
+        receiver: &TypeId,
+    ) -> Option<NominalType>;
 }
 
 impl ProtocolSemantics for Protocol {
-    fn nominal(self) -> NominalType {
-        NominalType {
-            declaration: identity(self),
+    fn nominal(self, definitions: &DefinitionTable) -> Option<NominalType> {
+        Some(NominalType {
+            declaration: self.definition(definitions)?,
             arguments: vec![],
             associated_types: Default::default(),
-        }
+        })
     }
 
-    fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
-        let mut view = self.nominal();
+    fn intrinsic_view(
+        self,
+        definitions: &DefinitionTable,
+        receiver: &TypeId,
+    ) -> Option<NominalType> {
+        let mut view = self.nominal(definitions)?;
         if self.binary_operator() {
             view.arguments.push(receiver.clone());
         }
@@ -46,11 +57,18 @@ impl ProtocolSemantics for Protocol {
         if self == Self::Index {
             view.arguments.push(TypeId::Builtin(BuiltinType::I32));
         }
-        if let Some(output) = intrinsic_output(&view, receiver) {
-            view.associated_types
-                .insert(associated_type_id(&view.declaration, "Output"), output);
+        if let Some(output) = intrinsic_output(definitions, &view, receiver) {
+            view.associated_types.insert(
+                definitions.lookup_child(
+                    view.declaration,
+                    DefinitionKind::AssociatedType,
+                    "Output",
+                    0,
+                )?,
+                output,
+            );
         }
-        view
+        Some(view)
     }
 }
 
@@ -64,8 +82,11 @@ pub fn callable_arguments(params: &[TypeId]) -> TypeId {
 }
 
 /// Parameter context from a callable bound; an unspecified output remains unknown.
-pub fn callable_signature(interface: &NominalType) -> Option<TypeId> {
-    if Protocol::from_id(&interface.declaration) != Some(Protocol::Fn) {
+pub fn callable_signature(
+    definitions: &DefinitionTable,
+    interface: &NominalType,
+) -> Option<TypeId> {
+    if Protocol::from_reference(&interface.declaration, Some(definitions)) != Some(Protocol::Fn) {
         return None;
     }
     let params = match interface.arguments.as_slice() {
@@ -75,7 +96,12 @@ pub fn callable_signature(interface: &NominalType) -> Option<TypeId> {
     };
     let result = interface
         .associated_types
-        .get(&associated_type_id(&interface.declaration, "Output"))
+        .get(&definitions.lookup_child(
+            interface.declaration,
+            DefinitionKind::AssociatedType,
+            "Output",
+            0,
+        )?)
         .cloned()
         .unwrap_or(TypeId::Unknown);
     Some(TypeId::Function {
@@ -85,8 +111,12 @@ pub fn callable_signature(interface: &NominalType) -> Option<TypeId> {
 }
 
 /// Builtin associated outputs are computed from the applied protocol, not its spelling.
-pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
-    let kind = Protocol::from_id(&interface.declaration)?;
+pub fn intrinsic_output(
+    definitions: &DefinitionTable,
+    interface: &NominalType,
+    receiver: &TypeId,
+) -> Option<TypeId> {
+    let kind = Protocol::from_reference(&interface.declaration, Some(definitions))?;
     if kind == Protocol::Fn
         && let TypeId::Function { params, result } = receiver
     {
@@ -163,6 +193,7 @@ pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<Ty
 
 /// Checks whether a protocol application is supported by intrinsic receiver semantics and available assumptions.
 pub fn intrinsic_applies(
+    definitions: &DefinitionTable,
     interface: &NominalType,
     receiver: &TypeId,
     catalog: Option<&AggregateCatalog>,
@@ -170,27 +201,29 @@ pub fn intrinsic_applies(
 ) -> bool {
     if catalog.is_some_and(|catalog| {
         catalog
-            .engine_implementation(interface, receiver, bounds)
+            .engine_implementation(definitions, interface, receiver, bounds)
             .is_some()
     }) {
         return true;
     }
     if let Some((required, target)) = conversion_requirement(interface, receiver, catalog) {
-        return intrinsic_applies(&required, &target, catalog, bounds)
+        return intrinsic_applies(definitions, &required, &target, catalog, bounds)
             || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
-            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(&required, &target, bounds, 100_000, 64, &Default::default()).is_ok_and(|found| found.is_some()));
+            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(definitions, &required, &target, bounds, 100_000, 64, &Default::default()).is_ok_and(|found| found.is_some()));
     }
-    let Some(kind) = Protocol::from_id(&interface.declaration) else {
+    let Some(kind) = Protocol::from_reference(&interface.declaration, Some(definitions)) else {
         return false;
     };
     if kind.iteration() {
-        return iteration_outputs(kind, receiver, catalog, bounds).is_some_and(|outputs| {
-            interface.arguments.is_empty()
-                && interface
-                    .associated_types
-                    .iter()
-                    .all(|(member, ty)| outputs.get(member) == Some(ty))
-        });
+        return iteration_outputs(definitions, kind, receiver, catalog, bounds).is_some_and(
+            |outputs| {
+                interface.arguments.is_empty()
+                    && interface
+                        .associated_types
+                        .iter()
+                        .all(|(member, ty)| outputs.get(member) == Some(ty))
+            },
+        );
     }
     if kind == Protocol::From {
         return interface.arguments.as_slice() == [receiver.clone()]
@@ -198,32 +231,53 @@ pub fn intrinsic_applies(
             || matches!((receiver, interface.arguments.as_slice()), (TypeId::Builtin(target), [TypeId::Builtin(source)]) if interface.associated_types.is_empty() && scalar_numeric::lossless_from(*source, *target));
     }
     if kind.operator() {
-        let Some(output) = intrinsic_output(interface, receiver) else {
+        let Some(output) = intrinsic_output(definitions, interface, receiver) else {
             return false;
         };
         interface.associated_types.iter().all(|(member, ty)| {
-            *member == associated_type_id(&interface.declaration, "Output") && *ty == output
+            Some(*member)
+                == definitions.lookup_child(
+                    interface.declaration,
+                    DefinitionKind::AssociatedType,
+                    "Output",
+                    0,
+                )
+                && *ty == output
         })
     } else {
         interface.arguments.is_empty()
             && interface.associated_types.is_empty()
-            && intrinsic_holds(kind, receiver, catalog, bounds)
+            && intrinsic_holds(definitions, kind, receiver, catalog, bounds)
     }
 }
 
 /// Builds the ordinary Ordering type, optionally wrapped in the registered Option type.
-pub fn ordering_type(optional: bool) -> TypeId {
-    let ordering = binding::ordering();
-    raise_type(&if optional {
-        binding::option(ordering)
-    } else {
-        ordering
+pub fn ordering_type(definitions: &DefinitionTable, optional: bool) -> TypeId {
+    let Some(ordering) = definitions.lookup(&binding::ordering_declaration()) else {
+        return TypeId::Error;
+    };
+    let ordering = TypeId::Enum(NominalType {
+        declaration: ordering,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    if !optional {
+        return ordering;
+    }
+    let Some(option) = definitions.lookup(&binding::option_declaration()) else {
+        return TypeId::Error;
+    };
+    TypeId::Enum(NominalType {
+        declaration: option,
+        arguments: vec![ordering],
+        associated_types: Default::default(),
     })
 }
 
 /// Intrinsic implementations preserve the language's value/identity contract.
 /// Explicit Debug/Display implementations are selected before intrinsic fallbacks.
 pub fn intrinsic_holds(
+    definitions: &DefinitionTable,
     protocol: Protocol,
     ty: &TypeId,
     catalog: Option<&AggregateCatalog>,
@@ -233,7 +287,7 @@ pub fn intrinsic_holds(
         return false;
     }
     if protocol.iteration() {
-        return iteration_outputs(protocol, ty, catalog, bounds).is_some();
+        return iteration_outputs(definitions, protocol, ty, catalog, bounds).is_some();
     }
     if matches!(
         protocol,
@@ -242,14 +296,18 @@ pub fn intrinsic_holds(
         return false;
     }
     if protocol.operator() {
-        return intrinsic_output(&protocol.intrinsic_view(ty), ty).is_some();
+        return protocol
+            .intrinsic_view(definitions, ty)
+            .is_some_and(|interface| intrinsic_output(definitions, &interface, ty).is_some());
     }
     if matches!(protocol, Protocol::PartialOrd | Protocol::Ord) {
-        if bounds.get(ty).is_some_and(|constraints| constraints.iter().any(|c| matches!(c, ConstraintTarget::Trait(n) if n.declaration == identity(protocol) || protocol == Protocol::PartialOrd && n.declaration == identity(Protocol::Ord)))) {return true;}
+        if bounds.get(ty).is_some_and(|constraints| constraints.iter().any(|c| matches!(c, ConstraintTarget::Trait(n) if Some(n.declaration) == protocol.definition(definitions) || protocol == Protocol::PartialOrd && Some(n.declaration) == Protocol::Ord.definition(definitions)))) {return true;}
         if let Some(catalog) = catalog
+            && let Some(interface) = protocol.nominal(definitions)
             && matches!(
                 catalog.concrete_interface_implementation(
-                    &protocol.nominal(),
+                    definitions,
+                    &interface,
                     ty,
                     bounds,
                     4096,
@@ -267,14 +325,19 @@ pub fn intrinsic_holds(
                 protocol == Protocol::PartialOrd
             }
             TypeId::Builtin(_) => true,
-            TypeId::Enum(nominal) if nominal.declaration == binding::ordering_declaration() => true,
+            TypeId::Enum(nominal)
+                if Some(nominal.declaration)
+                    == definitions.lookup(&binding::ordering_declaration()) =>
+            {
+                true
+            }
             _ => false,
         };
     }
     if protocol.equality_protocol()
         && let Some(catalog) = catalog
     {
-        return catalog.standard_protocol_holds(protocol, ty, bounds);
+        return catalog.standard_protocol_holds(definitions, protocol, ty, bounds);
     }
     let mut pending = vec![(ty.clone(), 0usize)];
     let mut seen = HashSet::new();
@@ -285,7 +348,7 @@ pub fn intrinsic_holds(
         if !seen.insert(ty.clone()) {
             continue;
         }
-        if bounds.get(&ty).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(n) if Protocol::from_id(&n.declaration).is_some_and(|p| p == protocol || p == Protocol::Eq && protocol == Protocol::PartialEq)))) { continue; }
+        if bounds.get(&ty).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(n) if Protocol::from_reference(&n.declaration, Some(definitions)).is_some_and(|p| p == protocol || p == Protocol::Eq && protocol == Protocol::PartialEq)))) { continue; }
         match ty {
             // Recovery holes cannot disprove a protocol; code generation rejects them.
             TypeId::Unknown | TypeId::Error => {}
@@ -342,34 +405,53 @@ pub fn intrinsic_holds(
 
 /// Returns supported Iterable/Iterator associated outputs under the current catalog/bounds, or `None`.
 pub fn iteration_outputs(
+    definitions: &DefinitionTable,
     kind: Protocol,
     receiver: &TypeId,
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
-) -> Option<BTreeMap<DefinitionPath, TypeId>> {
+) -> Option<BTreeMap<DefinitionId, TypeId>> {
     if let TypeId::Trait(interface) = receiver {
         let inherited = catalog?
-            .interface_closure(interface, receiver, &Default::default())
+            .interface_closure(definitions, interface, receiver, &Default::default())
             .ok()?;
         if let Some(parent) = inherited
             .iter()
-            .find(|parent| parent.declaration == identity(kind))
+            .find(|parent| Some(parent.declaration) == kind.definition(definitions))
         {
             return Some(parent.associated_types.clone());
         }
         if kind == Protocol::Iterable
-            && let Some(iterator) = inherited
-                .iter()
-                .find(|parent| parent.declaration == identity(Protocol::Iterator))
+            && let Some(iterator) = inherited.iter().find(|parent| {
+                Some(parent.declaration) == Protocol::Iterator.definition(definitions)
+            })
         {
             let item = iterator
                 .associated_types
-                .get(&associated_type_id(&iterator.declaration, "Item"))?
+                .get(&definitions.lookup_child(
+                    iterator.declaration,
+                    DefinitionKind::AssociatedType,
+                    "Item",
+                    0,
+                )?)?
                 .clone();
             return Some(BTreeMap::from([
-                (associated_type_id(&identity(kind), "Item"), item),
                 (
-                    associated_type_id(&identity(kind), "Iter"),
+                    definitions.lookup_child(
+                        kind.definition(definitions)?,
+                        DefinitionKind::AssociatedType,
+                        "Item",
+                        0,
+                    )?,
+                    item,
+                ),
+                (
+                    definitions.lookup_child(
+                        kind.definition(definitions)?,
+                        DefinitionKind::AssociatedType,
+                        "Iter",
+                        0,
+                    )?,
                     receiver.clone(),
                 ),
             ]));
@@ -379,7 +461,8 @@ pub fn iteration_outputs(
     if let Some((implementation, arguments)) = catalog.and_then(|catalog| {
         catalog
             .concrete_interface_implementation(
-                &kind.nominal(),
+                definitions,
+                &kind.nominal(definitions)?,
                 receiver,
                 bounds,
                 4096,
@@ -409,7 +492,7 @@ pub fn iteration_outputs(
     if kind != Protocol::Iterable {
         return None;
     }
-    let iterator = Protocol::Iterator.nominal();
+    let iterator = Protocol::Iterator.nominal(definitions)?;
     let available = bounds
         .get(receiver)
         .into_iter()
@@ -417,6 +500,7 @@ pub fn iteration_outputs(
         .any(|b| matches!(b,ConstraintTarget::Trait(n) if n.declaration==iterator.declaration))
         || catalog.is_some_and(|c| {
             c.concrete_interface_implementation(
+                definitions,
                 &iterator,
                 receiver,
                 bounds,
@@ -429,7 +513,12 @@ pub fn iteration_outputs(
     if !available {
         return None;
     }
-    let member = associated_type_id(&iterator.declaration, "Item");
+    let member = definitions.lookup_child(
+        iterator.declaration,
+        DefinitionKind::AssociatedType,
+        "Item",
+        0,
+    )?;
     let item = bounds
         .get(receiver)
         .into_iter()
@@ -447,13 +536,21 @@ pub fn iteration_outputs(
                 member,
                 arguments: vec![],
             };
-            catalog.map_or(projection.clone(), |c| c.normalize_type(&projection))
+            catalog.map_or(projection.clone(), |c| {
+                c.normalize_type(definitions, &projection)
+            })
         });
-    let id = identity(kind);
+    let id = kind.definition(definitions)?;
     Some(
         [
-            (associated_type_id(&id, "Item"), item),
-            (associated_type_id(&id, "Iter"), receiver.clone()),
+            (
+                definitions.lookup_child(id, DefinitionKind::AssociatedType, "Item", 0)?,
+                item,
+            ),
+            (
+                definitions.lookup_child(id, DefinitionKind::AssociatedType, "Iter", 0)?,
+                receiver.clone(),
+            ),
         ]
         .into_iter()
         .collect(),
@@ -461,19 +558,39 @@ pub fn iteration_outputs(
 }
 
 /// Identity Iterable's proof obligation, for recursive searches using one budget.
-pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Option<NominalType> {
-    if Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+pub fn iterator_requirement(
+    definitions: &DefinitionTable,
+    interface: &NominalType,
+    receiver: &TypeId,
+) -> Option<NominalType> {
+    if Protocol::from_reference(&interface.declaration, Some(definitions))
+        != Some(Protocol::Iterable)
         || !interface.arguments.is_empty()
     {
         return None;
     }
-    let item = associated_type_id(&interface.declaration, "Item");
-    let iterator = associated_type_id(&interface.declaration, "Iter");
-    let mut required = Protocol::Iterator.nominal();
+    let item = definitions.lookup_child(
+        interface.declaration,
+        DefinitionKind::AssociatedType,
+        "Item",
+        0,
+    )?;
+    let iterator = definitions.lookup_child(
+        interface.declaration,
+        DefinitionKind::AssociatedType,
+        "Iter",
+        0,
+    )?;
+    let mut required = Protocol::Iterator.nominal(definitions)?;
     for (member, ty) in &interface.associated_types {
         if *member == item {
             required.associated_types.insert(
-                associated_type_id(&required.declaration, "Item"),
+                definitions.lookup_child(
+                    required.declaration,
+                    DefinitionKind::AssociatedType,
+                    "Item",
+                    0,
+                )?,
                 ty.clone(),
             );
         } else if *member != iterator || ty != receiver {

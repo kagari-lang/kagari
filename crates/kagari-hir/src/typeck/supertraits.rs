@@ -74,10 +74,14 @@ pub(crate) fn validate(
             }
         }
     }
-    for contract in catalog
-        .traits()
-        .filter(|contract| &contract.id.module == identity)
-    {
+    for contract in catalog.traits().filter(|contract| {
+        declarations
+            .definitions()
+            .resolve(contract.id)
+            .expect("scoped trait")
+            .module()
+            == identity
+    }) {
         let applied = NominalType {
             declaration: contract.id.clone(),
             arguments: contract
@@ -97,6 +101,7 @@ pub(crate) fn validate(
         if let Ok(assumptions) = catalog.expanded_bounds(&assumptions, cancel) {
             for parent in &contract.supertraits {
                 applications::validate(
+                    declarations.definitions(),
                     &TypeId::Trait(parent.clone()),
                     &assumptions,
                     (catalog, &declarations.hosts),
@@ -121,21 +126,27 @@ pub(crate) fn validate(
             );
         }
     }
-    for implementation in catalog
-        .implementations()
-        .filter(|item| &item.id.module == identity)
-    {
-        if let Some(reason) = catalog.standard_override_error(implementation) {
+    for implementation in catalog.implementations().filter(|item| {
+        declarations
+            .definitions()
+            .resolve(item.id)
+            .expect("scoped implementation")
+            .module()
+            == identity
+    }) {
+        if let Some(reason) =
+            catalog.standard_override_error(declarations.definitions(), implementation)
+        {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                    trait_name: implementation
-                        .trait_type
-                        .declaration
-                        .path
+                    trait_name: declarations
+                        .definitions()
+                        .resolve(implementation.trait_type.declaration)
+                        .expect("scoped trait")
                         .last()
-                        .unwrap()
+                        .expect("trait identity")
                         .name
-                        .clone(),
+                        .to_owned(),
                     type_name: implementation.for_type.display_name(),
                     reason: reason.into(),
                 })
@@ -161,33 +172,37 @@ pub(crate) fn validate(
             continue;
         };
         for parent in parents.into_iter().skip(1) {
-            let available =
-                catalog.intrinsic_implementation(&parent, &implementation.for_type, &bounds)
-                    || declarations
-                        .hosts
-                        .implements(&parent, &implementation.for_type)
-                    || matches!(
-                        catalog.concrete_interface_implementation(
-                            &parent,
-                            &implementation.for_type,
-                            &bounds,
-                            100_000,
-                            64,
-                            cancel
-                        ),
-                        Ok(Some(_))
-                    );
+            let available = catalog.intrinsic_implementation(
+                declarations.definitions(),
+                &parent,
+                &implementation.for_type,
+                &bounds,
+            ) || declarations
+                .hosts
+                .implements(&parent, &implementation.for_type)
+                || matches!(
+                    catalog.concrete_interface_implementation(
+                        declarations.definitions(),
+                        &parent,
+                        &implementation.for_type,
+                        &bounds,
+                        100_000,
+                        64,
+                        cancel
+                    ),
+                    Ok(Some(_))
+                );
             if !available {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                        trait_name: implementation
-                            .trait_type
-                            .declaration
-                            .path
+                        trait_name: declarations
+                            .definitions()
+                            .resolve(implementation.trait_type.declaration)
+                            .expect("scoped trait")
                             .last()
-                            .unwrap()
+                            .expect("trait identity")
                             .name
-                            .clone(),
+                            .to_owned(),
                         type_name: implementation.for_type.display_name(),
                         reason: format!(
                             "required supertrait `{}` is not implemented under these bounds",
@@ -211,7 +226,13 @@ pub(crate) fn validate(
     }
     for host in declarations.hosts.type_declarations() {
         for implementation in &host.trait_implementations {
-            if &implementation.trait_id.module != identity {
+            if declarations
+                .definitions()
+                .resolve(implementation.trait_id)
+                .expect("adopted host trait")
+                .module()
+                != identity
+            {
                 continue;
             }
             let applied = HostDeclarations::trait_type(implementation);
@@ -221,7 +242,8 @@ pub(crate) fn validate(
             };
             for parent in parents.into_iter().skip(1) {
                 if !declarations.hosts.implements(&parent, &receiver)
-                    && catalog.implementation_count(&parent, &receiver) != 1
+                    && catalog.implementation_count(declarations.definitions(), &parent, &receiver)
+                        != 1
                 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidTraitImpl {

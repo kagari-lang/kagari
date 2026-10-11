@@ -20,16 +20,13 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity,
     identity::{
         DefinitionKind,
         reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_types::{
-    declaration::conversion::ConversionAdapter, language as standard_traits, language::Protocol,
-};
+use kagari_types::{declaration::conversion::ConversionAdapter, language::Protocol};
 use std::{
     collections::{BTreeMap, HashSet},
     iter,
@@ -47,6 +44,7 @@ pub enum ImplementationSearchError {
 
 /// Per-search candidate/depth accounting, caller assumptions and guarded intrinsic-default exploration.
 struct SearchBudget<'a> {
+    definitions: &'a DefinitionTable,
     checks_left: usize,
     depth: usize,
     max_depth: usize,
@@ -94,6 +92,7 @@ impl AggregateCatalog {
     /// cannot disagree because a downstream module adds a different override.
     pub fn standard_override_error(
         &self,
+        definitions: &DefinitionTable,
         implementation: &ImplementationSignature,
     ) -> Option<&'static str> {
         if self
@@ -102,7 +101,15 @@ impl AggregateCatalog {
         {
             return match &implementation.for_type {
                 TypeId::NativeObject(nominal) | TypeId::Struct(nominal) | TypeId::Enum(nominal) => {
-                    (nominal.declaration.module != implementation.id.module).then_some(
+                    (definitions
+                        .resolve(nominal.declaration)
+                        .expect("scoped nominal type")
+                        .module()
+                        != definitions
+                            .resolve(implementation.id)
+                            .expect("scoped implementation")
+                            .module())
+                    .then_some(
                         "storage interface implementations must belong to their nominal type",
                     )
                 }
@@ -117,7 +124,8 @@ impl AggregateCatalog {
         let adapter = self
             .trait_(&implementation.trait_type.declaration)
             .and_then(|contract| contract.conversion_adapter.as_ref());
-        let protocol = Protocol::from_id(&implementation.trait_type.declaration);
+        let protocol =
+            Protocol::from_reference(&implementation.trait_type.declaration, Some(definitions));
         if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
             return Some("Into and TryInto are derived from From and TryFrom");
         }
@@ -154,7 +162,7 @@ impl AggregateCatalog {
                 return Some("host conversion implementations are not supported");
             }
             let owned=iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
-                matches!(ty,TypeId::NativeObject(n)|TypeId::Struct(n)|TypeId::Enum(n) if n.declaration.module==implementation.id.module)
+                matches!(ty,TypeId::NativeObject(n)|TypeId::Struct(n)|TypeId::Enum(n) if definitions.resolve(n.declaration).expect("scoped nominal type").module()==definitions.resolve(implementation.id).expect("scoped implementation").module())
             });
             return (!owned && !implementation.engine_owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
         }
@@ -166,7 +174,7 @@ impl AggregateCatalog {
                 Protocol::Iterator
             };
             if self.implementations.values().any(|candidate| {
-                candidate.trait_type.declaration == standard_traits::identity(other)
+                Some(candidate.trait_type.declaration) == other.definition(definitions)
                     && possibly_overlapping_impls(&candidate.for_type, &implementation.for_type)
             }) {
                 return Some("Iterator already supplies identity Iterable");
@@ -181,7 +189,15 @@ impl AggregateCatalog {
             return (!implementation.engine_owned)
                 .then_some("language protocol implementations require a declared nominal type");
         };
-        if nominal.declaration.module != implementation.id.module {
+        if definitions
+            .resolve(nominal.declaration)
+            .expect("scoped nominal type")
+            .module()
+            != definitions
+                .resolve(implementation.id)
+                .expect("scoped implementation")
+                .module()
+        {
             return Some(
                 "standard protocol implementations must belong to the type's defining module",
             );
@@ -196,15 +212,17 @@ impl AggregateCatalog {
                 continue;
             }
             if !matches!(
-                self.concrete_interface_implementation(
-                    &required.nominal(),
-                    &implementation.for_type,
-                    &implementation.bounds,
-                    4096,
-                    64,
-                    &CancellationToken::default()
-                ),
-                Ok(Some(_))
+                required.nominal(definitions).map(|interface| self
+                    .concrete_interface_implementation(
+                        definitions,
+                        &interface,
+                        &implementation.for_type,
+                        &implementation.bounds,
+                        4096,
+                        64,
+                        &CancellationToken::default()
+                    )),
+                Some(Ok(Some(_)))
             ) {
                 return Some(
                     "custom Eq requires explicit PartialEq; custom Hash requires explicit PartialEq and Eq under the same bounds",
@@ -217,12 +235,14 @@ impl AggregateCatalog {
     /// Checks a standard protocol with 4,096 candidate checks and depth 64; an exhausted search returns false.
     pub fn standard_protocol_holds(
         &self,
+        definitions: &DefinitionTable,
         protocol: Protocol,
         ty: &TypeId,
         assumptions: &GenericBounds,
     ) -> bool {
         let cancel = CancellationToken::default();
         let mut budget = SearchBudget {
+            definitions,
             checks_left: 4096,
             depth: 0,
             max_depth: 64,
@@ -242,14 +262,22 @@ impl AggregateCatalog {
         budget: &mut SearchBudget<'_>,
     ) -> Result<bool, ImplementationSearchError> {
         budget.check_candidate()?;
-        if visiting.contains(&(protocol.nominal(), ty.clone())) {
+        let interface = protocol.nominal(budget.definitions);
+        if interface
+            .as_ref()
+            .is_some_and(|interface| visiting.contains(&(interface.clone(), ty.clone())))
+        {
             return Ok(false);
         }
-        if let TypeId::Trait(interface) = ty
+        if let TypeId::Trait(receiver_interface) = ty
             && self
-                .trait_closure(interface, ty, budget.cancel)?
+                .trait_closure(receiver_interface, ty, budget.cancel)?
                 .iter()
-                .any(|parent| parent.satisfies(&protocol.nominal()))
+                .any(|parent| {
+                    interface
+                        .as_ref()
+                        .is_some_and(|required| parent.satisfies(required))
+                })
         {
             return Ok(true);
         }
@@ -270,8 +298,9 @@ impl AggregateCatalog {
         if let Some(constraints) = budget.assumptions.get(ty) {
             for constraint in constraints {
                 if let ConstraintTarget::Trait(nominal) = constraint
-                    && (nominal == &protocol.nominal()
-                        || protocol == Protocol::PartialEq && nominal == &Protocol::Eq.nominal())
+                    && (Some(nominal) == interface.as_ref()
+                        || protocol == Protocol::PartialEq
+                            && Protocol::Eq.nominal(budget.definitions).as_ref() == Some(nominal))
                 {
                     return Ok(true);
                 }
@@ -284,25 +313,28 @@ impl AggregateCatalog {
                 TypeId::NativeObject(_) | TypeId::Struct(_) | TypeId::Enum(_)
             ) {
                 for implementation in self.implementations.values() {
-                    if self
-                        .implementation_matches(
-                            implementation,
-                            &protocol.nominal(),
-                            ty,
-                            visiting,
-                            budget,
-                        )?
-                        .is_some()
+                    if let Some(interface) = &interface
+                        && self
+                            .implementation_matches(
+                                implementation,
+                                interface,
+                                ty,
+                                visiting,
+                                budget,
+                            )?
+                            .is_some()
                     {
                         return Ok(true);
                     }
                 }
-                if matches!(protocol, Protocol::Eq | Protocol::Hash) {
+                if matches!(protocol, Protocol::Eq | Protocol::Hash)
+                    && let Some(equality) = Protocol::PartialEq.nominal(budget.definitions)
+                {
                     for implementation in self.implementations.values() {
                         if self
                             .implementation_matches(
                                 implementation,
-                                &Protocol::PartialEq.nominal(),
+                                &equality,
                                 ty,
                                 visiting,
                                 budget,
@@ -321,6 +353,7 @@ impl AggregateCatalog {
             }
             if !protocol.equality_protocol() {
                 return Ok(traits::intrinsic_holds(
+                    budget.definitions,
                     protocol,
                     ty,
                     None,
@@ -366,6 +399,7 @@ impl AggregateCatalog {
                 result
             } else {
                 Ok(traits::intrinsic_holds(
+                    budget.definitions,
                     protocol,
                     ty,
                     None,
@@ -378,40 +412,63 @@ impl AggregateCatalog {
     }
 
     /// Normalizes associated projections using available checked implementation/family facts.
-    pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
+    pub fn normalize_type(&self, definitions: &DefinitionTable, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
                 && !matches!(receiver, TypeId::SelfType(_))
-                && *member == identity::associated_type_id(&interface.declaration, "Error")
+                && Some(*member)
+                    == definitions.lookup_child(
+                        interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        "Error",
+                        0,
+                    )
                 && let Some((required, target)) =
                     traits::conversion_requirement(interface, receiver, Some(self))
             {
                 return Some(TypeId::Projection {
                     receiver: Box::new(target),
-                    member: identity::associated_type_id(&required.declaration, "Error"),
+                    member: definitions.lookup_child(
+                        required.declaration,
+                        DefinitionKind::AssociatedType,
+                        "Error",
+                        0,
+                    )?,
                     interface: Box::new(required),
                     arguments: vec![],
                 });
             }
 
             if arguments.is_empty()
-                && let Some(kind) = Protocol::from_id(&interface.declaration)
+                && let Some(kind) =
+                    Protocol::from_reference(&interface.declaration, Some(definitions))
                 && kind.iteration()
-                && let Some(outputs) =
-                    traits::iteration_outputs(kind, receiver, Some(self), &Default::default())
+                && let Some(outputs) = traits::iteration_outputs(
+                    definitions,
+                    kind,
+                    receiver,
+                    Some(self),
+                    &Default::default(),
+                )
                 && let Some(output) = outputs.get(member)
             {
                 return Some(output.clone());
             }
             if arguments.is_empty()
-                && *member == identity::associated_type_id(&interface.declaration, "Output")
-                && let Some(output) = traits::intrinsic_output(interface, receiver)
+                && Some(*member)
+                    == definitions.lookup_child(
+                        interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        "Output",
+                        0,
+                    )
+                && let Some(output) = traits::intrinsic_output(definitions, interface, receiver)
             {
                 return Some(output);
             }
             if let TypeId::Trait(actual) = receiver {
                 return self
-                    .interface_closure(actual, receiver, &Default::default())
+                    .interface_closure(definitions, actual, receiver, &Default::default())
                     .ok()?
                     .into_iter()
                     .find(|parent| parent.satisfies(interface))?
@@ -565,6 +622,7 @@ impl AggregateCatalog {
     ) -> Option<(DefinitionId, Vec<TypeId>)> {
         let cancel = CancellationToken::default();
         let mut budget = SearchBudget {
+            definitions,
             checks_left: usize::MAX,
             depth: 0,
             max_depth: usize::MAX,
@@ -653,8 +711,14 @@ impl AggregateCatalog {
     }
 
     /// Counts matching implementations using maximal size/depth bounds and default cancellation; search failure maps to zero.
-    pub fn implementation_count(&self, trait_type: &NominalType, receiver: &TypeId) -> usize {
+    pub fn implementation_count(
+        &self,
+        definitions: &DefinitionTable,
+        trait_type: &NominalType,
+        receiver: &TypeId,
+    ) -> usize {
         self.implementation_count_bounded(
+            definitions,
             trait_type,
             receiver,
             usize::MAX,
@@ -673,6 +737,7 @@ impl AggregateCatalog {
     /// Returns cancellation or candidate/depth exhaustion.
     pub fn concrete_interface_implementation(
         &self,
+        definitions: &DefinitionTable,
         trait_type: &NominalType,
         receiver: &TypeId,
         assumptions: &GenericBounds,
@@ -681,6 +746,7 @@ impl AggregateCatalog {
         cancel: &CancellationToken,
     ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
         let mut budget = SearchBudget {
+            definitions,
             checks_left: max_checks,
             depth: 0,
             max_depth,
@@ -721,6 +787,7 @@ impl AggregateCatalog {
     /// Returns cancellation or exhausted search limits instead of treating them as no match.
     pub fn implementation_count_bounded(
         &self,
+        definitions: &DefinitionTable,
         trait_type: &NominalType,
         receiver: &TypeId,
         max_checks: usize,
@@ -728,6 +795,7 @@ impl AggregateCatalog {
         cancel: &CancellationToken,
     ) -> Result<usize, ImplementationSearchError> {
         let mut budget = SearchBudget {
+            definitions,
             checks_left: max_checks,
             depth: 0,
             max_depth,
@@ -754,7 +822,13 @@ impl AggregateCatalog {
             }
         }
         if count == 0
-            && traits::intrinsic_applies(trait_type, receiver, Some(self), &Default::default())
+            && traits::intrinsic_applies(
+                definitions,
+                trait_type,
+                receiver,
+                Some(self),
+                &Default::default(),
+            )
         {
             count = 1;
         }
@@ -790,7 +864,8 @@ impl AggregateCatalog {
         }
         let holds = (|| {
             for (parameter, constraints) in &implementation.bounds {
-                let actual = self.normalize_type(&parameter.instantiate(&matched));
+                let actual =
+                    self.normalize_type(budget.definitions, &parameter.instantiate(&matched));
                 for constraint in constraints {
                     budget
                         .cancel
@@ -798,6 +873,7 @@ impl AggregateCatalog {
                         .map_err(|_| ImplementationSearchError::Cancelled)?;
                     let satisfied = match constraint {
                         ConstraintTarget::Standard(standard) => type_satisfies_standard_constraint(
+                            budget.definitions,
                             &actual,
                             *standard,
                             budget.assumptions,
@@ -818,6 +894,7 @@ impl AggregateCatalog {
                             }
                             if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b| matches!(b, ConstraintTarget::Trait(t) if t.satisfies(&required)))) { continue; }
                             if traits::intrinsic_applies(
+                                budget.definitions,
                                 &required,
                                 &actual,
                                 None,
@@ -827,7 +904,10 @@ impl AggregateCatalog {
                             }
                             if required.arguments.is_empty()
                                 && required.associated_types.is_empty()
-                                && let Some(protocol) = Protocol::from_id(&required.declaration)
+                                && let Some(protocol) = Protocol::from_reference(
+                                    &required.declaration,
+                                    Some(budget.definitions),
+                                )
                                 && self.standard_holds(protocol, &actual, visiting, budget)?
                             {
                                 continue;
@@ -844,9 +924,11 @@ impl AggregateCatalog {
                                         return Ok(true);
                                     }
                                 }
-                                if let Some(iterator) =
-                                    traits::iterator_requirement(&required, &actual)
-                                {
+                                if let Some(iterator) = traits::iterator_requirement(
+                                    budget.definitions,
+                                    &required,
+                                    &actual,
+                                ) {
                                     if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b|matches!(b,ConstraintTarget::Trait(n) if n.satisfies(&iterator)))) {return Ok(true);}
                                     for candidate in self.implementations.values() {
                                         if self

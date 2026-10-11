@@ -81,6 +81,7 @@ impl<'a> BodyChecker<'a> {
             );
         }
         check::validate_standard_type_constraints(
+            self.declarations.definitions(),
             &resolved,
             &env.generic_bounds,
             self.lowered.source_map.type_span(ty),
@@ -369,8 +370,10 @@ impl<'a> BodyChecker<'a> {
             };
 
             let Some(expected) = self.aggregates.field(field).map(|field| {
-                self.aggregates
-                    .normalize_type(&field.ty.instantiate(&substitution))
+                self.aggregates.normalize_type(
+                    self.declarations.definitions(),
+                    &field.ty.instantiate(&substitution),
+                )
             }) else {
                 continue;
             };

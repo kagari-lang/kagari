@@ -20,7 +20,7 @@ use crate::{
     },
     types::{NominalType, TypeId},
 };
-use kagari_common::{identity, span::Span};
+use kagari_common::{identity::DefinitionKind, span::Span};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::language::Protocol;
 use smallvec::SmallVec;
@@ -119,6 +119,7 @@ pub(super) fn validate_trait_surface(
                     match constraint {
                         ConstraintTarget::Standard(standard) => {
                             validate_standard_constraint_type(
+                                declarations.definitions(),
                                 actual,
                                 *standard,
                                 &available,
@@ -128,27 +129,40 @@ pub(super) fn validate_trait_surface(
                             );
                         }
                         ConstraintTarget::Trait(required_trait) => {
-                            let satisfied = Protocol::from_id(&required_trait.declaration)
-                                .is_some_and(|kind| {
-                                    required_trait.arguments.is_empty()
-                                        && required_trait.associated_types.is_empty()
-                                        && traits::intrinsic_holds(kind, actual, None, &available)
-                                })
-                                || match actual {
-                                    TypeId::Generic(parameter) => available
-                                        .get(&TypeId::Generic(parameter.clone()))
-                                        .is_some_and(|bounds| bounds.contains(constraint)),
-                                    _ => table.implements(required_trait, actual),
-                                };
+                            let satisfied = Protocol::from_reference(
+                                &required_trait.declaration,
+                                Some(declarations.definitions()),
+                            )
+                            .is_some_and(|kind| {
+                                required_trait.arguments.is_empty()
+                                    && required_trait.associated_types.is_empty()
+                                    && traits::intrinsic_holds(
+                                        declarations.definitions(),
+                                        kind,
+                                        actual,
+                                        None,
+                                        &available,
+                                    )
+                            }) || match actual {
+                                TypeId::Generic(parameter) => available
+                                    .get(&TypeId::Generic(parameter.clone()))
+                                    .is_some_and(|bounds| bounds.contains(constraint)),
+                                _ => table.implements(
+                                    declarations.definitions(),
+                                    required_trait,
+                                    actual,
+                                ),
+                            };
                             if !satisfied {
                                 diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
                                         type_name: actual.display_name(),
-                                        trait_name: required_trait
-                                            .declaration
-                                            .path
+                                        trait_name: declarations
+                                            .definitions()
+                                            .resolve(required_trait.declaration)
+                                            .expect("scoped trait")
                                             .last()
-                                            .map(|part| part.name.clone())
+                                            .map(|part| part.name.to_owned())
                                             .unwrap_or_default(),
                                     })
                                     .with_span(span),
@@ -178,8 +192,9 @@ pub(super) fn validate_trait_surface(
         };
         let type_name = display_type_id(&for_ty);
         let erased_iterator_identity = lowered.registered_native_api
-            && Protocol::from_id(&id.declaration) == Some(Protocol::Iterable)
-            && matches!(&for_ty, TypeId::Trait(receiver) if Protocol::from_id(&receiver.declaration) == Some(Protocol::Iterator));
+            && Protocol::from_reference(&id.declaration, Some(declarations.definitions()))
+                == Some(Protocol::Iterable)
+            && matches!(&for_ty, TypeId::Trait(receiver) if Protocol::from_reference(&receiver.declaration, Some(declarations.definitions())) == Some(Protocol::Iterator));
         if matches!(for_ty, TypeId::Trait(_) | TypeId::Generic(_)) && !erased_iterator_identity {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
@@ -211,7 +226,7 @@ pub(super) fn validate_trait_surface(
         }
         seen_impls.push((id.clone(), for_ty.clone()));
 
-        let standard = Protocol::from_id(&id.declaration);
+        let standard = Protocol::from_reference(&id.declaration, Some(declarations.definitions()));
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
                 || !lowered.registered_native_api
@@ -367,12 +382,15 @@ pub(super) fn validate_interface_type(
                     );
                 }
                 if trait_def.associated_types.iter().any(|member| {
-                    !trait_name
-                        .associated_types
-                        .contains_key(&identity::associated_type_id(
-                            &trait_name.declaration,
+                    declarations
+                        .definitions()
+                        .lookup_child(
+                            trait_name.declaration,
+                            DefinitionKind::AssociatedType,
                             &member.name,
-                        ))
+                            0,
+                        )
+                        .is_none_or(|member| !trait_name.associated_types.contains_key(&member))
                 }) {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidInterfaceType {

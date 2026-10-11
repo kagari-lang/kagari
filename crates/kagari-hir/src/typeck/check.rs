@@ -35,7 +35,11 @@ use crate::{
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath, span::Span};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+    span::Span,
+};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
 use kagari_types::{
     scalar::BuiltinType, surface as standard_surface, surface::StandardTypeConstraint,
@@ -170,6 +174,7 @@ pub(crate) fn check_signatures(
                     .definition(ResolvedName::Struct(structure.id))
                     .expect("struct declaration");
                 validate_standard_type_constraints(
+                    declarations.definitions(),
                     ty,
                     &type_bounds[id],
                     lowered.source_map.type_span(field.ty),
@@ -201,6 +206,7 @@ pub(crate) fn check_signatures(
                     cancel,
                 ) {
                     ty if !ty.is_unresolved() => validate_standard_type_constraints(
+                        declarations.definitions(),
                         &ty,
                         &type_bounds[declarations
                             .definition(ResolvedName::Enum(enumeration.id))
@@ -212,6 +218,7 @@ pub(crate) fn check_signatures(
                     ),
                     ty => {
                         validate_standard_type_constraints(
+                            declarations.definitions(),
                             &ty,
                             &type_bounds[declarations
                                 .definition(ResolvedName::Enum(enumeration.id))
@@ -321,6 +328,7 @@ pub(crate) fn check_signatures(
                 resolve_type_in(&lowered.module, param.ty, context, &mut type_table, cancel)
             };
             validate_standard_type_constraints(
+                declarations.definitions(),
                 &param_type,
                 &bounds,
                 lowered.source_map.type_span(param.ty),
@@ -359,6 +367,7 @@ pub(crate) fn check_signatures(
                 let ty =
                     resolve_type_in(&lowered.module, *ty_ref, context, &mut type_table, cancel);
                 validate_standard_type_constraints(
+                    declarations.definitions(),
                     &ty,
                     &bounds,
                     lowered.source_map.type_span(*ty_ref),
@@ -482,9 +491,10 @@ pub(crate) fn check_bodies_controlled(
     let mut functions = signatures.facts.functions.clone();
     for function in &mut functions {
         for param in &mut function.params {
-            param.ty = aggregates.normalize_type(&param.ty);
+            param.ty = aggregates.normalize_type(declarations.definitions(), &param.ty);
         }
-        function.return_type = aggregates.normalize_type(&function.return_type);
+        function.return_type =
+            aggregates.normalize_type(declarations.definitions(), &function.return_type);
     }
     let function_index = FunctionTypeIndex {
         by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
@@ -510,6 +520,7 @@ pub(crate) fn check_bodies_controlled(
             ) {
                 ty if !ty.is_unresolved() => {
                     validate_standard_type_constraints(
+                        declarations.definitions(),
                         &ty,
                         &HashMap::new(),
                         lowered.source_map.type_span(ty_ref),
@@ -521,6 +532,7 @@ pub(crate) fn check_bodies_controlled(
                 }
                 ty => {
                     validate_standard_type_constraints(
+                        declarations.definitions(),
                         &ty,
                         &HashMap::new(),
                         lowered.source_map.type_span(ty_ref),
@@ -847,6 +859,7 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
 }
 
 pub(super) fn validate_standard_type_constraints(
+    definitions: &DefinitionTable,
     ty: &TypeId,
     generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
     span: Span,
@@ -862,6 +875,7 @@ pub(super) fn validate_standard_type_constraints(
         match ty {
             TypeId::Map { key, value, .. } => {
                 validate_standard_constraint_type(
+                    definitions,
                     key,
                     StandardTypeConstraint::HashKey,
                     generic_bounds,
@@ -874,6 +888,7 @@ pub(super) fn validate_standard_type_constraints(
             }
             TypeId::Set(element, _) => {
                 validate_standard_constraint_type(
+                    definitions,
                     element,
                     StandardTypeConstraint::HashKey,
                     generic_bounds,
@@ -909,6 +924,7 @@ pub(super) fn validate_standard_type_constraints(
 }
 
 pub(super) fn validate_standard_constraint_type(
+    definitions: &DefinitionTable,
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
@@ -927,7 +943,13 @@ pub(super) fn validate_standard_constraint_type(
     if catalog.is_none() && ty.contains_interface() {
         return;
     }
-    if constraints::type_satisfies_standard_constraint(ty, constraint, generic_bounds, catalog) {
+    if constraints::type_satisfies_standard_constraint(
+        definitions,
+        ty,
+        constraint,
+        generic_bounds,
+        catalog,
+    ) {
         return;
     }
 
@@ -1014,12 +1036,13 @@ impl MethodSignatureView for MethodSignature {
 
 /// Receiver, owner substitution and diagnostic site used to compare one implementation method.
 pub(super) struct MethodComparison<'a> {
+    pub definitions: &'a DefinitionTable,
     pub trait_name: &'a str,
     pub method_name: &'a str,
     pub trait_generic_count: usize,
     pub impl_generic_count: usize,
     pub receiver: &'a TypeId,
-    pub trait_owner: &'a DefinitionPath,
+    pub trait_owner: &'a DefinitionId,
     pub trait_arguments: &'a [TypeId],
     pub catalog: &'a AggregateCatalog,
     pub span: Span,
@@ -1071,7 +1094,11 @@ pub(super) fn compare_method_contract(
         )
         .collect();
     substitution.insert_receiver(comparison.trait_owner.clone(), comparison.receiver.clone());
-    let normalize = |ty: TypeId| comparison.catalog.normalize_type(&ty);
+    let normalize = |ty: TypeId| {
+        comparison
+            .catalog
+            .normalize_type(comparison.definitions, &ty)
+    };
     for (expected_param, actual_param) in expected
         .generic_params()
         .iter()
@@ -1195,6 +1222,7 @@ mod constraint_traversal_tests {
         let cancelled = CancellationToken::default();
         cancelled.cancel();
         validate_standard_type_constraints(
+            definitions,
             &ty,
             &HashMap::new(),
             Default::default(),
@@ -1204,6 +1232,7 @@ mod constraint_traversal_tests {
         );
         let cancelled_count = diagnostics.len();
         validate_standard_type_constraints(
+            definitions,
             &ty,
             &HashMap::new(),
             Default::default(),

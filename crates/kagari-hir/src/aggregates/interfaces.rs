@@ -5,8 +5,11 @@ use crate::{
     typeck::table::ConstraintTarget,
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
-use kagari_types::language::{Protocol, identity};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionTable},
+};
+use kagari_types::language::Protocol;
 
 impl AggregateCatalog {
     /// An Iterable value hides its concrete iterator behind the declared
@@ -14,6 +17,7 @@ impl AggregateCatalog {
     /// original output; this closure describes only a dynamic value's surface.
     pub fn interface_closure(
         &self,
+        definitions: &DefinitionTable,
         interface: &NominalType,
         receiver: &TypeId,
         cancel: &CancellationToken,
@@ -23,10 +27,17 @@ impl AggregateCatalog {
             cancel
                 .check()
                 .map_err(|_| ImplementationSearchError::Cancelled)?;
-            if parent.declaration != identity(Protocol::Iterable) {
+            if Some(parent.declaration) != Protocol::Iterable.definition(definitions) {
                 continue;
             }
-            let iter = associated_type_id(&parent.declaration, "Iter");
+            let Some(iter) = definitions.lookup_child(
+                parent.declaration,
+                DefinitionKind::AssociatedType,
+                "Iter",
+                0,
+            ) else {
+                continue;
+            };
             if parent.associated_types.contains_key(&iter) {
                 continue;
             }
@@ -38,7 +49,7 @@ impl AggregateCatalog {
             else {
                 continue;
             };
-            if bound.declaration != identity(Protocol::Iterator) {
+            if Some(bound.declaration) != Protocol::Iterator.definition(definitions) {
                 continue;
             }
             let substitution: TypeSubstitution = contract

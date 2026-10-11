@@ -283,6 +283,7 @@ impl PreparedAnalysis {
         );
         diagnostics.extend(self.declarations.hosts.validate_trait_implementations(
             aggregates,
+            definitions,
             self.lowered.source.module_identity(),
             cancel,
         )?);

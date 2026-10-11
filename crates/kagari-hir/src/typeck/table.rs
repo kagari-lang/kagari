@@ -19,7 +19,10 @@ use crate::{
     },
 };
 use kagari_common::{
-    identity::{reference::DefinitionReference, table::DefinitionId},
+    identity::{
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
     span::Span,
 };
 use kagari_types::{
@@ -463,13 +466,19 @@ impl TypeTable {
     }
 
     /// Checks intrinsic or matching recorded trait implementations with a cycle guard and bound validation.
-    pub fn implements(&self, trait_type: &NominalType, ty: &TypeId) -> bool {
-        self.implements_with_guard(trait_type, ty, &mut HashSet::new())
+    pub fn implements(
+        &self,
+        definitions: &DefinitionTable,
+        trait_type: &NominalType,
+        ty: &TypeId,
+    ) -> bool {
+        self.implements_with_guard(definitions, trait_type, ty, &mut HashSet::new())
     }
 
     /// Finds a matching implementation method plus substituted arguments; absent if no method/bounds match.
     pub fn implementation_method(
         &self,
+        definitions: &DefinitionTable,
         method: &DefinitionId,
         trait_type: &NominalType,
         ty: &TypeId,
@@ -485,7 +494,12 @@ impl TypeTable {
                     ty,
                     &implementation.parameters,
                 )?;
-                if !self.implementation_bounds_hold(implementation, &matched, &mut HashSet::new()) {
+                if !self.implementation_bounds_hold(
+                    definitions,
+                    implementation,
+                    &matched,
+                    &mut HashSet::new(),
+                ) {
                     return None;
                 }
                 let arguments = implementation
@@ -499,15 +513,16 @@ impl TypeTable {
 
     fn implements_with_guard(
         &self,
+        definitions: &DefinitionTable,
         trait_type: &NominalType,
         ty: &TypeId,
         visiting: &mut HashSet<(NominalType, TypeId)>,
     ) -> bool {
         if trait_type.arguments.is_empty()
             && trait_type.associated_types.is_empty()
-            && let Some(kind) = Protocol::from_id(&trait_type.declaration)
+            && let Some(kind) = Protocol::from_reference(&trait_type.declaration, Some(definitions))
         {
-            return traits::intrinsic_holds(kind, ty, None, &Default::default());
+            return traits::intrinsic_holds(definitions, kind, ty, None, &Default::default());
         }
         let key = (trait_type.clone(), ty.clone());
         if !visiting.insert(key.clone()) {
@@ -525,7 +540,12 @@ impl TypeTable {
                         &implementation.parameters,
                     )
                     .is_some_and(|matched| {
-                        self.implementation_bounds_hold(implementation, &matched, visiting)
+                        self.implementation_bounds_hold(
+                            definitions,
+                            implementation,
+                            &matched,
+                            visiting,
+                        )
                     })
                 });
         visiting.remove(&key);
@@ -534,6 +554,7 @@ impl TypeTable {
 
     fn implementation_bounds_hold(
         &self,
+        definitions: &DefinitionTable,
         implementation: &TraitImplementation,
         matched: &TypeSubstitution,
         visiting: &mut HashSet<(NominalType, TypeId)>,
@@ -546,6 +567,7 @@ impl TypeTable {
                 constraints.iter().all(|constraint| match constraint {
                     ConstraintTarget::Standard(standard) => {
                         constraints::type_satisfies_standard_constraint(
+                            definitions,
                             &actual,
                             *standard,
                             &Default::default(),
@@ -553,6 +575,7 @@ impl TypeTable {
                         )
                     }
                     ConstraintTarget::Trait(trait_type) => self.implements_with_guard(
+                        definitions,
                         &trait_type.instantiate(matched),
                         &actual,
                         visiting,
@@ -910,9 +933,9 @@ impl TypeTable {
     }
 
     /// The produced value type includes checked capability and callable conversions.
-    pub fn coerced_expr_type(&self, id: ExprId) -> Option<TypeId> {
+    pub fn coerced_expr_type(&self, definitions: &DefinitionTable, id: ExprId) -> Option<TypeId> {
         self.callable_coercion(id)
-            .and_then(|(_, interface)| traits::callable_signature(interface))
+            .and_then(|(_, interface)| traits::callable_signature(definitions, interface))
             .or_else(|| {
                 self.interface_coercion(id)
                     .map(|coercion| TypeId::Trait(coercion.interface_type.clone()))

@@ -57,7 +57,10 @@ impl BodyChecker<'_> {
                     .with_span(self.lowered.source_map.type_span(*ty)),
                 );
             }
-            arguments.push(self.aggregates.normalize_type(&resolved));
+            arguments.push(
+                self.aggregates
+                    .normalize_type(self.declarations.definitions(), &resolved),
+            );
         }
         self.explicit_arguments.insert(callee, arguments);
         self.used_explicit_arguments.remove(&callee);
@@ -246,8 +249,10 @@ impl BodyChecker<'_> {
                 for bound in bounds {
                     if let ConstraintTarget::Trait(required) = bound {
                         pending.push((
-                            self.aggregates
-                                .normalize_type(&target.instantiate(substitution)),
+                            self.aggregates.normalize_type(
+                                self.declarations.definitions(),
+                                &target.instantiate(substitution),
+                            ),
                             required.instantiate(substitution),
                             depth + 1,
                         ));

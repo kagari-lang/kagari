@@ -103,6 +103,7 @@ pub(super) fn validate(
                 .expanded_bounds(&available, cancel)
                 .unwrap_or(available);
             applications::validate(
+                declarations.definitions(),
                 &family.value,
                 &available,
                 (catalog, &declarations.hosts),
@@ -111,7 +112,7 @@ pub(super) fn validate(
                 diagnostics,
                 cancel,
             );
-            let output = catalog.normalize_type(&family.value);
+            let output = catalog.normalize_type(declarations.definitions(), &family.value);
             if output.is_unresolved() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
@@ -123,10 +124,10 @@ pub(super) fn validate(
             }
             for required in contract.associated_types.get(member).into_iter().flatten() {
                 let satisfies = match normalize_bound(required) {
-                    ConstraintTarget::Standard(required) => type_satisfies_standard_constraint(&output, required, &available, Some(catalog)),
+                    ConstraintTarget::Standard(required) => type_satisfies_standard_constraint(declarations.definitions(), &output, required, &available, Some(catalog)),
                     ConstraintTarget::Trait(required) => {
                         available.get(&output).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(&required))))
-                            || catalog.intrinsic_implementation(&required, &output, &available) || catalog.concrete_interface_implementation(&required, &output, &available, 100_000, 64, cancel).ok().flatten().is_some()
+                            || catalog.intrinsic_implementation(declarations.definitions(), &required, &output, &available) || catalog.concrete_interface_implementation(declarations.definitions(), &required, &output, &available, 100_000, 64, cancel).ok().flatten().is_some()
                     }
                 };
                 if !satisfies {

@@ -17,7 +17,11 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity, span::Span};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, table::DefinitionTable},
+    span::Span,
+};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     language::{Protocol, role::LangRole},
@@ -26,6 +30,7 @@ use kagari_types::{
 };
 
 pub(super) fn validate(
+    definitions: &DefinitionTable,
     ty: &TypeId,
     bounds: &GenericBounds,
     sources: (&AggregateCatalog, &HostDeclarations),
@@ -66,19 +71,21 @@ pub(super) fn validate(
         if let Some(key) = key
             && ((key.contains_interface()
                 && !type_satisfies_standard_constraint(
+                    definitions,
                     key,
                     StandardTypeConstraint::HashKey,
                     bounds,
                     Some(catalog),
                 ))
                 || (type_satisfies_standard_constraint(
+                    definitions,
                     key,
                     StandardTypeConstraint::HashKey,
                     bounds,
                     None,
                 ) && [Protocol::Eq, Protocol::Hash]
                     .into_iter()
-                    .any(|p| !intrinsic_holds(p, key, Some(catalog), bounds))))
+                    .any(|p| !intrinsic_holds(definitions, p, key, Some(catalog), bounds))))
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
@@ -116,7 +123,13 @@ pub(super) fn validate(
                     if inputs.parameters.len() != arguments.len() {
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                                name: member.path.last().expect("member").name.clone(),
+                                name: definitions
+                                    .resolve(*member)
+                                    .expect("scoped associated member")
+                                    .last()
+                                    .expect("associated member")
+                                    .name
+                                    .to_owned(),
                                 reason: "generic associated type argument count differs".into(),
                             })
                             .with_span(span),
@@ -128,6 +141,7 @@ pub(super) fn validate(
                             let satisfied = match constraint {
                                 ConstraintTarget::Standard(required) => {
                                     type_satisfies_standard_constraint(
+                                        definitions,
                                         &actual,
                                         *required,
                                         bounds,
@@ -137,28 +151,29 @@ pub(super) fn validate(
                                 ConstraintTarget::Trait(required) => {
                                     let required = required.instantiate(&substitution);
                                     bounds.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&required))))
-                                        || catalog.intrinsic_implementation(&required, &actual, bounds) || catalog.implementation_count(&required, &actual) + usize::from(hosts.implements(&required, &actual)) == 1
+                                        || catalog.intrinsic_implementation(definitions, &required, &actual, bounds) || catalog.implementation_count(definitions, &required, &actual) + usize::from(hosts.implements(&required, &actual)) == 1
                                 }
                             };
                             if !satisfied && !actual.is_unresolved() {
-                                diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedType { name: member.path.last().expect("member").name.clone(), reason: "generic associated type input does not satisfy its bound".into() }).with_span(span));
+                                diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedType { name: definitions.resolve(*member).expect("scoped associated member").last().expect("associated member").name.to_owned(), reason: "generic associated type input does not satisfy its bound".into() }).with_span(span));
                             }
                         }
                     }
                 }
                 if receiver.is_concrete()
-                    && catalog.implementation_count(interface, receiver)
+                    && catalog.implementation_count(definitions, interface, receiver)
                         + usize::from(hosts.implements(interface, receiver))
                         != 1
                 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                            name: member
-                                .path
+                            name: definitions
+                                .resolve(*member)
+                                .expect("scoped associated member")
                                 .last()
-                                .expect("associated identity")
+                                .expect("associated member")
                                 .name
-                                .clone(),
+                                .to_owned(),
                             reason:
                                 "projection requires a unique implementation satisfying its bounds"
                                     .into(),
@@ -205,13 +220,14 @@ pub(super) fn validate(
                             // Trait implementation identity needs complete members;
                             // standard constraint recovery belongs to the shared checker.
                             if actual.is_unresolved()
-                                && matches!(constraint, ConstraintTarget::Trait(t) if Protocol::from_id(&t.declaration).is_none())
+                                && matches!(constraint, ConstraintTarget::Trait(t) if Protocol::from_reference(&t.declaration, Some(definitions)).is_none())
                             {
                                 continue;
                             }
                             match constraint {
                                 ConstraintTarget::Standard(constraint) => {
                                     check::validate_standard_constraint_type(
+                                        definitions,
                                         actual,
                                         *constraint,
                                         bounds,
@@ -222,7 +238,7 @@ pub(super) fn validate(
                                 }
                                 ConstraintTarget::Trait(id) => {
                                     let applied = id.instantiate(&substitution);
-                                    let satisfied = catalog.intrinsic_implementation(&applied, actual, bounds) || bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&applied)))) || match actual {
+                                    let satisfied = catalog.intrinsic_implementation(definitions, &applied, actual, bounds) || bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&applied)))) || match actual {
                                         TypeId::Generic(parameter) => bounds
                                             .get(&TypeId::Generic(parameter.clone()))
                                             .is_some_and(|bounds| {
@@ -230,10 +246,10 @@ pub(super) fn validate(
                                                     applied.clone(),
                                                 ))
                                             }),
-                                        _ => match catalog.implementation_count(&applied, actual)
+                                        _ => match catalog.implementation_count(definitions, &applied, actual)
                                             + usize::from(hosts.implements(&applied, actual))
                                         {
-                                            0 => Protocol::from_id(&applied.declaration).is_none() && table.implements(&applied, actual),
+                                            0 => Protocol::from_reference(&applied.declaration, Some(definitions)).is_none() && table.implements(definitions, &applied, actual),
                                             1 => true,
                                             _ => false,
                                         },
@@ -275,6 +291,7 @@ pub(super) fn validate(
                             let satisfied = match constraint {
                                 ConstraintTarget::Standard(standard) => {
                                     constraints::type_satisfies_standard_constraint(
+                                        definitions,
                                         actual,
                                         *standard,
                                         bounds,
@@ -292,19 +309,20 @@ pub(super) fn validate(
                                         unreachable!()
                                     };
                                     bounds.get(actual).is_some_and(|constraints| constraints.iter().any(|constraint| matches!(constraint, ConstraintTarget::Trait(available) if available.satisfies(&required))))
-                                        || catalog.intrinsic_implementation(&required, actual, bounds) || catalog.implementation_count(&required, actual) == 1
+                                        || catalog.intrinsic_implementation(definitions, &required, actual, bounds) || catalog.implementation_count(definitions, &required, actual) == 1
                                         || hosts.implements(&required, actual)
                                 }
                             };
                             if !satisfied && !actual.is_unresolved() {
                                 diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                                        name: member
-                                            .path
+                                        name: definitions
+                                            .resolve(*member)
+                                            .expect("scoped associated member")
                                             .last()
-                                            .expect("associated identity")
+                                            .expect("associated member")
                                             .name
-                                            .clone(),
+                                            .to_owned(),
                                         reason: format!(
                                             "type `{}` does not satisfy its declared bound",
                                             actual.display_name()
@@ -344,6 +362,7 @@ pub(crate) fn validate_signatures(
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
+    let definitions = declarations.definitions();
     families::validate(
         lowered,
         declarations,
@@ -358,6 +377,7 @@ pub(crate) fn validate_signatures(
         }
         for parameter in &function.params {
             validate_imported_interface_type(
+                definitions,
                 &parameter.ty,
                 catalog,
                 lowered.source.module_identity(),
@@ -366,6 +386,7 @@ pub(crate) fn validate_signatures(
                 cancel,
             );
             validate(
+                definitions,
                 &parameter.ty,
                 &function.bounds,
                 (catalog, &declarations.hosts),
@@ -376,6 +397,7 @@ pub(crate) fn validate_signatures(
             );
         }
         validate_imported_interface_type(
+            definitions,
             &function.return_type,
             catalog,
             lowered.source.module_identity(),
@@ -384,6 +406,7 @@ pub(crate) fn validate_signatures(
             cancel,
         );
         validate(
+            definitions,
             &function.return_type,
             &function.bounds,
             (catalog, &declarations.hosts),
@@ -411,6 +434,7 @@ pub(crate) fn validate_signatures(
         let available =
             constraints::implementation_bounds(impl_block, declarations, signatures.type_table());
         validate(
+            definitions,
             &TypeId::Trait(instance.clone()),
             &available,
             (catalog, &declarations.hosts),
@@ -468,6 +492,7 @@ pub(crate) fn validate_signatures(
                 method,
                 actual,
                 &MethodComparison {
+                    definitions,
                     trait_name: &contract.declaration.name,
                     method_name: &method.name,
                     trait_generic_count: contract.generic_params.len(),
@@ -499,9 +524,16 @@ pub(crate) fn validate_signatures(
         }
     }
     let identity = lowered.source.module_identity();
-    for structure in catalog.structures().filter(|s| &s.id.module == identity) {
+    for structure in catalog.structures().filter(|s| {
+        definitions
+            .resolve(s.id)
+            .expect("scoped aggregate")
+            .module()
+            == identity
+    }) {
         for field in &structure.fields {
             validate(
+                definitions,
                 &field.ty,
                 &structure.bounds,
                 (catalog, &declarations.hosts),
@@ -512,10 +544,17 @@ pub(crate) fn validate_signatures(
             );
         }
     }
-    for enumeration in catalog.enumerations().filter(|s| &s.id.module == identity) {
+    for enumeration in catalog.enumerations().filter(|s| {
+        definitions
+            .resolve(s.id)
+            .expect("scoped aggregate")
+            .module()
+            == identity
+    }) {
         for variant in &enumeration.variants {
             for payload in &variant.payload {
                 validate(
+                    definitions,
                     payload,
                     &enumeration.bounds,
                     (catalog, &declarations.hosts),
@@ -530,6 +569,7 @@ pub(crate) fn validate_signatures(
 }
 
 pub(super) fn validate_imported_interface_type(
+    definitions: &DefinitionTable,
     ty: &TypeId,
     catalog: &AggregateCatalog,
     module: &ModuleIdentity,
@@ -544,9 +584,12 @@ pub(super) fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
-                if Protocol::from_id(&instance.declaration).is_some_and(|kind| {
-                    LangRole::from_protocol(kind).is_some_and(LangRole::requires_static_dispatch)
-                }) {
+                if Protocol::from_reference(&instance.declaration, Some(definitions)).is_some_and(
+                    |kind| {
+                        LangRole::from_protocol(kind)
+                            .is_some_and(LangRole::requires_static_dispatch)
+                    },
+                ) {
                     diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
                 }
                 let erased = catalog.trait_closure(instance, ty, cancel);
@@ -564,18 +607,26 @@ pub(super) fn validate_imported_interface_type(
                         .with_span(span),
                     );
                 }
-                if let Ok(parents) = catalog.interface_closure(instance, ty, cancel) {
+                if let Ok(parents) = catalog.interface_closure(definitions, instance, ty, cancel) {
                     for (index, parent) in parents.into_iter().enumerate() {
-                        if index == 0 && &instance.declaration.module == module {
+                        if index == 0
+                            && definitions
+                                .resolve(instance.declaration)
+                                .expect("scoped trait")
+                                .module()
+                                == module
+                        {
                             continue;
                         }
                         let Some(contract) = catalog.trait_(&parent.declaration) else {
                             continue;
                         };
-                        if Protocol::from_id(&parent.declaration).is_some_and(|kind| {
-                            LangRole::from_protocol(kind)
-                                .is_some_and(LangRole::requires_static_dispatch)
-                        }) && index != 0
+                        if Protocol::from_reference(&parent.declaration, Some(definitions))
+                            .is_some_and(|kind| {
+                                LangRole::from_protocol(kind)
+                                    .is_some_and(LangRole::requires_static_dispatch)
+                            })
+                            && index != 0
                         {
                             diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::InvalidInterfaceType {

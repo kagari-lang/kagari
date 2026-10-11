@@ -67,7 +67,10 @@ impl<'a> BodyChecker<'a> {
                         .signature
                         .params
                         .iter()
-                        .map(|parameter| self.aggregates.normalize_type(&parameter.ty))
+                        .map(|parameter| {
+                            self.aggregates
+                                .normalize_type(self.declarations.definitions(), &parameter.ty)
+                        })
                         .collect::<Vec<_>>()
                         .into_iter(),
                     env,
@@ -206,7 +209,14 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         let mut methods = self.aggregates.inherent_methods().filter(|method| {
-            members::inherent_substitution(self.aggregates, method, &ty, self.cancel).is_some()
+            members::inherent_substitution(
+                self.declarations.definitions(),
+                self.aggregates,
+                method,
+                &ty,
+                self.cancel,
+            )
+            .is_some()
                 && method.function.name == member
                 && method.visibility.allows(
                     &method.declaration.module,
@@ -313,13 +323,16 @@ impl<'a> BodyChecker<'a> {
             params: function
                 .parameters()
                 .map(|(_, ty)| {
-                    self.aggregates
-                        .normalize_type(&ty.instantiate(substitution))
+                    self.aggregates.normalize_type(
+                        self.declarations.definitions(),
+                        &ty.instantiate(substitution),
+                    )
                 })
                 .collect(),
-            return_type: self
-                .aggregates
-                .normalize_type(&function.return_type().instantiate(substitution)),
+            return_type: self.aggregates.normalize_type(
+                self.declarations.definitions(),
+                &function.return_type().instantiate(substitution),
+            ),
         };
         let result = signature.return_type.clone();
         self.type_table.insert_call_signature(site, signature);
@@ -367,6 +380,7 @@ impl<'a> BodyChecker<'a> {
                     .iter()
                     .map(|parameter| {
                         self.aggregates.normalize_type(
+                            self.declarations.definitions(),
                             &parameter
                                 .ty
                                 .instantiate(&substitution)
@@ -388,9 +402,10 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
     ) {
         for (target, constraints) in bounds {
-            let actual_owned = self
-                .aggregates
-                .normalize_type(&target.instantiate(substitution));
+            let actual_owned = self.aggregates.normalize_type(
+                self.declarations.definitions(),
+                &target.instantiate(substitution),
+            );
             let actual = &actual_owned;
             for constraint in constraints.iter().cloned() {
                 match constraint {
@@ -404,10 +419,13 @@ impl<'a> BodyChecker<'a> {
                             .iter_mut()
                             .chain(trait_type.associated_types.values_mut())
                         {
-                            *ty = self.aggregates.normalize_type(ty);
+                            *ty = self
+                                .aggregates
+                                .normalize_type(self.declarations.definitions(), ty);
                         }
                         self.constrain_declared_bound(actual, &trait_type, env);
                         let satisfied = self.aggregates.intrinsic_implementation(
+                            self.declarations.definitions(),
                             &trait_type,
                             actual,
                             &env.generic_bounds,
@@ -418,13 +436,24 @@ impl<'a> BodyChecker<'a> {
                                 .trait_bounds_for(actual, env)
                                 .iter()
                                 .any(|bound| bound.satisfies_for(&trait_type, actual)),
-                            _ => match self.aggregates.implementation_count(&trait_type, actual)
-                                + usize::from(
-                                    self.declarations.hosts.implements(&trait_type, actual),
-                                ) {
+                            _ => match self.aggregates.implementation_count(
+                                self.declarations.definitions(),
+                                &trait_type,
+                                actual,
+                            ) + usize::from(
+                                self.declarations.hosts.implements(&trait_type, actual),
+                            ) {
                                 0 => {
-                                    Protocol::from_id(&trait_type.declaration).is_none()
-                                        && self.type_table.implements(&trait_type, actual)
+                                    Protocol::from_reference(
+                                        &trait_type.declaration,
+                                        Some(self.declarations.definitions()),
+                                    )
+                                    .is_none()
+                                        && self.type_table.implements(
+                                            self.declarations.definitions(),
+                                            &trait_type,
+                                            actual,
+                                        )
                                 }
                                 1 => true,
                                 _ => false,
@@ -482,8 +511,10 @@ impl<'a> BodyChecker<'a> {
             self.check_arg_type(
                 function.name(),
                 name,
-                self.aggregates
-                    .normalize_type(&ty.instantiate(substitution)),
+                self.aggregates.normalize_type(
+                    self.declarations.definitions(),
+                    &ty.instantiate(substitution),
+                ),
                 index,
                 arg_tys,
             );
@@ -563,9 +594,15 @@ impl<'a> BodyChecker<'a> {
                 &[Protocol::PartialEq]
             };
             if !ty.is_unresolved()
-                && protocols
-                    .iter()
-                    .any(|p| !intrinsic_holds(*p, ty, Some(self.aggregates), &env.generic_bounds))
+                && protocols.iter().any(|p| {
+                    !intrinsic_holds(
+                        self.declarations.definitions(),
+                        *p,
+                        ty,
+                        Some(self.aggregates),
+                        &env.generic_bounds,
+                    )
+                })
             {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
@@ -578,6 +615,7 @@ impl<'a> BodyChecker<'a> {
             }
         } else {
             check::validate_standard_constraint_type(
+                self.declarations.definitions(),
                 ty,
                 constraint,
                 &env.generic_bounds,
@@ -668,7 +706,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if !bounds.values().flatten().any(|bound| {
             matches!(bound, ConstraintTarget::Trait(interface)
-                if Protocol::from_id(&interface.declaration) == Some(Protocol::Fn)
+                if Protocol::from_reference(&interface.declaration, Some(self.declarations.definitions())) == Some(Protocol::Fn)
                     || !interface.associated_types.is_empty())
         }) {
             return;
@@ -706,13 +744,17 @@ impl<'a> BodyChecker<'a> {
                 .and_then(|parameter| bounds.get(parameter))
                 .and_then(|constraints| {
                     constraints.iter().find_map(|constraint| match constraint {
-                        ConstraintTarget::Trait(interface) => traits::callable_signature(interface),
+                        ConstraintTarget::Trait(interface) => {
+                            traits::callable_signature(self.declarations.definitions(), interface)
+                        }
                         _ => None,
                     })
                 });
             let expected = callable.as_ref().or(parameter.as_ref()).map(|ty| {
-                self.aggregates
-                    .normalize_type(&ty.argument_context(substitution, generics))
+                self.aggregates.normalize_type(
+                    self.declarations.definitions(),
+                    &ty.argument_context(substitution, generics),
+                )
             });
             let ty = if callable.is_some() {
                 self.infer_expr_type_expected(*argument, env, expected.as_ref())

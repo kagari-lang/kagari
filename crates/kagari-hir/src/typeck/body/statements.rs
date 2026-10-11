@@ -50,6 +50,7 @@ impl<'a> BodyChecker<'a> {
                     );
                     if resolved.contains_projection() {
                         applications::validate(
+                            self.declarations.definitions(),
                             &resolved,
                             &env.generic_bounds,
                             (self.aggregates, &self.names.hosts),
@@ -59,7 +60,9 @@ impl<'a> BodyChecker<'a> {
                             self.cancel,
                         );
                     }
-                    let resolved = self.aggregates.normalize_type(&resolved);
+                    let resolved = self
+                        .aggregates
+                        .normalize_type(self.declarations.definitions(), &resolved);
                     if resolved.is_unresolved() {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
@@ -69,6 +72,7 @@ impl<'a> BodyChecker<'a> {
                         );
                     }
                     check::validate_standard_type_constraints(
+                        self.declarations.definitions(),
                         &resolved,
                         &env.generic_bounds,
                         self.lowered.source_map.type_span(ty),
@@ -82,6 +86,7 @@ impl<'a> BodyChecker<'a> {
                     self.infer_expr_with_coercion(*initializer, env, annotation.as_ref());
                 let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
                 applications::validate_imported_interface_type(
+                    self.declarations.definitions(),
                     &local_ty,
                     self.aggregates,
                     self.lowered.source.module_identity(),
@@ -90,6 +95,7 @@ impl<'a> BodyChecker<'a> {
                     self.cancel,
                 );
                 applications::validate(
+                    self.declarations.definitions(),
                     &local_ty,
                     &env.generic_bounds,
                     (self.aggregates, &self.declarations.hosts),
