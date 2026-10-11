@@ -3,14 +3,23 @@
 mod execution;
 use execution::Route;
 
+use kagari_bytecode::program::{identity, verify_program};
+use kagari_common::identity::{
+    map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
+};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::value::Value;
+use kagari_runtime::{host::HostFunction, native::types::Type, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn execute(source: &str) {
@@ -129,7 +138,6 @@ fn readonly_operations_cannot_recover_write_access() {
 
 #[test]
 fn forged_access_upgrades_are_rejected_before_loading() {
-    use kagari_bytecode::program::verify_program;
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
@@ -143,55 +151,79 @@ fn main() { val values = Vec::from([1, 2]); inspect(values); }
             Default::default(),
         )
         .unwrap();
-    verify_program(&artifact.program).unwrap();
-    let root = artifact.program.root.index();
-    let index = artifact.program.modules[root]
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    identity::collect(
+        &artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .collect::<Vec<_>>(),
+        &definitions,
+    )
+    .unwrap();
+    verify_program(&artifact.records().program, &definitions.snapshot()).unwrap();
+    let root = artifact.records().program.root.index();
+    let index = artifact.records().program.modules[root]
         .functions
         .iter()
         .position(|f| f.name == "inspect")
         .unwrap();
-    let mut forged = artifact.program.clone();
+    let mut forged = artifact.records().program.clone();
     let function = &mut forged.modules[root].functions[index];
     if let Some(Ty::Trait(interface)) = function.metadata.semantic.params.get_mut(&0) {
-        interface.declaration.path.last_mut().unwrap().name = "MutableList".into();
+        interface.declaration = mutable_list(&definitions, interface.declaration);
     }
-    assert!(verify_program(&forged).is_err());
-    let mut forged = artifact.program.clone();
+    assert!(verify_program(&forged, &definitions.snapshot()).is_err());
+    let mut forged = artifact.records().program.clone();
     forged.modules[root].functions[index]
         .metadata
         .semantic
         .params
         .clear();
-    assert!(verify_program(&forged).is_err());
-    let mut forged = artifact.clone();
+    assert!(verify_program(&forged, &definitions.snapshot()).is_err());
+    let mut forged = artifact.into_records();
     let table = forged.program.modules.iter_mut().flat_map(|module| &mut module.public_items).find_map(|item| match item {
-        kagari_contract::types::PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(interface) if interface.declaration.path.last().unwrap().name == "List") => Some(table),
+        PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(interface) if definitions.snapshot().resolve(interface.declaration).unwrap().last().unwrap().name == "List") => Some(table),
         _ => None,
     }).unwrap();
     if let Ty::Trait(interface) = &mut table.trait_type {
-        interface.declaration.path.last_mut().unwrap().name = "MutableList".into();
+        interface.declaration = mutable_list(&definitions, interface.declaration);
     }
-    assert!(forged.validate_for_loader(&Default::default()).is_err());
+    assert!(
+        forged
+            .validate_for_loader(&Default::default(), &definitions)
+            .is_err()
+    );
 }
 
 #[test]
 fn host_results_preserve_collection_families_through_artifacts_and_binding_checks() {
-    use kagari_runtime::host::HostFunction;
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, value_type::HostValueType,
-    };
+    let definitions = DefinitionContext::new().unwrap();
     let declaration = HostFunctionDeclaration::new(
+        &definitions,
         "demo.values",
         vec![],
         HostValueType::Array(Box::new(HostValueType::I32)),
-    );
+    )
+    .unwrap();
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface {
-            functions: vec![declaration.clone()],
-            types: vec![],
-            paths: vec![],
-        })
+        .set_host_interface(
+            DefinitionMetadata::checked(
+                definitions.snapshot(),
+                HostInterface {
+                    functions: vec![declaration.clone()],
+                    types: vec![],
+                    paths: vec![],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .unwrap();
 
     assert!(
@@ -203,25 +235,35 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
             .is_err()
     );
     let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = Vec::from([source[0], 2]); copy[0] + copy[1] }"),  Default::default()).unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext {
         ..Default::default()
     };
 
     let mut runtime = engine.runtime(context.clone());
     runtime
-        .register_host_function(HostFunction::new(declaration.clone(), |context, _| {
-            Ok(Value::Array(
-                context
-                    .runtime()
-                    .alloc_array(
-                        &context.runtime().execution_root().unwrap(),
-                        Ty::Builtin(BuiltinType::I32),
-                        vec![Value::I32(40)],
-                    )
-                    .unwrap(),
-            ))
-        }))
+        .register_host_function(HostFunction::new(
+            DefinitionMetadata::checked(
+                definitions.snapshot(),
+                declaration.clone(),
+                &Default::default(),
+            )
+            .unwrap(),
+            |context, _| {
+                Ok(Value::Array(
+                    context
+                        .runtime()
+                        .alloc_array(
+                            &context.runtime().execution_root().unwrap(),
+                            Ty::Builtin(BuiltinType::I32),
+                            vec![Value::I32(40)],
+                        )
+                        .unwrap(),
+                ))
+            },
+        ))
         .unwrap();
     let loaded_program =
         PreparedProgram::from_artifact(artifact.clone(), &Default::default(), &Default::default())
@@ -239,28 +281,34 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
         Value::I32(42)
     );
     let mut changed = declaration;
-    let Ty::NativeObject(vector) = kagari_stdlib::declarations::StandardDeclarations::default()
-        .vec(kagari_runtime::native::types::Type::i32())
-        .abi()
-        .clone()
-    else {
+    let vector_type = StandardDeclarations::default().vec(Type::i32()).unwrap();
+    let Ty::NativeObject(mut vector) = vector_type.abi().clone() else {
         panic!("nominal Vec");
     };
+    vector.declaration = definitions
+        .import(vector_type.definitions().unwrap(), [vector.declaration])
+        .unwrap()
+        .map(vector.declaration)
+        .unwrap();
     changed.return_type = HostValueType::Vec(vector.declaration, Box::new(HostValueType::I32));
     let mut mismatched = engine.runtime(context);
     mismatched
-        .register_host_function(HostFunction::new(changed, |context, _| {
-            Ok(Value::Array(
-                context
-                    .runtime()
-                    .alloc_array(
-                        &context.runtime().execution_root().unwrap(),
-                        Ty::Builtin(BuiltinType::I32),
-                        vec![],
-                    )
-                    .unwrap(),
-            ))
-        }))
+        .register_host_function(HostFunction::new(
+            DefinitionMetadata::checked(definitions.snapshot(), changed, &Default::default())
+                .unwrap(),
+            |context, _| {
+                Ok(Value::Array(
+                    context
+                        .runtime()
+                        .alloc_array(
+                            &context.runtime().execution_root().unwrap(),
+                            Ty::Builtin(BuiltinType::I32),
+                            vec![],
+                        )
+                        .unwrap(),
+                ))
+            },
+        ))
         .unwrap();
     assert!(
         mismatched
@@ -271,4 +319,13 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
             )
             .is_err()
     );
+}
+
+fn mutable_list(definitions: &DefinitionContext, id: DefinitionId) -> DefinitionId {
+    let table = definitions.snapshot();
+    let parent = table.parent(id).unwrap().unwrap();
+    let segment = table.resolve(id).unwrap().last().unwrap();
+    definitions
+        .intern_child(parent, segment.kind, "MutableList", segment.occurrence)
+        .unwrap()
 }

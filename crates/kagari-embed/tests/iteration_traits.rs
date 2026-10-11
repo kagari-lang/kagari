@@ -1,7 +1,7 @@
 mod support;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
-    program::verify_program,
+    program::{identity, verify_program},
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::cancellation::CancellationToken;
@@ -482,6 +482,17 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
         .unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact.import_into(&context, &Default::default()).unwrap();
+    let table = identity::collect(
+        &artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.records().program, &table).unwrap();
     let root = artifact.records().program.root.index();
     let import = artifact.records().program.modules[root]
         .native_imports
@@ -532,7 +543,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 })))
             }
         }
-        assert!(verify_program(&program, artifact.definitions()).is_err());
+        assert!(verify_program(&program, &context.snapshot()).is_err());
         assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
     }
 }

@@ -49,7 +49,10 @@ impl Fixture {
                 Default::default(),
             )
             .unwrap();
-        let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let artifact = BytecodeArtifact::from_bytes(
+            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
+        .unwrap();
         self.program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();

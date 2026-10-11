@@ -3,7 +3,7 @@
 mod execution;
 use execution::Route;
 
-use kagari_bytecode::program::verify_program;
+use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -212,6 +212,17 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
     let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "use std::hash::{Hash};\npub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact.import_into(&context, &Default::default()).unwrap();
+    let table = identity::collect(
+        &artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.records().program, &table).unwrap();
     for mutation in 0..3 {
         let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -242,7 +253,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
             }
         }
         assert!(
-            verify_program(&program, artifact.definitions()).is_err(),
+            verify_program(&program, &context.snapshot()).is_err(),
             "accepted mutation {mutation}"
         );
         assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
@@ -403,6 +414,17 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
     let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "use std::hash::{Hash};\ntrait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact.import_into(&context, &Default::default()).unwrap();
+    let table = identity::collect(
+        &artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.records().program, &table).unwrap();
     for mutation in 0..6 {
         let mut program = artifact.records().program.clone();
         let tables = &mut program.modules[program.root.index()].interface_tables;
@@ -425,7 +447,7 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&program, artifact.definitions()).is_err(),
+            verify_program(&program, &context.snapshot()).is_err(),
             "accepted mutation {mutation}"
         );
         assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());

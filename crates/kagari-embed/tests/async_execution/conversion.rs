@@ -122,7 +122,8 @@ fn async_output_publication_contract() {
         let mut f = Fixture::with_provider(Default::default(), |engine| {
             let send = sent.clone();
             let cancelled = cancelled.clone();
-            let mut module = ModuleBuilder::new("test::converted_reply", engine.declarations());
+            let mut module =
+                ModuleBuilder::new("test::converted_reply", engine.declarations()).unwrap();
             module
                 .add_async_function::<(), Reply>(
                     FunctionSpec::new("read"),

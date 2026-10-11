@@ -3739,3 +3739,50 @@ and collection_interfaces consumers; their remaining old artifact APIs need SI06
 integration. Shared enum/provider fixtures also feed artifact_features and its
 standalone loader. Offline Host, async and other known consumers remain assigned to
 SI06; final documentation transfer and plan retirement are still pending.
+
+### SI06 collection access and asynchronous executable consumers
+
+The collection access fixture authors Host declarations in a retained context and
+imports the standard Vec identity before publishing a deliberately incompatible
+result signature. Its forged MutableList identities are explicitly registered.
+The hand-authored async executable imports Future, Native declarations and the
+foundation catalog into one context before artifact construction. Source-produced
+async artifacts retain snapshots through decoding, reload and stripped-debug rebuilds.
+
+The first selected run found `InvalidPublicAbi` in collection_access's positive
+verification before mutation. Generic metadata import retains explicit references
+and ancestors; it does not collect implicit public declaration names. The fixture
+now calls the existing bytecode identity collector before verifying. The two
+associated-type negative fixtures and the iterator negative fixture now also collect
+names and assert the valid baseline before mutation, so an incomplete imported
+namespace cannot mask the intended corruption rejection. This repairs fixture
+preparation, without changing validation or widening metadata import authority.
+
+Focused local evidence:
+
+- Four async_execution contracts pass: sdk_owned_native_wait_contract,
+  lifecycle_reload_contract, async_failure_provenance_contract and
+  async_output_publication_contract. They cover cold waits, cancellation/completion,
+  pinned reload, detached diagnostics with/without debug metadata, and output
+  conversion/publication cleanup.
+- The same sdk_owned_native_wait_contract passes with
+  `cargo test -p kagari-embed --no-default-features --test async_execution
+  sdk_owned_native_wait_contract --message-format=short`, exercising the source-free
+  SDK path without source/native features.
+- Both selected collection_access contracts pass: host_results_preserve and, after
+  the preparation repair, forged_access_upgrades. The latter repair rerun also
+  passes tampered_associated_schemas, malformed_generic_interface and
+  malformed_native_iter (four affected cases). Previously passing async and Host
+  result cases were not rerun for a fresh transcript.
+- Scoped Clippy passes for collection_access, async_execution, associated_types
+  and iteration_traits. Structure checks 1087 Rust files with zero violations and
+  exceptions; formatting and diff checks pass. Manual review covers provider import
+  provenance, immutable artifact scopes, implicit-name collection, corruption
+  assertions, feature gates and no new public re-exports.
+
+Earlier package-wide consumer diagnostics remain the baseline for untouched targets;
+no unchanged failing sweep was repeated. SI06 still owns offline_nominal,
+embedding_api, other shared-runner consumers, artifact_features/standalone fixture
+adoption, examples and final documentation cleanup. The negative-fixture audit must
+check scope preparation where direct verification follows metadata import, preserving
+positive controls and the intended rejection boundary. CI retains exhaustive scope.

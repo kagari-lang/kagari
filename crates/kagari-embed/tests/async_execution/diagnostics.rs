@@ -1,6 +1,7 @@
 //! Detached failure origins survive shared waits, report retirement and missing source maps.
 use super::{Fixture, Value};
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{BytecodeArtifact, program::PreparedProgram, runtime::owned::DriveResult};
 use kagari_runtime::{
     error::RuntimeErrorKind,
@@ -30,22 +31,34 @@ fn factory() -> fn()->Future<i32> { async || 7 }
 
 fn fixture(stripped: bool) -> Fixture {
     let mut f = Fixture::new();
-    let mut artifact = f
+    let artifact = f
         .engine
         .compile_to_artifact(
             SourceFile::new("async-diagnostic.kgr", SOURCE),
             Default::default(),
         )
         .unwrap();
-    if stripped {
+    let artifact = if stripped {
+        let definitions = DefinitionContext::new().unwrap();
+        let mut artifact = artifact
+            .import_into(&definitions, &Default::default())
+            .unwrap()
+            .into_records();
         for module in &mut artifact.program.modules {
             for function in &mut module.functions {
                 function.metadata.debug = Default::default();
             }
         }
-        artifact = BytecodeArtifact::from_program(artifact.program, Default::default()).unwrap();
-    }
-    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let artifact =
+            BytecodeArtifact::from_program(artifact.program, Default::default(), &definitions)
+                .unwrap();
+        DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap()
+    } else {
+        artifact
+    };
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     f.program =
         PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     f.module = f

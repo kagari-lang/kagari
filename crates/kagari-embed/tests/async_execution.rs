@@ -9,6 +9,7 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
@@ -109,16 +110,31 @@ impl Fixture {
     fn with_provider(config: EngineConfig, install: impl FnOnce(&mut KagariEngineBuilder)) -> Self {
         let mut engine = KagariEngine::builder().unwrap();
         engine.config(config);
+        let definitions = DefinitionContext::new().unwrap();
         let future = engine.declarations().future_type().unwrap();
-        let owner = future.id().module.clone();
-        let future = future.apply([Type::i32()]).unwrap().abi().clone();
+        let owner = future
+            .definitions()
+            .resolve(future.id())
+            .unwrap()
+            .module()
+            .clone();
+        let future = future.apply([Type::i32()]).unwrap();
+        let future = DefinitionMetadata::checked(
+            future.definitions().unwrap().clone(),
+            future.abi().clone(),
+            &Default::default(),
+        )
+        .unwrap()
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records();
         let starts = Arc::new(AtomicUsize::new(0));
         let cancels = Arc::new(AtomicUsize::new(0));
         let sent = Arc::new(Mutex::new(Vec::new()));
         let inputs = Arc::new(Mutex::new(Vec::new()));
         let recorded = inputs.clone();
         let (started, cancelled, send) = (starts.clone(), cancels.clone(), sent.clone());
-        let mut native = ModuleBuilder::new("test::async_sdk", engine.declarations());
+        let mut native = ModuleBuilder::new("test::async_sdk", engine.declarations()).unwrap();
         native
             .add_async_function::<(i32,), i32>(
                 FunctionSpec::new("request").parameter_names(["input"]),
@@ -143,11 +159,18 @@ impl Fixture {
             )
             .unwrap();
         let native = native.finish().unwrap();
-        let declaration = native.to_declaration().unwrap();
+        let declaration = native
+            .to_declaration()
+            .import_into(&definitions, &Default::default())
+            .unwrap();
         engine.install(native).unwrap();
         install(&mut engine);
         let engine = engine.build().unwrap();
-        let request = declaration.native_declarations();
+        let request = declaration
+            .records()
+            .native_declarations(declaration.definitions())
+            .unwrap();
+        let declaration = declaration.into_records();
         let scalar = Ty::Builtin(BuiltinType::I32);
         let load = I::LoadLocal {
             dst: Register::new(0),
@@ -226,10 +249,10 @@ impl Fixture {
             constants: vec![ConstantOperand::I32(13)],
             native_imports: vec![NativeImport {
                 instance: ConcreteFunctionIdentity {
-                    declaration: request[0].declaration.clone(),
+                    declaration: request[0].declaration,
                     arguments: vec![],
                 },
-                binding: request[0].declaration.clone(),
+                binding: request[0].declaration,
                 signature: Signature {
                     params: vec![scalar],
                     result: future,
@@ -262,9 +285,14 @@ impl Fixture {
             ..Default::default()
         };
         let foundation = catalog::shared()
+            .unwrap()
             .into_iter()
-            .find(|declaration| declaration.identity == owner)
+            .find(|declaration| declaration.records().identity == owner)
             .unwrap();
+        let foundation = foundation
+            .import_into(&definitions, &Default::default())
+            .unwrap()
+            .into_records();
         let foundation = BytecodeModule {
             identity: owner,
             public_items: foundation
@@ -282,9 +310,11 @@ impl Fixture {
                 modules: vec![application, foundation],
             },
             Default::default(),
+            &definitions,
         )
         .unwrap();
-        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let decoded =
+            KbcArtifact::from_bytes(&artifact.to_bytes(&definitions.snapshot()).unwrap()).unwrap();
         let program =
             PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
                 .unwrap();
