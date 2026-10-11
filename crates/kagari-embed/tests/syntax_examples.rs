@@ -1,287 +1,81 @@
 use kagari_embed::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
-    program::PreparedProgram,
+    BytecodeArtifact, context::ExecutionContext, error::EmbeddingError, program::PreparedProgram,
 };
 use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
 
-#[test]
-fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 45] = [
-        (
-            "examples/syntax/callables.kgr",
-            include_str!("../../../examples/syntax/callables.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/array-operations.kgr",
-            include_str!("../../../examples/syntax/array-operations.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/bitwise.kgr",
-            include_str!("../../../examples/syntax/bitwise.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/numeric-conversions.kgr",
-            include_str!("../../../examples/syntax/numeric-conversions.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/6502-numeric.kgr",
-            include_str!("../../../examples/6502-numeric.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/error-conversion.kgr",
-            include_str!("../../../examples/syntax/error-conversion.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/type-inference.kgr",
-            include_str!("../../../examples/syntax/type-inference.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/iterator-extensions.kgr",
-            include_str!("../../../examples/syntax/iterator-extensions.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/collection-pipelines.kgr",
-            include_str!("../../../examples/syntax/collection-pipelines.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/collection-access.kgr",
-            include_str!("../../../examples/syntax/collection-access.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/string-interpolation.kgr",
-            include_str!("../../../examples/syntax/string-interpolation.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/iterators.kgr",
-            include_str!("../../../examples/syntax/iterators.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/conversions.kgr",
-            include_str!("../../../examples/syntax/conversions.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/ordering.kgr",
-            include_str!("../../../examples/syntax/ordering.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/operators.kgr",
-            include_str!("../../../examples/syntax/operators.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/index.kgr",
-            include_str!("../../../examples/syntax/index.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/standard-traits.kgr",
-            include_str!("../../../examples/syntax/standard-traits.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/result-option.kgr",
-            include_str!("../../../examples/syntax/result-option.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/generic-associated-types.kgr",
-            include_str!("../../../examples/syntax/generic-associated-types.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/associated-constants.kgr",
-            include_str!("../../../examples/syntax/associated-constants.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/default-methods.kgr",
-            include_str!("../../../examples/syntax/default-methods.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/trait-inheritance.kgr",
-            include_str!("../../../examples/syntax/trait-inheritance.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/generic-interfaces.kgr",
-            include_str!("../../../examples/syntax/generic-interfaces.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/associated-types.kgr",
-            include_str!("../../../examples/syntax/associated-types.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/visibility.kgr",
-            include_str!("../../../examples/syntax/visibility.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/inline-modules.kgr",
-            include_str!("../../../examples/syntax/inline-modules.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/tuple-types.kgr",
-            include_str!("../../../examples/syntax/tuple-types.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/attributes.kgr",
-            include_str!("../../../examples/syntax/attributes.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/binding-conditions.kgr",
-            include_str!("../../../examples/syntax/binding-conditions.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/pattern-alternatives.kgr",
-            include_str!("../../../examples/syntax/pattern-alternatives.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/match-guards.kgr",
-            include_str!("../../../examples/syntax/match-guards.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/ranges.kgr",
-            include_str!("../../../examples/syntax/ranges.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/blocks.kgr",
-            include_str!("../../../examples/syntax/blocks.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/literals-and-comments.kgr",
-            include_str!("../../../examples/syntax/literals-and-comments.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/closures.kgr",
-            include_str!("../../../examples/syntax/closures.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/data-model.kgr",
-            include_str!("../../../examples/syntax/data-model.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/expressions.kgr",
-            include_str!("../../../examples/syntax/expressions.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/control-flow.kgr",
-            include_str!("../../../examples/syntax/control-flow.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/for-collections.kgr",
-            include_str!("../../../examples/syntax/for-collections.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/match.kgr",
-            include_str!("../../../examples/syntax/match.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/where-bounds.kgr",
-            include_str!("../../../examples/syntax/where-bounds.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/syntax/import-alias.kgr",
-            include_str!("../../../examples/syntax/import-alias.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/interface-dispatch.kgr",
-            include_str!("../../../examples/interface-dispatch.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/generic-trait-methods.kgr",
-            include_str!("../../../examples/generic-trait-methods.kgr"),
-            Value::I32(42),
-        ),
-        (
-            "examples/standard-library.kgr",
-            include_str!("../../../examples/standard-library.kgr"),
-            Value::I32(42),
-        ),
-    ];
+// Share the SDK runner across integration binaries without a production dependency.
+#[path = "support/execution.rs"]
+mod execution;
 
-    let mut failures = Vec::new();
-    for (path, source, expected) in cases {
-        let engine = KagariEngine::default();
-        let artifact =
-            engine.compile_to_artifact(SourceFile::new(path, source), Default::default());
-        let artifact = match artifact {
-            Ok(artifact) => artifact,
-            Err(error) => {
-                failures.push(format!("{path} should compile: {error:?}"));
-                continue;
+macro_rules! syntax_examples {
+    ($($name:ident: $path:literal => $source:literal),* $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                let engine = execution::engine(Default::default());
+                let artifact = engine.compile_to_artifact(
+                    SourceFile::new($path, include_str!($source)), Default::default(),
+                ).unwrap();
+                execution::assert_returns_i32(&engine, artifact,
+                    &[execution::Route::Source, execution::Route::Artifact], 42);
             }
-        };
-        for encoded in [false, true] {
-            let artifact = if encoded {
-                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
-            } else {
-                artifact.clone()
-            };
-            let context = ExecutionContext::default();
-            let mut runtime = engine.runtime(context.clone());
-            let loaded = runtime
-                .load_program(
-                    &PreparedProgram::from_artifact(
-                        artifact,
-                        &Default::default(),
-                        &Default::default(),
-                    )
-                    .unwrap(),
-                    Default::default(),
-                )
-                .unwrap_or_else(|error| panic!("{path} should load: {error:?}"));
-            let actual = runtime
-                .execute(&loaded, "main", &[], &context)
-                .unwrap_or_else(|error| panic!("{path} should execute: {error:?}"))
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result");
-            assert_eq!(actual, expected, "{path}, encoded={encoded}");
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+        )*
+    };
+}
+
+syntax_examples! {
+    callables: "examples/syntax/callables.kgr" => "../../../examples/syntax/callables.kgr",
+    array_operations: "examples/syntax/array-operations.kgr" => "../../../examples/syntax/array-operations.kgr",
+    bitwise: "examples/syntax/bitwise.kgr" => "../../../examples/syntax/bitwise.kgr",
+    numeric_conversions: "examples/syntax/numeric-conversions.kgr" => "../../../examples/syntax/numeric-conversions.kgr",
+    numeric_6502_numeric: "examples/6502-numeric.kgr" => "../../../examples/6502-numeric.kgr",
+    error_conversion: "examples/syntax/error-conversion.kgr" => "../../../examples/syntax/error-conversion.kgr",
+    type_inference: "examples/syntax/type-inference.kgr" => "../../../examples/syntax/type-inference.kgr",
+    iterator_extensions: "examples/syntax/iterator-extensions.kgr" => "../../../examples/syntax/iterator-extensions.kgr",
+    collection_pipelines: "examples/syntax/collection-pipelines.kgr" => "../../../examples/syntax/collection-pipelines.kgr",
+    collection_access: "examples/syntax/collection-access.kgr" => "../../../examples/syntax/collection-access.kgr",
+    string_interpolation: "examples/syntax/string-interpolation.kgr" => "../../../examples/syntax/string-interpolation.kgr",
+    iterators: "examples/syntax/iterators.kgr" => "../../../examples/syntax/iterators.kgr",
+    conversions: "examples/syntax/conversions.kgr" => "../../../examples/syntax/conversions.kgr",
+    ordering: "examples/syntax/ordering.kgr" => "../../../examples/syntax/ordering.kgr",
+    operators: "examples/syntax/operators.kgr" => "../../../examples/syntax/operators.kgr",
+    index: "examples/syntax/index.kgr" => "../../../examples/syntax/index.kgr",
+    standard_traits: "examples/syntax/standard-traits.kgr" => "../../../examples/syntax/standard-traits.kgr",
+    result_option: "examples/syntax/result-option.kgr" => "../../../examples/syntax/result-option.kgr",
+    generic_associated_types: "examples/syntax/generic-associated-types.kgr" => "../../../examples/syntax/generic-associated-types.kgr",
+    associated_constants: "examples/syntax/associated-constants.kgr" => "../../../examples/syntax/associated-constants.kgr",
+    default_methods: "examples/syntax/default-methods.kgr" => "../../../examples/syntax/default-methods.kgr",
+    trait_inheritance: "examples/syntax/trait-inheritance.kgr" => "../../../examples/syntax/trait-inheritance.kgr",
+    generic_interfaces: "examples/syntax/generic-interfaces.kgr" => "../../../examples/syntax/generic-interfaces.kgr",
+    associated_types: "examples/syntax/associated-types.kgr" => "../../../examples/syntax/associated-types.kgr",
+    visibility: "examples/syntax/visibility.kgr" => "../../../examples/syntax/visibility.kgr",
+    inline_modules: "examples/syntax/inline-modules.kgr" => "../../../examples/syntax/inline-modules.kgr",
+    tuple_types: "examples/syntax/tuple-types.kgr" => "../../../examples/syntax/tuple-types.kgr",
+    attributes: "examples/syntax/attributes.kgr" => "../../../examples/syntax/attributes.kgr",
+    binding_conditions: "examples/syntax/binding-conditions.kgr" => "../../../examples/syntax/binding-conditions.kgr",
+    pattern_alternatives: "examples/syntax/pattern-alternatives.kgr" => "../../../examples/syntax/pattern-alternatives.kgr",
+    match_guards: "examples/syntax/match-guards.kgr" => "../../../examples/syntax/match-guards.kgr",
+    ranges: "examples/syntax/ranges.kgr" => "../../../examples/syntax/ranges.kgr",
+    blocks: "examples/syntax/blocks.kgr" => "../../../examples/syntax/blocks.kgr",
+    literals_and_comments: "examples/syntax/literals-and-comments.kgr" => "../../../examples/syntax/literals-and-comments.kgr",
+    closures: "examples/syntax/closures.kgr" => "../../../examples/syntax/closures.kgr",
+    data_model: "examples/syntax/data-model.kgr" => "../../../examples/syntax/data-model.kgr",
+    expressions: "examples/syntax/expressions.kgr" => "../../../examples/syntax/expressions.kgr",
+    control_flow: "examples/syntax/control-flow.kgr" => "../../../examples/syntax/control-flow.kgr",
+    for_collections: "examples/syntax/for-collections.kgr" => "../../../examples/syntax/for-collections.kgr",
+    r#match: "examples/syntax/match.kgr" => "../../../examples/syntax/match.kgr",
+    where_bounds: "examples/syntax/where-bounds.kgr" => "../../../examples/syntax/where-bounds.kgr",
+    import_alias: "examples/syntax/import-alias.kgr" => "../../../examples/syntax/import-alias.kgr",
+    interface_dispatch: "examples/interface-dispatch.kgr" => "../../../examples/interface-dispatch.kgr",
+    generic_trait_methods: "examples/generic-trait-methods.kgr" => "../../../examples/generic-trait-methods.kgr",
+    standard_library: "examples/standard-library.kgr" => "../../../examples/standard-library.kgr",
 }
 
 #[test]
 fn pattern_alternatives_require_the_same_bindings() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let error = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -296,7 +90,7 @@ fn pattern_alternatives_require_the_same_bindings() {
 
 #[test]
 fn attributes_without_compiler_behavior_are_rejected_before_execution() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     for (attribute, expected) in [
         ("#[requires(role = \"admin\")]", "KG_ATTRIBUTE_UNSUPPORTED"),
         ("#[unregistered]", "KG_ATTRIBUTE_UNKNOWN"),
@@ -317,7 +111,7 @@ fn attributes_without_compiler_behavior_are_rejected_before_execution() {
 
 #[test]
 fn grouped_standard_globs_execute() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -350,7 +144,7 @@ fn grouped_standard_globs_execute() {
 
 #[test]
 fn nested_inline_modules_resolve_qualified_members() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let source = "pub mod outer { pub mod other { pub fn value() -> i32 { 14 } } pub mod inner { use super::other::value; pub fn call() -> i32 { value() } } } mod facade { pub use super::outer as api; pub use super::outer::other::value as answer; } use self::facade::{api as m, answer as direct}; fn main() -> i32 { m::other::value() + direct() + m::inner::call() }";
     let artifact = engine
         .compile_to_artifact(
@@ -382,7 +176,7 @@ fn nested_inline_modules_resolve_qualified_members() {
 
 #[test]
 fn inline_module_errors_point_into_the_original_source() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let id = engine
         .set_source(
             "mem://inline-error",
@@ -419,7 +213,7 @@ fn main() -> i32 {
 
 fn after_trap() -> i32 { 42 }
 "#;
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("for-mutation.kgr", source),
@@ -451,7 +245,7 @@ fn after_trap() -> i32 { 42 }
 
 #[test]
 fn closure_trap_releases_execution_resources() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -492,7 +286,7 @@ fn after() -> i32 { 42 }
 
 #[test]
 fn remainder_matches_checked_arithmetic_contract() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

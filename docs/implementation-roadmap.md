@@ -30,12 +30,17 @@ host-registration migration remain separate.
 
 ## Test execution cost
 
-Optimization is deferred. The [test-cost audit](performance-baseline.md#workspace-test-cost-audit-2026-10-11)
-records expensive targets and preparation stages at 35de1818. Before changing a
-test owner, confirm its current implementation and measure a focused workload.
-Investigate repeated immutable preparation and serial scenario batches; preserve
-fresh mutable state, source-free/backend/GC boundaries and meaningful assertions.
-The audit is not a baseline for changes made after that revision.
+[TP01-TP03](test-preparation-plan.md) have implemented reusable native preparation,
+isolated source sessions and three SDK test-owner migrations, with focused
+correctness checks passing. Idle-machine timing and retained-memory acceptance
+remain open because another test project competed for CPU during validation.
+[A subsequent reduced-load sample](performance-baseline.md#focused-preparation-recheck-2026-10-11)
+passed nine selected tests twice and confirmed cheaper runtime creation; it does
+not establish whole-suite speedup or retained-memory reduction.
+[The testing guide](testing.md) defines the reusable runner and case ownership. The
+[test-cost audit](performance-baseline.md#workspace-test-cost-audit-2026-10-11)
+is historical evidence at 35de1818; this task measures a fresh focused baseline.
+Preserve fresh mutable state, source-free/backend/GC boundaries and assertions.
 
 ## Interpreter performance follow-up
 

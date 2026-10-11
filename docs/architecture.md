@@ -82,6 +82,30 @@ producers currently install the bundled foundation explicitly; LR moves its
 concrete authoring owner into stdlib. Older snapshots retain their declarations
 when the current database replaces its registration inputs.
 
+## Reusable preparation and independent sessions
+
+Runtime's `NativeInstallation` prepares a closed module batch through the same
+transactional installer used for ordinary registration. The SDK builder retains
+that result. Creating a runtime copies its checked registry into fresh runtime
+state instead of repeating module/dependency/callable validation. Loading and
+linking each executable still check its contracts against the installed entries.
+Subsequent registration remains transactional and local to that runtime.
+
+Registration records and Rust callback captures retain their existing shared
+ownership. Script heaps, loaded generations, host registries, roots, borrows,
+observers and execution/cancellation state are independent. A fresh runtime does
+not duplicate mutable Rust state deliberately captured by a native callback;
+applications needing different captures must prepare different registrations.
+
+HIR analysis databases can fork their query state while sharing immutable results
+and an append-only definition identity context. Existing input/revision/dependency
+checks still govern reuse. The SDK retains a native-only analysis baseline after
+validating generated declarations. `KagariEngine::new_session(config)` starts with
+empty user sources and this baseline; it does not copy another session's user
+files, host declarations, parser limits or later query settings. Baselines belong
+to their exact provider set and origin metadata, not a process-wide cache keyed
+by module names. Their lifetime is bounded by the owning engines/sessions.
+
 ## Source namespaces and import ownership
 
 HIR source analysis publishes one immutable `NamespaceCatalog` owned by

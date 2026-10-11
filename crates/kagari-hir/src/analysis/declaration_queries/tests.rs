@@ -293,11 +293,12 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
             .any(|d| d.name == "later")
     };
     assert!(has_later(&old));
-    db.set_parse_limits(kagari_syntax::parser::ParseLimits {
+    let mut fork = db.clone();
+    fork.set_parse_limits(kagari_syntax::parser::ParseLimits {
         max_diagnostics: 0,
         ..Default::default()
     });
-    let limited = db
+    let limited = fork
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(!has_later(&limited));
@@ -318,8 +319,12 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
                 }
             ))
     );
-    db.set_parse_limits(Default::default());
-    let restored = db
+    let unchanged = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert!(has_later(&unchanged));
+    fork.set_parse_limits(Default::default());
+    let restored = fork
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(has_later(&restored));

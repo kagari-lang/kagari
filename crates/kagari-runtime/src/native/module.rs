@@ -27,7 +27,7 @@ use kagari_types::{
     callable::CallableImplementation,
     declaration::{TypeDefKind, module::ModuleDecl},
 };
-use std::{collections::BTreeMap, iter, sync::Arc};
+use std::{collections::BTreeMap, iter, slice, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct NativeModule {
@@ -220,7 +220,14 @@ impl NativeModule {
 
     /// Publish a mutually dependent foundation as one validated installation.
     pub fn install_all(modules: &[Self], runtime: &mut Runtime) -> NativeResult<()> {
-        let mut staged = runtime.native_entries.clone();
+        Self::install_batch(modules, &mut runtime.native_entries)
+    }
+
+    pub(crate) fn install_batch(
+        modules: &[Self],
+        registry: &mut NativeRegistry,
+    ) -> NativeResult<()> {
+        let mut staged = registry.clone();
         for module in modules {
             module.publish_owners(&mut staged)?;
         }
@@ -228,17 +235,12 @@ impl NativeModule {
             module.publish_bindings(&mut staged)?;
         }
         staged.catalog.validate_callable_contracts()?;
-        runtime.native_entries = staged;
+        *registry = staged;
         Ok(())
     }
 
     pub(crate) fn install_into(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
-        let mut staged = registry.clone();
-        self.publish_owners(&mut staged)?;
-        self.publish_bindings(&mut staged)?;
-        staged.catalog.validate_callable_contracts()?;
-        *registry = staged;
-        Ok(())
+        Self::install_batch(slice::from_ref(self), registry)
     }
 
     fn publish_owners(&self, registry: &mut NativeRegistry) -> NativeResult<()> {

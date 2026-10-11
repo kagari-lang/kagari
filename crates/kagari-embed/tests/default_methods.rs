@@ -1,67 +1,33 @@
 use kagari_bytecode::program::ModuleRef;
 use kagari_embed::{
-    BytecodeArtifact,
-    context::{ExecutionContext, JitPolicy},
-    engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_stdlib::identity as library;
 use kagari_types::callable::CallableImplementation;
 
+// Share the SDK runner across integration binaries without a production dependency.
+#[path = "support/execution.rs"]
+mod execution;
+
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = execution::engine(config);
     let artifact = engine
         .compile_to_artifact(SourceFile::new("defaults.kgr", source), Default::default())
         .unwrap();
-    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
-        let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
-        } else {
-            artifact.clone()
-        };
-        let context = ExecutionContext {
-            jit_policy: if jit {
-                JitPolicy::Enabled
-            } else {
-                JitPolicy::Disabled
-            },
-            ..Default::default()
-        };
-        let mut runtime = engine.runtime(context.clone());
-        let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
-        let loaded = runtime
-            .load_program(&loaded_program, Default::default())
-            .unwrap();
-        let result = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
-                    &loaded_program,
-                    &loaded,
-                    "main",
-                    &mut backend,
-                    &context.cancellation,
-                )
-                .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
-        } else {
-            runtime.execute(&loaded, "main", &[], &context)
-        }
-        .unwrap();
-        assert_eq!(
-            result
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
-    }
+    execution::assert_returns_i32(
+        &engine,
+        artifact,
+        &[
+            execution::Route::Source,
+            execution::Route::Artifact,
+            execution::Route::ArtifactJit,
+        ],
+        42,
+    );
 }
 
 #[test]
@@ -258,7 +224,7 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
         kagari_common::identity::{ModuleIdentity, PackageId},
         kagari_source::source_database::SourceLayer,
     };
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let mut root = None;
     for (name, source) in [
         (
@@ -333,7 +299,7 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
 
 #[test]
 fn invalid_default_bodies_are_checked_even_without_an_implementation() {
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     for source in [
         "trait Bad { fn bad(self) -> i32 { missing } } fn main() {}",
         "trait Bad { fn bad(self) -> i32 { true } } fn main() {}",
@@ -370,7 +336,7 @@ fn main() -> i32 { Number {}.again() }
 
 #[test]
 fn malformed_default_contracts_and_source_origins_are_rejected() {
-    let artifact = KagariEngine::default().compile_to_artifact(SourceFile::new("defaults.kgr", "pub trait Read { fn read(self) -> i32 { 42 } } struct Number {} impl Read for Number {} fn main() -> i32 { Number {}.read() }"),  Default::default()).unwrap();
+    let artifact = execution::engine(Default::default()).compile_to_artifact(SourceFile::new("defaults.kgr", "pub trait Read { fn read(self) -> i32 { 42 } } struct Number {} impl Read for Number {} fn main() -> i32 { Number {}.read() }"),  Default::default()).unwrap();
     for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -417,7 +383,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
 fn forged_shared_generic_environments_and_applications_are_rejected_without_source() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     use kagari_types::{scalar::BuiltinType, ty::Ty};
-    let artifact = KagariEngine::default()
+    let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
                 "generics.kgr",
@@ -508,7 +474,7 @@ fn main() -> i32 {
 fn shared_list_table_mappings_are_checked_without_source() {
     use kagari_bytecode::instruction::BytecodeInstruction;
     use kagari_types::{scalar::BuiltinType, ty::Ty};
-    let artifact = KagariEngine::default()
+    let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
                 "shared-list.kgr",
@@ -628,7 +594,7 @@ fn main() -> i32 {
 fn shared_function_call_arguments_and_operations_are_verified_without_source() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     use kagari_types::{scalar::BuiltinType, ty::Ty};
-    let artifact = KagariEngine::default()
+    let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
                 "shared-helper.kgr",
@@ -685,7 +651,7 @@ fn shared_helpers_are_materialized_in_their_declaring_module() {
         kagari_common::identity::{ModuleIdentity, PackageId},
         kagari_source::source_database::SourceLayer,
     };
-    let engine = KagariEngine::default();
+    let engine = execution::engine(Default::default());
     let mut root = None;
     for (name, source) in [
         (
@@ -791,7 +757,7 @@ fn main() -> i32 {
 fn generic_interface_upcasts_reject_forged_scopes_and_parents() {
     use kagari_bytecode::instruction::BytecodeInstruction;
     use kagari_types::{scalar::BuiltinType, ty::Ty};
-    let artifact = KagariEngine::default()
+    let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
                 "shared-upcast.kgr",
@@ -882,7 +848,7 @@ fn main() -> i32 {
 #[test]
 fn ordinary_interface_methods_require_receiver_bound_witnesses() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-    let artifact = KagariEngine::default()
+    let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
                 "receiver-bound.kgr",
@@ -955,7 +921,7 @@ fn main() -> i32 {
 fn shared_nominal_layout_applications_are_verified_without_source() {
     use kagari_bytecode::instruction::BytecodeInstruction;
     use kagari_types::{scalar::BuiltinType, ty::Ty};
-    let artifact = KagariEngine::default()
+    let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
                 "generic-layout.kgr",
@@ -1071,7 +1037,7 @@ fn main() -> i32 {
 fn forged_shared_constraint_method_selections_are_rejected_without_source() {
     use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     use kagari_contract::callable::witness::OperationWitness;
-    let artifact = KagariEngine::default()
+    let artifact = execution::engine(Default::default())
         .compile_to_artifact(
             SourceFile::new(
                 "generic-witness.kgr",

@@ -25,6 +25,7 @@ behavior; queued designs do not imply implemented APIs.
   [host task scopes](host-task-scope-design.md).
 - [Runnable examples](../examples/README.md), [structure checks](structure-checks.md)
   and [engineering rules](../AGENTS.md).
+- [Test preparation and execution](testing.md).
 - [Performance measurements](performance-baseline.md) and
   [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
 - [Open review findings](review.md) and

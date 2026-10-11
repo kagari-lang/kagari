@@ -4,9 +4,11 @@ use crate::{
     error::EmbeddingError,
 };
 use kagari_runtime::{
-    Runtime,
     error::RuntimeError,
-    native::{binding::NativeResult, catalog::DeclarationCatalog, module::NativeModule},
+    native::{
+        binding::NativeResult, catalog::DeclarationCatalog, installation::NativeInstallation,
+        module::NativeModule,
+    },
 };
 use kagari_stdlib as stdlib;
 use std::collections::HashSet;
@@ -18,6 +20,7 @@ pub struct KagariEngineBuilder {
     pub(super) config: EngineConfig,
     pub(super) modules: Vec<NativeModule>,
     catalog: DeclarationCatalog,
+    pub(super) installation: NativeInstallation,
     #[cfg(feature = "source")]
     pub(super) declaration_cache: Option<PathBuf>,
 }
@@ -28,6 +31,7 @@ impl KagariEngineBuilder {
             config: EngineConfig::default(),
             modules: Vec::new(),
             catalog: DeclarationCatalog::default(),
+            installation: NativeInstallation::prepare(&[])?,
             #[cfg(feature = "source")]
             declaration_cache: None,
         };
@@ -65,11 +69,11 @@ impl KagariEngineBuilder {
                 )));
             }
         }
-        let mut validation = Runtime::new(self.config.default_runtime.clone());
-        NativeModule::install_all(&staged, &mut validation)?;
+        let installation = NativeInstallation::prepare(&staged)?;
         let catalog = DeclarationCatalog::from_modules(&staged.iter().collect::<Vec<_>>())?;
         self.modules = staged;
         self.catalog = catalog;
+        self.installation = installation;
         Ok(())
     }
 

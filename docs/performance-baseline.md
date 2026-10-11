@@ -9,6 +9,85 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Focused preparation recheck, 2026-10-11
+
+After the user reported lower CPU load, nine selected scenarios ran twice: 18
+successful executions, with no workspace sweep. Code is 294dce32 plus the working
+TP01-TP03 implementation. The machine/toolchain are Windows x86_64 MSVC,
+i9-12900K (16 cores / 24 logical CPUs), 63.7 GiB RAM, rustc 1.99.0 (b940084d7,
+LLVM 23.1.1) and Cargo 1.99.0. Default `source,native` features, workspace test
+profile (opt-level=1, debug info), target directory and build/test concurrency
+were retained. Each group ran in a fresh process; groups/probes ran sequentially.
+
+The selected incremental build took 23.28 s (Cargo reported 23.15 s), rebuilding
+affected libraries and test binaries against existing artifacts. This is separate
+from the following harness times and is not a cold-build measurement.
+
+| Selected group (3 tests each) | Run 1 | Run 2 | Peak working set across runs |
+| --- | ---: | ---: | ---: |
+| Default methods | 23.09 s | 22.97 s | 410.9-412.5 MiB |
+| Syntax examples | 17.14 s | 17.13 s | 413.8-414.3 MiB |
+| Language contracts | 23.08 s | 23.53 s | 402.0-403.2 MiB |
+
+Selections, passed together as libtest filters with `--exact`:
+
+- `default_methods`: `default_body_calls_the_implementation_override_through_static_and_dynamic_dispatch`,
+  `explicit_override_takes_precedence_over_the_default_body`,
+  `generic_implementations_and_default_local_binders_are_specialized`.
+- `syntax_examples`: `array_operations`, `collection_pipelines`, `callables`.
+- Embed library: `runtime::language_contract::evaluation::scalar`,
+  `runtime::language_contract::evaluation::host_reject`,
+  `runtime::language_contract::types_and_dispatch::publication_pins_old_dependencies_and_rejects_stale_candidate`.
+
+For example, build the three targets with `cargo test -p kagari-embed --lib
+--test default_methods --test syntax_examples --no-run`. Reproduce the syntax
+selection with `cargo test -p kagari-embed --test syntax_examples -- array_operations
+collection_pipelines callables --exact`. The other targets accept their listed
+filters in the same way. Report Cargo compilation separately from harness time.
+
+Windows GetSystemTimes/GetProcessTimes indicated approximately 14.7-17.8% of
+total logical CPU capacity was still used outside each test process. Thus this
+is a reduced-load sample, not a dedicated idle-machine benchmark. Two similar
+runs establish useful current timings, not statistical confidence or a whole-suite
+speedup. The earlier interrupted 866.93 s aggregate is not a comparison baseline.
+
+A retained pre-change probe linked against 294dce32 and a freshly linked current
+probe were also run sequentially in this session. Both use `fn main() -> i32 { 42 }`,
+three fresh engines followed by three compilations in one retained engine. Each
+case compiles, encodes/decodes, prepares, creates a runtime, loads and executes,
+with default options. The current probe additionally creates three fresh sessions
+from the retained engine. The drivers use rustc's default optimization while
+linking the workspace test-profile libraries. Values below are medians of the
+three fresh-engine cases, except the explicitly separate session row.
+
+| Stage | Before | Current |
+| --- | ---: | ---: |
+| Construct full engine | 692.255 ms | 720.409 ms |
+| Compile source to artifact | 4.470 s | 4.580 s |
+| Prepare decoded program | 2.726 s | 2.822 s |
+| Create runtime | 222.275 ms | 0.016 ms |
+| Load prepared program | 9.370 ms | 9.576 ms |
+| Execute | 0.020 ms | 0.020 ms |
+| New source session from prepared engine (current-only, 3 samples) | N/A | 0.852 ms |
+
+The runtime-creation reduction is consistent with reusing validated installation.
+Full engine construction still performs preparation; creating a session amortizes
+that work but does not clone callback captures. Compilation and program preparation
+remain the main costs. Later current samples varied to 5.775 s for compilation and
+3.431 s for preparation; these sequential, background-loaded probes do not isolate
+small regressions or prove those stages improved. The first full engine in each
+process also pays cold standard registration initialization (1.94 s before,
+1.74 s current), which is amortized by subsequent samples.
+
+Probe executable SHA-256: baseline
+`810e2c58711dfa8992c0c760b5236c552ef932a7fd49052c694fd03029b44da9`;
+current `7cdf8065a27727152b0cbcfc958de10fcb740943d90067389fb6f758424cb536`.
+Raw logs/binaries remain disposable local measurements. Current probe peak memory
+cannot be compared directly with the baseline because it runs additional sessions.
+Matched suite timing and retained-identity growth remain open in the
+[test preparation plan](test-preparation-plan.md); these samples do not establish
+a memory reduction.
+
 ## Workspace test-cost audit, 2026-10-11
 
 The user explicitly requested one complete workspace audit after the targeted

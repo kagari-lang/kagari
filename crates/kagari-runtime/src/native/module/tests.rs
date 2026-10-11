@@ -5,6 +5,7 @@ use crate::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         declarations::{FunctionDecl, MethodDecl},
+        installation::NativeInstallation,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
         types::Type,
@@ -21,7 +22,7 @@ use kagari_types::{
         native::NativeStorageLayout,
     },
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, slice};
 
 #[derive(Debug)]
 struct CatalogOnlyPayload;
@@ -186,6 +187,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
     let mut runtime = Runtime::default();
     let before = runtime.native_entries.catalog.clone();
     assert!(module.install(&mut runtime).is_err());
+    assert!(NativeInstallation::prepare(slice::from_ref(&module)).is_err());
     assert_catalog_eq(&runtime.native_entries.catalog, &before);
     provider.install(&mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
@@ -212,9 +214,9 @@ fn application(names: &[&str]) -> NativeModule {
 #[test]
 fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
     let module = application(&["value"]);
-    let mut first = Runtime::default();
-    let mut second = Runtime::default();
-    module.install(&mut first).unwrap();
+    let installation = NativeInstallation::prepare(slice::from_ref(&module)).unwrap();
+    let mut first = installation.runtime(Default::default());
+    let mut second = installation.runtime(Default::default());
     let before = first.native_entries.catalog.clone();
     assert!(
         application(&["added", "value"])
@@ -224,7 +226,6 @@ fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
     assert_catalog_eq(&first.native_entries.catalog, &before);
     // A failed batch must not retain its earlier successful entry.
     application(&["added"]).install(&mut first).unwrap();
-    module.install(&mut second).unwrap();
     assert!(module.install(&mut second).is_err());
     assert!(
         !second.native_entries.catalog.declarations.keys().any(|id| {

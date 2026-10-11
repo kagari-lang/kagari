@@ -16,6 +16,7 @@ pub mod functions;
 pub mod future;
 pub(crate) mod hash_storage;
 pub(crate) mod hashed;
+pub mod installation;
 pub mod interfaces;
 pub mod methods;
 pub mod module;

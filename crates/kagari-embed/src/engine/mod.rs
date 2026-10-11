@@ -11,8 +11,8 @@ use crate::{
 #[cfg(feature = "source")]
 use kagari_hir::{analysis::AnalysisDatabase, native::render::DeclarationSource};
 use kagari_runtime::{
-    Runtime, RuntimeConfig,
-    native::{binding::NativeResult, module::NativeModule},
+    RuntimeConfig,
+    native::{binding::NativeResult, installation::NativeInstallation, module::NativeModule},
 };
 #[cfg(feature = "source")]
 use kagari_source::source_database::SourceDatabase;
@@ -27,7 +27,9 @@ pub struct EngineConfig {
 #[derive(Debug)]
 pub struct KagariEngine {
     config: EngineConfig,
-    native_modules: Vec<NativeModule>,
+    installation: NativeInstallation,
+    #[cfg(feature = "source")]
+    native_analysis: AnalysisDatabase,
     #[cfg(feature = "source")]
     declaration_sources: Vec<DeclarationSource>,
     #[cfg(feature = "source")]
@@ -65,7 +67,9 @@ impl KagariEngine {
         let (analysis, declaration_sources) = declarations::prepare(&builder)?;
         Ok(Self {
             config: builder.config,
-            native_modules: builder.modules,
+            installation: builder.installation,
+            #[cfg(feature = "source")]
+            native_analysis: analysis.clone(),
             #[cfg(feature = "source")]
             declaration_sources,
             #[cfg(feature = "source")]
@@ -84,10 +88,31 @@ impl KagariEngine {
         &self.config
     }
 
+    /// Start an independent source session with the same sealed native providers.
+    ///
+    /// Reuses only the native-only baseline checked at engine construction. User
+    /// sources, host declarations and query-setting changes are not inherited.
+    /// Native callbacks retain their original captures; create a new builder when
+    /// those captures or provider declarations must differ.
+    pub fn new_session(&self, config: EngineConfig) -> Self {
+        Self {
+            config,
+            installation: self.installation.clone(),
+            #[cfg(feature = "source")]
+            native_analysis: self.native_analysis.clone(),
+            #[cfg(feature = "source")]
+            declaration_sources: self.declaration_sources.clone(),
+            #[cfg(feature = "source")]
+            sources: RefCell::default(),
+            #[cfg(feature = "source")]
+            analysis: RefCell::new(self.native_analysis.clone()),
+        }
+    }
+
     pub fn runtime(&self, context: ExecutionContext) -> KagariRuntime {
-        let mut runtime = Runtime::new(self.config.default_runtime.clone());
-        NativeModule::install_all(&self.native_modules, &mut runtime)
-            .expect("engine validated native modules");
+        let runtime = self
+            .installation
+            .runtime(self.config.default_runtime.clone());
         KagariRuntime::new(runtime, context)
     }
 }

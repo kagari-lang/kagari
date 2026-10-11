@@ -775,7 +775,11 @@ fn member_receiver_type_in<I: DefinitionReference>(
 /// imports, reachable namespaces, registered hosts and semantic dependencies also
 /// participate in reuse. Publication checks cancellation and does not replace newer
 /// published snapshots with older revisions. Earlier returned snapshots remain valid.
-#[derive(Debug)]
+///
+/// Cloning forks query state while retaining immutable results and the append-only
+/// definition identity context. Later input changes and cache publication belong
+/// to the individual database; reuse still checks source and host revisions.
+#[derive(Debug, Clone)]
 pub struct AnalysisDatabase {
     #[cfg(test)]
     pub(crate) import_solver_limits: Option<SolverLimits>,
