@@ -2,7 +2,7 @@ use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_contract::{
     callable::witness::OperationWitness,
     types::applications::{validate_declarations, validate_layouts, validate_slots},
@@ -17,8 +17,8 @@ use kagari_types::{
 pub(super) fn validate<'a>(
     module: &MirModule,
     cancel: &CancellationToken,
-    lookup: impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
-    nominal: impl Fn(&DefinitionPath) -> Option<(TypeDefKind, usize)>,
+    lookup: impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
+    nominal: impl Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(cancel, lookup, &nominal);
     validate_declarations(

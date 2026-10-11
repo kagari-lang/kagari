@@ -8,7 +8,11 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId},
+    identity::{
+        DefinitionKind,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
     span::Span,
 };
 use kagari_contract::{
@@ -29,13 +33,13 @@ mod suspension;
 /// Owns a checked module. Mutating a copy requires verifying it again.
 ///
 /// ```compile_fail
-/// fn bypass(raw: kagari_mir::MirModule) -> kagari_mir::VerifiedMirModule {
+/// fn bypass(raw: kagari_mir::function::MirModule) -> kagari_mir::verify::VerifiedMirModule {
 ///     raw
 /// }
 /// ```
 ///
 /// ```compile_fail
-/// fn mutate(checked: &mut kagari_mir::VerifiedMirModule) {
+/// fn mutate(checked: &mut kagari_mir::verify::VerifiedMirModule) {
 ///     checked.functions.clear();
 /// }
 /// ```
@@ -55,15 +59,25 @@ impl Deref for VerifiedMirModule {
 
 /// Ephemeral verifier state; it cannot be submitted to a backend.
 pub(crate) struct ValidatedMirModule {
-    pub(crate) module: MirModule,
+    pub(crate) metadata: DefinitionMetadata<MirModule>,
     pub(crate) analyses: Vec<FunctionAnalysis>,
+}
+
+impl ValidatedMirModule {
+    /// Seal a module only after the owning verifier has completed its checks.
+    pub(crate) fn seal(self) -> VerifiedMirModule {
+        VerifiedMirModule {
+            metadata: self.metadata,
+            analyses: self.analyses,
+        }
+    }
 }
 
 impl Deref for ValidatedMirModule {
     type Target = MirModule;
 
     fn deref(&self) -> &Self::Target {
-        &self.module
+        self.metadata.records()
     }
 }
 
@@ -163,12 +177,14 @@ impl MirVerificationError {
 
 /// Validates representation contracts and definite initialization before any
 /// narrowing of IDs or flattening of control flow into bytecode offsets.
+/// Input metadata owns reference validation only. ABI-owned names must already
+/// be present in its table; this function neither interns names nor imports IDs.
 pub fn verify_mir(
-    module: MirModule,
+    metadata: DefinitionMetadata<MirModule>,
     cancel: &CancellationToken,
 ) -> Result<VerifiedMirModule, MirVerificationError> {
-    let checked = verify_with_budget(module, cancel, &mut VerificationBudget::default())?;
-    ownership::adopt(checked, cancel)
+    let checked = verify_with_budget(metadata, cancel, &mut VerificationBudget::default())?;
+    Ok(checked.seal())
 }
 
 /// Program verification shares this budget across every retained module seal.
@@ -176,11 +192,13 @@ pub fn verify_mir(
 pub(crate) struct VerificationBudget(Budget);
 
 pub(crate) fn verify_with_budget(
-    module: MirModule,
+    metadata: DefinitionMetadata<MirModule>,
     cancel: &CancellationToken,
     budget: &mut VerificationBudget,
 ) -> Result<ValidatedMirModule, MirVerificationError> {
+    let module = metadata.records();
     let context = Context {
+        definitions: metadata.definitions(),
         function: None,
         block: None,
         instruction: None,
@@ -188,7 +206,7 @@ pub(crate) fn verify_with_budget(
         cancel,
     };
     context.check_cancel()?;
-    layout::verify(&module, context)?;
+    layout::verify(module, context)?;
     context.limit(
         module.interface_instances.len(),
         4096,
@@ -203,11 +221,11 @@ pub(crate) fn verify_with_budget(
                     || matches!(ty, Ty::Parameter { owner, position: index }
                     if *owner == instance.declaration && *index == position)
             })
-            || !instance.declaration.within_path_limit()
-            || instance
-                .declaration
-                .path
-                .last()
+            || context
+                .definitions
+                .resolve(instance.declaration)
+                .ok()
+                .and_then(|view| view.last())
                 .is_none_or(|part| part.kind != DefinitionKind::Impl)
         {
             return Err(context.error(MirVerificationErrorKind::InvalidInterfaceTable));
@@ -219,7 +237,9 @@ pub(crate) fn verify_with_budget(
         context.check_cancel()?;
         // A table may retain a default from another module. Linked validation
         // authenticates the target against that owner's declaration and closure.
-        if target.host.is_some() || !target.structurally_valid() || !native.insert(&target.instance)
+        if target.host.is_some()
+            || !target.structurally_valid(context.definitions)
+            || !native.insert(&target.instance)
         {
             return Err(context.error(MirVerificationErrorKind::InvalidNativeTarget));
         }
@@ -243,7 +263,12 @@ pub(crate) fn verify_with_budget(
         };
         context.check_cancel()?;
         if function.id.index() != index
-            || function.instance.declaration.module != module.identity
+            || context
+                .definitions
+                .resolve(function.instance.declaration)
+                .map_err(|_| context.error(MirVerificationErrorKind::InvalidInstance))?
+                .module()
+                != &module.identity
             || !function
                 .instance
                 .arguments
@@ -263,7 +288,7 @@ pub(crate) fn verify_with_budget(
     let mut analyses = Vec::new();
     for function in &module.functions {
         analyses.push(verify_function(
-            &module,
+            module,
             function,
             Context {
                 function: Some(function.id),
@@ -273,11 +298,12 @@ pub(crate) fn verify_with_budget(
             &mut budget.0,
         )?);
     }
-    Ok(ValidatedMirModule { module, analyses })
+    Ok(ValidatedMirModule { metadata, analyses })
 }
 
 #[derive(Clone, Copy)]
 struct Context<'a> {
+    definitions: &'a DefinitionTable,
     function: Option<InstanceId>,
     block: Option<BlockId>,
     instruction: Option<usize>,
@@ -357,16 +383,17 @@ fn verify_function(
         &module.abi.public_items,
         &function.instance,
         &function.semantic,
-    ) || !function
-        .semantic
-        .types_valid(Some(&function.instance), &Default::default())
-        || !function.semantic.generic_layout_valid(
-            function.params.iter().map(|param| param.ty),
-            function.locals.iter().map(|local| local.ty),
-            function.temps.iter().map(|temp| temp.ty),
-            function.return_type,
-        )
-    {
+        context.definitions,
+    ) || !function.semantic.types_valid(
+        Some(&function.instance),
+        context.cancel,
+        context.definitions,
+    ) || !function.semantic.generic_layout_valid(
+        function.params.iter().map(|param| param.ty),
+        function.locals.iter().map(|local| local.ty),
+        function.temps.iter().map(|temp| temp.ty),
+        function.return_type,
+    ) {
         return Err(context.error(MirVerificationErrorKind::InvalidParameterLayout));
     }
     for (count, name) in [

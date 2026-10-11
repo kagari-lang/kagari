@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
 pub mod applications;
+pub mod identity;
 pub mod inherent;
 pub mod matching;
 pub mod proofs;

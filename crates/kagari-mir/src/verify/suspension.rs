@@ -6,14 +6,15 @@ use crate::{
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error, analysis::Budget},
 };
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::contracts::ContractError;
 use kagari_types::ty::Ty;
 
-pub(super) fn ephemeral(physical: ValueType, semantic: Option<&Ty>) -> bool {
+pub(super) fn ephemeral(physical: ValueType, semantic: Option<&Ty<DefinitionId>>) -> bool {
     physical == ValueType::HostHandle || semantic.is_some_and(inline_host)
 }
 
-fn inline_host(ty: &Ty) -> bool {
+fn inline_host(ty: &Ty<DefinitionId>) -> bool {
     match ty {
         Ty::Host(_) => true,
         Ty::Tuple(items) => items.iter().any(inline_host),

@@ -4,10 +4,11 @@
 //! their parallel span/scope entries are deleted; fresh verification rebuilds
 //! logical offsets, roots, safepoints and debug facts. No charge-only operations
 //! survive. Pass work limits bound compilation, not script execution.
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 
 use crate::verify::{
-    MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir,
+    MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, ownership::mapping_error,
+    verify_mir,
 };
 mod constants;
 mod copies;
@@ -59,16 +60,17 @@ pub fn optimize(
     };
     work.charge(0)?;
     let mut statistics = PassStatistics::default();
-    let mut raw = module.to_unverified(cancel)?;
+    let (definitions, mut raw) = module.into_unverified().into_parts();
     constants::simplify(&mut raw, &mut statistics, &mut work)?;
     copies::simplify(&mut raw, &mut statistics, &mut work)?;
+    let raw = DefinitionMetadata::checked(definitions, raw, cancel).map_err(mapping_error)?;
     let module = verify_mir(raw, cancel)?;
     let removals = dead::find(&module, &mut work)?;
     statistics.dead_operations_removed = removals.len();
     let module = if removals.is_empty() {
         module
     } else {
-        let mut raw = module.to_unverified(cancel)?;
+        let (definitions, mut raw) = module.into_unverified().into_parts();
         // Remove backwards within each block so original indices remain valid.
         let mut removals = removals;
         removals.sort_unstable_by(|left, right| right.cmp(left));
@@ -79,6 +81,7 @@ pub fn optimize(
             block.instruction_spans.remove(instruction);
             block.instruction_scopes.remove(instruction);
         }
+        let raw = DefinitionMetadata::checked(definitions, raw, cancel).map_err(mapping_error)?;
         verify_mir(raw, cancel)?
     };
     Ok(PassResult { module, statistics })

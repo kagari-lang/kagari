@@ -3,7 +3,6 @@ use crate::{
     instruction::{CallTarget, Instruction},
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
-use kagari_common::identity::metadata::scope_record;
 use kagari_contract::{
     host, layout,
     layout::{LayoutValidationError, validate_layouts},
@@ -32,7 +31,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         } = instruction
             && let Some(function) = &import.host
             && functions
-                .insert(function.id.clone(), function.clone())
+                .insert(function.id, function.clone())
                 .is_some_and(|previous| !previous.matches_binding(function))
         {
             return Err(context.error(Error::InvalidHostInterface));
@@ -48,6 +47,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         &module.structures,
         &module.enumerations,
         context.cancel,
+        context.definitions,
     )
     .map_err(|error| {
         context.error(match error {
@@ -55,24 +55,30 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             _ => Error::InvalidHostInterface,
         })
     })?;
-    abi_verify::validate(&module.abi.public_items, &module.identity, context.cancel).map_err(
-        |error| {
-            context.error(match error {
-                LayoutValidationError::Cancelled => Error::Cancelled,
-                _ => Error::InvalidPublicAbi,
-            })
-        },
-    )?;
-    let native_declarations = scope_record(&module.abi.native_declarations, context.cancel)
-        .map_err(|_| context.error(Error::InvalidPublicAbi))?;
-    validate_native_declarations(
-        native_declarations.records(),
+    abi_verify::validate(
+        &module.abi.public_items,
         &module.identity,
-        native_declarations.definitions(),
+        context.cancel,
+        context.definitions,
+    )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Cancelled => Error::Cancelled,
+            _ => Error::InvalidPublicAbi,
+        })
+    })?;
+    validate_native_declarations(
+        &module.abi.native_declarations,
+        &module.identity,
+        context.definitions,
         context.cancel,
     )
     .map_err(|_| context.error(Error::InvalidPublicAbi))?;
-    if !native_signatures_match(&module.abi.public_items, &module.abi.native_declarations) {
+    if !native_signatures_match(
+        &module.abi.public_items,
+        &module.abi.native_declarations,
+        context.definitions,
+    ) {
         return Err(context.error(Error::InvalidPublicAbi));
     }
     abi_verify::validate_trait_contracts(
@@ -80,6 +86,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         &module.abi.public_items,
         &module.identity,
         context.cancel,
+        context.definitions,
     )
     .map_err(|error| {
         context.error(match error {
@@ -96,6 +103,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         &module.abi.public_items,
         &module.abi.trait_contracts,
         context.cancel,
+        context.definitions,
     )
     .map_err(|_| context.error(Error::Cancelled))?
     {
@@ -106,6 +114,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         &module.identity,
         &module.abi.public_items,
         context.cancel,
+        context.definitions,
     )
     .map_err(|_| context.error(Error::Cancelled))?
     {
@@ -116,27 +125,30 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         &module.identity,
         &module.abi.public_items,
         context.cancel,
+        context.definitions,
     )
     .map_err(|_| context.error(Error::Cancelled))?
     {
         return Err(context.error(Error::InvalidEnumLayout));
     }
-    validate_layouts(&module.structures, context.cancel).map_err(|error| {
+    validate_layouts(&module.structures, context.cancel, context.definitions).map_err(|error| {
         context.error(match error {
             LayoutValidationError::Invalid => Error::InvalidStructLayout,
             LayoutValidationError::Limit { resource, limit } => Error::Limit { resource, limit },
             LayoutValidationError::Cancelled => Error::Cancelled,
         })
     })?;
-    layout::validate_enum_layouts(&module.enumerations, &module.structures, context.cancel).map_err(
-        |error| {
-            context.error(match error {
-                LayoutValidationError::Invalid => Error::InvalidEnumLayout,
-                LayoutValidationError::Limit { resource, limit } => {
-                    Error::Limit { resource, limit }
-                }
-                LayoutValidationError::Cancelled => Error::Cancelled,
-            })
-        },
+    layout::validate_enum_layouts(
+        &module.enumerations,
+        &module.structures,
+        context.cancel,
+        context.definitions,
     )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Invalid => Error::InvalidEnumLayout,
+            LayoutValidationError::Limit { resource, limit } => Error::Limit { resource, limit },
+            LayoutValidationError::Cancelled => Error::Cancelled,
+        })
+    })
 }

@@ -1,6 +1,6 @@
 # Definition IDs throughout semantic processing
 
-Status: active implementation; SI01 is complete; SI02 and its coupled SI03 migration are in progress.
+Status: active implementation; SI01 is complete; coupled SI02-SI04 migrations are in progress.
 Planning baseline: `2276061e`, after the SA12/SA13 HIR cleanup. The
 [roadmap](implementation-roadmap.md) owns sequencing. This plan owns SA19's
 implementation scope, SI01-SI06 acceptance and progress ledger.
@@ -1873,3 +1873,89 @@ unverified metadata and migrate program linking/passes together. This inspection
 made no MIR edits and did not repeat its unchanged known failing build. Downstream
 compiler/runtime integration, representation-generic removal, selected source-free
 and reload verification, documentation cleanup and exhaustive CI remain pending.
+
+### SI04 scoped MIR verification, linking and editable extraction
+
+MIR modules, functions, blocks, instructions and call contracts now default to IDs.
+All production MIR verification and pass entrypoints consume fixed-ID records;
+representation generics remain temporarily for the existing portable mapping layer
+and must still be removed in SI06. Program diagnostics retain owned paths only as
+explicit error output. No whole-record path projection remains in MIR production.
+
+Single-module verification takes DefinitionMetadata<MirModule>: reference ownership
+is established before semantic validation, and ABI names must already exist in that
+prefix. Program verification takes fixed-ID modules and an explicit DefinitionContext.
+It validates the complete batch against the original prefix before registering any
+implicit ABI names, then checks module contracts, dependency closures, applications,
+Host interfaces, Native declarations, selected calls and supplying modules. Names
+alone confer no authority. Linked proof construction uses that same context and
+successful modules/program retain its final immutable prefix. Verified fields stay
+private; only verifier-owned validated state creates a seal.
+
+Moved implicit ABI name collection to the existing contract owner and reused it from
+MIR and bytecode. Both callers retain complete-batch reference validation before
+name collection. The shared collector registers module roots, public functions/types,
+traits and interface/inherent/private trait methods, preserving kind/name/occurrence,
+allocation failures and cancellation. This replaces the prior MIR post-verification
+path interning and avoids a second implementation of ABI name registration.
+
+Editable module/program extraction retains its table and discards verification
+facts. Owned module extraction transfers records directly; borrowed extraction uses
+the existing cancellable record traversal with identity-preserving ID copies.
+Optimization consumes the old seal, edits records in their retained scope and reruns
+reference/semantic verification before using fresh liveness, roots, debug and flow
+facts. It never rebuilds paths or uses ID equality as verification evidence.
+
+The MIR codec now decodes file references directly to scoped raw records, explicitly
+imports those IDs into a program construction context and runs ordinary program
+verification. Canonical portable encoding, byte/count/type bounds, ABI/version
+checks, no serialized seals and source-free dependencies remain unchanged. This is
+a coupled SI05 boundary adjustment, not completion of private wire model removal.
+The format/ABI identifiers were not bumped.
+
+Validation and remaining integration:
+
+- `cargo check -p kagari-mir --lib --message-format=short` passes after the coupled
+  changes. Intermediate checks reported 131 and then 35 errors while fixed-ID
+  applications, Native proofs, Host paths, ABI/layout queries and numeric contracts
+  were being connected. Those MIR library errors are resolved.
+- `cargo clippy -p kagari-mir -p kagari-bytecode --lib --message-format=short --
+  -D warnings` passes, including the shared registration dependency. An earlier MIR
+  run identified 17 obsolete Copy-ID clones and two redundant borrows; all were
+  removed without lint allowances. `cargo build -p kagari-mir --lib` also passes.
+- `cargo test -p kagari-mir --doc --message-format=short`: both compile-fail seal
+  examples pass. Their paths now name the real public modules, so rejection tests
+  raw-to-verified conversion and mutation through the immutable seal rather than
+  nonexistent root-level names.
+- A temporary source-free public-API probe, compiled with rustc against the default
+  workspace build artifacts, passes. It constructs one private i32 function with
+  two constant loads and a return, and a valid root lexical debug scope. It verifies
+  the graph, roundtrips canonical MIR bytes into an independent table, checks an old
+  prefix rejects a later definition, and optimizes away exactly one unused load
+  while retaining the function ID and table identity. Both owned/borrowed editable
+  extraction retain the scope; deleting the terminator is rejected by revalidation.
+  Supplying original IDs to an independent context is rejected; explicit metadata
+  import followed by verification preserves canonical bytes. Cancelled copy, decode
+  and optimization operations reject. The probe was repeated after consolidating
+  registration and preserving cancellable copying. It is local diagnostic evidence,
+  not a new retained smoke test or a replacement for the existing codec/pass owners.
+- `cargo test -p kagari-compiler --lib
+  portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering
+  --message-format=short` cannot compile the lib-test target: 873 migration errors;
+  the selected test did not execute. The errors include 417 source/lower diagnostics,
+  30 source/program diagnostics, removed MIR paths/scope consumers in bytecode
+  defaults/interfaces, the new verification context and metadata extraction APIs,
+  native-input checking and old path-shaped test fixtures. SI04 owns source-free
+  bytecode/default/interface assembly first, then specialization/source lowering and
+  affected fixtures; SI05/SI06 own remaining codecs/representation removal. Do not
+  restore path projections or weaken the failing contracts.
+
+Structure passes 1056 Rust files with zero violations or documented exceptions;
+formatting and diff checks pass. Manual review covers imports, private seal creation,
+reference visitors, table-prefix validation before registration, cancellation,
+source-free production dependencies and diagnostic-only path exports. The structure
+parser initially treated `&raw` as a raw-reference prefix; renaming that argument to
+`inputs` resolved its parse finding without an exception or checker change. No full
+workspace/backend suite or performance measurement was run. Compiler integration,
+selected end-to-end/source-free/reload tests, the HIR BindingId visitor audit and
+remaining SI06 generic removal/documentation cleanup prevent overall acceptance.

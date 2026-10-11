@@ -5,7 +5,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
-    identity::{DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+    identity::{ModuleIdentity, reference::DefinitionReference, table::DefinitionId},
     span::Span,
 };
 use kagari_contract::{
@@ -25,7 +25,7 @@ use std::{borrow::Cow, iter};
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct MirModule<I = DefinitionPath> {
+pub struct MirModule<I = DefinitionId> {
     /// Concrete native entry contracts invoked without a script body, including
     /// interface slots and dependencies selected by another native entry.
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
@@ -56,7 +56,7 @@ pub struct MirModule<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct MirFunction<I = DefinitionPath> {
+pub struct MirFunction<I = DefinitionId> {
     pub semantic: SemanticSlots<I>,
     pub id: InstanceId,
     pub instance: ConcreteFunctionIdentity<I>,
@@ -197,7 +197,7 @@ pub struct MirModuleSlot {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct BasicBlock<I = DefinitionPath> {
+pub struct BasicBlock<I = DefinitionId> {
     #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
     pub instructions: InstructionBuffer<I>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::instructions")]
@@ -209,7 +209,7 @@ pub struct BasicBlock<I = DefinitionPath> {
     pub terminator_scope: Option<usize>,
 }
 
-pub type FunctionBuffer<I = DefinitionPath> = Vec<MirFunction<I>>;
+pub type FunctionBuffer<I = DefinitionId> = Vec<MirFunction<I>>;
 
 pub type ParameterBuffer = Vec<MirParameter>;
 
@@ -219,7 +219,7 @@ pub type ModuleSlotBuffer = Vec<MirModuleSlot>;
 
 pub type TempBuffer = Vec<MirTemp>;
 
-pub type BlockBuffer<I = DefinitionPath> = Vec<BasicBlock<I>>;
+pub type BlockBuffer<I = DefinitionId> = Vec<BasicBlock<I>>;
 
 pub type SourceSpanBuffer = Vec<Span>;
 

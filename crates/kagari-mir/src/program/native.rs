@@ -7,7 +7,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    identity::{DefinitionKind, map::DefinitionContext},
 };
 use kagari_contract::{
     native_import::callables::NativeCallableOrigin,
@@ -28,8 +28,10 @@ use kagari_types::{
 pub(super) fn validate(
     caller: &MirModule,
     closure: &[&ValidatedMirModule],
+    context: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
+    let definitions = context.snapshot();
     let tables = closure
         .iter()
         .flat_map(|module| &module.abi.public_items)
@@ -41,31 +43,29 @@ pub(super) fn validate(
             }
         })
         .collect();
-    let declarations = closure.iter().flat_map(|module| {
-        let public = module.abi.public_items.iter().filter_map(|item| {
+    let mut declarations = Vec::new();
+    for module in closure {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        for item in &module.abi.public_items {
             let PublicItem::Trait(record) = item else {
-                return None;
+                continue;
             };
-            Some((
-                DefinitionPath {
-                    module: module.identity.clone(),
-                    path: vec![DefinitionPathSegment {
-                        kind: DefinitionKind::Trait,
-                        name: record.name.clone(),
-                        occurrence: 0,
-                    }],
-                },
-                record,
-            ))
-        });
-        public.chain(
+            let owner = definitions
+                .lookup_root(&module.identity)
+                .and_then(|root| {
+                    definitions.lookup_child(root, DefinitionKind::Trait, &record.name, 0)
+                })
+                .ok_or(TypeTransformError::InvalidContract)?;
+            declarations.push((owner, record));
+        }
+        declarations.extend(
             module
                 .abi
                 .trait_contracts
                 .iter()
-                .map(|contract| (contract.declaration.clone(), &contract.abi)),
-        )
-    });
+                .map(|contract| (contract.declaration, &contract.abi)),
+        );
+    }
     let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
         module.abi.public_items.iter().filter_map(|item| {
             if let PublicItem::Type(ty) = item {
@@ -87,6 +87,7 @@ pub(super) fn validate(
         closure
             .iter()
             .flat_map(|module| &module.abi.native_declarations),
+        context,
         cancel,
     )?;
     if !catalog.overrides_valid(&owners, cancel)? {
@@ -103,7 +104,11 @@ pub(super) fn validate(
                 let body = function.semantic.generic.as_ref();
                 let Some(table) = closure
                     .iter()
-                    .filter(|owner| owner.identity == implementation.module)
+                    .filter(|owner| {
+                        definitions
+                            .resolve(*implementation)
+                            .is_ok_and(|view| view.module() == &owner.identity)
+                    })
                     .flat_map(|owner| &owner.abi.public_items)
                     .find_map(|item| match item {
                         PublicItem::InterfaceTable(table)
@@ -152,7 +157,7 @@ pub(super) fn validate(
         }
         if !function
             .semantic
-            .protocol_adapter_valid(Some(&function.instance))
+            .protocol_adapter_valid(Some(&function.instance), catalog.definitions())
         {
             return Ok(false);
         }
@@ -181,15 +186,16 @@ pub(super) fn validate(
     }
     for import in caller.native_applications() {
         if import.host.is_some() {
-            if !import.structurally_valid() {
+            if !import.structurally_valid(catalog.definitions()) {
                 return Ok(false);
             }
             continue;
         }
-        let Some(owner) = closure
-            .iter()
-            .find(|owner| owner.identity == import.instance.declaration.module)
-        else {
+        let Some(owner) = closure.iter().find(|owner| {
+            definitions
+                .resolve(import.instance.declaration)
+                .is_ok_and(|view| view.module() == &owner.identity)
+        }) else {
             return Ok(false);
         };
         let Some(declaration) = owner
@@ -221,7 +227,11 @@ pub(super) fn validate(
         if callable.implementation == CallableImplementation::Script {
             let Some(target) = closure
                 .iter()
-                .find(|owner| owner.identity == callable.instance.declaration.module)
+                .find(|owner| {
+                    definitions
+                        .resolve(callable.instance.declaration)
+                        .is_ok_and(|view| view.module() == &owner.identity)
+                })
                 .and_then(|owner| {
                     owner
                         .functions
@@ -260,6 +270,7 @@ fn native_slots_valid(
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
+    let definitions = catalog.definitions();
     let base = module
         .abi
         .public_items
@@ -267,7 +278,7 @@ fn native_slots_valid(
         .filter_map(|item| match item {
             PublicItem::InterfaceTable(table) if table.generic_params.is_empty() => {
                 Some(ConcreteFunctionIdentity {
-                    declaration: table.declaration.clone(),
+                    declaration: table.declaration,
                     arguments: vec![],
                 })
             }
@@ -275,7 +286,12 @@ fn native_slots_valid(
         });
     for instance in base.chain(module.interface_instances.iter().cloned()) {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        if instance.declaration.module != module.identity {
+        if definitions
+            .resolve(instance.declaration)
+            .map_err(|_| TypeTransformError::InvalidContract)?
+            .module()
+            != &module.identity
+        {
             continue;
         }
         let Some(template) = module.abi.public_items.iter().find_map(|item| match item {
@@ -299,12 +315,14 @@ fn native_slots_valid(
             if !method.generic_params.is_empty() {
                 continue;
             }
-            let mut declaration = instance.declaration.clone();
-            declaration.path.push(DefinitionPathSegment {
-                kind: DefinitionKind::Method,
-                name: method.name.clone(),
-                occurrence: 0,
-            });
+            let declaration = definitions
+                .lookup_child(
+                    instance.declaration,
+                    DefinitionKind::Method,
+                    &method.name,
+                    0,
+                )
+                .ok_or(TypeTransformError::InvalidContract)?;
             let signature = Signature {
                 params: method
                     .params
@@ -321,7 +339,7 @@ fn native_slots_valid(
                         declaration,
                         arguments: instance.arguments.clone(),
                     },
-                    binding.clone(),
+                    *binding,
                 ),
                 CallableImplementation::NativeDefault(application) => {
                     let Some(resolved) = catalog.resolve_native_default_in(

@@ -1,6 +1,6 @@
 use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 use kagari_contract::{
     callable::{interface::InterfaceCallContract, shared::SharedCall},
     effects::{EffectSet, runtime_primitive_effects},
@@ -30,7 +30,7 @@ pub struct MirValue {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct AggregateFieldRef<I = DefinitionPath> {
+pub struct AggregateFieldRef<I = DefinitionId> {
     pub owner: NominalTy<I>,
     pub slot: usize,
 }
@@ -40,7 +40,7 @@ pub struct AggregateFieldRef<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct PathRef<I = DefinitionPath> {
+pub struct PathRef<I = DefinitionId> {
     pub declaration: Option<HostPathDeclaration<I>>,
     pub contract_fingerprint: u64,
     pub root_ty: ValueType,
@@ -54,7 +54,7 @@ pub struct PathRef<I = DefinitionPath> {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub enum Instruction<I = DefinitionPath> {
+pub enum Instruction<I = DefinitionId> {
     Await {
         dst: MirValue,
         value: MirValue,
@@ -282,7 +282,7 @@ pub enum Terminator {
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub enum CallTarget<I = DefinitionPath> {
+pub enum CallTarget<I = DefinitionId> {
     Shared(Box<SharedCall<I>>),
     SourceFunction(Box<SourceFunctionContract<I>>),
     Function(InstanceId),
@@ -460,7 +460,7 @@ pub struct StructFieldInit {
     pub value: MirValue,
 }
 
-pub type InstructionBuffer<I = DefinitionPath> = Vec<Instruction<I>>;
+pub type InstructionBuffer<I = DefinitionId> = Vec<Instruction<I>>;
 
 pub type ValueBuffer = SmallVec<[MirValue; 4]>;
 
@@ -472,7 +472,7 @@ pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
     serialize = "I: DefinitionReference + serde::Serialize",
     deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
 ))]
-pub struct SourceFunctionContract<I = DefinitionPath> {
+pub struct SourceFunctionContract<I = DefinitionId> {
     pub declaration: I,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     pub arguments: Vec<Ty<I>>,

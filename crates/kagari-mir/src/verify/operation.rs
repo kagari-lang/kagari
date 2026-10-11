@@ -9,13 +9,14 @@ use kagari_abi::representation::ValueType;
 use kagari_contract::{
     contracts,
     contracts::{ContractError, RuntimeHelperKind},
+    numeric::NumericSignature,
     operations,
     operations::range_operands_valid,
     representation::{host_representation, semantic_representation},
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
+    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope_in},
     host_interface::{HostInterface, type_declaration::PathAccess},
     ty::Ty,
 };
@@ -36,10 +37,10 @@ pub(super) fn verify(
             ..Default::default()
         };
         let resolved = declaration
-            .contract(&catalog)
+            .contract(&catalog, context.definitions)
             .map_err(|_| context.error(Error::InvalidHostInterface))?;
         if resolved
-            .fingerprint()
+            .fingerprint(context.definitions)
             .map_err(|_| context.error(Error::InvalidHostInterface))?
             != path.contract_fingerprint
             || path.root_ty != ValueType::HostHandle
@@ -60,7 +61,7 @@ pub(super) fn verify(
     };
     if let Some(aggregate) = aggregate
         && (!aggregate.associated_types.is_empty()
-            || !types_in_scope(
+            || !types_in_scope_in(
                 &aggregate.arguments,
                 function
                     .semantic
@@ -68,6 +69,7 @@ pub(super) fn verify(
                     .as_ref()
                     .map_or(&[], |body| body.parameters.as_slice()),
                 context.cancel,
+                Some(context.definitions),
             ))
     {
         return Err(context.error(Error::InvalidStructInitializer));
@@ -95,11 +97,15 @@ pub(super) fn verify(
             {
                 return Err(invalid());
             }
-            if nominal.declaration.module == module.identity
+            if context
+                .definitions
+                .resolve(nominal.declaration)
+                .is_ok_and(|view| view.module() == &module.identity)
                 && type_contract(
                     &module.identity,
                     &module.abi.public_items,
                     &nominal.declaration,
+                    context.definitions,
                 )
                 .is_none_or(|ty| ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future))
             {
@@ -133,11 +139,16 @@ pub(super) fn verify(
             {
                 return Err(invalid());
             }
-            if nominal.declaration.module == module.identity {
+            if context
+                .definitions
+                .resolve(nominal.declaration)
+                .is_ok_and(|view| view.module() == &module.identity)
+            {
                 let ty = type_contract(
                     &module.identity,
                     &module.abi.public_items,
                     &nominal.declaration,
+                    context.definitions,
                 );
                 if ty.is_none_or(|ty| {
                     !matches!(
@@ -181,7 +192,11 @@ pub(super) fn verify(
             lhs,
             rhs,
         } => {
-            let (left, right, result) = operation.contract().ok_or_else(|| {
+            let NumericSignature {
+                left,
+                right,
+                output: result,
+            } = operation.contract().ok_or_else(|| {
                 contract(ContractError::InvalidOperation {
                     reason: "invalid numeric contract",
                 })
@@ -253,6 +268,7 @@ pub(super) fn verify(
                         .as_ref()
                         .map_or(&[], |body| body.parameters.as_slice()),
                     &Default::default(),
+                    context.definitions,
                 ) {
                     return Err(context.error(Error::UnsupportedCall));
                 }
@@ -309,13 +325,18 @@ pub(super) fn verify(
                     .map_err(contract)?;
             }
             CallTarget::InterfaceMethod(interface_call) => {
-                if interface_call.interface.declaration.module == module.identity {
+                if context
+                    .definitions
+                    .resolve(interface_call.interface.declaration)
+                    .is_ok_and(|view| view.module() == &module.identity)
+                {
                     let (params, return_type) = interface_call
                         .signature_in(
                             &module.identity,
                             &module.abi.public_items,
                             &module.abi.trait_contracts,
                             &Default::default(),
+                            context.definitions,
                         )
                         .ok()
                         .and_then(|signature| {
@@ -326,6 +347,7 @@ pub(super) fn verify(
                                     .as_ref()
                                     .map_or(&[], |body| body.parameters.as_slice()),
                                 &Default::default(),
+                                context.definitions,
                             )
                         })
                         .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
@@ -365,6 +387,7 @@ pub(super) fn verify(
                 dst.map(|v| v.ty),
                 import,
                 &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
+                context.definitions,
             )
             .map_err(contract)?,
 
@@ -413,7 +436,7 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "bound destination")?;
             context.expect(value.ty, ValueType::HeapObject, "bound range")?;
-            if !operations::range_bound_valid(range, bound) {
+            if !operations::range_bound_valid_in(range, bound, Some(context.definitions)) {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "invalid range bound contract",
                 }));
@@ -426,7 +449,12 @@ pub(super) fn verify(
             ty,
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "range destination")?;
-            if !range_operands_valid(ty, start.map(|v| v.ty), end.map(|v| v.ty)) {
+            if !range_operands_valid(
+                ty,
+                start.map(|v| v.ty),
+                end.map(|v| v.ty),
+                context.definitions,
+            ) {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "invalid range operands",
                 }));
@@ -447,11 +475,9 @@ pub(super) fn verify(
             )?;
             if !element.within_wire_limits()
                 || (!element.is_concrete()
-                    && !function
-                        .semantic
-                        .generic
-                        .as_ref()
-                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+                    && !function.semantic.generic.as_ref().is_some_and(|body| {
+                        body.types_valid([element], &Default::default(), context.definitions)
+                    }))
             {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "unresolved or oversized array element",
@@ -466,11 +492,9 @@ pub(super) fn verify(
             context.expect(dst.ty, ValueType::HeapObject, "array destination")?;
             if !element.within_wire_limits()
                 || (!element.is_concrete()
-                    && !function
-                        .semantic
-                        .generic
-                        .as_ref()
-                        .is_some_and(|body| body.types_valid([element], &Default::default())))
+                    && !function.semantic.generic.as_ref().is_some_and(|body| {
+                        body.types_valid([element], &Default::default(), context.definitions)
+                    }))
             {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "unresolved or oversized array element",
@@ -525,7 +549,7 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             context.expect(value.ty, ValueType::HeapObject, "interface receiver")?;
-            if !types_in_scope(
+            if !types_in_scope_in(
                 [&Ty::Trait(source.clone()), &Ty::Trait(target.clone())],
                 function
                     .semantic
@@ -533,6 +557,7 @@ pub(super) fn verify(
                     .as_ref()
                     .map_or(&[], |body| body.parameters.as_slice()),
                 context.cancel,
+                Some(context.definitions),
             ) {
                 return Err(context.error(Error::InvalidInterfaceTable));
             }
@@ -551,7 +576,13 @@ pub(super) fn verify(
                 _ => None,
             });
             let Some(table) = table else {
-                if implementation.module != module.identity {
+                if context
+                    .definitions
+                    .resolve(*implementation)
+                    .map_err(|_| context.error(Error::InvalidInterfaceTable))?
+                    .module()
+                    != &module.identity
+                {
                     // The complete program verifier proves imported table identity,
                     // signature and dependency reachability.
                     return Ok(());
@@ -576,7 +607,7 @@ pub(super) fn verify(
         }
         Instruction::Iter { dst, value, ty, op } => {
             let (input, output) = op
-                .contract(ty)
+                .contract(ty, context.definitions)
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             if input != value.map(|v| v.ty) {
                 return Err(context.error(Error::InvalidEnumInitializer));

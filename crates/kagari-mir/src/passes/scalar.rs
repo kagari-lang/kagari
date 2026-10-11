@@ -1,5 +1,6 @@
 use crate::instruction::Constant;
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     numeric::NumericOperation,
     operations::{BinaryOp, UnaryOp},
@@ -53,7 +54,7 @@ impl Scalar {
         }
     }
 
-    pub(super) fn fits(self, ty: Option<&Ty>) -> bool {
+    pub(super) fn fits(self, ty: Option<&Ty<DefinitionId>>) -> bool {
         match (ty, self.integer()) {
             (Some(Ty::Builtin(kind)), Some(value)) => kind
                 .integer_bounds()

@@ -9,15 +9,17 @@ use crate::{
     ids::InstanceId,
     instruction::{CallTarget, Instruction},
     verify::{
-        MirVerificationError, VerificationBudget, VerifiedMirModule, ownership, verify_with_budget,
+        MirVerificationError, ValidatedMirModule, VerificationBudget, VerifiedMirModule, ownership,
+        verify_with_budget,
     },
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, ModuleIdentity,
-        mapping::{DefinitionMapper, DefinitionRecord},
+        DefinitionPath, ModuleIdentity,
+        map::DefinitionContext,
+        metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -84,18 +86,29 @@ impl VerifiedMirProgram {
         self.bindings.get(instance).copied()
     }
 
-    pub fn into_unverified(self) -> Vec<MirModule> {
-        self.modules
-            .into_iter()
-            .map(VerifiedMirModule::into_unverified)
-            .collect()
+    /// Discard program and module seals while retaining their shared identity scope.
+    pub fn into_unverified(self) -> DefinitionMetadata<Vec<MirModule>> {
+        DefinitionMetadata::checked(
+            self.definitions,
+            self.modules
+                .into_iter()
+                .map(|module| module.into_unverified().into_records())
+                .collect(),
+            &CancellationToken::default(),
+        )
+        .expect("verified program references remain in their retained scope")
     }
 }
 
 /// Revalidates every module and every cross-module binding after any IR edit.
+/// All input references must belong to the supplied context's current prefix;
+/// import foreign metadata explicitly before calling. ABI-owned names are then
+/// collected without granting declaration or execution authority. Success retains
+/// an immutable prefix containing the checked graph and its proof identities.
 pub fn verify_program(
     root: ModuleIdentity,
-    raw: Vec<MirModule>,
+    inputs: Vec<MirModule>,
+    context: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<VerifiedMirProgram, ProgramError> {
     let error = |module: &ModuleIdentity, kind| ProgramError {
@@ -105,12 +118,24 @@ pub fn verify_program(
     cancel
         .check()
         .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
-    let mut modules = Vec::with_capacity(raw.len());
+    let definitions = ownership::collect(&inputs, context, cancel).map_err(|cause| {
+        error(
+            &root,
+            ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+        )
+    })?;
+    let path = |id| {
+        definitions
+            .resolve(id)
+            .expect("reference-validated MIR input")
+            .to_path()
+    };
+    let mut modules = Vec::with_capacity(inputs.len());
     let mut indices = HashMap::new();
     let mut bindings = HashMap::new();
     let mut layouts = HashMap::new();
     let mut enum_layouts = HashMap::new();
-    for (index, module) in raw.iter().enumerate() {
+    for (index, module) in inputs.iter().enumerate() {
         cancel
             .check()
             .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
@@ -119,7 +144,7 @@ pub fn verify_program(
         }
     }
     let mut budget = VerificationBudget::default();
-    for (index, module) in raw.into_iter().enumerate() {
+    for (index, module) in inputs.into_iter().enumerate() {
         cancel
             .check()
             .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
@@ -131,20 +156,27 @@ pub fn verify_program(
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
         let identity = module.identity.clone();
-        let module = verify_with_budget(module, cancel, &mut budget)
+        let metadata =
+            DefinitionMetadata::checked(definitions.clone(), module, cancel).map_err(|cause| {
+                error(
+                    &identity,
+                    ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+                )
+            })?;
+        let module = verify_with_budget(metadata, cancel, &mut budget)
             .map_err(|cause| error(&identity, ProgramErrorKind::Verification(cause)))?;
         for layout in &module.structures {
             cancel
                 .check()
                 .map_err(|_| error(&identity, ProgramErrorKind::Cancelled))?;
             if let Some(previous) = layouts.insert(
-                (layout.declaration.clone(), layout.arguments.clone()),
+                (layout.declaration, layout.arguments.clone()),
                 layout.clone(),
             ) && previous != *layout
             {
                 return Err(error(
                     &identity,
-                    ProgramErrorKind::StructContract(layout.declaration.clone()),
+                    ProgramErrorKind::StructContract(path(layout.declaration)),
                 ));
             }
         }
@@ -153,13 +185,13 @@ pub fn verify_program(
                 .check()
                 .map_err(|_| error(&identity, ProgramErrorKind::Cancelled))?;
             if let Some(previous) = enum_layouts.insert(
-                (layout.declaration.clone(), layout.arguments.clone()),
+                (layout.declaration, layout.arguments.clone()),
                 layout.clone(),
             ) && previous != *layout
             {
                 return Err(error(
                     &identity,
-                    ProgramErrorKind::EnumContract(layout.declaration.clone()),
+                    ProgramErrorKind::EnumContract(path(layout.declaration)),
                 ));
             }
         }
@@ -177,7 +209,7 @@ pub fn verify_program(
             {
                 return Err(error(
                     &identity,
-                    ProgramErrorKind::FunctionContract(instance.declaration),
+                    ProgramErrorKind::FunctionContract(path(instance.declaration)),
                 ));
             }
         }
@@ -231,7 +263,7 @@ pub fn verify_program(
             module,
             cancel,
             |id| {
-                let owner = *indices.get(&id.module)?;
+                let owner = *indices.get(definitions.resolve(*id).ok()?.module())?;
                 if owner != index && !dependencies.contains(&owner) {
                     return None;
                 }
@@ -241,11 +273,12 @@ pub fn verify_program(
                     &owner.abi.public_items,
                     &owner.abi.trait_contracts,
                     id,
+                    &definitions,
                 )
             },
             |id| {
                 closure.iter().find_map(|owner| {
-                    abi::type_contract(&owner.identity, &owner.abi.public_items, id)
+                    abi::type_contract(&owner.identity, &owner.abi.public_items, id, &definitions)
                         .map(|record| (record.kind, record.generic_params.len()))
                         .or_else(|| {
                             owner
@@ -283,13 +316,18 @@ pub fn verify_program(
             .flat_map(|host| &host.trait_implementations)
         {
             let id = &implementation.trait_id;
-            let owner = indices.get(&id.module);
-            if Protocol::from_id(id).is_some()
+            let owner = indices.get(
+                definitions
+                    .resolve(*id)
+                    .map_err(|_| error(&module.identity, ProgramErrorKind::InvalidGraph))?
+                    .module(),
+            );
+            if Protocol::from_reference(id, Some(&definitions)).is_some()
                 && !owner.is_some_and(|owner| *owner == index || dependencies.contains(owner))
             {
                 return Err(error(
                     &module.identity,
-                    ProgramErrorKind::InterfaceContract(id.clone()),
+                    ProgramErrorKind::InterfaceContract(path(*id)),
                 ));
             }
             if let Some(owner) = owner {
@@ -300,19 +338,25 @@ pub fn verify_program(
                     &owner.abi.public_items,
                     &owner.abi.trait_contracts,
                     cancel,
+                    &definitions,
                 )
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?
                 {
                     return Err(error(
                         &module.identity,
-                        ProgramErrorKind::InterfaceContract(id.clone()),
+                        ProgramErrorKind::InterfaceContract(path(*id)),
                     ));
                 }
             }
         }
         for request in &module.interface_instances {
             let valid = indices
-                .get(&request.declaration.module)
+                .get(
+                    definitions
+                        .resolve(request.declaration)
+                        .map_err(|_| error(&module.identity, ProgramErrorKind::InvalidGraph))?
+                        .module(),
+                )
                 .filter(|owner| **owner == index || dependencies.contains(owner))
                 .is_some_and(|owner| {
                     modules[*owner].abi.public_items.iter().any(|item| {
@@ -328,7 +372,7 @@ pub fn verify_program(
             if !valid {
                 return Err(error(
                     &module.identity,
-                    ProgramErrorKind::InterfaceContract(request.declaration.clone()),
+                    ProgramErrorKind::InterfaceContract(path(request.declaration)),
                 ));
             }
         }
@@ -354,33 +398,23 @@ pub fn verify_program(
             if let Instruction::UpcastInterface { source, target, .. } = instruction {
                 let ancestry =
                     inheritance::trait_closure(source, &Ty::Trait(source.clone()), cancel, &|id| {
-                        let owner = *indices.get(&id.module)?;
+                        let owner = *indices.get(definitions.resolve(*id).ok()?.module())?;
                         if owner != index && !dependencies.contains(&owner) {
                             return None;
                         }
                         let abi = &modules[owner].abi;
-                        abi.trait_contracts
-                            .iter()
-                            .find(|record| record.declaration == *id)
-                            .map(|record| &record.abi)
-                            .or_else(|| {
-                                abi.public_items.iter().find_map(|item| match item {
-                                    PublicItem::Trait(record)
-                                        if id.path.len() == 1
-                                            && id.path[0].name == record.name
-                                            && id.path[0].kind == DefinitionKind::Trait
-                                            && id.path[0].occurrence == 0 =>
-                                    {
-                                        Some(record)
-                                    }
-                                    _ => None,
-                                })
-                            })
+                        abi::trait_contract(
+                            &modules[owner].identity,
+                            &abi.public_items,
+                            &abi.trait_contracts,
+                            id,
+                            &definitions,
+                        )
                     });
                 if !ancestry.is_ok_and(|parents| parents.contains(target)) {
                     return Err(error(
                         &module.identity,
-                        ProgramErrorKind::InterfaceContract(target.declaration.clone()),
+                        ProgramErrorKind::InterfaceContract(path(target.declaration)),
                     ));
                 }
                 continue;
@@ -392,7 +426,12 @@ pub fn verify_program(
             } = instruction
             {
                 let valid = indices
-                    .get(&contract.interface.declaration.module)
+                    .get(
+                        definitions
+                            .resolve(contract.interface.declaration)
+                            .map_err(|_| error(&module.identity, ProgramErrorKind::InvalidGraph))?
+                            .module(),
+                    )
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         let owner = &modules[*target];
@@ -402,6 +441,7 @@ pub fn verify_program(
                                 &owner.abi.public_items,
                                 &owner.abi.trait_contracts,
                                 &Default::default(),
+                                &definitions,
                             )
                             .ok()
                             .and_then(|signature| {
@@ -412,6 +452,7 @@ pub fn verify_program(
                                         .as_ref()
                                         .map_or(&[], |body| body.parameters.as_slice()),
                                     &Default::default(),
+                                    &definitions,
                                 )
                             })
                     })
@@ -424,7 +465,7 @@ pub fn verify_program(
                 if !valid {
                     return Err(error(
                         &module.identity,
-                        ProgramErrorKind::InterfaceContract(contract.interface.declaration.clone()),
+                        ProgramErrorKind::InterfaceContract(path(contract.interface.declaration)),
                     ));
                 }
                 continue;
@@ -437,7 +478,12 @@ pub fn verify_program(
             } = instruction
             {
                 let valid = indices
-                    .get(&implementation.module)
+                    .get(
+                        definitions
+                            .resolve(*implementation)
+                            .map_err(|_| error(&module.identity, ProgramErrorKind::InvalidGraph))?
+                            .module(),
+                    )
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         modules[*target].abi.public_items.iter().find_map(|item| {
@@ -465,7 +511,7 @@ pub fn verify_program(
                 if !valid {
                     return Err(error(
                         &module.identity,
-                        ProgramErrorKind::InterfaceContract(implementation.clone()),
+                        ProgramErrorKind::InterfaceContract(path(*implementation)),
                     ));
                 }
                 continue;
@@ -478,19 +524,19 @@ pub fn verify_program(
                 continue;
             };
             let key = ConcreteFunctionIdentity {
-                declaration: contract.declaration.clone(),
+                declaration: contract.declaration,
                 arguments: contract.arguments.clone(),
             };
             let target = bindings.get(&key).ok_or_else(|| {
                 error(
                     &module.identity,
-                    ProgramErrorKind::UnresolvedFunction(contract.declaration.clone()),
+                    ProgramErrorKind::UnresolvedFunction(path(contract.declaration)),
                 )
             })?;
             if target.module == index || !dependencies.contains(&target.module) {
                 return Err(error(
                     &module.identity,
-                    ProgramErrorKind::UnresolvedFunction(contract.declaration.clone()),
+                    ProgramErrorKind::UnresolvedFunction(path(contract.declaration)),
                 ));
             }
             let function = &modules[target.module].functions[target.function.index()];
@@ -504,11 +550,11 @@ pub fn verify_program(
             {
                 return Err(error(
                     &module.identity,
-                    ProgramErrorKind::FunctionContract(contract.declaration.clone()),
+                    ProgramErrorKind::FunctionContract(path(contract.declaration)),
                 ));
             }
         }
-        if !native::validate(module, &closure, cancel).map_err(|cause| {
+        if !native::validate(module, &closure, context, cancel).map_err(|cause| {
             error(
                 &module.identity,
                 match cause {
@@ -520,43 +566,28 @@ pub fn verify_program(
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
     }
-    let (raw_modules, analyses): (Vec<_>, Vec<_>) = modules
+    let definitions = context.snapshot();
+    let modules = modules
         .into_iter()
-        .map(|checked| (checked.module, checked.analyses))
-        .unzip();
-    let metadata = ownership::scope_modules(&raw_modules, cancel).map_err(|cause| {
-        error(
-            &root,
-            ProgramErrorKind::Verification(ownership::mapping_error(cause)),
-        )
-    })?;
-    let definitions = metadata.definitions().clone();
-    let compact = metadata.into_records();
-    let bindings = bindings
-        .into_iter()
-        .map(|(identity, target)| {
-            let identity = identity
-                .map_identities(&mut DefinitionMapper::new(
-                    &mut |path| definitions.lookup(path).ok_or_else(ownership::unmapped),
-                    cancel,
-                ))
-                .map_err(|cause| {
-                    error(
-                        &root,
-                        ProgramErrorKind::Verification(ownership::mapping_error(cause)),
-                    )
-                })?;
-            Ok((identity, target))
+        .map(|checked| {
+            let metadata = DefinitionMetadata::checked(
+                definitions.clone(),
+                checked.metadata.into_records(),
+                cancel,
+            )
+            .map_err(|cause| {
+                error(
+                    &root,
+                    ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+                )
+            })?;
+            Ok(ValidatedMirModule {
+                metadata,
+                analyses: checked.analyses,
+            }
+            .seal())
         })
         .collect::<Result<_, ProgramError>>()?;
-    let modules = analyses
-        .into_iter()
-        .zip(compact)
-        .map(|(analysis, records)| {
-            ownership::retain(definitions.clone(), records, analysis, cancel)
-                .map_err(|cause| error(&root, ProgramErrorKind::Verification(cause)))
-        })
-        .collect::<Result<_, _>>()?;
     Ok(VerifiedMirProgram {
         root,
         modules,

@@ -3,11 +3,12 @@ use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath, ModuleIdentity,
+        ModuleIdentity,
+        map::DefinitionContext,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, map_sequence},
         metadata::{DefinitionMetadata, PortableMetadata},
         reference::DefinitionReference,
-        table::wire::PortableDefinitionRef,
+        table::{DefinitionId, wire::PortableDefinitionRef},
     },
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -76,7 +77,7 @@ impl Header {
     serialize = "I: DefinitionReference + Serialize",
     deserialize = "I: DefinitionReference + Deserialize<'de>"
 ))]
-struct RawProgram<I = DefinitionPath> {
+struct RawProgram<I = DefinitionId> {
     root: ModuleIdentity,
     #[serde(deserialize_with = "decode_limits::modules")]
     modules: Vec<MirModule<I>>,
@@ -170,7 +171,12 @@ pub fn decode_program(
     cancel: &CancellationToken,
 ) -> Result<VerifiedMirProgram, MirCodecError> {
     let raw = read_raw(bytes, cancel)?;
-    verify_program(raw.root, raw.modules, cancel).map_err(|error| {
+    let context = DefinitionContext::new().map_err(|error| encoding(error, cancel))?;
+    let raw = raw
+        .import_into(&context, cancel)
+        .map_err(|error| encoding(error, cancel))?
+        .into_records();
+    verify_program(raw.root, raw.modules, &context, cancel).map_err(|error| {
         if cancel.check().is_err() {
             MirCodecError::Cancelled
         } else {
@@ -179,7 +185,10 @@ pub fn decode_program(
     })
 }
 
-fn read_raw(bytes: &[u8], cancel: &CancellationToken) -> Result<RawProgram, MirCodecError> {
+fn read_raw(
+    bytes: &[u8],
+    cancel: &CancellationToken,
+) -> Result<DefinitionMetadata<RawProgram>, MirCodecError> {
     check_cancel(cancel)?;
     if bytes.len() > MAX_MIR_BYTES {
         return Err(MirCodecError::SizeLimit);
@@ -202,9 +211,8 @@ fn read_raw(bytes: &[u8], cancel: &CancellationToken) -> Result<RawProgram, MirC
     }
     let raw = portable
         .decode(cancel)
-        .and_then(|metadata| metadata.to_paths(cancel))
         .map_err(|error| encoding(error, cancel))?;
-    check_counts(raw.modules.iter(), cancel)?;
+    check_counts(raw.records().modules.iter(), cancel)?;
     Ok(raw)
 }
 

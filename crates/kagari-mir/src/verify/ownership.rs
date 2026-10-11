@@ -1,23 +1,18 @@
-//! Checked identity ownership is attached only after semantic verification.
+//! Retained identity scopes stay separate from MIR verification evidence.
 use crate::{
-    analysis::FunctionAnalysis,
     function::MirModule,
-    verify::{
-        MirVerificationError, MirVerificationErrorKind, ValidatedMirModule, VerifiedMirModule,
-    },
+    verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule},
 };
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath,
+        map::DefinitionContext,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
         metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTable, DefinitionTableBuilder, DefinitionTableError},
+        table::{DefinitionTable, DefinitionTableError},
     },
 };
-use kagari_contract::types::PublicItem;
-use kagari_types::{declaration::TraitDef, ty::Ty};
-use std::slice;
+use kagari_contract::types::identity;
 
 pub(crate) fn mapping_error(cause: DefinitionMappingError) -> MirVerificationError {
     MirVerificationError {
@@ -42,135 +37,53 @@ pub(crate) fn mapping_error(cause: DefinitionMappingError) -> MirVerificationErr
     }
 }
 
-pub(crate) fn unmapped() -> DefinitionMappingError {
-    DefinitionTableError::UnmappedDefinition.into()
-}
-
-pub(crate) fn adopt(
-    checked: ValidatedMirModule,
-    cancel: &CancellationToken,
-) -> Result<VerifiedMirModule, MirVerificationError> {
-    let scoped = scope_modules(slice::from_ref(&checked.module), cancel).map_err(mapping_error)?;
-    let definitions = scoped.definitions().clone();
-    let module = scoped.into_records().pop().expect("one checked module");
-    let metadata =
-        DefinitionMetadata::checked(definitions, module, cancel).map_err(mapping_error)?;
-    Ok(VerifiedMirModule {
-        metadata,
-        analyses: checked.analyses,
-    })
-}
-
-/// Named ABI members are derived from the checked declaration, including unused
-/// marker traits. These entries carry names, never registration authority.
-pub(crate) fn scope_modules(
-    modules: &[MirModule],
-    cancel: &CancellationToken,
-) -> Result<DefinitionMetadata<Vec<MirModule<DefinitionId>>>, DefinitionMappingError> {
-    let mut builder = DefinitionTableBuilder::new()?;
-    for module in modules {
-        for item in &module.abi.public_items {
-            cancel
-                .check()
-                .map_err(|_| DefinitionMappingError::Cancelled)?;
-            match item {
-                PublicItem::Trait(contract) => {
-                    let root = builder.intern_root(&module.identity)?;
-                    let owner =
-                        builder.intern_child(root, DefinitionKind::Trait, &contract.name, 0)?;
-                    trait_members(&mut builder, owner, contract)?;
-                }
-                PublicItem::InterfaceTable(table) => {
-                    let owner = builder.intern_path(&table.declaration)?;
-                    for method in &table.methods {
-                        builder.intern_child(owner, DefinitionKind::Method, &method.name, 0)?;
-                    }
-                    if let Ty::Trait(interface) = &table.trait_type {
-                        let owner = builder.intern_path(&interface.declaration)?;
-                        for method in &table.methods {
-                            builder.intern_child(owner, DefinitionKind::Method, &method.name, 0)?;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        for contract in &module.abi.trait_contracts {
-            let owner = builder.intern_path(&contract.declaration)?;
-            trait_members(&mut builder, owner, &contract.abi)?;
-        }
-    }
-    let records = modules
-        .iter()
-        .map(|module| {
-            module.map_identities(&mut DefinitionMapper::new(
-                &mut |path| builder.intern_path(path).map_err(Into::into),
-                cancel,
-            ))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    DefinitionMetadata::checked(builder.freeze(), records, cancel)
-}
-
-fn trait_members(
-    builder: &mut DefinitionTableBuilder,
-    owner: DefinitionId,
-    contract: &TraitDef,
-) -> Result<(), DefinitionMappingError> {
-    for method in &contract.methods {
-        builder.intern_child(owner, DefinitionKind::Method, &method.name, 0)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn retain(
-    definitions: DefinitionTable,
-    records: MirModule<DefinitionId>,
-    analyses: Vec<FunctionAnalysis>,
-    cancel: &CancellationToken,
-) -> Result<VerifiedMirModule, MirVerificationError> {
-    let metadata =
-        DefinitionMetadata::checked(definitions, records, cancel).map_err(mapping_error)?;
-    Ok(VerifiedMirModule { metadata, analyses })
-}
-
 impl VerifiedMirModule {
+    /// The immutable scope retained by this verification seal.
     pub fn definitions(&self) -> &DefinitionTable {
         self.metadata.definitions()
     }
 
+    /// Copy editable records and their identity scope, without verification evidence.
     pub fn to_unverified(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<MirModule, MirVerificationError> {
-        self.metadata.to_paths(cancel).map_err(mapping_error)
+    ) -> Result<DefinitionMetadata<MirModule>, MirVerificationError> {
+        // Use the record traversal to keep large copies cancellable. Identity
+        // values remain in this exact scope throughout the copy.
+        let records = self
+            .metadata
+            .records()
+            .map_identities(&mut DefinitionMapper::new(&mut |id| Ok(*id), cancel))
+            .map_err(mapping_error)?;
+        DefinitionMetadata::checked(self.definitions().clone(), records, cancel)
+            .map_err(mapping_error)
     }
 
-    /// Mutable authoring extraction discards the verification seal.
-    pub fn into_unverified(self) -> MirModule {
-        self.to_unverified(&CancellationToken::default())
-            .expect("checked MIR identity ownership")
+    /// Transfer editable records and their scope, discarding the verification seal.
+    pub fn into_unverified(self) -> DefinitionMetadata<MirModule> {
+        self.metadata
     }
+}
 
-    pub fn paths<T: DefinitionRecord<DefinitionId>>(
-        &self,
-        records: &T,
-        cancel: &CancellationToken,
-    ) -> Result<T::Rebind<DefinitionPath>, DefinitionMappingError> {
-        records.map_identities(&mut DefinitionMapper::new(
-            &mut |id| Ok(self.definitions().resolve(*id)?.to_path()),
+/// Collect ABI-owned names only after every input reference has been validated
+/// against the context's original prefix. Names confer no verification evidence.
+pub(crate) fn collect(
+    modules: &[MirModule],
+    context: &DefinitionContext,
+    cancel: &CancellationToken,
+) -> Result<DefinitionTable, DefinitionMappingError> {
+    let input = context.snapshot();
+    for module in modules {
+        module.visit_definitions(&mut |id| Ok(input.resolve(*id).map(|_| ())?), cancel)?;
+    }
+    for module in modules {
+        identity::collect(
+            &module.identity,
+            &module.abi.public_items,
+            &module.abi.trait_contracts,
+            context,
             cancel,
-        ))
+        )?;
     }
-
-    pub fn scope<T: DefinitionRecord<DefinitionPath>>(
-        &self,
-        records: &T,
-        cancel: &CancellationToken,
-    ) -> Result<T::Rebind<DefinitionId>, DefinitionMappingError> {
-        records.map_identities(&mut DefinitionMapper::new(
-            &mut |path| self.definitions().lookup(path).ok_or_else(unmapped),
-            cancel,
-        ))
-    }
+    Ok(context.snapshot())
 }
