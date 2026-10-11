@@ -1,4 +1,5 @@
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
@@ -16,11 +17,12 @@ use kagari_types::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         value_type::HostValueType as Type,
     },
+    language::binding,
 };
 use kagari_vm::reentry::reenter;
 use std::sync::{Arc, Mutex};
 
-fn composite() -> Type {
+fn composite(definitions: &DefinitionContext) -> Type {
     Type::Tuple(vec![
         Type::Array(Box::new(Type::I32)),
         Type::Map {
@@ -30,11 +32,11 @@ fn composite() -> Type {
         },
         Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
         Type::Option(
-            kagari_types::language::binding::option_declaration(),
+            definitions.intern(&binding::option_declaration()).unwrap(),
             Box::new(Type::I32),
         ),
         Type::Result {
-            declaration: kagari_types::language::binding::result_declaration(),
+            declaration: definitions.intern(&binding::result_declaration()).unwrap(),
             ok: Box::new(Type::I32),
             error: Box::new(Type::String),
         },
@@ -43,16 +45,21 @@ fn composite() -> Type {
 
 #[test]
 fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes() {
-    let make = HostFunctionDeclaration::new("demo.make", vec![], composite());
+    let definitions = DefinitionContext::new().unwrap();
+    let make =
+        HostFunctionDeclaration::new(&definitions, "demo.make", vec![], composite(&definitions))
+            .unwrap();
     let echo = HostFunctionDeclaration::new(
+        &definitions,
         "demo.echo",
         vec![HostParameter {
             name: "value".into(),
-            ty: composite(),
+            ty: composite(&definitions),
             passing: HostPassingStyle::Owned,
         }],
-        composite(),
-    );
+        composite(&definitions),
+    )
+    .unwrap();
     let interface = HostInterface {
         paths: vec![],
         types: Vec::new(),
@@ -60,11 +67,14 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     };
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
+        .set_host_interface(
+            HostInterface::from_bytes(&interface.to_bytes(&definitions.snapshot()).unwrap())
+                .unwrap(),
+        )
         .unwrap();
 
     let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use std::collections::{HashMap, HashSet};\nuse demo as api; fn main() -> ([i32], HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> ([i32], HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
-    let payload = artifact.program.modules[artifact.program.root.index()]
+    let payload = artifact.records().program.modules[artifact.records().program.root.index()]
         .functions
         .iter()
         .find(|function| function.name == "payload")
@@ -72,7 +82,8 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         .id;
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
         } else {
             artifact.clone()
         };
@@ -83,21 +94,38 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         let trace = Arc::new(Mutex::new(Vec::new()));
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |context, _| {
-                calls.lock().unwrap().push("make");
-                let owner = context.runtime().execution_root().unwrap();
-                let payload = reenter(context, &owner, payload, &[])
-                    .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
-                Ok(payload.value(context.runtime().gc()).unwrap())
-            }))
+            .register_host_function(HostFunction::new(
+                DefinitionMetadata::checked(
+                    definitions.snapshot(),
+                    make.clone(),
+                    &Default::default(),
+                )
+                .unwrap(),
+                move |context, _| {
+                    calls.lock().unwrap().push("make");
+                    let owner = context.runtime().execution_root().unwrap();
+                    let payload = reenter(context, &owner, payload, &[]).map_err(|error| {
+                        HostError::new(format!("payload construction: {error:?}"))
+                    })?;
+                    Ok(payload.value(context.runtime().gc()).unwrap())
+                },
+            ))
             .unwrap();
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(echo.clone(), move |context, args| {
-                calls.lock().unwrap().push("echo");
-                context.runtime().collect_garbage().unwrap();
-                Ok(args[0])
-            }))
+            .register_host_function(HostFunction::new(
+                DefinitionMetadata::checked(
+                    definitions.snapshot(),
+                    echo.clone(),
+                    &Default::default(),
+                )
+                .unwrap(),
+                move |context, args| {
+                    calls.lock().unwrap().push("echo");
+                    context.runtime().collect_garbage().unwrap();
+                    Ok(args[0])
+                },
+            ))
             .unwrap();
         let loaded_program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
@@ -158,21 +186,29 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
 
 #[test]
 fn offline_composite_signatures_reject_nested_source_mismatches() {
+    let definitions = DefinitionContext::new().unwrap();
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface {
-            paths: vec![],
-            types: Vec::new(),
-            functions: vec![HostFunctionDeclaration::new(
-                "demo.take",
-                vec![HostParameter {
-                    name: "value".into(),
-                    ty: Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::Bool]),
-                    passing: HostPassingStyle::Owned,
-                }],
-                Type::Unit,
-            )],
-        })
+        .set_host_interface(interface_metadata(
+            &definitions,
+            HostInterface {
+                paths: vec![],
+                types: Vec::new(),
+                functions: vec![
+                    HostFunctionDeclaration::new(
+                        &definitions,
+                        "demo.take",
+                        vec![HostParameter {
+                            name: "value".into(),
+                            ty: Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::Bool]),
+                            passing: HostPassingStyle::Owned,
+                        }],
+                        Type::Unit,
+                    )
+                    .unwrap(),
+                ],
+            },
+        ))
         .unwrap();
     let error = engine
         .compile_source(SourceFile::new(
@@ -185,7 +221,9 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
 
 #[test]
 fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_operands() {
+    let definitions = DefinitionContext::new().unwrap();
     let declaration = HostFunctionDeclaration::new(
+        &definitions,
         "demo.take",
         vec![HostParameter {
             name: "value".into(),
@@ -193,14 +231,18 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             passing: HostPassingStyle::Owned,
         }],
         Type::I32,
-    );
+    )
+    .unwrap();
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface {
-            paths: vec![],
-            types: vec![],
-            functions: vec![declaration.clone()],
-        })
+        .set_host_interface(interface_metadata(
+            &definitions,
+            HostInterface {
+                paths: vec![],
+                types: vec![],
+                functions: vec![declaration.clone()],
+            },
+        ))
         .unwrap();
 
     for (argument, expected_calls) in [
@@ -219,7 +261,10 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             .unwrap();
         for (encoded, jit) in [(false, false), (true, false), (true, true)] {
             let artifact = if encoded {
-                KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+                KbcArtifact::from_bytes(
+                    &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+                )
+                .unwrap()
             } else {
                 artifact.clone()
             };
@@ -231,7 +276,12 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             let calls = count.clone();
             runtime
                 .register_host_function(HostFunction::new(
-                    declaration.clone(),
+                    DefinitionMetadata::checked(
+                        definitions.snapshot(),
+                        declaration.clone(),
+                        &Default::default(),
+                    )
+                    .unwrap(),
                     move |context, args| {
                         let Value::Array(array) = args[0] else {
                             panic!("array argument")
@@ -297,4 +347,11 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             "{argument}"
         );
     }
+}
+
+fn interface_metadata(
+    definitions: &DefinitionContext,
+    interface: HostInterface,
+) -> DefinitionMetadata<HostInterface> {
+    DefinitionMetadata::checked(definitions.snapshot(), interface, &Default::default()).unwrap()
 }

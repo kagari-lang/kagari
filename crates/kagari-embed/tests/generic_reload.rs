@@ -1,21 +1,24 @@
 #![cfg(feature = "source")]
 use kagari_bytecode::program::BytecodeProgram;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine};
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
 
-fn prepare(engine: &KagariEngine, source: &str) -> BytecodeProgram {
+fn prepare(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeProgram> {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("generic-reload.kgr", source),
             Default::default(),
         )
         .unwrap();
-    BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap())
-        .unwrap()
-        .program
+    let (definitions, artifact) =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap()
+            .into_parts();
+    DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap()
 }
 
 #[test]
@@ -66,13 +69,7 @@ fn make() -> Run {{
             .iter()
             .find(|contract| contract.abi.name == "Run")
             .unwrap();
-        let run = ModuleDecl::method_id(
-            &old.definitions()
-                .resolve(contract.declaration)
-                .unwrap()
-                .to_path(),
-            "run",
-        );
+        let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
         let old_key = old.key();
         let vm = Vm::new(runtime);
         let saved = vm
@@ -167,13 +164,7 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
         .iter()
         .find(|contract| contract.abi.name == "Run")
         .unwrap();
-    let run = ModuleDecl::method_id(
-        &old.definitions()
-            .resolve(contract.declaration)
-            .unwrap()
-            .to_path(),
-        "run",
-    );
+    let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
     let saved = vm

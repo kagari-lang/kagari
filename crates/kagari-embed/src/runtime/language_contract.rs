@@ -6,9 +6,15 @@ use kagari_bytecode::{
     native_input::PortableMir,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::DefinitionKind;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+        metadata::DefinitionMetadata,
+    },
+};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::{host::HostDeclarations, program::ProgramCheckError};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
@@ -23,8 +29,11 @@ use kagari_runtime::{
     value::Value,
     value_semantics::script_equal,
 };
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::namespaces;
-use kagari_types::{declaration::module::ModuleDecl, host_interface::value_type::HostValueType};
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, standard_log, value_type::HostValueType,
+};
 use kagari_vm::{
     error::VmError,
     vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
@@ -171,20 +180,24 @@ impl<'a> Case<'a> {
     }
 }
 
-fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
-    let observe = kagari_types::host_interface::HostFunctionDeclaration::new(
+fn observe_vector() -> DefinitionMetadata<HostFunctionDeclaration> {
+    let context = DefinitionContext::new().unwrap();
+    let root = context.intern_root(&namespaces::type_owner("Vec")).unwrap();
+    let vector = context
+        .intern_child(root, DefinitionKind::AssociatedType, "Vec", 0)
+        .unwrap();
+    let observe = HostFunctionDeclaration::new(
+        &context,
         "observe.vector",
         vec![],
-        HostValueType::Vec(
-            ModuleDecl::new(namespaces::type_owner("Vec"))
-                .definition(DefinitionKind::AssociatedType, "Vec"),
-            Box::new(HostValueType::I32),
-        ),
-    );
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::{SourceDatabase, SourceLayer},
-    };
+        HostValueType::Vec(vector, Box::new(HostValueType::I32)),
+    )
+    .unwrap();
+    DefinitionMetadata::checked(context.snapshot(), observe, &Default::default()).unwrap()
+}
+
+fn compile(case: &Case<'_>) -> Option<DefinitionMetadata<KbcArtifact>> {
+    let observe = observe_vector();
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in case
@@ -208,11 +221,18 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     let mut analysis = preparation::analysis();
     if case.vector.is_some() {
         analysis.set_host_declarations(
-            kagari_hir::host::HostDeclarations::new(kagari_types::host_interface::HostInterface {
-                paths: vec![],
-                types: vec![],
-                functions: vec![observe.clone()],
-            })
+            HostDeclarations::new(
+                DefinitionMetadata::checked(
+                    observe.definitions().clone(),
+                    HostInterface {
+                        paths: vec![],
+                        types: vec![],
+                        functions: vec![observe.records().clone()],
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
+            )
             .unwrap(),
         );
     }
@@ -221,7 +241,7 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
         .unwrap();
     let checked = snapshot.check_program(root.unwrap(), &Default::default());
     if let Expected::Diagnostic(code) = case.expected {
-        let Err(kagari_hir::program::ProgramCheckError::Diagnostics(diagnostics)) = checked else {
+        let Err(ProgramCheckError::Diagnostics(diagnostics)) = checked else {
             let outcome = checked.map(|_| "checked successfully");
             panic!("{}: expected diagnostic {code}, got {outcome:?}", case.name);
         };
@@ -234,7 +254,12 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     }
     let checked = checked.unwrap_or_else(|error| panic!("{}: {error:?}", case.name));
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let compiled = lower_program_to_bytecode(&mir).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let compiled = lower_program_to_bytecode(&mir)
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
     let artifact = KbcArtifact::from_program(
         compiled,
         ArtifactBuildOptions {
@@ -243,9 +268,10 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
             }),
             ..Default::default()
         },
+        &context,
     )
     .unwrap();
-    Some(artifact)
+    Some(DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap())
 }
 
 struct RoutePrograms {
@@ -254,8 +280,10 @@ struct RoutePrograms {
 }
 
 impl RoutePrograms {
-    fn new(artifact: KbcArtifact) -> Self {
-        let encoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    fn new(artifact: DefinitionMetadata<KbcArtifact>) -> Self {
+        let encoded =
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap();
         let prepare = |artifact| {
             PreparedProgram::from_artifact(
                 artifact,
@@ -376,15 +404,7 @@ fn run(
     module: &PreparedProgram,
     candidate_program: Option<&PreparedProgram>,
 ) {
-    let observe = kagari_types::host_interface::HostFunctionDeclaration::new(
-        "observe.vector",
-        vec![],
-        HostValueType::Vec(
-            ModuleDecl::new(namespaces::type_owner("Vec"))
-                .definition(DefinitionKind::AssociatedType, "Vec"),
-            Box::new(HostValueType::I32),
-        ),
-    );
+    let observe = observe_vector();
     let mut runtime = preparation::installation().runtime(RuntimeConfig {
         limits: RuntimeLimits {
             ..Default::default()
@@ -396,11 +416,11 @@ fn run(
     let capture = host.clone();
     let reject_call = case.reject_call;
     let cancel_call = case.cancel_call;
-    let cancellation = kagari_common::cancellation::CancellationToken::default();
+    let cancellation = CancellationToken::default();
     let cancel = cancellation.clone();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::standard_log().unwrap(),
+            standard_log().unwrap(),
             move |cx, args| {
                 let [Value::Str(id)] = args else {
                     return Err(HostError::new("log requires one string"));

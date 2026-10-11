@@ -13,7 +13,7 @@ pub(super) fn analysis() -> AnalysisDatabase {
                 kagari_stdlib::modules()
                     .unwrap()
                     .iter()
-                    .map(|module| Arc::new(module.to_declaration().unwrap()))
+                    .map(|module| Arc::new(module.to_declaration()))
                     .collect(),
             );
             let snapshot = analysis

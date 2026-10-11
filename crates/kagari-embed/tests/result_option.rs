@@ -1,4 +1,5 @@
 mod support;
+use kagari_common::identity::map::DefinitionContext;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -99,7 +100,10 @@ fn execute(source: &str) {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -366,6 +370,11 @@ fn malformed_nominal_enum_operations_are_rejected_before_execution() {
             Default::default(),
         )
         .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
     for case in 0..5 {
         let mut program = artifact.program.clone();
         let instruction = program
@@ -392,7 +401,7 @@ fn malformed_nominal_enum_operations_are_rejected_before_execution() {
             _ => *variant = 1,
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "case {case}"
         );
     }

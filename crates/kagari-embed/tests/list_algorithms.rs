@@ -19,7 +19,9 @@ fn execute(source: &str) {
     let artifact = engine
         .compile_to_artifact(SourceFile::new("lists.kgr", source), Default::default())
         .unwrap();
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded =
+        KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let program =
         PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
@@ -234,7 +236,8 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             &StandardDeclarations::default()
                 .catalog()
                 .expect("explicit standard providers"),
-        );
+        )
+        .unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let token = context.cancellation.clone();
@@ -257,7 +260,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         module
             .function(&keep, |function| {
                 let parameter = function.type_parameter("T")?.ty();
-                function.parameter("value", parameter);
+                function.parameter("value", parameter)?;
                 Ok(())
             })
             .unwrap();

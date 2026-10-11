@@ -1,4 +1,5 @@
 #![cfg(feature = "source")]
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{
     host::HostFunction,
@@ -14,7 +15,7 @@ use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValu
 
 fn provider(answer: i32) -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
-    let mut module = ModuleBuilder::new("application::answer", builder.declarations());
+    let mut module = ModuleBuilder::new("application::answer", builder.declarations()).unwrap();
     module
         .add_function(
             FunctionSpec::new("read"),
@@ -89,7 +90,18 @@ fn runtimes_from_one_installation_have_independent_host_state_and_heap_owners() 
     first
         .runtime_mut()
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new("host.answer", vec![], HostValueType::I32),
+            {
+                let context = DefinitionContext::new().unwrap();
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "host.answer",
+                    vec![],
+                    HostValueType::I32,
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             |_, _| Ok(Value::I32(42)),
         ))
         .unwrap();

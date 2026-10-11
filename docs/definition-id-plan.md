@@ -3614,3 +3614,48 @@ string_interpolation (1). SI06 owns adapting these scoped artifacts, Host declar
 standard provider results and queries. No embed tests executed in this check. Embed
 consumer integration and lasting documentation cleanup/plan retirement remain required;
 exhaustive workspace/features/backend validation remains CI scope.
+
+### SI06 embed contract and offline Host consumers
+
+The embedding language-contract producer retains metadata through bytecode artifact
+construction and all four existing source/artifact/interpreter/native routes. Its
+observed Vec declaration is registered once per authoring context and carries its
+snapshot through analysis and runtime registration. Generic reload fixtures decode
+scoped artifacts directly and resolve method IDs against the loaded table. Forged
+enum instructions retain the original table while dropping executable verification.
+
+Offline Host function/composite fixtures serialize with their authoring tables,
+retain decoded scopes, and register signatures with DefinitionMetadata. Expected
+Host declarations and compiled facade records are imported into a common comparison
+context before equality checks. Nested result/option types retain canonical IDs;
+wrong-result signatures still reach ordinary link rejection. Registration snapshots
+are taken after all included declarations have been authored.
+
+Focused local evidence:
+
+- Four library language_contract cases pass: generic_same_storage_distinct_types,
+  applied_trait_bound_dispatch, heap_overflow_preserves_earlier_write and
+  heap_cancellation_preserves_earlier_write. Each uses the existing four-route harness;
+  the rest of the language-contract suite is not run locally.
+- engine_sessions::sessions_retain_exact_providers, both generic_reload contracts,
+  and result_option::malformed_nominal_enum pass (four cases).
+- list_algorithms::cancellation_during_callbacks_restores_storage and
+  string_interpolation::formatting_generic_values_uses pass (two cases).
+- offline_functions::offline_host_facades and the offline_composite_calls and
+  offline_host_parameters cases pass (three cases), preserving linked callback order,
+  no callback on incompatible/unbound imports, retained composite shapes/roots and
+  once-only operand termination. Total: 13 selected cases in this batch.
+- Clippy passes for engine_sessions, generic_reload, list_algorithms, result_option
+  and string_interpolation together, and for offline_functions/offline_composite
+  together, using `cargo clippy -p kagari-embed --test <selected-target> ...
+  --message-format=short -- -D warnings`. Library-test Clippy remains to be completed
+  with the final package test-target integration check after remaining consumers move.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Manual review covers scope normalization, immutable read access,
+  mutation-before-verification, snapshot timing, normal imports and unchanged assertions.
+
+The original embed diagnostic ledger now has two untouched consumer groups:
+host_interfaces (77) and native_provider_reset plus its support (47). Their remaining
+124 diagnostics are the previous check's baseline, not a fresh failed run. SI06 owns
+both groups, final dependent/fixture audits and lasting documentation transfer/plan
+retirement. Complete workspace and feature/backend acceptance remains CI scope.
