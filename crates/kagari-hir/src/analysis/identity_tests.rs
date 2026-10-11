@@ -30,7 +30,7 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
         );
     }
     assert!(
-        crate::analyze_source(&source, foundation_catalog::shared())
+        crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis")
             .into_codegen()
             .is_ok()
@@ -42,7 +42,7 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
         SourceFile::new("child.kgr", "").id(),
         Span::new(0, text.len()),
     );
-    let analyzed = crate::analyze_source(&source, foundation_catalog::shared())
+    let analyzed = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(analyzed.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
@@ -74,7 +74,7 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     sources.set("source.kgr", "use core::option::Option as Maybe; fn identity(value: Maybe<i32>) -> Maybe<i32> { value }".into(), SourceLayer::Overlay).unwrap();
     let files = sources.snapshot();
     let source = files.file(id).unwrap();
-    let result = crate::analyze_source(source, foundation_catalog::shared())
+    let result = crate::analyze_source(source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(
         result.diagnostics().is_empty(),
@@ -980,7 +980,7 @@ fn implicit_receiver_keeps_impl_type_context_when_method_shadows_a_generic() {
 fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let text = "struct Same { val n: i32 } fn Same() -> i32 { 1 } fn Same() -> i32 { 2 } trait A { fn get(self) -> i32; } trait B { fn get(self) -> i32; } impl A for Same { fn get(self) -> i32 { self.n } }";
     let source = SourceFile::new("definitions.kgr", text);
-    let result = crate::analyze_source(&source, foundation_catalog::shared())
+    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(!result.diagnostics().is_empty());
     let facts = result.facts();
@@ -1033,11 +1033,11 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
         "compact.kgr",
         "struct Player { var hp: i32 } fn identity<T>(value: T) -> T { value }",
     );
-    let first = crate::analyze_source(&source, foundation_catalog::shared())
+    let first = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_codegen()
         .unwrap();
-    let second = crate::analyze_source(&source, foundation_catalog::shared())
+    let second = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_codegen()
         .unwrap();
@@ -1094,6 +1094,7 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
     let authoring = first.to_unverified(&Default::default()).unwrap();
     assert_eq!(
         authoring
+            .records()
             .typed
             .functions
             .iter()
@@ -1101,7 +1102,7 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
             .unwrap()
             .generic_params[0]
             .owner,
-        first.definitions().resolve(owner).unwrap().to_path()
+        owner
     );
     drop(source);
     drop(second);

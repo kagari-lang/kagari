@@ -1,5 +1,5 @@
 use super::*;
-use crate::{analysis::ownership, declarations::DeclarationId, tests::test_analysis};
+use crate::{declarations::DeclarationId, tests::test_analysis};
 use kagari_common::identity::DefinitionPath;
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -166,14 +166,10 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     assert!(second.declarations().get(&old_local.id).is_none());
     assert_eq!(first.declarations().get(&old_local.id), Some(&old_local));
     let fresh = query(&mut test_analysis(), &sources, &good);
-    ownership::paths(
-        second.type_table(),
+    second.type_table().assert_same_source_facts(
         second.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .assert_same_source_facts(
-        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
+        fresh.type_table(),
+        fresh.definitions(),
         second.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );
@@ -269,14 +265,10 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
     );
     assert!(!second.diagnostics().is_empty());
     let fresh = query(&mut test_analysis(), &sources, &root_owner);
-    ownership::paths(
-        second.type_table(),
+    second.type_table().assert_same_source_facts(
         second.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .assert_same_source_facts(
-        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
+        fresh.type_table(),
+        fresh.definitions(),
         second.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );
@@ -342,15 +334,10 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
         assert_eq!(result.checked_bodies(), 0);
         assert_eq!(result.reused_bodies(), 1);
         let fresh = query(&mut test_analysis(), &sources, &method);
-        ownership::paths(
-            result.type_table(),
+        result.type_table().assert_same_source_facts(
             result.definitions(),
-            &Default::default(),
-        )
-        .unwrap()
-        .assert_same_source_facts(
-            &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default())
-                .unwrap(),
+            fresh.type_table(),
+            fresh.definitions(),
             result.lowered().module.body.arena(),
             fresh.lowered().module.body.arena(),
         );

@@ -47,7 +47,7 @@ fn payload_errors_preserve_later_types_and_neighbor_queries() {
     let snapshot = analyze(&mut db, &sources);
     let analysis = snapshot.file(file).unwrap();
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let variants = &facts.lowered.module.enums[0].variants;
     assert_eq!(
         variants.iter().map(|v| v.payload.len()).collect::<Vec<_>>(),
@@ -86,7 +86,7 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let old_facts = authoring_old_facts.facts();
+    let old_facts = authoring_old_facts.records().facts();
     let old_ty = old_facts.lowered.module.enums[0].variants[0].payload[0];
     sources
         .set(
@@ -99,7 +99,7 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let new_file = new.file(file).unwrap();
     assert!(new_file.signatures_reused());
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
-    let new_facts = authoring_new_facts.facts();
+    let new_facts = authoring_new_facts.records().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
     // Recheck user sources without query caches against the same immutable
     // installed source universe; its declaration locations must compare exactly.
@@ -114,9 +114,11 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let fresh = authoring_fresh.facts();
+    let fresh = authoring_fresh.records().facts();
     new_facts.typed.type_table.assert_same_source_facts(
+        authoring_new_facts.definitions(),
         &fresh.typed.type_table,
+        authoring_fresh.definitions(),
         new_facts.lowered.module.body.arena(),
         fresh.lowered.module.body.arena(),
     );
@@ -162,7 +164,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         old_root.result().diagnostics()
     );
     let authoring_catalog = old_root.to_unverified(&Default::default()).unwrap();
-    let catalog = &authoring_catalog.facts().aggregates;
+    let catalog = &authoring_catalog.records().facts().aggregates;
     assert_eq!(
         catalog
             .enumerations()
@@ -183,6 +185,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .to_unverified(&Default::default())
         .unwrap();
     let a = authoring_a
+        .records()
         .facts()
         .aggregates
         .enumerations()
@@ -200,6 +203,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .to_unverified(&Default::default())
         .unwrap();
     let b = authoring_b
+        .records()
         .facts()
         .aggregates
         .enumerations()
@@ -219,6 +223,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .to_unverified(&Default::default())
         .unwrap();
     let hidden = authoring_hidden
+        .records()
         .facts()
         .aggregates
         .enumerations()
@@ -242,7 +247,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
     let new_root = new.file(root).unwrap();
     assert!(!Arc::ptr_eq(old_root, new_root));
     let authoring_new = new_root.to_unverified(&Default::default()).unwrap();
-    assert!(!catalog.same_contracts(&authoring_new.facts().aggregates));
+    assert!(!catalog.same_contracts(&authoring_new.records().facts().aggregates));
     assert_eq!(new_root.result().facts().typed.reused_bodies, 0);
     assert_eq!(
         catalog.enumeration(&a.id).unwrap().variants[0].payload[1],
@@ -250,6 +255,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
     );
     assert_eq!(
         authoring_new
+            .records()
             .facts()
             .aggregates
             .enumeration(&a.id)

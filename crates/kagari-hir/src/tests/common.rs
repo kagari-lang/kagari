@@ -8,7 +8,13 @@ use crate::{
         reuse::BodyReuse,
     },
 };
-use {kagari_common::identity::map::DefinitionContext, kagari_source::source::SourceFile};
+use kagari_common::identity::{
+    map::DefinitionContext,
+    mapping::DefinitionRecord,
+    metadata::DefinitionMetadata,
+    table::{DefinitionId, DefinitionTable},
+};
+use kagari_source::source::SourceFile;
 
 use kagari_syntax::parser::parse_module;
 
@@ -50,6 +56,7 @@ pub fn check_module(
         &DefinitionContext::new().unwrap(),
         &Default::default(),
     )
+    .unwrap()
     .with_bindings(lowered, names, &Default::default());
     let mut signatures = check_signatures(lowered, &declarations, &Default::default());
     let mut aggregates = crate::aggregates::AggregateCatalog::default();
@@ -85,4 +92,20 @@ pub fn check_module(
         reuse,
         &Default::default(),
     )
+}
+
+/// Import checked semantic facts into a test-owned comparison scope. Source-local
+/// analysis/arena identities remain intact and must be checked separately.
+pub(crate) fn import_facts<T>(
+    facts: &T,
+    definitions: &DefinitionTable,
+    context: &DefinitionContext,
+) -> DefinitionMetadata<T>
+where
+    T: Clone + DefinitionRecord<DefinitionId, Rebind<DefinitionId> = T>,
+{
+    DefinitionMetadata::checked(definitions.clone(), facts.clone(), &Default::default())
+        .unwrap()
+        .import_into(context, &Default::default())
+        .unwrap()
 }

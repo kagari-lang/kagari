@@ -9,7 +9,7 @@ fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
         "holes.kgr",
         "use std::collections::{List};\nfn bad() { val partial: (i32, List<_>) = (42, Vec::from([])); partial } fn good() -> u8 { 42 }",
     );
-    let result = crate::analyze_source(&source, foundation_catalog::shared())
+    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(!result.diagnostics().is_empty());
     let facts = result.facts();
@@ -64,7 +64,7 @@ fn const_arithmetic_failures_preserve_other_semantic_facts() {
                 "const BAD: i32 = {expression}; const GOOD: i32 = 6 * 7; fn good() -> i32 {{ GOOD }}"
             ),
         );
-        let result = crate::analyze_source(&source, foundation_catalog::shared())
+        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         let diagnostic = result.diagnostics().iter().find(|diagnostic| matches!(
             &diagnostic.kind, DiagnosticKind::InvalidConstInitializer { const_name, reason: actual }
@@ -98,7 +98,7 @@ fn invalid_literals_and_patterns_retain_neighbor_types() {
         "const BAD: i32 = 2147483648;",
     ] {
         let source = SourceFile::new("literal.kgr", format!("{source} fn good() -> i32 {{ 42 }}"));
-        let result = crate::analyze_source(&source, foundation_catalog::shared())
+        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert!(
             result
@@ -125,7 +125,7 @@ fn invalid_literals_and_patterns_retain_neighbor_types() {
         "literal.kgr",
         "fn main() -> i32 { match true { 1 => 1, _ => 2 } }",
     );
-    let result = crate::analyze_source(&source, foundation_catalog::shared())
+    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(
         result.diagnostics().iter().any(|diagnostic| matches!(
@@ -142,7 +142,7 @@ fn const_type_mismatch_is_rejected_before_codegen() {
         "const.kgr",
         "const BAD: i32 = true; fn main() -> i32 { BAD }",
     );
-    let result = crate::analyze_source(&source, foundation_catalog::shared())
+    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(result.diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind, DiagnosticKind::InvalidConstInitializer { reason, .. }
@@ -287,7 +287,7 @@ const VALUES: Vec<i32> = Vec::from([3, 4]);
 const POINT: Point = Point { x: 5, y: 6 };
 "#,
     );
-    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("type checker should reject heap-backed const types");
@@ -960,7 +960,7 @@ fn wide_const_dependencies_keep_values_and_error_owners_by_declaration_slot() {
     text.push_str("const BASE: i32 = 42; const BAD: i32 = BASE / 0; fn good() -> i32 { C1999 }");
     let result = crate::analyze_source(
         &SourceFile::new("wide-const.kgr", text.clone()),
-        foundation_catalog::shared(),
+        foundation_catalog::shared().unwrap(),
     )
     .expect("installed declaration analysis");
     let facts = result.facts();
@@ -992,7 +992,7 @@ fn forward_const_annotations_preserve_cycle_and_initializer_errors() {
     ] {
         let result = crate::analyze_source(
             &SourceFile::new("const-errors.kgr", text),
-            foundation_catalog::shared(),
+            foundation_catalog::shared().unwrap(),
         )
         .expect("installed declaration analysis");
         assert!(

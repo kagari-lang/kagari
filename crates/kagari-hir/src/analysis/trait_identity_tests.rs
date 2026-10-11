@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    analysis::ownership,
     declarations::DeclarationId,
     resolver::resolved::ResolvedName,
     tests::test_analysis,
@@ -71,9 +70,9 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
         );
     }
     let authoring_fa = a.to_unverified(&Default::default()).unwrap();
-    let fa = authoring_fa.facts();
+    let fa = authoring_fa.records().facts();
     let authoring_fb = b.to_unverified(&Default::default()).unwrap();
-    let fb = authoring_fb.facts();
+    let fb = authoring_fb.records().facts();
     assert_eq!(
         fa.lowered.module.traits[0].id,
         fb.lowered.module.traits[0].id
@@ -149,7 +148,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let before = authoring_before.facts();
+    let before = authoring_before.records().facts();
     let (trait_id, method_id, point) = targets(before);
     let previous_impl = before
         .typed
@@ -168,7 +167,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         after.result().diagnostics()
     );
     let authoring_facts = after.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let table = &facts.typed.type_table;
     assert!(table.implements(&interface(&trait_id), &point));
     let next_impl = table
@@ -230,7 +229,7 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let before = authoring_before.facts();
+    let before = authoring_before.records().facts();
     let read = before
         .declarations
         .iter()
@@ -290,14 +289,10 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    ownership::paths(
-        reused.type_table(),
+    reused.type_table().assert_same_source_facts(
         reused.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .assert_same_source_facts(
-        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
+        fresh.type_table(),
+        fresh.definitions(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

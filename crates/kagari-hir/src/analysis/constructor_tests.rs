@@ -1,7 +1,5 @@
 use super::*;
-use crate::{
-    analysis::ownership, declarations::DeclarationId, hir::expr::ExprKind, tests::test_analysis,
-};
+use crate::{declarations::DeclarationId, hir::expr::ExprKind, tests::test_analysis};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -29,7 +27,7 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
         analysis.result().diagnostics()
     );
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let mut checked = 0;
     for (id, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
@@ -110,7 +108,7 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
         analysis.result().diagnostics()
     );
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     for (needle, native) in [
         ("Some(value)", false),
         ("None=>", false),
@@ -183,6 +181,7 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
         let analysis = snapshot.file(file).unwrap();
         let authoring_enumeration = analysis.to_unverified(&Default::default()).unwrap();
         let enumeration = authoring_enumeration
+            .records()
             .facts()
             .aggregates
             .enumerations()
@@ -191,22 +190,12 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
         for argument in ["bool", "i32", "Missing"] {
             let start = text.find(&format!("Event<{argument}>")).unwrap();
             assert_eq!(
-                analysis.definition_at(start).map(|d| ownership::paths(
-                    d,
-                    analysis.definitions(),
-                    &Default::default()
-                )
-                .unwrap()),
+                analysis.definition_at(start).cloned(),
                 Some(enumeration.declaration.clone())
             );
             let variant = start + format!("Event<{argument}>::").len();
             assert_eq!(
-                analysis.definition_at(variant).map(|d| ownership::paths(
-                    d,
-                    analysis.definitions(),
-                    &Default::default()
-                )
-                .unwrap()),
+                analysis.definition_at(variant).cloned(),
                 Some(enumeration.variants[1].declaration.clone())
             );
             let Some(TypeId::Enum(ty)) = analysis.type_at(variant) else {
@@ -261,7 +250,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(file).unwrap();
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let enumeration = facts
         .aggregates
         .enumerations()
@@ -280,12 +269,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     assert_eq!(analysis.type_at(wrong), analysis.type_at(good));
     for owner in [good, wrong, text.find("Event::Absent").unwrap()] {
         assert_eq!(
-            analysis.definition_at(owner).map(|d| ownership::paths(
-                d,
-                analysis.definitions(),
-                &Default::default()
-            )
-            .unwrap()),
+            analysis.definition_at(owner).cloned(),
             Some(enumeration.declaration.clone())
         );
         assert!(analysis.definition_at(owner + "Event".len()).is_none());
@@ -297,13 +281,13 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     assert_eq!(
         analysis
             .definition_at(good + "Event::".len())
-            .map(|d| ownership::paths(d, analysis.definitions(), &Default::default()).unwrap()),
+            .cloned(),
         Some(enumeration.variants[1].declaration.clone())
     );
     assert_eq!(
         analysis
             .definition_at(text.find("Event::Empty").unwrap() + "Event::".len())
-            .map(|d| ownership::paths(d, analysis.definitions(), &Default::default()).unwrap()),
+            .cloned(),
         Some(enumeration.variants[0].declaration.clone())
     );
     assert!(
@@ -425,7 +409,7 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let old_facts = authoring_old_facts.facts();
+    let old_facts = authoring_old_facts.records().facts();
     let DeclarationId::Definition(owner) = &old_facts
         .declarations
         .iter()
@@ -466,14 +450,10 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    ownership::paths(
-        reused.type_table(),
+    reused.type_table().assert_same_source_facts(
         reused.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .assert_same_source_facts(
-        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
+        fresh.type_table(),
+        fresh.definitions(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

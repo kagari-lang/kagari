@@ -1,8 +1,7 @@
 use super::*;
 use crate::{
-    analysis::ownership, builtin::BuiltinFunction, declarations::DeclarationId,
-    hir::expr::ExprKind, resolver::resolved::ResolvedName, tests::test_analysis,
-    typeck::table::CallTarget,
+    builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
+    resolver::resolved::ResolvedName, tests::test_analysis, typeck::table::CallTarget,
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -245,14 +244,10 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
         .body(sources.snapshot(), &owner_path, &Default::default())
         .unwrap()
         .unwrap();
-    ownership::paths(
-        reused.type_table(),
+    reused.type_table().assert_same_source_facts(
         reused.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .assert_same_source_facts(
-        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
+        fresh.type_table(),
+        fresh.definitions(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );
@@ -350,7 +345,7 @@ fn reflection_helpers_reject_unknown_members_and_invalid_index_targets_in_hir() 
                 "struct Point {{ var x: i32 }} fn main() {{ val point = Point {{ x: 1 }}; {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert!(
             analysis
@@ -374,7 +369,7 @@ fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new("recovery-reflection.kgr", format!("fn main() {{ {body} }}")),
-            foundation_catalog::shared(),
+            foundation_catalog::shared().unwrap(),
         )
         .expect("installed declaration analysis");
         assert_eq!(
@@ -418,7 +413,7 @@ fn reflective_field_writes_check_declared_writeability_and_keep_rhs_context() {
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ {binding} value: Marker<i32> }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }} }}; {expression} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis
@@ -493,7 +488,7 @@ fn invalid_reflection_names_keep_helper_targets_and_precise_argument_diagnostics
                     "struct Point {{ var x: i32 }} fn bad(name: String) {{ val point = Point {{ x: 1 }}; {expression}; }}"
                 ),
             ),
-            foundation_catalog::shared(),
+            foundation_catalog::shared().unwrap(),
         ).expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().len(),
@@ -532,7 +527,7 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
                 "partial-index.kgr",
                 format!("fn bad(values: Vec<i32>) {{ {body} }} fn good() -> i32 {{ 42 }}"),
             ),
-            foundation_catalog::shared(),
+            foundation_catalog::shared().unwrap(),
         )
         .expect("installed declaration analysis");
         assert_eq!(
@@ -573,7 +568,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
                         "struct Box {{ var value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
                     ),
                 ),
-                foundation_catalog::shared(),
+                foundation_catalog::shared().unwrap(),
             ).expect("installed declaration analysis");
             assert_eq!(
                 analysis.diagnostics().is_empty(),
@@ -596,7 +591,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
                     "struct Box {{ val value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
                 ),
             ),
-            foundation_catalog::shared(),
+            foundation_catalog::shared().unwrap(),
         ).expect("installed declaration analysis");
         assert!(!analysis.diagnostics().is_empty(), "{body}");
         assert!(analysis.into_codegen().is_err());
@@ -617,7 +612,7 @@ fn reflection_receivers_must_produce_values_before_target_checks() {
         let source = format!("fn main() -> i32 {{ {call}; 0 }}");
         let analysis = crate::analyze_source(
             &SourceFile::new("reflection-receiver-completion.kgr", source.clone()),
-            foundation_catalog::shared(),
+            foundation_catalog::shared().unwrap(),
         )
         .expect("installed declaration analysis");
         assert_eq!(
@@ -674,14 +669,10 @@ fn standard_variants_and_propagation_rebase_on_body_reuse() {
         .body(sources.snapshot(), &owner_path, &Default::default())
         .unwrap()
         .unwrap();
-    ownership::paths(
-        reused.type_table(),
+    reused.type_table().assert_same_source_facts(
         reused.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .assert_same_source_facts(
-        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
+        fresh.type_table(),
+        fresh.definitions(),
         reused.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

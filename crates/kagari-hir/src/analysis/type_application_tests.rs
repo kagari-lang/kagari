@@ -66,7 +66,7 @@ fn native_collection_constructors_infer_items_through_source_aliases() {
         file.result().diagnostics()
     );
     let authoring_facts = file.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let call_type = |name: &str| {
         facts
             .lowered
@@ -221,7 +221,7 @@ fn explicit_empty_applications_are_not_erased_to_bare_types() {
         let analysis = snapshot(&mut test_analysis(), &sources);
         let file = analysis.file(file).unwrap();
         let authoring_facts = file.to_unverified(&Default::default()).unwrap();
-        let facts = authoring_facts.facts();
+        let facts = authoring_facts.records().facts();
         let start = text.find(&format!("{name}<>")).unwrap();
         let reference = facts
             .lowered
@@ -292,7 +292,7 @@ fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() 
         ] {
             let text = format!("{declaration} fn bad(x: {name}<{args}>) {{}}");
             let source = SourceFile::new("shadow.kgr", &text);
-            let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+            let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
                 .expect("installed declaration analysis");
             let facts = analysis.facts();
             let function = facts
@@ -323,7 +323,7 @@ fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() 
                 format!("use {module}::{name}; {declaration} fn accept(x: {name}<{args}>) {{}}");
             let analysis = crate::analyze_source(
                 &SourceFile::new("independent.kgr", &text),
-                foundation_catalog::shared(),
+                foundation_catalog::shared().unwrap(),
             )
             .expect("installed declaration analysis");
             assert!(
@@ -420,18 +420,22 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
     let fresh = snapshot(&mut test_analysis(), &sources);
     file.to_unverified(&Default::default())
         .unwrap()
+        .records()
         .facts()
         .typed
         .type_table
         .assert_same_source_facts(
+            file.definitions(),
             &fresh
                 .file(id)
                 .unwrap()
                 .to_unverified(&Default::default())
                 .unwrap()
+                .records()
                 .facts()
                 .typed
                 .type_table,
+            fresh.file(id).unwrap().definitions(),
             file.result().facts().lowered.module.body.arena(),
             fresh
                 .file(id)

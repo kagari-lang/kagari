@@ -53,7 +53,7 @@ fn missing_member_names_do_not_claim_their_recovery_spans() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     assert_eq!(facts.lowered.module.structs[0].fields.len(), 2);
     assert_eq!(facts.lowered.module.enums[0].variants.len(), 2);
     assert!(facts.lowered.module.structs[0].fields[0].name.is_empty());
@@ -83,7 +83,7 @@ fn struct_initializer_labels_follow_checked_field_targets_after_errors() {
     let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(id).unwrap();
     let authoring_fields = file.to_unverified(&Default::default()).unwrap();
-    let fields = &authoring_fields.facts().lowered.module.structs[0].fields;
+    let fields = &authoring_fields.records().facts().lowered.module.structs[0].fields;
 
     for (start, _) in text.match_indices("count:") {
         if start < text.find("fn good").unwrap() {
@@ -129,14 +129,14 @@ fn members_keep_module_ownership_and_exact_declaration_locations() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let b = authoring_b.facts();
+    let b = authoring_b.records().facts();
     assert!(
         a.result().diagnostics().is_empty(),
         "{:?}",
         a.result().diagnostics()
     );
     let authoring_facts = a.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let variant = facts.lowered.module.enums[0].variants[0].id;
     let other_variant = b.lowered.module.enums[0].variants[0].id;
     assert_eq!(variant.slot(), other_variant.slot());
@@ -199,7 +199,7 @@ fn variant_reordering_preserves_nominal_identity_and_retires_raw_ids() {
     let old = analyze(&mut db, &sources);
     let old_file = old.file(file).unwrap();
     let authoring_old_facts = old_file.to_unverified(&Default::default()).unwrap();
-    let old_facts = authoring_old_facts.facts();
+    let old_facts = authoring_old_facts.records().facts();
     let old_id = old_facts.lowered.module.enums[0].variants[0].id;
     let old_declaration = old_facts.declarations.variant(old_id).unwrap();
     let edited = "enum State { Running, Ready }";
@@ -209,7 +209,7 @@ fn variant_reordering_preserves_nominal_identity_and_retires_raw_ids() {
     let new = analyze(&mut db, &sources);
     let new_file = new.file(file).unwrap();
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
-    let new_facts = authoring_new_facts.facts();
+    let new_facts = authoring_new_facts.records().facts();
     let new_id = new_facts.lowered.module.enums[0].variants[1].id;
     let new_declaration = new_facts.declarations.variant(new_id).unwrap();
     assert_ne!(old_id.slot(), new_id.slot());
@@ -294,7 +294,7 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let old_facts = authoring_old_facts.facts();
+    let old_facts = authoring_old_facts.records().facts();
     let old_field = old_facts.lowered.module.structs[0].fields[0].id;
     sources
         .set(
@@ -307,7 +307,7 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
     let new_file = new.file(file).unwrap();
     assert!(new_file.signatures_reused());
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
-    let new_facts = authoring_new_facts.facts();
+    let new_facts = authoring_new_facts.records().facts();
     let new_field = new_facts.lowered.module.structs[0].fields[0].id;
     assert_ne!(old_field.arena(), new_field.arena());
     assert!(new_facts.typed.type_table.field_type(old_field).is_none());
@@ -323,9 +323,11 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let fresh = authoring_fresh.facts();
+    let fresh = authoring_fresh.records().facts();
     new_facts.typed.type_table.assert_same_source_facts(
+        authoring_new_facts.definitions(),
         &fresh.typed.type_table,
+        authoring_fresh.definitions(),
         new_facts.lowered.module.body.arena(),
         fresh.lowered.module.body.arena(),
     );

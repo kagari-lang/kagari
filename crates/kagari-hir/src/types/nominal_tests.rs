@@ -1,23 +1,22 @@
 use super::*;
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity};
+use kagari_common::identity::{
+    DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
+};
 use kagari_types::collection::CollectionAccess;
 
-fn definition(module: &str, kind: DefinitionKind) -> DefinitionPath {
-    DefinitionPath {
-        module: ModuleIdentity::single_file(module),
-        path: vec![DefinitionPathSegment {
-            kind,
-            name: "Item".into(),
-            occurrence: 0,
-        }],
-    }
+fn definition(context: &DefinitionContext, module: &str, kind: DefinitionKind) -> DefinitionId {
+    let root = context
+        .intern_root(&ModuleIdentity::single_file(module))
+        .unwrap();
+    context.intern_child(root, kind, "Item", 0).unwrap()
 }
 
 #[test]
 fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
+    let context = DefinitionContext::new().unwrap();
     use kagari_types::collection::CollectionAccess::{Mutable, ReadOnly};
     let parameter = GenericParameterType {
-        owner: definition("collection.kgr", DefinitionKind::Function),
+        owner: definition(&context, "collection.kgr", DefinitionKind::Function),
         position: 0,
         name: "T".into(),
     };
@@ -68,7 +67,8 @@ fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
 
 #[test]
 fn nominal_identity_includes_kind_declaration_and_ordered_type_arguments() {
-    let owner = definition("left.kgr", DefinitionKind::Struct);
+    let context = DefinitionContext::new().unwrap();
+    let owner = definition(&context, "left.kgr", DefinitionKind::Struct);
     let integer = TypeId::Builtin(BuiltinType::I32);
     let boolean = TypeId::Builtin(BuiltinType::Bool);
     let a = NominalType {
@@ -83,7 +83,7 @@ fn nominal_identity_includes_kind_declaration_and_ordered_type_arguments() {
     };
     let foreign = NominalType {
         associated_types: Default::default(),
-        declaration: definition("right.kgr", DefinitionKind::Struct),
+        declaration: definition(&context, "right.kgr", DefinitionKind::Struct),
         arguments: a.arguments.clone(),
     };
     let bare = NominalType {
@@ -104,26 +104,30 @@ fn nominal_identity_includes_kind_declaration_and_ordered_type_arguments() {
         .cloned()
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(set.len(), types.len());
-    assert_eq!(TypeId::Struct(a).display_name(), "Item<i32, bool>");
+    assert_eq!(
+        TypeId::Struct(a).display_name(&context.snapshot()),
+        "Item<i32, bool>"
+    );
     assert!(types.iter().all(TypeId::is_concrete));
 }
 
 #[test]
 fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_layer() {
-    let owner = definition("owner.kgr", DefinitionKind::Struct);
+    let context = DefinitionContext::new().unwrap();
+    let owner = definition(&context, "owner.kgr", DefinitionKind::Struct);
     let parameter = GenericParameterType {
         owner: owner.clone(),
         position: 0,
         name: "T".into(),
     };
     let foreign = GenericParameterType {
-        owner: definition("other.kgr", DefinitionKind::Function),
+        owner: definition(&context, "other.kgr", DefinitionKind::Function),
         position: 0,
         name: "T".into(),
     };
     let inner = TypeId::Enum(NominalType {
         associated_types: Default::default(),
-        declaration: definition("inner.kgr", DefinitionKind::Enum),
+        declaration: definition(&context, "inner.kgr", DefinitionKind::Enum),
         arguments: vec![
             TypeId::Generic(parameter.clone()),
             TypeId::Generic(foreign.clone()),
@@ -150,10 +154,16 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
         .collect();
         let once = template.instantiate(&substitution);
         assert!(!once.is_concrete());
-        assert_eq!(once.display_name(), "Item<[Item<T, i32>]>");
+        assert_eq!(
+            once.display_name(&context.snapshot()),
+            "Item<[Item<T, i32>]>"
+        );
         let twice = once.instantiate(&substitution);
         assert!(twice.is_concrete());
-        assert_eq!(twice.display_name(), "Item<[Item<i32, i32>]>");
+        assert_eq!(
+            twice.display_name(&context.snapshot()),
+            "Item<[Item<i32, i32>]>"
+        );
         let substituted_error =
             template.instantiate(&[(parameter.clone(), TypeId::Error)].into_iter().collect());
         assert!(substituted_error.is_unresolved());
@@ -165,11 +175,12 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
 
 #[test]
 fn self_substitution_reaches_nested_nominal_arguments_without_replacing_foreign_self() {
-    let owner = definition("owner.kgr", DefinitionKind::Trait);
-    let foreign = definition("other.kgr", DefinitionKind::Trait);
+    let context = DefinitionContext::new().unwrap();
+    let owner = definition(&context, "owner.kgr", DefinitionKind::Trait);
+    let foreign = definition(&context, "other.kgr", DefinitionKind::Trait);
     let template = TypeId::Struct(NominalType {
         associated_types: Default::default(),
-        declaration: definition("box.kgr", DefinitionKind::Struct),
+        declaration: definition(&context, "box.kgr", DefinitionKind::Struct),
         arguments: vec![
             TypeId::SelfType(owner.clone()),
             TypeId::Trait(NominalType {
@@ -182,15 +193,16 @@ fn self_substitution_reaches_nested_nominal_arguments_without_replacing_foreign_
     assert_eq!(
         template
             .with_self(&owner, &TypeId::Builtin(BuiltinType::I32))
-            .display_name(),
+            .display_name(&context.snapshot()),
         "Item<i32, Item<Self>>"
     );
 }
 
 #[test]
 fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recursion() {
+    let context = DefinitionContext::new().unwrap();
     let parameter = GenericParameterType {
-        owner: definition("deep.kgr", DefinitionKind::Function),
+        owner: definition(&context, "deep.kgr", DefinitionKind::Function),
         position: 0,
         name: "T".into(),
     };
@@ -223,8 +235,9 @@ fn substitution_walks_deep_templates_and_copies_deep_replacements_without_recurs
 
 #[test]
 fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners() {
-    let owner = definition("owner.kgr", DefinitionKind::Trait);
-    let foreign = definition("foreign.kgr", DefinitionKind::Trait);
+    let context = DefinitionContext::new().unwrap();
+    let owner = definition(&context, "owner.kgr", DefinitionKind::Trait);
+    let foreign = definition(&context, "foreign.kgr", DefinitionKind::Trait);
     let mut template = TypeId::SelfType(owner.clone());
     let mut replacement = TypeId::SelfType(owner.clone());
     for _ in 0..10_000 {
@@ -232,7 +245,7 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
         replacement = TypeId::Set(Box::new(replacement), CollectionAccess::Mutable);
     }
     let result = template.with_self(&owner, &replacement);
-    fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionPath) {
+    fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionId) {
         for _ in 0..depth {
             let TypeId::Set(inner, _) = ty else {
                 panic!("missing set layer")
@@ -250,10 +263,11 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
 
 #[test]
 fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
+    let context = DefinitionContext::new().unwrap();
     let mut resolved = TypeId::Builtin(BuiltinType::I32);
     let mut unresolved = TypeId::Error;
     let mut comparable = TypeId::Builtin(BuiltinType::I32);
-    let mut incomparable = TypeId::Host(definition("host.kgr", DefinitionKind::Struct));
+    let mut incomparable = TypeId::Host(definition(&context, "host.kgr", DefinitionKind::Struct));
     for _ in 0..10_000 {
         resolved = TypeId::Array(Box::new(resolved));
         unresolved = TypeId::Array(Box::new(unresolved));
@@ -266,11 +280,11 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
     assert!(unresolved.is_unresolved());
     assert!(comparable.supports_equality());
     assert!(!incomparable.supports_equality());
-    let resolved_name = resolved.display_name();
+    let resolved_name = resolved.display_name(&context.snapshot());
     assert_eq!(resolved_name.len(), 20_003);
     assert!(resolved_name.starts_with("[["));
     assert!(resolved_name.ends_with("]]"));
-    let comparable_name = comparable.display_name();
+    let comparable_name = comparable.display_name(&context.snapshot());
     assert_eq!(comparable_name.len(), 20_003);
     assert!(comparable_name.starts_with("((("));
     assert!(comparable_name.ends_with(")))"));

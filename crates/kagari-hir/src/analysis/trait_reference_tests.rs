@@ -43,7 +43,7 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
     let snapshot = analyze(&mut db, &sources);
     let analysis = snapshot.file(file).unwrap();
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let valid = facts.lowered.module.impls[0].trait_ref.as_ref().unwrap();
     let applied = facts.lowered.module.impls[1].trait_ref.as_ref().unwrap();
     assert_eq!(valid.ty.owner(), HirOwner::Declaration);
@@ -187,7 +187,7 @@ fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() 
                 ))
         );
         let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-        let facts = authoring_facts.facts();
+        let facts = authoring_facts.records().facts();
         for function in &facts.lowered.module.functions {
             let bound = function.generic_params[0].bounds[0].ty;
             assert_eq!(
@@ -505,7 +505,7 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let old_facts = authoring_old_facts.facts();
+    let old_facts = authoring_old_facts.records().facts();
     let old_ref = old_facts.lowered.module.impls[0]
         .trait_ref
         .as_ref()
@@ -519,7 +519,7 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
     let new_file = new.file(file).unwrap();
     assert!(new_file.signatures_reused());
     let authoring_facts = new_file.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     assert!(facts.typed.type_table.type_ref(old_ref).is_none());
     let fresh = analyze(&mut test_analysis(), &sources);
     let authoring_fresh = fresh
@@ -527,9 +527,11 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let fresh = authoring_fresh.facts();
+    let fresh = authoring_fresh.records().facts();
     facts.typed.type_table.assert_same_source_facts(
+        authoring_facts.definitions(),
         &fresh.typed.type_table,
+        authoring_fresh.definitions(),
         facts.lowered.module.body.arena(),
         fresh.lowered.module.body.arena(),
     );
@@ -591,15 +593,17 @@ fn untouched()->i32 {1}
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let authoring_fresh = fresh
         .file(file)
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let fresh = authoring_fresh.facts();
+    let fresh = authoring_fresh.records().facts();
     facts.typed.type_table.assert_same_source_facts(
+        authoring_facts.definitions(),
         &fresh.typed.type_table,
+        authoring_fresh.definitions(),
         facts.lowered.module.body.arena(),
         fresh.lowered.module.body.arena(),
     );

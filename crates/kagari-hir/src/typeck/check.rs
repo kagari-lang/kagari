@@ -1207,10 +1207,11 @@ pub(super) fn compare_method_contract(
 #[cfg(test)]
 mod constraint_traversal_tests {
     use super::*;
-    use kagari_common::cancellation::CancellationToken;
+    use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 
     #[test]
     fn deep_container_validation_uses_explicit_stack_and_honors_cancellation() {
+        let definitions = DefinitionContext::new().unwrap().snapshot();
         let mut ty = TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::F32)),
             value: Box::new(TypeId::Error),
@@ -1223,7 +1224,7 @@ mod constraint_traversal_tests {
         let cancelled = CancellationToken::default();
         cancelled.cancel();
         validate_standard_type_constraints(
-            definitions,
+            &definitions,
             &ty,
             &HashMap::new(),
             Default::default(),
@@ -1233,7 +1234,7 @@ mod constraint_traversal_tests {
         );
         let cancelled_count = diagnostics.len();
         validate_standard_type_constraints(
-            definitions,
+            &definitions,
             &ty,
             &HashMap::new(),
             Default::default(),

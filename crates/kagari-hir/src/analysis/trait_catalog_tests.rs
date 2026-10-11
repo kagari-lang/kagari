@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     aggregates::traits::MethodDefault,
-    analysis::ownership,
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
     tests::{native as fixture, test_analysis},
@@ -33,10 +32,11 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
     if !db
         .native_modules
         .iter()
-        .any(|module| module.identity == fixture::module().identity)
+        .any(|module| module.records().identity == fixture::module().records().identity)
     {
         db.set_native_modules(
             foundation_catalog::shared()
+                .unwrap()
                 .into_iter()
                 .chain([fixture::module()])
                 .collect(),
@@ -62,7 +62,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         file.result().diagnostics()
     );
     let authoring_catalog = file.to_unverified(&Default::default()).unwrap();
-    let catalog = &authoring_catalog.facts().aggregates;
+    let catalog = &authoring_catalog.records().facts().aggregates;
     let local = catalog
         .traits()
         .find(|item| item.declaration.name == "Local")
@@ -100,7 +100,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         let source = snapshot.source(method.declaration.location.file).unwrap();
         assert_eq!(
             source.name(),
-            declaration_source(&fixture::module(), &foundation_catalog::shared())
+            declaration_source(&fixture::module(), &foundation_catalog::shared().unwrap())
                 .unwrap()
                 .uri
         );
@@ -111,7 +111,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             native.result().diagnostics()
         );
         let authoring = native.to_unverified(&Default::default()).unwrap();
-        let facts = authoring.facts();
+        let facts = authoring.records().facts();
         let Some(ResolvedName::Function(function)) =
             facts.declarations.definition_target(&method.id)
         else {
@@ -185,7 +185,7 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         file.result().diagnostics()
     );
     let authoring_catalog = file.to_unverified(&Default::default()).unwrap();
-    let catalog = &authoring_catalog.facts().aggregates;
+    let catalog = &authoring_catalog.records().facts().aggregates;
     let implementation = catalog
         .implementations()
         .find(|item| !item.engine_owned)
@@ -248,6 +248,7 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
     helper.bounds[0].constraints.sort();
     db.set_native_modules(
         foundation_catalog::shared()
+            .unwrap()
             .into_iter()
             .chain([Arc::new(invalid)])
             .collect(),
@@ -346,9 +347,9 @@ fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
         after.result().diagnostics()
     );
     let authoring_before = before.to_unverified(&Default::default()).unwrap();
-    let before = &authoring_before.facts().aggregates;
+    let before = &authoring_before.records().facts().aggregates;
     let authoring_after = after.to_unverified(&Default::default()).unwrap();
-    let after = &authoring_after.facts().aggregates;
+    let after = &authoring_after.records().facts().aggregates;
     assert!(!before.same_contracts(after));
     let a = before
         .traits()
@@ -380,7 +381,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
         "KG_TYPE_UNKNOWN_TRAIT"
     );
     let authoring_facts = file.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let method = &facts
         .aggregates
         .traits()
@@ -432,7 +433,7 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
     let snapshot = analyze(&mut test_analysis(), &sources);
     let analysis = snapshot.file(root).unwrap();
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     assert_eq!(
         facts
             .aggregates
@@ -522,6 +523,7 @@ fn invalid_method_parameter_does_not_discard_later_parameters_or_cascade_errors(
     let file = snapshot.file(root).unwrap();
     let authoring_method = file.to_unverified(&Default::default()).unwrap();
     let method = &authoring_method
+        .records()
         .facts()
         .aggregates
         .traits()
@@ -576,7 +578,7 @@ fn ambiguous_methods_have_no_call_target_and_duplicate_bounds_do_not_create_ambi
             1
         );
         let authoring_facts = file.to_unverified(&Default::default()).unwrap();
-        let facts = authoring_facts.facts();
+        let facts = authoring_facts.records().facts();
         assert!(
             !facts.lowered.module.body.expressions().any(|(id, _)| facts
                 .typed
@@ -641,7 +643,7 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let before = authoring_before.facts();
+    let before = authoring_before.records().facts();
     let DeclarationId::Definition(owner) = &before
         .declarations
         .iter()
@@ -688,6 +690,7 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
                 .unwrap()
                 .to_unverified(&Default::default())
                 .unwrap()
+                .records()
                 .facts()
                 .aggregates
         )
@@ -714,14 +717,10 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    ownership::paths(
-        invalidated.type_table(),
+    invalidated.type_table().assert_same_source_facts(
         invalidated.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .assert_same_source_facts(
-        &ownership::paths(fresh.type_table(), fresh.definitions(), &Default::default()).unwrap(),
+        fresh.type_table(),
+        fresh.definitions(),
         invalidated.lowered().module.body.arena(),
         fresh.lowered().module.body.arena(),
     );

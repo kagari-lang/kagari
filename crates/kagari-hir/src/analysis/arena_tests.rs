@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    analysis::ownership, hir::stmt::StmtKind, resolver::resolved::ResolvedName,
-    tests::test_analysis,
-};
+use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName, tests::test_analysis};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapshot {
@@ -159,40 +156,35 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
     );
     let fresh = analyze(&mut test_analysis(), &sources);
     let latest = analyze(&mut db, &sources);
-    ownership::paths(
-        latest.file(id).unwrap().signatures().as_ref(),
-        latest.file(id).unwrap().definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .facts()
-    .assert_same_source_facts(
-        ownership::paths(
-            fresh.file(id).unwrap().signatures().as_ref(),
-            fresh.file(id).unwrap().definitions(),
-            &Default::default(),
-        )
+    latest
+        .file(id)
         .unwrap()
-        .facts(),
-        latest
-            .file(id)
-            .unwrap()
-            .result()
-            .facts()
-            .lowered
-            .module
-            .body
-            .arena(),
-        fresh
-            .file(id)
-            .unwrap()
-            .result()
-            .facts()
-            .lowered
-            .module
-            .body
-            .arena(),
-    );
+        .signatures()
+        .as_ref()
+        .facts()
+        .assert_same_source_facts(
+            latest.file(id).unwrap().definitions(),
+            fresh.file(id).unwrap().signatures().as_ref().facts(),
+            fresh.file(id).unwrap().definitions(),
+            latest
+                .file(id)
+                .unwrap()
+                .result()
+                .facts()
+                .lowered
+                .module
+                .body
+                .arena(),
+            fresh
+                .file(id)
+                .unwrap()
+                .result()
+                .facts()
+                .lowered
+                .module
+                .body
+                .arena(),
+        );
     assert!(Arc::ptr_eq(
         newest_declarations.file(id).unwrap(),
         latest.declaration_snapshot().file(id).unwrap()

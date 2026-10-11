@@ -43,7 +43,7 @@ fn native_capabilities_require_installed_impls_and_declared_storage_access() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let catalog = &authoring_catalog.facts().aggregates;
+    let catalog = &authoring_catalog.records().facts().aggregates;
     let item = TypeId::Builtin(BuiltinType::I32);
     let mutable = TypeId::NativeObject(NominalType {
         declaration: ModuleDecl::new(namespaces::type_owner("Vec"))
@@ -130,7 +130,7 @@ fn algorithm_trait_names_are_ordinary_user_contracts() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let implementation = facts
         .aggregates
         .implementations()
@@ -201,7 +201,7 @@ fn main() {}
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let implementation = facts
         .aggregates
         .implementations()
@@ -317,7 +317,7 @@ fn checked_native_enum_signatures_preserve_slots_and_payloads() {
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let catalog = &authoring_catalog.facts().aggregates;
+    let catalog = &authoring_catalog.records().facts().aggregates;
     for (kind, arity, expected) in [
         ("Option", 1, vec![("Some", 1), ("None", 0)]),
         ("Result", 2, vec![("Ok", 1), ("Err", 1)]),

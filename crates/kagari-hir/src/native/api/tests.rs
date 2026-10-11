@@ -5,9 +5,9 @@ use kagari_stdlib::{catalog as foundation_catalog, catalog};
 #[test]
 fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility() {
     let module = module();
-    let mut providers = catalog::shared();
+    let mut providers = catalog::shared().unwrap();
     providers.push(module.clone());
-    let original = declaration_source(&module, &foundation_catalog::shared()).unwrap();
+    let original = declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
     for (from, to) in [
         ("-> i32", "-> i64"),
         ("pub trait NativeRead", "trait NativeRead"),
@@ -43,11 +43,12 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
 #[test]
 fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
     let module = module();
-    let mut source = declaration_source(&module, &foundation_catalog::shared()).unwrap();
+    let mut source = declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
     source.text = format!("// Tooling overlay.\n{}", source.text);
     let (_, lowered) = import_source(
         &module,
         &catalog::shared()
+            .unwrap()
             .into_iter()
             .chain([module.clone()])
             .collect::<Vec<_>>(),
@@ -69,9 +70,10 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
 
 #[test]
 fn one_source_analysis_reports_invalid_registration_as_an_error() {
-    let mut invalid = module().as_ref().clone();
+    let (definitions, mut invalid) = module().as_ref().clone().into_parts();
     invalid.functions.push(invalid.functions[0].clone());
     let source = SourceFile::new("invalid-registration.kgr", "fn main() {}");
+    let invalid = DefinitionMetadata::checked(definitions, invalid, &Default::default()).unwrap();
     let result = crate::analyze_source(&source, vec![Arc::new(invalid)]);
     assert!(matches!(
         result,
@@ -81,11 +83,12 @@ fn one_source_analysis_reports_invalid_registration_as_an_error() {
 
 #[test]
 fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
-    let providers = catalog::shared();
+    let providers = catalog::shared().unwrap();
     let module = providers
         .iter()
         .find(|module| {
-            module.identity.package.0 == "kagari-core" && module.identity.path == ["iter"]
+            module.records().identity.package.0 == "kagari-core"
+                && module.records().identity.path == ["iter"]
         })
         .unwrap();
     let mut source = declaration_source(module, &providers).unwrap();
@@ -120,7 +123,10 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
         .unwrap();
     assert!(iterator.methods.iter().any(|method| method.name == "next"));
     assert!(lowered.language_foundation);
-    let id = module.definition(DefinitionKind::Trait, "Iterator");
+    let id = module
+        .records()
+        .definition(DefinitionKind::Trait, "Iterator", module.definitions())
+        .unwrap();
     assert!(lowered.registered_traits.contains_key(&id));
     let forged = source.text.replace("\"iterator\"", "\"iterable\"");
     source.text = forged;
@@ -140,11 +146,12 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
 
 #[test]
 fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
-    let providers = catalog::shared();
+    let providers = catalog::shared().unwrap();
     let module = providers
         .iter()
         .find(|module| {
-            module.identity.package.0 == "kagari-core" && module.identity.path == ["cmp"]
+            module.records().identity.package.0 == "kagari-core"
+                && module.records().identity.path == ["cmp"]
         })
         .unwrap();
     let original = declaration_source(module, &providers).unwrap();

@@ -1,4 +1,4 @@
-mod common;
+pub(crate) mod common;
 mod language_conformance;
 mod lower;
 mod recovery;
@@ -12,6 +12,6 @@ use kagari_stdlib::catalog;
 
 pub(crate) fn test_analysis() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(catalog::shared());
+    database.set_native_modules(catalog::shared().unwrap());
     database
 }

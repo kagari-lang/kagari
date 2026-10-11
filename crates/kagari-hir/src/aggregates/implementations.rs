@@ -1023,28 +1023,25 @@ mod search_tests {
     use super::*;
     use crate::{typeck::table::ConstraintTarget, types::TypeId};
     use kagari_common::identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
     };
     use kagari_types::scalar::BuiltinType;
 
-    fn definition(kind: DefinitionKind, name: &str) -> DefinitionPath {
-        DefinitionPath {
-            module: ModuleIdentity {
+    fn definition(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> DefinitionId {
+        let root = context
+            .intern_root(&ModuleIdentity {
                 package: PackageId("pkg".into()),
                 path: vec!["module".into()],
-            },
-            path: vec![DefinitionPathSegment {
-                kind,
-                name: name.into(),
-                occurrence: 0,
-            }],
-        }
+            })
+            .unwrap();
+        context.intern_child(root, kind, name, 0).unwrap()
     }
 
     #[test]
     fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
-        let marker = definition(DefinitionKind::Trait, "Marker");
-        let owner = definition(DefinitionKind::Impl, "");
+        let context = DefinitionContext::new().unwrap();
+        let marker = definition(&context, DefinitionKind::Trait, "Marker");
+        let owner = definition(&context, DefinitionKind::Impl, "");
         let parameter = GenericParameterType {
             owner: owner.clone(),
             position: 0,
@@ -1073,21 +1070,42 @@ mod search_tests {
         let required = applied(actual.clone());
         let cancel = CancellationToken::default();
         assert_eq!(
-            catalog.implementation_count_bounded(&required, &actual, 1, 4, &cancel),
+            catalog.implementation_count_bounded(
+                &context.snapshot(),
+                &required,
+                &actual,
+                1,
+                4,
+                &cancel
+            ),
             Ok(1)
         );
         assert_eq!(
-            catalog.implementation_count_bounded(&required, &actual, 0, 4, &cancel),
+            catalog.implementation_count_bounded(
+                &context.snapshot(),
+                &required,
+                &actual,
+                0,
+                4,
+                &cancel
+            ),
             Err(ImplementationSearchError::LimitExceeded)
         );
         cancel.cancel();
         assert_eq!(
-            catalog.implementation_count_bounded(&required, &actual, 1, 4, &cancel),
+            catalog.implementation_count_bounded(
+                &context.snapshot(),
+                &required,
+                &actual,
+                1,
+                4,
+                &cancel
+            ),
             Err(ImplementationSearchError::Cancelled)
         );
 
         let mut chained = signature;
-        let next = definition(DefinitionKind::Trait, "Next");
+        let next = definition(&context, DefinitionKind::Trait, "Next");
         chained.bounds.insert(
             TypeId::Generic(parameter.clone()),
             vec![ConstraintTarget::Trait(NominalType {
@@ -1097,7 +1115,7 @@ mod search_tests {
             })],
         );
         let next_parameter = GenericParameterType {
-            owner: definition(DefinitionKind::Impl, "next"),
+            owner: definition(&context, DefinitionKind::Impl, "next"),
             position: 0,
             name: "U".into(),
         };
@@ -1124,6 +1142,7 @@ mod search_tests {
         };
         assert_eq!(
             catalog.implementation_count_bounded(
+                &context.snapshot(),
                 &required,
                 &actual,
                 100,
@@ -1134,6 +1153,7 @@ mod search_tests {
         );
         assert_eq!(
             catalog.implementation_count_bounded(
+                &context.snapshot(),
                 &required,
                 &actual,
                 100,

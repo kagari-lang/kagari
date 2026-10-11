@@ -15,7 +15,7 @@ fn make<T: Family>(x: T) -> T::Item<i32> { x.make(42) }
 fn main() -> i32 { make(Number {}) }
 "#,
     );
-    let result = crate::analyze_source(&source, foundation_catalog::shared())
+    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(
         result.diagnostics().is_empty(),

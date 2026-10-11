@@ -165,7 +165,7 @@ mod tests {
                 std::slice::from_ref(&parameter),
                 &mut substitution,
                 &Default::default(),
-                Some(&facts.facts().aggregates),
+                Some(&facts.records().facts().aggregates),
             )
             .unwrap();
             assert_eq!(substitution[&parameter], integer);

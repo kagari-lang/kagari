@@ -17,11 +17,12 @@ use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let cancel = CancellationToken::default();
-    let modules = catalog::shared();
+    let modules = catalog::shared().unwrap();
     let lowered = modules
         .iter()
         .map(|module| {
-            let mut generated = declaration_source(module, &foundation_catalog::shared()).unwrap();
+            let mut generated =
+                declaration_source(module, &foundation_catalog::shared().unwrap()).unwrap();
             let (_, original) =
                 api::import_source(module, &modules, &generated, Default::default(), &cancel)
                     .unwrap();
@@ -33,7 +34,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             // registration correspondence gate, which rejects these views earlier.
             let mut sources = SourceDatabase::default();
             sources
-                .bind_module(&generated.uri, module.identity.clone())
+                .bind_module(&generated.uri, module.records().identity.clone())
                 .unwrap();
             let file = sources
                 .set(&generated.uri, generated.text, SourceLayer::Base)
@@ -211,7 +212,7 @@ fn application_traits_cannot_claim_roles() {
         "memory://application-role.kgr",
         "#[lang = \"add\"] trait Add<Rhs> { type Output; fn add(self, rhs: Rhs) -> Self::Output; }",
     );
-    let result = crate::analyze_source(&source, foundation_catalog::shared())
+    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(
         result.diagnostics().iter().any(|diagnostic| matches!(

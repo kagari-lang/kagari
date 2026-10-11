@@ -1,6 +1,6 @@
 use super::tests::{analyze, insert};
 use crate::host::HostDeclarations;
-use crate::{analysis::ownership, tests::test_analysis, types::TypeId};
+use crate::{tests::test_analysis, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -322,21 +322,10 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
     let file = changed.file(root).unwrap();
     assert!(!file.signatures_reused());
     let fresh = analyze(&db);
-    ownership::paths(
-        file.signatures().as_ref(),
+    file.signatures().as_ref().facts().assert_same_source_facts(
         file.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .facts()
-    .assert_same_source_facts(
-        ownership::paths(
-            fresh.file(root).unwrap().signatures().as_ref(),
-            fresh.file(root).unwrap().definitions(),
-            &Default::default(),
-        )
-        .unwrap()
-        .facts(),
+        fresh.file(root).unwrap().signatures().as_ref().facts(),
+        fresh.file(root).unwrap().definitions(),
         file.result().facts().lowered.module.body.arena(),
         fresh
             .file(root)

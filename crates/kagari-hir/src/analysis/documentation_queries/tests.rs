@@ -13,7 +13,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let installed_modules = catalog::shared();
+    let installed_modules = catalog::shared().unwrap();
     let independent = test_analysis()
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -22,14 +22,20 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
     let mut identities = HashSet::new();
     let mut count = 0;
     for installed in &installed_modules {
-        let generated = declaration_source(installed, &foundation_catalog::shared()).unwrap();
+        let generated =
+            declaration_source(installed, &foundation_catalog::shared().unwrap()).unwrap();
         let file = snapshot
             .files()
             .find(|file| file.source().name() == generated.uri)
             .unwrap();
-        let module_doc = snapshot.module_documentation(&installed.identity).unwrap();
+        let module_doc = snapshot
+            .module_documentation(&installed.records().identity)
+            .unwrap();
         assert_eq!(module_doc.location.file, file.source().id());
-        assert_eq!(module_doc.documentation, installed.module_documentation);
+        assert_eq!(
+            module_doc.documentation,
+            installed.records().module_documentation
+        );
         for (id, site) in &generated.sites {
             let range = site.name_span;
             // Impl header spans name a receiver type, not a named declaration.
@@ -52,7 +58,12 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             assert_eq!(declaration.location.file, file.source().id());
             assert_eq!(
                 metadata.documentation,
-                installed.documentation.get(id).cloned().unwrap_or_default()
+                installed
+                    .records()
+                    .documentation
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_default()
             );
             assert!(metadata.written_signature.contains(&declaration.name));
             assert!(independent.documentation(&declaration.id).is_none());

@@ -70,7 +70,7 @@ fn recovery_members_do_not_hide_independent_argument_mismatches() {
             "partial-conflict.kgr",
             format!("fn take(value: (i32, i32)) {{}} fn bad() {{ take({actual}); }}"),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis
@@ -120,7 +120,7 @@ fn indexing_partial_composites_preserves_the_selected_member() {
         ),
     ] {
         let source = SourceFile::new("index-recovery.kgr", text);
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         let facts = analysis.facts();
         let ty = facts
@@ -201,7 +201,7 @@ fn failed_call_inference_substitutes_error_without_leaking_callee_binders() {
             "struct Cell<T> {{ val value: T }} fn wrap<T>(value: T) -> Cell<T> {{ Cell {{ value: value }} }} fn bad() {{ val cell = wrap({argument}); cell.value; }} fn good() -> i32 {{ 7 }}"
         );
         let source = SourceFile::new("recovery.kgr", text);
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert!(!analysis.diagnostics().is_empty());
         let facts = analysis.facts();
@@ -235,7 +235,7 @@ fn partial_call_inference_preserves_known_and_caller_owned_arguments() {
         "partial.kgr",
         "fn pair<A, B>(a: A, b: B) -> (A, B) { (a, b) } fn bad<T>(value: T) { pair(value); } fn concrete() { pair(1); }",
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     let facts = analysis.facts();
     let calls: Vec<_> = facts
@@ -270,7 +270,7 @@ fn inference_uses_valid_members_of_partially_erroneous_arguments() {
         "struct Pair<A, B> { val first: A, val second: B } fn identity<A, B>(value: Pair<A, B>) -> Pair<A, B> { value } fn bad(value: Pair<i32, Missing>) { identity(value); }",
     ] {
         let source = SourceFile::new("partial-members.kgr", source);
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         let facts = analysis.facts();
         let result = facts
@@ -303,7 +303,7 @@ fn incomplete_whole_type_does_not_poison_later_inference() {
         "later-argument.kgr",
         "fn choose<T>(first: T, second: T) -> T { second } fn bad() { choose((1, missing), (2, true)); }",
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     let facts = analysis.facts();
     let result = facts
@@ -339,7 +339,7 @@ fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
                 "fn choose<T>(first: T, second: T) -> T {{ first }} fn bad() {{ choose({arguments}); }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         let facts = analysis.facts();
         let result = facts
@@ -379,7 +379,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
         "use std::hash::{Hash};\nstruct Key<T: Eq + Hash> { val value: T } fn bad<T>(value: T) { Key { value: value }; }",
     ] {
         let source = SourceFile::new("bounds.kgr", text);
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert!(
             analysis
@@ -395,7 +395,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
         "bounds.kgr",
         "use std::collections::{HashSet};\nuse std::hash::{Hash};\nstruct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(HashSet<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(
         analysis.diagnostics().is_empty(),
@@ -408,7 +408,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
 fn generic_templates_construct_and_project_distinct_instances() {
     let text = "struct Cell<T> { var value: T } enum Packet<T> { Data(T) } fn get<T>(cell: Cell<T>) -> T { cell.value } fn main() -> (i32, String, Packet<i32>) { val a = Cell { value: 7 }; val b = Cell { value: \"hello\" }; a.value = 8; (get(a), get(b), Packet::Data(a.value)) }";
     let source = SourceFile::new("generic.kgr", text);
-    let result = crate::analyze_source(&source, foundation_catalog::shared())
+    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis");
     assert!(
         result.diagnostics().is_empty(),
@@ -518,7 +518,7 @@ fn generic_parameter_context_preserves_known_members_beside_uninferred_binders()
                 "enum Token<T> {{ Empty }} fn take<T>(pair: (Token<i32>, T)) {{}} fn unseeded<T>(value: Token<T>) {{}} fn identity<T>(value: T) -> T {{ value }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -558,7 +558,7 @@ fn constructor_fields_share_partial_argument_context_and_reject_unseeded_members
                 "enum Token<T> {{ Empty }} struct Pair<T> {{ val pair: (Token<i32>, T) }} enum Payload<T> {{ Pair((Token<i32>, T)) }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -595,7 +595,7 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
                 "use std::collections::HashMap; {declaration} fn broken() {{ val item = {initializer}; item; }} fn good() -> i32 {{ 42 }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.kind,
@@ -655,7 +655,7 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
                 "use std::collections::HashMap; {declaration} fn bad() {{ val pair = {initializer}; }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared())
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");
         let mismatch = analysis
             .diagnostics()

@@ -1,6 +1,5 @@
 //! Source query regressions, including native implementations and protocol views.
 use crate::{
-    analysis::ownership,
     declarations::DeclarationId,
     language::semantics::ProtocolSemantics,
     native::render::declaration_source,
@@ -113,7 +112,7 @@ mod tests {
         let item_type = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));
         let authoring_catalog = analysis.to_unverified(&Default::default()).unwrap();
-        let catalog = &authoring_catalog.facts().aggregates;
+        let catalog = &authoring_catalog.records().facts().aggregates;
         let interface = Protocol::Iterator.nominal();
         let (implementation, arguments) = catalog
             .engine_implementation(&interface, &receiver, &Default::default())
@@ -199,7 +198,7 @@ mod tests {
             .unwrap()
             .to_unverified(&Default::default())
             .unwrap();
-        let catalog = &authoring_catalog.facts().aggregates;
+        let catalog = &authoring_catalog.records().facts().aggregates;
         let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let string = TypeId::Builtin(kagari_types::scalar::BuiltinType::String);
         let target = TypeId::Map {
@@ -255,11 +254,12 @@ mod tests {
                 .name(),
             declaration_source(
                 &foundation_catalog::shared()
+                    .unwrap()
                     .into_iter()
-                    .find(|module| module.identity
+                    .find(|module| module.records().identity
                         == kagari_stdlib::namespaces::module("std", "collections"))
                     .unwrap(),
-                &foundation_catalog::shared(),
+                &foundation_catalog::shared().unwrap(),
             )
             .unwrap()
             .uri
@@ -392,22 +392,13 @@ mod trait_tests {
                     .name(),
                 declaration_source(
                     &crate::tests::native::module(),
-                    &foundation_catalog::shared()
+                    &foundation_catalog::shared().unwrap()
                 )
                 .unwrap()
                 .uri
             );
             let signature = analysis.call_signature_at(offset).unwrap();
-            assert_eq!(
-                signature.declaration,
-                ownership::paths(
-                    &api.declaration,
-                    snapshot.definitions(),
-                    &Default::default()
-                )
-                .unwrap()
-                .id
-            );
+            assert_eq!(signature.declaration, api.declaration.id.clone());
             assert!(signature.parameters.is_empty());
             assert_eq!(
                 signature.result,
@@ -455,6 +446,7 @@ mod trait_tests {
         assert!(user.documentation.is_empty());
         let authoring_iterator = analysis.to_unverified(&Default::default()).unwrap();
         let iterator = authoring_iterator
+            .records()
             .facts()
             .aggregates
             .trait_(&Protocol::Iterator.nominal().declaration)
@@ -555,6 +547,7 @@ mod interpolation_queries {
             let mut db = test_analysis();
             db.set_native_modules(
                 foundation_catalog::shared()
+                    .unwrap()
                     .into_iter()
                     .chain([crate::tests::native::text_items_module()])
                     .collect(),
@@ -605,7 +598,7 @@ mod collection_access_tests {
             .unwrap()
             .to_unverified(&Default::default())
             .unwrap();
-        let catalog = &authoring_catalog.facts().aggregates;
+        let catalog = &authoring_catalog.records().facts().aggregates;
         let integer = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
         let receivers = [
             foundation_vec(integer.clone()),

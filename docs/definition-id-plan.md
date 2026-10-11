@@ -1527,3 +1527,59 @@ sweep or full backend matrix was run. Remaining SI03 test migration and identity
 visitor/remapping audits, SI04 integration, SI05/SI06 representation removal and final
 documentation cleanup are still required; production HIR build recovery is not overall
 plan acceptance.
+
+### SI03 scoped test inputs and fresh/reused fact comparison
+
+Migrated shared Native declaration fixtures to fixed-ID DefinitionMetadata. Each
+fixture registers its local roots/members in an explicit construction context and
+imports the exact installed Hash/Iterable/member/List identities it references.
+Validation receives the retained table; generated-source correspondence tests keep
+the original malformed-body/signature/visibility cases. Fallible bundled-catalog
+calls now unwrap at fixture construction boundaries, including nested generic-type
+test modules. Fixtures read editable/checked metadata through its records owner.
+
+Removed every test call to the deleted `ownership::paths` projection. Same-snapshot
+navigation compares scoped declarations directly. Fresh versus reused TypeTable and
+ModuleSignatures comparisons import both records into one test-owned context before
+comparing semantic IDs, while retaining the preexisting independent arena assertions
+and local-node normalization. A test-only `import_facts` helper delegates to ordinary
+metadata reference validation/import; it does not normalize analysis/arena identities
+or recreate a path-shaped semantic representation. The signature navigation test's
+individual type-reference comparison uses the same explicit shared-scope import.
+Nominal-type and bounded-implementation-search fixtures now allocate in independent
+contexts and retain their deep traversal, cancellation, owner/arity and budget checks.
+The editable checked-analysis assertion now expects the retained owner ID, matching
+the scoped `to_unverified` contract; separate exact-path/old-snapshot assertions remain.
+
+Evidence and remaining work:
+
+- `cargo check -p kagari-hir --lib --message-format=short` passes after the test-only
+  helper and cfg import changes. Production behavior is unchanged by this checkpoint.
+- The selected `cargo test -p kagari-hir --lib
+  analysis::prelude_tests::standard_variants_and_propagation_rebase_on_body_reuse
+  --message-format=short -- --exact` still fails while compiling the lib-test target:
+  249 errors, no warnings (previous checkpoint: 536). The selected test has not run.
+  Successive compiler attempts followed related fixture repairs; no assertions or
+  test cases were removed to reduce the count.
+- Remaining SI03 fixture work includes Host construction/metadata input ownership,
+  source/foundation expected types still built from paths, explicit protocol query
+  scope/limit arguments, mutable metadata fixture edits and old read/display APIs.
+  Finish the shared Host authoring boundary at its actual owner rather than add a
+  second HIR signature implementation or restore a path projection. Production Host
+  adoption stays distinct from its revision-qualified callable slots.
+- Preserve the earlier tracked BindingId body-owner visitor/remapper correction when
+  removing representation generics; current comparisons import TypeTable/signature
+  records, not local-binding identity records. Do not infer whole-analysis remapping
+  acceptance from the helper's successful type checking. Audit fresh-analysis fixtures
+  that share cached Native files before executing them: immutable source provenance
+  and adopted definition scope must both remain valid.
+- The previously passing 10 language-contract integration cases, identity-display
+  case and production Clippy remain evidence for unaffected owners. They were not
+  rerun merely to produce another green transcript. No new fixture runtime acceptance
+  is claimed until the lib-test target builds and the selected cases actually execute.
+
+Structure passes 1055 Rust files with no violations or documented exceptions;
+formatting and diff checks pass. Reviewed test/production cfg boundaries, imports,
+explicit context ownership and preservation of comparison assertions. The checkpoint
+still carries the lib-test build failure; SI03 focused behavioral acceptance and the
+remaining SI04-SI06 integration/removal/documentation work remain incomplete.

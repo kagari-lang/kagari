@@ -215,7 +215,7 @@ fn same_named_user_functions_are_not_reflection_helpers() {
         "profile.kgr",
         "fn type_of(value: i32) -> i32 { value + 1 } fn main() -> i32 { type_of(41) }",
     );
-    let checked = analyze_source(&module, foundation_catalog::shared())
+    let checked = analyze_source(&module, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_codegen()
         .expect("resolved user function does not need reflection permission");

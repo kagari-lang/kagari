@@ -365,7 +365,7 @@ fn default_analysis_has_no_implicit_native_catalog() {
             .diagnostics()
             .is_empty()
     );
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().unwrap());
     let installed = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

@@ -7,7 +7,7 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
     let lowered = common::lower_ok(
         "trait Sequence { type Item; fn size(self) -> usize where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
     );
-    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("Self bounds in their declaring trait context");
@@ -43,7 +43,7 @@ fn forward<T: Carrier, U: Carrier>(value: T) {{ take::<T, {projection}>(value); 
 "#
             ),
         );
-        let result = crate::analyze_source(&source, foundation_catalog::shared()).unwrap();
+        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
         if valid {
             result
                 .into_checked()
@@ -101,7 +101,7 @@ where T: Display
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared())
+    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("type checker should succeed");
@@ -170,7 +170,7 @@ fn use_mapper(value: Mapper) -> (i32, String) {
 }
 "#,
     );
-    crate::analyze_source(&lowered.source, foundation_catalog::shared())
+    crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("method arguments are inferred independently through the same interface");
@@ -207,10 +207,13 @@ struct Player {
 impl Display for Player {}
 "#,
     );
-    let diagnostics = crate::analyze_source(&missing_method.source, foundation_catalog::shared())
-        .expect("installed declaration analysis")
-        .into_checked()
-        .expect_err("type checker should reject impl");
+    let diagnostics = crate::analyze_source(
+        &missing_method.source,
+        foundation_catalog::shared().unwrap(),
+    )
+    .expect("installed declaration analysis")
+    .into_checked()
+    .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::TraitMethodMismatch {
@@ -237,10 +240,11 @@ impl Display for Player {
 }
 "#,
     );
-    let diagnostics = crate::analyze_source(&wrong_return.source, foundation_catalog::shared())
-        .expect("installed declaration analysis")
-        .into_checked()
-        .expect_err("type checker should reject impl");
+    let diagnostics =
+        crate::analyze_source(&wrong_return.source, foundation_catalog::shared().unwrap())
+            .expect("installed declaration analysis")
+            .into_checked()
+            .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::TraitMethodMismatch {
@@ -326,14 +330,14 @@ fn forward<K: Ord>(receiver: Transform, value: K) -> K { receiver.apply(value) }
 fn call(receiver: Transform) -> i32 { forward(receiver, 42) }
 "#,
     );
-    crate::analyze_source(&valid.source, foundation_catalog::shared())
+    crate::analyze_source(&valid.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("generic interface call forwards a statically proven bound");
     let invalid = common::lower_ok(
         "trait Transform { fn apply<K: Ord>(self, value: K) -> K; } struct Unordered {} fn call(receiver: Transform) { receiver.apply(Unordered {}); }",
     );
-    let diagnostics = crate::analyze_source(&invalid.source, foundation_catalog::shared())
+    let diagnostics = crate::analyze_source(&invalid.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("interface calls must not bypass method-local bounds");

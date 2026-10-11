@@ -1,5 +1,6 @@
 use super::*;
-use crate::{analysis::ownership, tests::test_analysis};
+use crate::tests::{common::import_facts, test_analysis};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -10,21 +11,10 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
     let fresh = snapshot(&mut test_analysis(), sources);
     let fresh = fresh.file(file.source().id()).unwrap();
-    ownership::paths(
-        file.signatures().as_ref(),
+    file.signatures().as_ref().facts().assert_same_source_facts(
         file.definitions(),
-        &Default::default(),
-    )
-    .unwrap()
-    .facts()
-    .assert_same_source_facts(
-        ownership::paths(
-            fresh.signatures().as_ref(),
-            fresh.definitions(),
-            &Default::default(),
-        )
-        .unwrap()
-        .facts(),
+        fresh.signatures().as_ref().facts(),
+        fresh.definitions(),
         file.result().facts().lowered.module.body.arena(),
         fresh.result().facts().lowered.module.body.arena(),
     );
@@ -33,8 +23,17 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
         fresh.signatures().diagnostics()
     );
     assert_eq!(file.result().diagnostics(), fresh.result().diagnostics());
-    let authoring = file.to_unverified(&Default::default()).unwrap();
-    let authoring_fresh = fresh.to_unverified(&Default::default()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let authoring = import_facts(
+        &file.result().facts().typed.type_table,
+        file.definitions(),
+        &context,
+    );
+    let authoring_fresh = import_facts(
+        &fresh.result().facts().typed.type_table,
+        fresh.definitions(),
+        &context,
+    );
     // Navigation must use this revision's declarations, including generic bounds.
     for (index, span) in file
         .result()
@@ -47,11 +46,9 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
     {
         let id = file.result().facts().lowered.source_map.type_id(index);
         assert_eq!(
-            authoring.facts().typed.type_table.type_ref(id),
+            authoring.records().type_ref(id),
             authoring_fresh
-                .facts()
-                .typed
-                .type_table
+                .records()
                 .type_ref(fresh.result().facts().lowered.source_map.type_id(index))
         );
         let location = |analysis: &FileAnalysis| {

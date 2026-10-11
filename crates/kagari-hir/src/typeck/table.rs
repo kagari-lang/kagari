@@ -1,7 +1,5 @@
 //! Node-keyed types and selected semantic operations, shared by tooling and compiler lowering.
 
-#[cfg(test)]
-use crate::hir::ids::HirArenaId;
 use crate::{
     builtin::BuiltinFunction,
     callable::AppliedCallSignature,
@@ -18,6 +16,10 @@ use crate::{
         TypeSubstitution,
     },
 };
+#[cfg(test)]
+use crate::{hir::ids::HirArenaId, tests::common::import_facts};
+#[cfg(test)]
+use kagari_common::identity::map::DefinitionContext;
 use kagari_common::{
     identity::{
         reference::DefinitionReference,
@@ -332,10 +334,17 @@ impl TypeTable {
     #[cfg(test)]
     pub(crate) fn assert_same_source_facts(
         &self,
+        definitions: &DefinitionTable,
         other: &Self,
+        other_definitions: &DefinitionTable,
         arena: HirArenaId,
         other_arena: HirArenaId,
     ) {
+        let context = DefinitionContext::new().unwrap();
+        let left = import_facts(self, definitions, &context);
+        let right = import_facts(other, other_definitions, &context);
+        let this = left.records();
+        let other = right.records();
         // Fresh analysis must have different local identities. Compare slot facts
         // only after checking every key/receiver belongs to its actual lowering.
         fn normalized(table: &TypeTable, from: HirArenaId, to: HirArenaId) -> TypeTable {
@@ -391,7 +400,7 @@ impl TypeTable {
         }
 
         assert_eq!(
-            normalized(self, arena, other_arena),
+            normalized(this, arena, other_arena),
             normalized(other, other_arena, other_arena)
         );
     }

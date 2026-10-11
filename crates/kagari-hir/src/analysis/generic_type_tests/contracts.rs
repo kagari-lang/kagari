@@ -29,7 +29,7 @@ fn put_map<K: Eq + Hash,V>(values: HashMap<K,V>, key: K, value: V) { values.inse
 pub(super) fn analyze_contracts(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
     analyze_source(
         &SourceFile::new(source.name(), format!("{CONTRACTS}\n{}", source.text())),
-        foundation_catalog::shared(),
+        foundation_catalog::shared().unwrap(),
     )
     .expect("installed declaration analysis")
 }

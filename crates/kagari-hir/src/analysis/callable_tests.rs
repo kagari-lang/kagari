@@ -232,7 +232,7 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
         analysis.result().diagnostics()
     );
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let mut seen = 0;
     for function in &facts.lowered.module.functions {
         let expected = TypeId::Builtin(if function.name == "narrow" {
@@ -250,7 +250,10 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
                 panic!("checked native declaration");
             };
             let imported = facts.imported_functions.target(id).unwrap();
-            assert_eq!(imported.declaration.module, fixture::module().identity);
+            assert_eq!(
+                imported.declaration.module,
+                fixture::module().records().identity
+            );
             assert!(matches!(
                 imported.signature.implementation,
                 FunctionImplementation::Native(NativeBinding::Entry(_))
@@ -297,7 +300,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         .unwrap()
         .to_unverified(&Default::default())
         .unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     for (name, expected) in [
         ("required", FunctionImplementation::Required),
         ("defaulted", FunctionImplementation::Script),
@@ -335,12 +338,14 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
             .find(|method| method.name == name)
             .unwrap();
         let function = authoring
+            .records()
             .facts()
             .typed
             .functions
             .iter()
             .find(|function| {
                 authoring
+                    .records()
                     .facts()
                     .declarations
                     .definition(ResolvedName::Function(function.id))
@@ -375,7 +380,7 @@ fn main() -> i32 {
         analysis.result().diagnostics()
     );
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let mut seen = Vec::new();
     for (id, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
@@ -406,7 +411,10 @@ fn main() -> i32 {
             CallTarget::SourceFunction(target) if name != "identity" => {
                 let imported = facts.imported_functions.target(target).unwrap();
                 assert_ne!(imported.site.location.file, root);
-                assert_eq!(imported.declaration.module, fixture::module().identity);
+                assert_eq!(
+                    imported.declaration.module,
+                    fixture::module().records().identity
+                );
                 &imported.signature
             }
             other => panic!("{name} must retain its checked declaration target: {other:?}"),
@@ -513,7 +521,7 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
     );
     assert_eq!(method.result, TypeId::Builtin(BuiltinType::I32));
     let authoring_facts = file.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let mut checked = 0;
     for (site, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, .. } = &expression.kind else {
@@ -615,7 +623,7 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
         analysis.result().diagnostics()
     );
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let (id, _) = facts
         .lowered
         .module
@@ -664,7 +672,7 @@ fn run(callback: fn(i32) -> bool) {
         analysis.result().diagnostics()
     );
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.facts();
+    let facts = authoring_facts.records().facts();
     let mut seen = Vec::new();
     for (site, expression) in facts.lowered.module.body.expressions() {
         let ExprKind::Call { callee, args, .. } = &expression.kind else {
@@ -726,7 +734,7 @@ fn lexical_values_preserve_associated_native_and_script_type_owners() {
         );
         let analysis = crate::analyze_source(
             &SourceFile::new("shadow-owners.kgr", text),
-            foundation_catalog::shared(),
+            foundation_catalog::shared().unwrap(),
         )
         .expect("installed declaration analysis");
         assert!(
