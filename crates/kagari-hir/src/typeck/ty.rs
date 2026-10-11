@@ -326,7 +326,7 @@ pub(super) fn resolve_type_in(
                             && (!*callable_syntax
                                 || Protocol::from_reference(
                                     &nominal.declaration,
-                                    context.declarations.definitions(),
+                                    Some(context.declarations.definitions()),
                                 ) == Some(Protocol::Fn)) =>
                     {
                         nominal.arguments = args;

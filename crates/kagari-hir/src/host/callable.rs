@@ -7,6 +7,7 @@ use crate::{
     typeck::FunctionImplementation,
     types::TypeId,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::host_interface::HostFunctionDeclaration;
 
 /// Semantic types are imported once when the immutable host interface is installed.
@@ -17,7 +18,7 @@ pub(super) struct HostSignature {
 }
 
 impl HostSignature {
-    pub(super) fn new(declaration: &HostFunctionDeclaration) -> Self {
+    pub(super) fn new(declaration: &HostFunctionDeclaration<DefinitionId>) -> Self {
         Self {
             params: declaration
                 .params
@@ -34,14 +35,14 @@ impl HostSignature {
 #[derive(Debug, Clone, Copy)]
 pub struct HostCallable<'a> {
     pub(super) id: HostFunctionId,
-    pub(super) declaration: &'a HostFunctionDeclaration,
+    pub(super) declaration: &'a HostFunctionDeclaration<DefinitionId>,
     pub(super) signature: &'a HostSignature,
     pub(super) origin: Option<&'a HostDeclarationOrigin>,
 }
 
 impl HostCallable<'_> {
     /// Borrows the original installed parameter/result/effect contract.
-    pub fn contract(&self) -> &HostFunctionDeclaration {
+    pub fn contract(&self) -> &HostFunctionDeclaration<DefinitionId> {
         self.declaration
     }
 

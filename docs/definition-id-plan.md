@@ -1303,3 +1303,60 @@ formatting and diff checks pass. This remains an
 explicitly broken intermediate migration checkpoint, not phase acceptance. Continue
 Host/protocol/display consumers, then the remaining specialization/codecs and removal
 of identity representation parameters before retiring the plan.
+
+### SI03 scoped Host analysis inputs and queries
+
+HostInput now accepts DefinitionMetadata of a fixed-ID HostInterface, with origin
+keys in that same retained scope. HostDeclarations validates the interface against
+its table, expands declared methods through the existing checked method-contract
+API, and retains fixed-ID contracts, signatures and indexes. Origins still require
+an actual declared function/type/field (including expanded methods) and a valid
+preferred location; an interned ID alone supplies no declaration or binding authority.
+Field lookup uses the table parent relation; method classification and path-contract
+validation use the retained table rather than projecting an entire contract to paths.
+
+The first declaration query adopts the complete Host interface into the database's
+existing context. A single ancestor-closure import remaps contracts, origin keys,
+method-owner indexes and nominal-type indexes. The immutable Host revision and
+function/type/module slot numbers stay unchanged: these identify the original input,
+independently of its adopted definition IDs. Semantic signature types are derived from
+those adopted contracts. The database caches this adopted input until
+`set_host_declarations` replaces the source input; this avoids repeating adoption for
+every file/query. Cancellation or mapping failure publishes no adopted input. Existing
+source, import, namespace and Host revision comparisons continue to control query reuse;
+old file snapshots retain their prior input and definition prefix.
+
+File and signature Host navigation queries now return scoped contracts directly.
+Removed the remaining field-query ID-to-path projection. Host argument/field/path
+checking consumes the same adopted ID types, retaining declared access, dynamic index
+contracts and revision-qualified callable selection. No runtime callbacks, Rust host
+state or borrow authority moved into HIR. The public empty-Host convenience now reports
+identity-allocation failure; single-module name resolution returns AnalysisError so
+this failure is propagated alongside import failures. The existing infallible
+AnalysisDatabase default constructor retains its explicit allocation expectations.
+
+Intermediate evidence and follow-up:
+
+- `cargo check -p kagari-hir --lib --message-format=short` still fails with 185 errors
+  and no warnings, down from 236 at the previous checkpoint. Host input/adoption,
+  source/name preparation, callable projection and Host navigation modules have no
+  compiler diagnostics. This does not establish behavioral acceptance.
+- The remaining Host call-checking errors are the `print` helper consuming the old
+  path-shaped `standard_log` authoring constructor. Migrate that shared contract at
+  its declaration owner and update its consumers; do not add a second HIR-only log
+  signature or a temporary whole-record path projection. Protocol/type-display and
+  the other carried semantic errors remain SI03. Source SDK/Host fixtures still need
+  scoped construction APIs; full consumer integration is not yet buildable.
+- Existing Host facade/origin/type tests own stale-slot rejection, snapshot-owned
+  origins, interface implementation checks and declared field/index access. Their
+  fixtures must move to scoped inputs before these selected tests run after HIR
+  builds. Normal HIR behavioral tests and Clippy remain unrun; no workspace sweep or
+  unrelated passing suite was rerun. Runtime borrow/source-free evidence from earlier
+  unchanged owners remains separate from this unverified source-analysis cutover.
+
+Reviewed scope ownership, ID-key remapping, revision preservation, cache lifetime,
+fallible empty-scope construction and cancellation before publication. Structure
+passes 1052 Rust files with no violations or documented exceptions; formatting and
+`git diff --check` pass. This is a broken intermediate SI03 checkpoint. Remaining
+shared constructors/protocols, semantic consumers, specialization/codecs, obsolete
+representation removal and final documentation cleanup are still required.

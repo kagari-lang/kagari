@@ -12,7 +12,13 @@ use crate::{
 use callable::{HostCallable, HostSignature};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionPath, ModuleIdentity},
+    identity::{
+        ModuleIdentity,
+        map::DefinitionContext,
+        mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
+    },
     span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
@@ -39,6 +45,7 @@ use std::{
     },
 };
 
+mod adoption;
 pub mod callable;
 pub mod origin;
 
@@ -97,23 +104,26 @@ pub(crate) enum HostSourcePathStep {
 #[derive(Debug)]
 pub struct HostDeclarations {
     revision: u64,
-    interface: HostInterface,
+    interface: HostInterface<DefinitionId>,
+    definitions: DefinitionTable,
     signatures: Vec<HostSignature>,
-    origins: HashMap<DefinitionPath, HostDeclarationOrigin>,
+    origins: HashMap<DefinitionId, HostDeclarationOrigin>,
     paths: HashMap<String, HostFunctionId>,
-    methods: HashMap<(DefinitionPath, String), HostFunctionId>,
+    methods: HashMap<(DefinitionId, String), HostFunctionId>,
     type_paths: HashMap<String, HostTypeId>,
-    type_identities: HashMap<DefinitionPath, HostTypeId>,
+    type_identities: HashMap<DefinitionId, HostTypeId>,
     modules: Vec<String>,
 }
 
 impl HostDeclarations {
-    pub(crate) fn type_declarations(&self) -> &[HostTypeDeclaration] {
+    pub(crate) fn type_declarations(&self) -> &[HostTypeDeclaration<DefinitionId>] {
         &self.interface.types
     }
 
     /// Projects a declared host trait implementation into an applied HIR nominal interface.
-    pub fn trait_type(implementation: &HostTraitImplementationDeclaration) -> NominalType {
+    pub fn trait_type(
+        implementation: &HostTraitImplementationDeclaration<DefinitionId>,
+    ) -> NominalType {
         NominalType {
             declaration: implementation.trait_id.clone(),
             arguments: implementation
@@ -134,7 +144,7 @@ impl HostDeclarations {
         &self,
         trait_type: &NominalType,
         receiver: &TypeId,
-    ) -> Option<&HostTraitImplementationDeclaration> {
+    ) -> Option<&HostTraitImplementationDeclaration<DefinitionId>> {
         let TypeId::Host(id) = receiver else {
             return None;
         };
@@ -145,7 +155,7 @@ impl HostDeclarations {
     }
 
     fn matches_trait_application(
-        implementation: &HostTraitImplementationDeclaration,
+        implementation: &HostTraitImplementationDeclaration<DefinitionId>,
         trait_type: &NominalType,
     ) -> bool {
         Self::trait_type(implementation).satisfies(trait_type)
@@ -168,7 +178,7 @@ impl HostDeclarations {
     /// Finds the host callable bound to a selected trait method/interface on a host receiver.
     pub fn trait_method_binding(
         &self,
-        trait_method: &DefinitionPath,
+        trait_method: &DefinitionId,
         trait_type: &NominalType,
         receiver: &TypeId,
     ) -> Option<HostFunctionId> {
@@ -206,19 +216,28 @@ impl HostDeclarations {
             cancel.check()?;
             for implementation in &host.trait_implementations {
                 cancel.check()?;
-                let standard = Protocol::from_id(&implementation.trait_id);
-                if &implementation.trait_id.module != module && standard.is_none() {
+                let standard =
+                    Protocol::from_reference(&implementation.trait_id, Some(&self.definitions));
+                if self
+                    .definitions
+                    .resolve(implementation.trait_id)
+                    .expect("scoped host trait")
+                    .module()
+                    != module
+                    && standard.is_none()
+                {
                     continue;
                 }
                 let trait_signature = aggregates.trait_(&implementation.trait_id);
                 let mut report = |reason: String| {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                            trait_name: implementation
-                                .trait_id
-                                .path
+                            trait_name: self
+                                .definitions
+                                .resolve(implementation.trait_id)
+                                .expect("scoped host trait")
                                 .last()
-                                .map(|segment| segment.name.clone())
+                                .map(|segment| segment.name.to_owned())
                                 .unwrap_or_default(),
                             type_name: host.symbol.clone(),
                             reason,
@@ -302,7 +321,12 @@ impl HostDeclarations {
                         if !satisfied {
                             report(format!(
                                 "associated type `{}` does not satisfy its bound",
-                                member.path.last().unwrap().name
+                                self.definitions
+                                    .resolve(*member)
+                                    .expect("scoped associated output")
+                                    .last()
+                                    .unwrap()
+                                    .name
                             ));
                         }
                     }
@@ -434,11 +458,11 @@ impl HostDeclarations {
                     {
                         report(format!(
                             "extra trait method binding `{}`",
-                            binding
-                                .trait_method
-                                .path
+                            self.definitions
+                                .resolve(binding.trait_method)
+                                .expect("scoped host method binding")
                                 .last()
-                                .map(|segment| segment.name.as_str())
+                                .map(|segment| segment.name)
                                 .unwrap_or_default()
                         ));
                     }
@@ -455,11 +479,9 @@ impl HostDeclarations {
     /// Rejects invalid interfaces/origins, conflicting declarations and namespace
     /// collisions. Installation does not open origin URIs or execute host code.
     pub fn new(input: impl Into<HostInput>) -> Result<Arc<Self>, HostInterfaceError> {
-        let HostInput {
-            mut interface,
-            origins,
-        } = input.into();
-        interface.validate()?;
+        let HostInput { interface, origins } = input.into();
+        let (definitions, mut interface) = interface.into_parts();
+        interface.validate(&definitions)?;
         let mut present = interface
             .functions
             .iter()
@@ -468,11 +490,13 @@ impl HostDeclarations {
         for owner in &interface.types {
             for method in &owner.methods {
                 if present.insert(method.id.clone()) {
-                    interface.functions.push(owner.method_contract(&method.id)?);
+                    interface
+                        .functions
+                        .push(owner.method_contract(&method.id, &definitions)?);
                 }
             }
         }
-        interface.validate()?;
+        interface.validate(&definitions)?;
         let declarations: HashSet<_> =
             interface
                 .functions
@@ -513,7 +537,7 @@ impl HostDeclarations {
             .functions
             .iter()
             .enumerate()
-            .filter(|(_, declaration)| declaration.method_owner().is_none())
+            .filter(|(_, declaration)| declaration.method_owner(&definitions).is_none())
             .map(|(index, declaration)| {
                 (
                     declaration.symbol.replace('.', "::"),
@@ -528,8 +552,13 @@ impl HostDeclarations {
             .filter_map(|(index, declaration)| {
                 Some((
                     (
-                        declaration.method_owner()?,
-                        declaration.id.path.last()?.name.clone(),
+                        declaration.method_owner(&definitions)?,
+                        definitions
+                            .resolve(declaration.id)
+                            .ok()?
+                            .last()?
+                            .name
+                            .to_owned(),
                     ),
                     HostFunctionId { revision, index },
                 ))
@@ -556,7 +585,7 @@ impl HostDeclarations {
         for symbol in interface
             .functions
             .iter()
-            .filter(|function| function.method_owner().is_none())
+            .filter(|function| function.method_owner(&definitions).is_none())
             .map(|function| &function.symbol)
             .chain(interface.types.iter().map(|ty| &ty.symbol))
         {
@@ -573,6 +602,7 @@ impl HostDeclarations {
             signatures: interface.functions.iter().map(HostSignature::new).collect(),
             origins,
             interface,
+            definitions,
             paths,
             methods,
             type_paths,
@@ -582,10 +612,20 @@ impl HostDeclarations {
     }
 
     /// Returns a shared immutable empty declaration universe with a stable revision.
-    pub fn empty() -> Arc<Self> {
-        static EMPTY: OnceLock<Arc<HostDeclarations>> = OnceLock::new();
+    /// Fails if the identity scope cannot be allocated; no Host contract is published on failure.
+    pub fn empty() -> Result<Arc<Self>, DefinitionMappingError> {
+        static EMPTY: OnceLock<Result<Arc<HostDeclarations>, DefinitionMappingError>> =
+            OnceLock::new();
         EMPTY
-            .get_or_init(|| Self::new(HostInterface::default()).unwrap())
+            .get_or_init(|| {
+                let context = DefinitionContext::new()?;
+                let interface = DefinitionMetadata::checked(
+                    context.snapshot(),
+                    HostInterface::default(),
+                    &CancellationToken::default(),
+                )?;
+                Self::new(interface).map_err(|_| DefinitionMappingError::InvalidContract)
+            })
             .clone()
     }
 
@@ -595,7 +635,7 @@ impl HostDeclarations {
     }
 
     /// Finds a host method by canonical owner identity and unqualified member name.
-    pub fn method(&self, owner: &DefinitionPath, name: &str) -> Option<HostFunctionId> {
+    pub fn method(&self, owner: &DefinitionId, name: &str) -> Option<HostFunctionId> {
         self.methods.get(&(owner.clone(), name.to_owned())).copied()
     }
 
@@ -642,7 +682,7 @@ impl HostDeclarations {
     }
 
     /// Borrows a function declaration only if revision and index belong to this input.
-    pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration> {
+    pub fn function(&self, id: HostFunctionId) -> Option<&HostFunctionDeclaration<DefinitionId>> {
         (id.revision == self.revision)
             .then(|| self.interface.functions.get(id.index))
             .flatten()
@@ -660,7 +700,7 @@ impl HostDeclarations {
     }
 
     /// Borrows optional navigation metadata for a canonical host declaration.
-    pub fn origin(&self, id: &DefinitionPath) -> Option<&HostDeclarationOrigin> {
+    pub fn origin(&self, id: &DefinitionId) -> Option<&HostDeclarationOrigin> {
         self.origins.get(id)
     }
 
@@ -698,9 +738,15 @@ impl HostDeclarations {
 
     pub(crate) fn source_path(
         &self,
-        root: &DefinitionPath,
+        root: &DefinitionId,
         steps: &[HostSourcePathStep],
-    ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
+    ) -> Result<
+        (
+            HostPathDeclaration<DefinitionId>,
+            HostPathContract<DefinitionId>,
+        ),
+        &'static str,
+    > {
         let mut matches = self.interface.paths.iter().filter(|path| {
             if &path.root != root || path.segments.len() != steps.len() {
                 return false;
@@ -728,7 +774,7 @@ impl HostDeclarations {
             return Err("path has ambiguous host declarations");
         }
         let contract = declaration
-            .contract(&self.interface)
+            .contract(&self.interface, &self.definitions)
             .map_err(|_| "invalid declared host path")?;
         Ok((declaration.clone(), contract))
     }
@@ -739,21 +785,20 @@ impl HostDeclarations {
     }
 
     /// Finds a host type slot by canonical definition identity.
-    pub fn nominal_type(&self, declaration: &DefinitionPath) -> Option<HostTypeId> {
+    pub fn nominal_type(&self, declaration: &DefinitionId) -> Option<HostTypeId> {
         self.type_identities.get(declaration).copied()
     }
 
     /// Borrows a type declaration only if revision and index belong to this input.
-    pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration> {
+    pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration<DefinitionId>> {
         (id.revision == self.revision)
             .then(|| self.interface.types.get(id.index))
             .flatten()
     }
 
-    /// Finds a field within the host owner derived from its canonical definition path.
-    pub fn field(&self, id: &DefinitionPath) -> Option<&HostFieldDeclaration> {
-        let mut owner = id.clone();
-        owner.path.pop()?;
+    /// Finds a field using its retained definition parent; foreign or absent IDs return `None`.
+    pub fn field(&self, id: &DefinitionId) -> Option<&HostFieldDeclaration<DefinitionId>> {
+        let owner = self.definitions.parent(*id).ok()??;
         self.type_declaration(self.nominal_type(&owner)?)?
             .fields
             .iter()
@@ -761,7 +806,7 @@ impl HostDeclarations {
     }
 }
 
-pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
+pub(crate) fn signature_type(ty: &HostValueType<DefinitionId>) -> TypeId {
     match ty {
         HostValueType::Tuple(types) => TypeId::Tuple(types.iter().map(signature_type).collect()),
         HostValueType::Array(element) => TypeId::Array(Box::new(signature_type(element))),

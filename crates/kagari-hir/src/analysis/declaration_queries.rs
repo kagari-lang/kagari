@@ -194,6 +194,14 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
+        let hosts = match self.adopted_hosts.get() {
+            Some(hosts) => hosts,
+            None => {
+                let hosts = self.hosts.adopt(&self.definitions, cancel)?;
+                cancel.check()?;
+                self.adopted_hosts.get_or_init(|| hosts)
+            }
+        };
         let previous = self.declaration_cache.as_ref();
         let mut lowered_files = BTreeMap::new();
         let native_files = match self.native_files.get() {
@@ -281,7 +289,7 @@ impl AnalysisDatabase {
         let limits = None;
         let graph = Arc::new(ModuleGraph::build_with_limits(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
-            &self.hosts,
+            hosts,
             cancel,
             limits,
         )?);
@@ -296,12 +304,12 @@ impl AnalysisDatabase {
                 .and_then(|snapshot| snapshot.file(id))
                 .filter(|old| {
                     old.source().revision() == lowered.source.revision()
-                        && old.names().hosts.revision() == self.hosts.revision()
+                        && old.names().hosts.revision() == hosts.revision()
                         && old.names().imports == imports
                         && old
                             .names()
                             .catalog
-                            .same_namespaces(&graph.catalog, &imports.scope, &self.hosts, cancel)
+                            .same_namespaces(&graph.catalog, &imports.scope, hosts, cancel)
                             .unwrap_or(false)
                 });
             let file = if let Some(old) = old {
@@ -309,7 +317,7 @@ impl AnalysisDatabase {
             } else {
                 let declared = declare_analysis(
                     lowered,
-                    self.hosts.clone(),
+                    hosts.clone(),
                     imports,
                     graph.catalog.clone(),
                     &self.definitions,
@@ -332,7 +340,7 @@ impl AnalysisDatabase {
         cancel.check()?;
         Ok(DeclarationSnapshot {
             revision: source.revision(),
-            host_revision: self.hosts.revision(),
+            host_revision: hosts.revision(),
             graph,
             files: Arc::new(files),
         })

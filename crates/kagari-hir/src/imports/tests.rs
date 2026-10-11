@@ -417,11 +417,15 @@ fn cycles_are_reachable_without_invalidating_dependents() {
         .files()
         .map(|file| lower_module(file))
         .collect::<Vec<_>>();
-    let forward =
-        ModuleGraph::build(&lowered, &HostDeclarations::empty(), &Default::default()).unwrap();
+    let forward = ModuleGraph::build(
+        &lowered,
+        &HostDeclarations::empty().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let reverse = ModuleGraph::build(
         lowered.iter().rev(),
-        &HostDeclarations::empty(),
+        &HostDeclarations::empty().unwrap(),
         &Default::default(),
     )
     .unwrap();

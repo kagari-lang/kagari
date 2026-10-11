@@ -98,10 +98,10 @@ pub struct FileAnalysis {
     result: DefinitionMetadata<AnalysisResult<AnalyzedModule<DefinitionId>>>,
 }
 
-/// A visible lexical declaration paired with its checked, portable type.
+/// A visible lexical declaration paired with its checked type in this snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingInfo {
-    /// Type with portable definition paths, suitable for presentation outside the snapshot.
+    /// Type whose definition IDs belong to the originating file analysis snapshot.
     pub ty: TypeId,
     /// Binding declaration whose scoped IDs belong to the originating file analysis.
     pub declaration: Declaration<DefinitionId>,
@@ -109,7 +109,7 @@ pub struct BindingInfo {
 
 impl FileAnalysis {
     /// Returns the registered host field selected at an expression or assignment member name.
-    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
+    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration<DefinitionId>> {
         let facts = self.result.records().facts();
         let expressions = facts
             .lowered
@@ -123,12 +123,7 @@ impl FileAnalysis {
                 let field = facts.typed.type_table.expr_field(id)?;
                 let span = facts.lowered.source_map.expr_reference_span(id)?;
                 (span.start <= offset && offset < span.end)
-                    .then(|| {
-                        facts
-                            .names
-                            .hosts
-                            .field(&self.definitions().resolve(*field).ok()?.to_path())
-                    })
+                    .then(|| facts.names.hosts.field(field))
                     .flatten()
             });
         let places = facts
@@ -143,12 +138,7 @@ impl FileAnalysis {
                 let field = facts.typed.type_table.place_field(id)?;
                 let span = facts.lowered.source_map.place_member_span(id)?;
                 (span.start <= offset && offset < span.end)
-                    .then(|| {
-                        facts
-                            .names
-                            .hosts
-                            .field(&self.definitions().resolve(*field).ok()?.to_path())
-                    })
+                    .then(|| facts.names.hosts.field(field))
                     .flatten()
             });
         expressions.chain(places).next()
@@ -230,7 +220,10 @@ impl FileAnalysis {
     }
 
     /// Finds the registered host function referenced at this byte offset.
-    pub fn host_function_at(&self, offset: usize) -> Option<&HostFunctionDeclaration> {
+    pub fn host_function_at(
+        &self,
+        offset: usize,
+    ) -> Option<&HostFunctionDeclaration<DefinitionId>> {
         let facts = self.result.records().facts();
         facts
             .lowered
@@ -287,7 +280,7 @@ impl FileAnalysis {
     }
 
     /// Portable host documentation has no synthetic source-file location.
-    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
+    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration<DefinitionId>> {
         let facts = self.result.records().facts();
         if let Some((index, _)) = facts
             .lowered
@@ -796,6 +789,7 @@ pub struct AnalysisDatabase {
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
     hosts: Arc<HostDeclarations>,
+    adopted_hosts: OnceCell<Arc<HostDeclarations>>,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
@@ -819,7 +813,8 @@ impl Default for AnalysisDatabase {
             signature_cache: None,
             files: HashMap::new(),
             latest_revision: Revision::default(),
-            hosts: HostDeclarations::empty(),
+            hosts: HostDeclarations::empty().expect("empty host definition context exhausted"),
+            adopted_hosts: OnceCell::new(),
             inline_ids: RefCell::new(HashMap::new()),
             native_modules: vec![],
             native_sources: None,
@@ -891,9 +886,11 @@ impl AnalysisDatabase {
         self.files.clear();
     }
 
-    /// Replaces host inputs; later query reuse compares the host registry revision.
+    /// Replaces Host inputs; the first declaration query adopts their identities into this analysis.
+    /// Later query reuse compares the immutable Host revision, independently of definition IDs.
     pub fn set_host_declarations(&mut self, hosts: Arc<HostDeclarations>) {
         self.hosts = hosts;
+        self.adopted_hosts.take();
     }
 
     /// Prepares signatures and checks or reuses bodies for every supplied/discovered file.

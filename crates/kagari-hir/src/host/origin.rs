@@ -3,7 +3,10 @@
 
 use std::collections::HashMap;
 use {
-    kagari_common::{identity::DefinitionPath, span::Span},
+    kagari_common::{
+        identity::{metadata::DefinitionMetadata, table::DefinitionId},
+        span::Span,
+    },
     kagari_source::source_database::normalize_source_name,
     kagari_types::host_interface::{HostInterface, HostInterfaceError},
 };
@@ -72,18 +75,18 @@ impl HostDeclarationOrigin {
     }
 }
 
-/// Source analysis input. The portable interface remains the executable contract;
-/// origins are a separate, optional view keyed by identities in that interface.
-#[derive(Debug, Clone, Default)]
+/// Source analysis input retaining the identity scope of an offline Host contract.
+/// Origins are optional views keyed by identities in that same interface scope.
+#[derive(Debug, Clone)]
 pub struct HostInput {
-    /// Authoritative portable host callable/type/access declarations.
-    pub interface: HostInterface,
-    /// Optional navigation sites keyed by identities present in the interface.
-    pub origins: HashMap<DefinitionPath, HostDeclarationOrigin>,
+    /// Scoped host callable/type/access declarations; installation validates their contracts.
+    pub interface: DefinitionMetadata<HostInterface<DefinitionId>>,
+    /// Optional navigation sites keyed by IDs present in the retained interface.
+    pub origins: HashMap<DefinitionId, HostDeclarationOrigin>,
 }
 
-impl From<HostInterface> for HostInput {
-    fn from(interface: HostInterface) -> Self {
+impl From<DefinitionMetadata<HostInterface<DefinitionId>>> for HostInput {
+    fn from(interface: DefinitionMetadata<HostInterface<DefinitionId>>) -> Self {
         Self {
             interface,
             origins: HashMap::new(),

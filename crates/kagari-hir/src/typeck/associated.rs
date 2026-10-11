@@ -865,7 +865,7 @@ mod tests {
         let lowered = Arc::new(lower_module(&source));
         let declared = declare_analysis(
             lowered,
-            HostDeclarations::empty(),
+            HostDeclarations::empty().unwrap(),
             Default::default(),
             Default::default(),
             &DefinitionContext::new().unwrap(),

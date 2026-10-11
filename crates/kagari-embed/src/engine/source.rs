@@ -120,8 +120,8 @@ impl KagariEngine {
             .set_max_semantic_diagnostics(limit);
     }
 
-    /// Install an offline contract, optionally with declaration/Rust origins for
-    /// tooling. A plain HostInterface carries no source locations.
+    /// Install a scoped offline contract, optionally with declaration/Rust origins
+    /// for tooling. Interface metadata alone carries no source locations.
     pub fn set_host_interface(
         &self,
         input: impl Into<HostInput>,

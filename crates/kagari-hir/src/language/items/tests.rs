@@ -56,7 +56,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             Arc::new(lowered)
         })
         .collect::<Vec<_>>();
-    let hosts = HostDeclarations::empty();
+    let hosts = HostDeclarations::empty().unwrap();
     let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &hosts, &cancel).unwrap();
     let context = DefinitionContext::new().unwrap();
     let declared = lowered
@@ -195,7 +195,7 @@ fn copied_module_identity_does_not_authorize_application_roles() {
     let lowered = Arc::new(lower::lower_module(&source));
     let declared = declare_analysis(
         lowered,
-        HostDeclarations::empty(),
+        HostDeclarations::empty().unwrap(),
         Arc::default(),
         Arc::default(),
         &DefinitionContext::new().unwrap(),

@@ -2,11 +2,11 @@
 
 use crate::{
     AnalysisResult,
+    analysis::error::AnalysisError,
     hir::{ids::BodySelection, item::function::FunctionKind},
     host::HostDeclarations,
     imports::{
         BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
-        solver::ImportSolveError,
     },
     lower::LoweredModule,
     resolver::{
@@ -28,8 +28,8 @@ use {
 /// performs type checking; use analysis snapshots for a complete source input set.
 pub fn resolve_names(
     lowered: &LoweredModule,
-) -> Result<AnalysisResult<ResolvedNames>, ImportSolveError> {
-    let hosts = HostDeclarations::empty();
+) -> Result<AnalysisResult<ResolvedNames>, AnalysisError> {
+    let hosts = HostDeclarations::empty()?;
     let graph = ModuleGraph::build([lowered], &hosts, &Default::default())?;
     let imports = graph.imports_for(&SourceUnit::of(lowered)).unwrap().clone();
     let declarations = collect_declarations(

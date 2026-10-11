@@ -57,7 +57,7 @@ pub(crate) fn recover_invalid_identity(
     let definitions = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
     let declared = declare_analysis(
         lowered,
-        HostDeclarations::empty(),
+        HostDeclarations::empty()?,
         Default::default(),
         Default::default(),
         &definitions,

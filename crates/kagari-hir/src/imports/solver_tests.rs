@@ -154,8 +154,12 @@ fn solver_workload_measurements() {
             .collect::<Vec<_>>();
         let prepare = prepare_start.elapsed();
         let solve_start = Instant::now();
-        let graph =
-            ModuleGraph::build(&lowered, &HostDeclarations::empty(), &Default::default()).unwrap();
+        let graph = ModuleGraph::build(
+            &lowered,
+            &HostDeclarations::empty().unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
         let solve = solve_start.elapsed();
         if shape == "removal" {
             assert_eq!(
