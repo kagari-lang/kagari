@@ -39,7 +39,7 @@ use crate::{
 
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference},
+    identity::{reference::DefinitionReference, table::DefinitionId},
 };
 use smallvec::SmallVec;
 pub(crate) mod applications;
@@ -68,13 +68,13 @@ mod ty;
 use std::collections::HashMap;
 
 /// Checked function records with eight inline slots before heap allocation.
-pub(crate) type TypedFunctionBuffer<I = DefinitionPath> = SmallVec<[TypedFunction<I>; 8]>;
+pub(crate) type TypedFunctionBuffer<I = DefinitionId> = SmallVec<[TypedFunction<I>; 8]>;
 
 /// Checked parameters with four inline slots before heap allocation.
-pub(crate) type TypedParameterBuffer<I = DefinitionPath> = SmallVec<[TypedParameter<I>; 4]>;
+pub(crate) type TypedParameterBuffer<I = DefinitionId> = SmallVec<[TypedParameter<I>; 4]>;
 
 /// Semantic subject type to required standard/trait constraints; keys retain binder identity.
-pub type GenericBounds<I = DefinitionPath> = HashMap<TypeId<I>, Vec<ConstraintTarget<I>>>;
+pub type GenericBounds<I = DefinitionId> = HashMap<TypeId<I>, Vec<ConstraintTarget<I>>>;
 
 /// Reusable signature-stage facts before checking function bodies.
 ///
@@ -82,7 +82,7 @@ pub type GenericBounds<I = DefinitionPath> = HashMap<TypeId<I>, Vec<ConstraintTa
 /// facts. Bodies are not stored here. Declaration/aggregate preparation supplies
 /// the names and trait environment; body checking consumes these same contracts.
 #[derive(Debug, Clone)]
-pub struct ModuleSignatures<I: DefinitionReference = DefinitionPath> {
+pub struct ModuleSignatures<I: DefinitionReference = DefinitionId> {
     /// Nominal definition identity to its checked binder constraints.
     pub(crate) type_bounds: HashMap<I, GenericBounds<I>>,
     /// Callable contracts in the module's prepared function order.
@@ -124,7 +124,7 @@ impl ModuleSignatures {
 /// can remain in a recovered result; [`crate::AnalysisResult`] owns diagnostics and
 /// the checked conversion gate. The table is not embedded into each HIR node.
 #[derive(Debug, Clone)]
-pub struct TypedModule<I: DefinitionReference = DefinitionPath> {
+pub struct TypedModule<I: DefinitionReference = DefinitionId> {
     /// Number of function bodies freshly checked for this result.
     pub checked_bodies: usize,
     /// Number of function bodies restored from compatible prior facts.
@@ -141,7 +141,7 @@ pub struct TypedModule<I: DefinitionReference = DefinitionPath> {
 
 /// A declared callable's semantic signature, separate from its lowered body.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedFunction<I: DefinitionReference = DefinitionPath> {
+pub struct TypedFunction<I: DefinitionReference = DefinitionId> {
     /// The implementation belongs to the declaration, independently of call syntax.
     pub implementation: FunctionImplementation<I>,
     /// Generic binders, including inherited implementation binders where applicable.
@@ -164,7 +164,7 @@ pub struct TypedFunction<I: DefinitionReference = DefinitionPath> {
 /// methods await an implementation. Native bindings are installed input and do
 /// not acquire authority from the declaration's name or source URI.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FunctionImplementation<I: DefinitionReference = DefinitionPath> {
+pub enum FunctionImplementation<I: DefinitionReference = DefinitionId> {
     /// A source body selected through the enclosing function/module identity.
     Script,
     /// An installed native binding carrying its registered contract.
@@ -175,7 +175,7 @@ pub enum FunctionImplementation<I: DefinitionReference = DefinitionPath> {
 
 /// A function parameter binding paired with its semantic type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedParameter<I: DefinitionReference = DefinitionPath> {
+pub struct TypedParameter<I: DefinitionReference = DefinitionId> {
     /// Source parameter identity belonging to the same lowering.
     pub id: ParamId,
     /// Declared parameter binding writeability.

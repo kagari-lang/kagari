@@ -22,7 +22,6 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
         reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
@@ -87,12 +86,7 @@ impl FileSignatures {
             self.prepared.signatures.facts().type_table(),
             offset,
         )?;
-        ownership::paths(
-            &ty,
-            self.declarations().definitions(),
-            &CancellationToken::default(),
-        )
-        .ok()
+        Some(ty)
     }
 
     /// Borrows the source retained by the declaration stage.
@@ -141,13 +135,9 @@ impl SignatureSnapshot {
         &self,
         cancel: &CancellationToken,
     ) -> Result<HashMap<FileId, BodyEnvironment>, AnalysisError> {
-        let prepared = self
-            .files
-            .values()
-            .map(|file| file.authoring(cancel))
-            .collect::<Result<Vec<_>, _>>()?;
-        let aggregates = ownership::paths(self.aggregates.as_ref(), &self.definitions, cancel)?;
-        let catalog = FunctionCatalog::new(prepared.iter());
+        cancel.check()?;
+        let catalog = FunctionCatalog::new(self.files.values().map(|file| &file.prepared));
+        let aggregates = &self.aggregates;
         let mut result = HashMap::new();
         for (id, file) in self.files.iter() {
             cancel.check()?;
@@ -197,7 +187,7 @@ impl SignatureSnapshot {
 
 /// Semantic dependencies required to check one file's bodies.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct BodyEnvironment<I: DefinitionReference = DefinitionPath> {
+pub(super) struct BodyEnvironment<I: DefinitionReference = DefinitionId> {
     /// Callable signatures selected by the file's imports, including inherent methods.
     pub imported_functions: ImportedFunctions<I>,
     /// Aggregate and implementation contracts visible to this file.
@@ -244,12 +234,7 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<SignatureSnapshot, AnalysisError> {
         let declarations = self.prepare_declarations(source, cancel)?;
-        let authoring_declarations = declarations
-            .files
-            .iter()
-            .map(|(id, file)| Ok((*id, file.authoring(cancel)?)))
-            .collect::<Result<BTreeMap<_, _>, AnalysisError>>()?;
-        let catalog = TypeCatalog::new(authoring_declarations.values());
+        let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
         let mut imported_types = HashMap::new();
         for (id, file) in declarations.files.iter() {
             cancel.check()?;
@@ -260,23 +245,22 @@ impl AnalysisDatabase {
             cancel.check()?;
             let imported = imported_types.remove(id).expect("declared type bindings");
             let old = self.signature_cache.as_ref().and_then(|old| old.file(*id));
-            let previous = old.map(|old| old.authoring(cancel)).transpose()?;
+            let previous = old.map(|old| &old.prepared);
             let result = if let Some(old) = old.filter(|old| {
                 Arc::ptr_eq(&old.declaration, declaration)
                     && previous
                         .as_ref()
-                        .expect("old authoring signatures")
+                        .expect("old scoped signatures")
                         .declarations
                         .imported_types
                         == imported
             }) {
                 old.clone()
             } else {
-                let prepared = authoring_declarations[id].clone().check_signatures(
-                    imported,
-                    previous.as_ref(),
-                    cancel,
-                );
+                let prepared = declaration
+                    .declared
+                    .clone()
+                    .check_signatures(imported, previous, cancel);
                 let mut diagnostics = declaration
                     .diagnostics()
                     .iter()
@@ -305,7 +289,7 @@ impl AnalysisDatabase {
         }
         let mut aggregates = AggregateCatalog::default();
         for file in files.values() {
-            let prepared = file.authoring(cancel)?;
+            let prepared = &file.prepared;
             aggregates.add_module(
                 &prepared.lowered,
                 &prepared.declarations,
@@ -319,8 +303,8 @@ impl AnalysisDatabase {
                 &declarations.graph,
                 cancel,
             )?;
-            let authoring = file.authoring(cancel)?;
-            if let Some(signatures) = authoring.completed_signatures(&visible, cancel)? {
+            let prepared = &file.prepared;
+            if let Some(signatures) = prepared.completed_signatures(&visible, cancel)? {
                 let signatures = ownership::scope(signatures.as_ref(), &self.definitions, cancel)?
                     .into_records();
                 let file = Arc::make_mut(file);
@@ -341,19 +325,6 @@ impl AnalysisDatabase {
             aggregates: Arc::new(aggregates),
             definitions: self.definitions.snapshot(),
         })
-    }
-}
-
-impl FileSignatures {
-    pub(super) fn authoring(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<PreparedAnalysis, AnalysisError> {
-        Ok(ownership::paths(
-            &self.prepared,
-            self.declarations().definitions(),
-            cancel,
-        )?)
     }
 }
 

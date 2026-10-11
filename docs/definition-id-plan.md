@@ -1,6 +1,6 @@
 # Definition IDs throughout semantic processing
 
-Status: active implementation; SI01 is complete and SI02 is in progress.
+Status: active implementation; SI01 is complete; SI02 and its coupled SI03 migration are in progress.
 Planning baseline: `2276061e`, after the SA12/SA13 HIR cleanup. The
 [roadmap](implementation-roadmap.md) owns sequencing. This plan owns SA19's
 implementation scope, SI01-SI06 acceptance and progress ledger.
@@ -1171,3 +1171,72 @@ recovery test: invalid source identity yields a CompileLimitExceeded diagnostic 
 cannot enter code generation, rather than fabricating a valid definition identity or
 panicking while interning. Source/HIR migration, specialization integration, obsolete
 representation removal and final documentation cleanup remain required.
+
+### SI02/SI03 source registration and semantic representation cutover
+
+Source Declarations now registers the real module root, headers and members directly
+in the analysis DefinitionContext before signature checking. Duplicate disambiguation
+uses `(parent ID, kind, name)` occurrence counters; generic binders keep their declaring
+owner and position, including inherited method parameters. Root/member registration,
+occurrence exhaustion and cancellation return mapping errors without publishing a
+partial declaration result. Local BindingId construction reuses the collected body ID
+and no longer interns its path or extends the retained prefix.
+
+HIR semantic model defaults now select DefinitionId: declarations, types/substitutions,
+Native descriptors, signatures, type tables, call/propagation facts, imported contracts
+and aggregate records. The remaining identity parameters and mapping implementations
+are transitional SI06 deletion targets, not a second path-based checking engine.
+The signature/type-table indexes and array bridge facts use ID keys directly. Shared
+semantic types raised into HIR retain their existing IDs. Language-role comparison
+uses exact table lookup and the shared canonical GenericBound normalizer rather than
+numeric ID ordering.
+
+Removed the analysis-wide `ownership::paths` helper and declaration/signature authoring
+copy APIs. Signature catalogs, body reuse comparisons, completion, call queries and
+position type queries now borrow retained scoped facts or copy only the records they
+need. Source revision, imports, namespace surfaces, host revision, environment contracts
+and cancellation remain reuse dependencies; ID equality does not replace them. Cache
+publication validates fixed-ID records against the analysis prefix instead of interning
+paths. Checked/file editable extraction retains DefinitionMetadata and drops executable
+evidence; removed the duplicate path-shaped code-generation entrypoint.
+
+Unrepresentable source module identities retain their existing limit diagnostic, parsed
+HIR and lexical resolution. Declaration recovery creates no invented IDs; signature,
+aggregate and body boundaries leave semantic facts empty for that diagnosed module.
+The standalone recovery path still uses the normal analysis pipeline. This also avoids
+panicking on inline over-limit modules reaching query preparation. The existing
+`oversized_source_module_identities_are_rejected_without_panicking` test remains the
+acceptance owner, together with identity/navigation/reuse tests; they have not yet run
+against this cutover because the HIR crate is not buildable.
+
+Intermediate validation and owned follow-up:
+
+- `cargo check -p kagari-hir --lib --message-format=short` was attempted after the
+  representation change and related repairs. The first attempt exposed 398 errors;
+  the final attempt reports 325 errors and no warnings. There are no diagnostics in
+  source declaration collection, the changed scoped cache preparation, role validation
+  or the recovery orchestration. This is compiler diagnostic evidence, not a passing
+  HIR build or successful behavioral validation.
+- Remaining errors are concentrated in `language/semantics.rs` (34), aggregate
+  implementations (33), associated-type checking (30), Host inputs (28), type resolution,
+  member/constructor checking and diagnostics. Representative failures access `.path`
+  or `.module` on an ID or pass path-shaped Host/protocol data to fixed-ID consumers.
+  SI03 owns explicit table access/adoption for these mechanisms. Aggregate/name queries
+  must obtain the enclosing catalog/analysis scope, not attach a table to every type
+  node or restore whole-record path projections. Source/Native fixture and SDK/compiler
+  call sites also need the new scoped extraction APIs. Carried MIR errors remain SI04.
+- Numeric-ID-keyed traversal still needs the planned semantic-order audit as these
+  consumers migrate; successful compilation alone is insufficient. The fixed-ID
+  declaration visitor/remapper must include BindingId's body owner when obsolete
+  arbitrary representation mapping is removed; the old generic visitor skipped that
+  already-scoped field. Preserve its analysis/arena qualification as well.
+- Normal HIR tests and Clippy cannot run successfully before these owners compile.
+  Do not count unexecuted identity, alias/navigation, rejection/recovery or reuse cases
+  as passed. Prior Native rendering/adoption and source-free runtime checks remain
+  evidence for unchanged owners; no unrelated suite was rerun for a green transcript.
+
+Changed handwritten Rust imports, visibility, ownership, publication points and sizes
+were reviewed. Structure passes 1050 Rust files without violations/exceptions; formatting
+and diff checks pass. This is an explicitly broken intermediate architecture checkpoint,
+not SI02/SI03 acceptance. Continue the fixed-ID HIR consumers, then specialization and
+codec integration, representation-generic deletion and final documentation cleanup.

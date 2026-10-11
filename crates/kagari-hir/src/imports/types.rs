@@ -17,14 +17,14 @@ use std::{
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},
-        identity::{DefinitionPath, reference::DefinitionReference},
+        identity::{reference::DefinitionReference, table::DefinitionId},
     },
     kagari_source::identity::FileId,
 };
 
 /// A foreign nominal declaration surface prepared before function signature checking.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedType<I: DefinitionReference = DefinitionPath> {
+pub struct ImportedType<I: DefinitionReference = DefinitionId> {
     /// Installed storage/type descriptor when this is a registered native-backed type.
     pub native_type: Option<NativeTypeKind<I>>,
     /// Associated family name to number of member-level generic parameters.
@@ -45,7 +45,7 @@ pub struct ImportedType<I: DefinitionReference = DefinitionPath> {
 
 /// A method-name/definition pair on an imported trait surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedTraitMethod<I: DefinitionReference = DefinitionPath> {
+pub struct ImportedTraitMethod<I: DefinitionReference = DefinitionId> {
     /// Member spelling within the trait.
     pub name: String,
     /// Canonical semantic identity of the method.
@@ -54,7 +54,7 @@ pub struct ImportedTraitMethod<I: DefinitionReference = DefinitionPath> {
 
 /// Canonical type/variant projections shared across importer aliases.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedTypes<I: DefinitionReference = DefinitionPath> {
+pub struct ImportedTypes<I: DefinitionReference = DefinitionId> {
     // Canonical declarations share one surface across local import spellings.
     resolutions: HashMap<SourceDeclRef, ImportedType<I>>,
     nominal_types: HashMap<I, ImportedType<I>>,
@@ -64,7 +64,7 @@ pub struct ImportedTypes<I: DefinitionReference = DefinitionPath> {
 /// Borrowed declaration-stage modules and a lazily prepared shared nominal surface cache.
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
-    surfaces: RefCell<Option<HashMap<DefinitionPath, ImportedType>>>,
+    surfaces: RefCell<Option<HashMap<ImportedType>>>,
 }
 
 impl<'a> TypeCatalog<'a> {

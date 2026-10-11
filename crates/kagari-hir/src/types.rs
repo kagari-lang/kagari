@@ -3,7 +3,7 @@
 pub mod semantic;
 
 use crate::typeck::{GenericBounds, associated};
-use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 use kagari_types::{
     collection::{
         CollectionAccess,
@@ -26,7 +26,7 @@ use std::{
 /// the parameter map; receiver entries use explicit accessors. This is not a map
 /// from source names, so shadowed binders with the same spelling remain distinct.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeSubstitution<I: DefinitionReference = DefinitionPath> {
+pub struct TypeSubstitution<I: DefinitionReference = DefinitionId> {
     /// Generic binder to instantiated semantic type.
     parameters: HashMap<GenericParameterType<I>, TypeId<I>>,
     /// Declaring owner to its `Self` replacement.
@@ -65,7 +65,7 @@ mod nominal_tests;
 
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
-pub struct GenericParameterType<I: DefinitionReference = DefinitionPath> {
+pub struct GenericParameterType<I: DefinitionReference = DefinitionId> {
     /// Definition that declares the binder; part of equality and hashing.
     pub owner: I,
     /// Zero-based binder position within its owner; part of equality and hashing.
@@ -76,7 +76,7 @@ pub struct GenericParameterType<I: DefinitionReference = DefinitionPath> {
 
 /// Member-level generic binders and their checked requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedTypeParameters<I: DefinitionReference = DefinitionPath> {
+pub struct AssociatedTypeParameters<I: DefinitionReference = DefinitionId> {
     /// Associated family binders in declaration order.
     pub parameters: Vec<GenericParameterType<I>>,
     /// Checked constraints on family inputs.
@@ -85,7 +85,7 @@ pub struct AssociatedTypeParameters<I: DefinitionReference = DefinitionPath> {
 
 /// An associated type definition parameterized by member-level inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedTypeFamily<I: DefinitionReference = DefinitionPath> {
+pub struct AssociatedTypeFamily<I: DefinitionReference = DefinitionId> {
     /// Family binders and bounds, separate from enclosing implementation binders.
     pub inputs: AssociatedTypeParameters<I>,
     /// Output type before applying enclosing/member substitutions.
@@ -118,9 +118,9 @@ impl<I: DefinitionReference> Hash for GenericParameterType<I> {
 /// ```
 ///
 /// Definition identity, ordered arguments and associated constraints participate in
-/// equality. The generic identity parameter selects portable paths or scoped IDs.
+/// equality. Semantic identities are resolved through the owning analysis snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct NominalType<I: DefinitionReference = DefinitionPath> {
+pub struct NominalType<I: DefinitionReference = DefinitionId> {
     /// Canonical nominal definition, not its local/imported spelling.
     pub declaration: I,
     /// Positional arguments in declaring-binder order.
@@ -147,7 +147,7 @@ impl NominalType {}
 /// binders and projections can be valid in checked generic signatures even though
 /// they are not yet concrete monomorphized types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeId<I: DefinitionReference = DefinitionPath> {
+pub enum TypeId<I: DefinitionReference = DefinitionId> {
     /// A body-local constraint variable. Never valid in a checked signature or IR.
     Inference(u32),
     /// An unresolved type requiring inference or a diagnostic.

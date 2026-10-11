@@ -2,7 +2,9 @@
 
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{self, DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+    identity::{
+        self, DefinitionPath, ModuleIdentity, reference::DefinitionReference, table::DefinitionId,
+    },
 };
 
 use crate::{
@@ -35,7 +37,7 @@ pub mod traits;
 
 /// A canonical struct field contract used for local and imported member access.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FieldSignature<I: DefinitionReference = DefinitionPath> {
+pub struct FieldSignature<I: DefinitionReference = DefinitionId> {
     /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
     /// Canonical definition identity of the enclosing declaration.
@@ -56,7 +58,7 @@ pub struct FieldSignature<I: DefinitionReference = DefinitionPath> {
 
 /// A canonical inherent method, its receiver pattern and typed callable contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InherentMethodSignature<I: DefinitionReference = DefinitionPath> {
+pub struct InherentMethodSignature<I: DefinitionReference = DefinitionId> {
     /// Qualified source declaration address of the method function.
     pub id: SourceDeclRef,
     /// Canonical method definition identity.
@@ -73,7 +75,7 @@ pub struct InherentMethodSignature<I: DefinitionReference = DefinitionPath> {
 
 /// Shared nominal struct contract with typed field slots and generic requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StructSignature<I: DefinitionReference = DefinitionPath> {
+pub struct StructSignature<I: DefinitionReference = DefinitionId> {
     /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
     /// Generic binders in declaration order, identified by owner and position.
@@ -88,7 +90,7 @@ pub struct StructSignature<I: DefinitionReference = DefinitionPath> {
 
 /// Shared registered nominal type contract and its installed representation descriptor.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NativeTypeSignature<I: DefinitionReference = DefinitionPath> {
+pub struct NativeTypeSignature<I: DefinitionReference = DefinitionId> {
     /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
     /// Generic binders in declaration order, identified by owner and position.
@@ -103,7 +105,7 @@ pub struct NativeTypeSignature<I: DefinitionReference = DefinitionPath> {
 
 /// Canonical enum variant, payload types and logical variant slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VariantSignature<I: DefinitionReference = DefinitionPath> {
+pub struct VariantSignature<I: DefinitionReference = DefinitionId> {
     /// Registration metadata marks this variant as reporting failure.
     pub reports_failure: bool,
     /// Canonical semantic definition identity used as the catalog key.
@@ -122,7 +124,7 @@ pub struct VariantSignature<I: DefinitionReference = DefinitionPath> {
 
 /// Shared nominal enum contract with typed payloads and generic requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnumSignature<I: DefinitionReference = DefinitionPath> {
+pub struct EnumSignature<I: DefinitionReference = DefinitionId> {
     /// Canonical semantic definition identity used as the catalog key.
     pub id: I,
     /// Generic binders in declaration order, identified by owner and position.
@@ -153,7 +155,7 @@ pub struct EnumSignature<I: DefinitionReference = DefinitionPath> {
 /// The catalog can contain recovered error types until the enclosing checked gate
 /// rejects diagnostics. Generic matching/normalization does not execute methods.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AggregateCatalog<I: DefinitionReference = DefinitionPath> {
+pub struct AggregateCatalog<I: DefinitionReference = DefinitionId> {
     language_items: BTreeMap<LangRole, I>,
     implementation_constants: BTreeMap<I, BTreeMap<I, I>>,
     host_implementations: Vec<(NominalType<I>, TypeId<I>)>,
@@ -201,6 +203,10 @@ impl AggregateCatalog {
         signatures: &ModuleSignatures,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
+        cancel.check()?;
+        if !lowered.source.module_identity().within_path_limit() {
+            return Ok(());
+        }
         self.language_items.extend(
             declarations
                 .language_items

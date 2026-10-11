@@ -338,16 +338,3 @@ impl AnalysisDatabase {
         })
     }
 }
-
-impl FileDeclarations {
-    pub(super) fn authoring(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<DeclaredAnalysis, AnalysisError> {
-        Ok(ownership::paths(
-            &self.declared,
-            self.declarations().definitions(),
-            cancel,
-        )?)
-    }
-}

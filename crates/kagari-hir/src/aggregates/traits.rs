@@ -13,7 +13,9 @@ use crate::{
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity,
-    identity::{DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+    identity::{
+        DefinitionPath, ModuleIdentity, reference::DefinitionReference, table::DefinitionId,
+    },
 };
 use kagari_source::identity::FileSpan;
 use kagari_types::{
@@ -27,7 +29,7 @@ use std::{
 
 /// A named semantic method parameter without a source-local parameter ID.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MethodParameter<I: DefinitionReference = DefinitionPath> {
+pub struct MethodParameter<I: DefinitionReference = DefinitionId> {
     /// Member/type spelling for lookup and diagnostics; identity is stored separately.
     pub name: String,
     /// Declared binding/field mutation policy.
@@ -38,7 +40,7 @@ pub struct MethodParameter<I: DefinitionReference = DefinitionPath> {
 
 /// A canonical trait method contract with default and override policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MethodSignature<I: DefinitionReference = DefinitionPath> {
+pub struct MethodSignature<I: DefinitionReference = DefinitionId> {
     /// Script/native default implementation, or absent for a required method.
     pub default: Option<MethodDefault<I>>,
     /// Installed/checked override policy attached to this declaration.
@@ -68,7 +70,7 @@ pub struct MethodSignature<I: DefinitionReference = DefinitionPath> {
 /// Lowering that proof selects a native entry; implementing types need no script
 /// body instance or extra script call frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MethodDefault<I: DefinitionReference = DefinitionPath> {
+pub enum MethodDefault<I: DefinitionReference = DefinitionId> {
     /// Default body belongs to the method's source function.
     Script,
     /// Default implementation comes from an installed native binding.
@@ -92,7 +94,7 @@ impl MethodSignature {
 
 /// An applied-trait declaration surface, including parents and associated members.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TraitSignature<I: DefinitionReference = DefinitionPath> {
+pub struct TraitSignature<I: DefinitionReference = DefinitionId> {
     /// Declared storage-interface access role, when supplied by registration.
     pub storage_access: Option<CollectionAccess>,
     /// Registered conversion adapter policy, if this trait has one.
@@ -119,7 +121,7 @@ pub struct TraitSignature<I: DefinitionReference = DefinitionPath> {
 
 /// An associated constant contract and optional canonical default initializer.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociatedConstSignature<I: DefinitionReference = DefinitionPath> {
+pub struct AssociatedConstSignature<I: DefinitionReference = DefinitionId> {
     /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration<I>,
     /// Checked or recovered semantic value type.

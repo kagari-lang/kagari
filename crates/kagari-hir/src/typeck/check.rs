@@ -57,6 +57,18 @@ pub(crate) fn check_signatures(
     declarations: &Declarations,
     cancel: &CancellationToken,
 ) -> AnalysisResult<super::ModuleSignatures> {
+    // Declaration collection already diagnosed an unrepresentable source owner.
+    // Keep recovery facts empty instead of inventing IDs for its signatures.
+    if !lowered.source.module_identity().within_path_limit() {
+        return AnalysisResult {
+            facts: super::ModuleSignatures {
+                type_bounds: Default::default(),
+                functions: Default::default(),
+                type_table: Default::default(),
+            },
+            diagnostics: Default::default(),
+        };
+    }
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
     let mut function_index = FunctionTypeIndex::default();
@@ -439,6 +451,19 @@ pub(crate) fn check_bodies_controlled(
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<TypedModule> {
+    if !lowered.source.module_identity().within_path_limit() {
+        return AnalysisResult {
+            facts: TypedModule {
+                checked_bodies: 0,
+                reused_bodies: 0,
+                functions: Default::default(),
+                consts: Default::default(),
+                const_values: Default::default(),
+                type_table: Default::default(),
+            },
+            diagnostics: Default::default(),
+        };
+    }
     let BodyInputs {
         const_limits,
         selection,

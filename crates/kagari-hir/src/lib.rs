@@ -32,7 +32,7 @@ use crate::{
     hir::ids::BodySelection,
     imports::{
         ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
-        functions::ImportedFunctions, solver::ImportSolveError, types::ImportedTypes,
+        functions::ImportedFunctions, types::ImportedTypes,
     },
     language::items as language_items,
     resolver::{
@@ -53,9 +53,9 @@ use declarations::Declarations;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
-        DefinitionPath, MAX_IDENTITY_PATH_SEGMENTS,
+        MAX_IDENTITY_PATH_SEGMENTS,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
+        mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
         reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
@@ -110,11 +110,11 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 /// `-- imported_functions        -> callable facts for cross-module targets
 /// ```
 ///
-/// The generic identity parameter distinguishes portable authoring paths from
-/// definition-table-scoped IDs. Facts may accompany error diagnostics; only the
+/// Semantic processing uses definition-table-scoped IDs. Facts may accompany
+/// error diagnostics; only the
 /// checked conversion produces [`CheckedAnalysis`] for executable lowering.
 #[derive(Debug, Clone)]
-pub struct AnalyzedModule<I: DefinitionReference = DefinitionPath> {
+pub struct AnalyzedModule<I: DefinitionReference = DefinitionId> {
     /// Nominal types, traits and implementation facts available to this analysis.
     pub aggregates: aggregates::AggregateCatalog<I>,
     /// Shared matching source, node storage and source ranges.
@@ -187,40 +187,23 @@ impl Deref for CheckedAnalysis {
     }
 }
 
-impl AnalysisResult<AnalyzedModule> {
-    /// Validates diagnostics and adopts definition metadata for code generation.
-    ///
-    /// # Errors
-    ///
-    /// Returns diagnostics for analysis errors or failure to adopt bounded definition
-    /// metadata. Portable-path and already-scoped inputs use their respective identity
-    /// conversion paths; both produce immutable [`CheckedAnalysis`].
-    pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
-        let module = self.into_checked()?;
-        CheckedAnalysis::adopt(&module, &CancellationToken::default()).map_err(|_| {
-            Box::new(DiagnosticBuffer::from_iter([Diagnostic::error(
-                DiagnosticKind::CompileLimitExceeded {
-                    resource: "definition metadata",
-                    limit: 1_000_000,
-                },
-            )]))
-        })
-    }
-}
-
 impl CheckedAnalysis {
     /// Borrows the definition table that gives all scoped IDs in this result their meaning.
     pub fn definitions(&self) -> &DefinitionTable {
         self.0.definitions()
     }
 
-    /// Materialize authoring facts for source specialization. The mutable result
-    /// carries no executable seal and must pass MIR verification after lowering.
+    /// Extract editable scoped facts for specialization, dropping executable evidence.
+    /// The result retains its identity prefix and must be verified again after mutation.
     pub fn to_unverified(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<AnalyzedModule, DefinitionMappingError> {
-        self.0.to_paths(cancel)
+    ) -> Result<DefinitionMetadata<AnalyzedModule>, DefinitionMappingError> {
+        DefinitionMetadata::checked(
+            self.0.definitions().clone(),
+            self.0.records().clone(),
+            cancel,
+        )
     }
 
     pub(crate) fn adopt_scoped(
@@ -234,26 +217,6 @@ impl CheckedAnalysis {
             cancel,
         )?))
     }
-
-    pub(crate) fn adopt(
-        module: &AnalyzedModule,
-        cancel: &CancellationToken,
-    ) -> Result<Self, DefinitionMappingError> {
-        let context = module.declarations.context();
-        let mut records = module.map_identities(&mut DefinitionMapper::new(
-            &mut |path| context.intern(path).map_err(Into::into),
-            cancel,
-        ))?;
-        let definitions = context.snapshot();
-        records
-            .declarations
-            .publish_definitions(definitions.clone());
-        Ok(Self(DefinitionMetadata::checked(
-            definitions,
-            records,
-            cancel,
-        )?))
-    }
 }
 
 /// Internal signature-stage bundle passed to body checking.
@@ -262,7 +225,7 @@ impl CheckedAnalysis {
 /// separates reusable local diagnostics from the suffix recomputed against the completed
 /// aggregate catalog; signature reuse must not preserve stale cross-module diagnostics.
 #[derive(Debug, Clone)]
-pub(crate) struct PreparedAnalysis<I: DefinitionReference = DefinitionPath> {
+pub(crate) struct PreparedAnalysis<I: DefinitionReference = DefinitionId> {
     signatures_reused: bool,
     // The suffix after this boundary depends on the complete aggregate catalog.
     // Recompute it after all declaration signatures exist, including on reuse.
@@ -280,12 +243,18 @@ impl PreparedAnalysis {
         aggregates: &aggregates::AggregateCatalog,
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<AnalysisResult<typeck::ModuleSignatures>>>, Cancelled> {
+        cancel.check()?;
+        if !self.lowered.source.module_identity().within_path_limit() {
+            return Ok(None);
+        }
         let mut diagnostics = DiagnosticBuffer::new();
+        let definitions = self.declarations.definitions();
         language_items::validate_shapes(
             &self.declarations,
             aggregates,
             &self.lowered.registered_traits,
             &mut diagnostics,
+            cancel,
         );
         associated_consts::validate(
             &self.lowered,
@@ -318,7 +287,11 @@ impl PreparedAnalysis {
         )?);
         for implementation in aggregates.implementations() {
             cancel.check()?;
-            if implementation.id.module == *self.lowered.source.module_identity()
+            if definitions
+                .resolve(implementation.id)
+                .expect("checked implementation identity")
+                .module()
+                == self.lowered.source.module_identity()
                 && self
                     .declarations
                     .hosts
@@ -326,12 +299,11 @@ impl PreparedAnalysis {
             {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                        trait_name: implementation
-                            .trait_type
-                            .declaration
-                            .path
+                        trait_name: definitions
+                            .resolve(implementation.trait_type.declaration)
+                            .expect("checked trait identity")
                             .last()
-                            .map(|segment| segment.name.clone())
+                            .map(|segment| segment.name.to_owned())
                             .unwrap_or_default(),
                         type_name: implementation.for_type.display_name(),
                         reason: "host and script implementations overlap".into(),
@@ -344,17 +316,23 @@ impl PreparedAnalysis {
             cancel.check()?;
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                    trait_name: first
-                        .trait_type
-                        .declaration
-                        .path
+                    trait_name: definitions
+                        .resolve(first.trait_type.declaration)
+                        .expect("checked trait identity")
                         .last()
-                        .map(|segment| segment.name.clone())
+                        .map(|segment| segment.name.to_owned())
                         .unwrap_or_default(),
                     type_name: first.for_type.display_name(),
                     reason: format!(
                         "overlapping implementations in {} and {}",
-                        first.id.module, second.id.module
+                        definitions
+                            .resolve(first.id)
+                            .expect("checked implementation identity")
+                            .module(),
+                        definitions
+                            .resolve(second.id)
+                            .expect("checked implementation identity")
+                            .module()
                     ),
                 })
                 .with_span(Span::default()),
@@ -377,7 +355,7 @@ impl PreparedAnalysis {
 
 /// Internal declaration-stage bundle: shared lowering, resolved module names and declaration sites.
 #[derive(Debug, Clone)]
-pub(crate) struct DeclaredAnalysis<I: DefinitionReference = DefinitionPath> {
+pub(crate) struct DeclaredAnalysis<I: DefinitionReference = DefinitionId> {
     lowered: Arc<lower::LoweredModule>,
     names: AnalysisResult<DeclarationNames>,
     declarations: declarations::Declarations<I>,
@@ -452,7 +430,7 @@ fn declare_analysis(
     catalog: Arc<NamespaceCatalog>,
     definitions: &DefinitionContext,
     cancel: &CancellationToken,
-) -> Result<DeclaredAnalysis, ImportSolveError> {
+) -> Result<DeclaredAnalysis, AnalysisError> {
     let (imports, catalog) = if imports.scope.unit.is_none() {
         let graph = ModuleGraph::build([lowered.as_ref()], &hosts, cancel)?;
         (
@@ -474,10 +452,15 @@ fn declare_analysis(
                 limit: MAX_IDENTITY_PATH_SEGMENTS,
             }));
     }
-    let mut declarations =
-        Declarations::collect_named(&lowered.source, &lowered, &names.facts, definitions, cancel);
-    declarations.language_items =
-        language_items::collect(&lowered, &declarations, &mut names.diagnostics);
+    let mut declarations = if lowered.source.module_identity().within_path_limit() {
+        Declarations::collect_named(&lowered.source, &lowered, &names.facts, definitions, cancel)?
+    } else {
+        Declarations::empty(&lowered, &names.facts, definitions)
+    };
+    if lowered.source.module_identity().within_path_limit() {
+        declarations.language_items =
+            language_items::collect(&lowered, &declarations, &mut names.diagnostics);
+    }
     Ok(DeclaredAnalysis {
         lowered,
         names,
@@ -553,7 +536,7 @@ fn analyze_prepared(
 /// use kagari_types::scalar::BuiltinType;
 ///
 /// let source = SourceFile::new("add.kgr", "fn add(x: i32) -> i32 { val y = x + 1; y }");
-/// let analysis = analyze_source(&source, kagari_stdlib::catalog::shared()).unwrap();
+/// let analysis = analyze_source(&source, kagari_stdlib::catalog::shared().unwrap()).unwrap();
 /// let facts = analysis.facts();
 /// let (sum, _) = facts.lowered.module.body.expressions()
 ///     .find(|(_, expr)| matches!(expr.kind, ExprKind::Binary { .. })).unwrap();
@@ -577,6 +560,7 @@ pub fn analyze_source(
         .file(source.id())
         .expect("requested source belongs to its snapshot")
         .to_unverified(&CancellationToken::default())
+        .map(DefinitionMetadata::into_records)
         .map_err(AnalysisError::from)
 }
 
@@ -657,8 +641,8 @@ impl AnalysisResult<AnalyzedModule<DefinitionId>> {
     /// # Errors
     ///
     /// Returns diagnostics for analysis errors or failure to adopt bounded definition
-    /// metadata. Portable-path and already-scoped inputs use their respective identity
-    /// conversion paths; both produce immutable [`CheckedAnalysis`].
+    /// metadata. Successful results retain their existing identity prefix in immutable
+    /// [`CheckedAnalysis`].
     pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
         let module = self.into_checked()?;
         CheckedAnalysis::adopt_scoped(

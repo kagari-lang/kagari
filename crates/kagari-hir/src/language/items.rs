@@ -13,7 +13,7 @@ use crate::{
     typeck::table::ConstraintTarget,
     types::semantic::{lower_nominal_type, lower_type},
 };
-use kagari_common::{identity::DefinitionPath, span::Span};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId, span::Span};
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     literal::decode_string_literal,
@@ -33,7 +33,7 @@ pub(crate) fn collect(
     lowered: &LoweredModule,
     declarations: &Declarations,
     diagnostics: &mut DiagnosticBuffer,
-) -> BTreeMap<LangRole, DefinitionPath> {
+) -> BTreeMap<LangRole, DefinitionId> {
     let mut items = BTreeMap::new();
     let mut report = |role: &str, reason: &str, span: Span| {
         diagnostics.push(
@@ -84,7 +84,12 @@ pub(crate) fn collect(
         let DeclarationId::Definition(id) = &declaration.id else {
             unreachable!("trait declaration identity")
         };
-        if item.visibility != Visibility::Public || *id != language::identity(role.protocol()) {
+        if item.visibility != Visibility::Public
+            || declarations
+                .definitions()
+                .lookup(&language::identity(role.protocol()))
+                != Some(*id)
+        {
             report(
                 &name,
                 "role differs from the installed declaration identity or visibility",
@@ -94,7 +99,7 @@ pub(crate) fn collect(
         }
         match items.entry(role) {
             Entry::Vacant(entry) => {
-                entry.insert(id.clone());
+                entry.insert(*id);
             }
             Entry::Occupied(_) => report(&name, "duplicate role", attribute.span),
         }
@@ -116,8 +121,9 @@ pub(crate) fn collect(
 pub(crate) fn validate_shapes(
     declarations: &Declarations,
     aggregates: &AggregateCatalog,
-    expected: &BTreeMap<DefinitionPath, TraitDef>,
+    expected: &BTreeMap<DefinitionId, TraitDef<DefinitionId>>,
     diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
 ) {
     for (role, id) in &declarations.language_items {
         let Some(expected) = expected.get(id) else {
@@ -182,12 +188,12 @@ pub(crate) fn validate_shapes(
                             && actual.generic_params.len()
                                 == expected.generic_params.len() + owner_generic_count
                             && {
-                                let mut bounds: Vec<_> = actual
+                                let bounds = actual
                                     .bounds
                                     .iter()
                                     .filter(|(_, bounds)| !bounds.is_empty())
                                     .map(|(ty, bounds)| {
-                                        let mut constraints: Vec<_> = bounds
+                                        let constraints = bounds
                                             .iter()
                                             .map(|bound| match bound {
                                                 ConstraintTarget::Standard(bound) => {
@@ -198,15 +204,14 @@ pub(crate) fn validate_shapes(
                                                 }
                                             })
                                             .collect();
-                                        constraints.sort();
                                         GenericBound {
                                             ty: lower_type(ty),
                                             constraints,
                                         }
                                     })
-                                    .collect();
-                                bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
-                                bounds == expected.bounds
+                                    .collect::<Vec<_>>();
+                                GenericBound::normalize(bounds, declarations.definitions(), cancel)
+                                    .is_ok_and(|bounds| bounds == expected.bounds)
                             }
                             && actual.params.len() == expected.params.len()
                             && actual.params.iter().zip(&expected.params).all(

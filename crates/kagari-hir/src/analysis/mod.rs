@@ -84,7 +84,7 @@ mod target_queries;
 /// IDs index `result().facts().lowered`; scoped definition IDs resolve through
 /// [`Self::definitions`]. Position queries read these facts without rechecking bodies.
 /// Offsets are UTF-8 byte offsets in [`Self::source`]; missing or inapplicable facts
-/// return `None`. Type queries translate scoped identities to portable paths.
+/// return `None`. Type queries return IDs resolved by this result's retained definition table.
 #[derive(Debug)]
 pub struct FileAnalysis {
     /// Cached source ranges and namespace lookup results for type navigation.
@@ -359,14 +359,14 @@ impl FileAnalysis {
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         let facts = self.result.records().facts();
         let ty = type_at_in(&facts.lowered, &facts.typed.type_table, offset)?;
-        ownership::paths(&ty, self.definitions(), &CancellationToken::default()).ok()
+        Some(ty)
     }
 
     /// Returns the checked receiver type for member access at this byte offset.
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
         let facts = self.result.records().facts();
         let ty = member_receiver_type_in(&facts.lowered, &facts.typed.type_table, offset)?;
-        ownership::paths(&ty, self.definitions(), &CancellationToken::default()).ok()
+        Some(ty)
     }
 
     /// Finds a declaration site or the declaration selected by a checked source reference.
@@ -612,11 +612,7 @@ impl FileAnalysis {
                     _ => None,
                 }
                 .unwrap_or(TypeId::Unknown);
-                Some(BindingInfo {
-                    declaration,
-                    ty: ownership::paths(&ty, self.definitions(), &CancellationToken::default())
-                        .ok()?,
-                })
+                Some(BindingInfo { declaration, ty })
             })
             .collect()
     }
@@ -936,24 +932,16 @@ impl AnalysisDatabase {
         let mut files = HashMap::new();
         for (id, (file, parsed, scoped_prepared)) in signatures {
             cancel.check()?;
-            let prepared = ownership::paths(
-                &scoped_prepared,
-                scoped_prepared.declarations.definitions(),
-                cancel,
-            )?;
-            let previous_authoring = self
-                .files
-                .get(&id)
-                .map(|old| old.to_unverified(cancel))
-                .transpose()?;
+            let prepared = scoped_prepared;
+            let previous_facts = self.files.get(&id).map(|old| old.result());
             let environment = environments.remove(&id).expect("prepared body environment");
             let analysis = match self.files.get(&id) {
                 Some(previous)
                     if previous.can_retain(
                         &prepared,
-                        previous_authoring
+                        previous_facts
                             .as_ref()
-                            .expect("previous authoring facts")
+                            .expect("previous scoped facts")
                             .facts(),
                         &environment,
                         cancel,
@@ -969,9 +957,9 @@ impl AnalysisDatabase {
                         .filter(|old| {
                             old.can_reuse_body(
                                 &prepared,
-                                previous_authoring
+                                previous_facts
                                     .as_ref()
-                                    .expect("previous authoring facts")
+                                    .expect("previous scoped facts")
                                     .facts(),
                                 &environment,
                                 cancel,
@@ -980,9 +968,9 @@ impl AnalysisDatabase {
                         .map(|old| BodyReuse {
                             previous_diagnostics: old.result.records().diagnostics(),
                             previous_lowered: &old.result.records().facts().lowered,
-                            previous_types: &previous_authoring
+                            previous_types: &previous_facts
                                 .as_ref()
-                                .expect("previous authoring facts")
+                                .expect("previous scoped facts")
                                 .facts()
                                 .typed
                                 .type_table,
@@ -1008,7 +996,7 @@ impl AnalysisDatabase {
                         .facts
                         .declarations
                         .publish_definitions(definitions.clone());
-                    records.facts.signatures = scoped_prepared.signatures.clone();
+
                     let result = DefinitionMetadata::checked(definitions, records, cancel)?;
                     let type_hits = target_queries::type_hits(result.records().facts(), cancel)?;
                     Arc::new(FileAnalysis {
@@ -1218,11 +1206,15 @@ impl FileAnalysis {
         self.result.definitions()
     }
 
-    /// Materialize mutable authoring facts at an editor/compiler query boundary.
+    /// Copy editable facts while retaining their definition scope and no executable evidence.
     pub fn to_unverified(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<AnalysisResult<AnalyzedModule>, DefinitionMappingError> {
-        self.result.to_paths(cancel)
+    ) -> Result<DefinitionMetadata<AnalysisResult<AnalyzedModule>>, DefinitionMappingError> {
+        DefinitionMetadata::checked(
+            self.definitions().clone(),
+            self.result.records().clone(),
+            cancel,
+        )
     }
 }

@@ -3,7 +3,7 @@ use crate::{
     host::HostFunctionId,
     types::{NominalType, TypeId},
 };
-use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 use kagari_types::{
     callable::NativeDefaultApplication, collection::CollectionAccess,
     declaration::native::NativeStorageLayout, range::RangeKind, scalar::BuiltinType,
@@ -17,7 +17,7 @@ pub mod render;
 /// Installed entry identity, checked host catalog index or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NativeBinding<I: DefinitionReference = DefinitionPath> {
+pub enum NativeBinding<I: DefinitionReference = DefinitionId> {
     /// Canonical identity of an installed native entry, not its machine address.
     Entry(I),
     /// Revision-scoped callable in the immutable host declaration universe.
@@ -30,7 +30,7 @@ pub enum NativeBinding<I: DefinitionReference = DefinitionPath> {
 
 /// Installed representation descriptor used to apply native-backed source type declarations.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NativeTypeKind<I: DefinitionReference = DefinitionPath> {
+pub enum NativeTypeKind<I: DefinitionReference = DefinitionId> {
     /// A nominal registered storage type with explicit layout and generic arity.
     Storage {
         /// Canonical nominal type definition.

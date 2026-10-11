@@ -21,7 +21,7 @@ use crate::{
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity,
-    identity::{DefinitionPath, reference::DefinitionReference},
+    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
 };
 use kagari_types::{
     declaration::conversion::ConversionAdapter, language as standard_traits, language::Protocol,
@@ -66,7 +66,7 @@ impl SearchBudget<'_> {
 
 /// A generic implementation pattern and the members selected when it applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImplementationSignature<I: DefinitionReference = DefinitionPath> {
+pub struct ImplementationSignature<I: DefinitionReference = DefinitionId> {
     /// Derived from the retained installation object, never a source identity.
     pub(crate) engine_owned: bool,
     /// Associated member definition to parameterized output implementation.

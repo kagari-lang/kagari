@@ -7,15 +7,15 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath,
         mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
         reference::DefinitionReference,
+        table::DefinitionId,
     },
 };
 
 /// Checked branch/residual calls and ordinary enum variants selected for one postfix `?`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedPropagation<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedPropagation<I: DefinitionReference = DefinitionId> {
     /// Selected Try branch operation on the operand.
     pub branch: ResolvedCall<I>,
     /// Selected conversion used on the early-return residual path.

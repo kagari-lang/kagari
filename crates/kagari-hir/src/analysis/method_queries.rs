@@ -19,7 +19,7 @@ mod tests;
 /// A visible method candidate presented without executing or invoking it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodCompletion {
-    /// Portable identity of the candidate method declaration.
+    /// Identity of the candidate in this file result's retained definition scope.
     pub declaration: DeclarationId,
     /// Source-facing method name to offer at the member access.
     pub name: String,
@@ -35,10 +35,7 @@ impl FileAnalysis {
         if receiver.is_unresolved() {
             return Vec::new();
         }
-        let Ok(authoring) = self.to_unverified(&CancellationToken::default()) else {
-            return Vec::new();
-        };
-        let facts = authoring.facts();
+        let facts = self.result().facts();
         let empty = GenericBounds::default();
         let assumptions = facts
             .typed
@@ -67,7 +64,10 @@ impl FileAnalysis {
                 continue;
             };
             if !method.visibility.allows(
-                &method.declaration.module,
+                self.definitions()
+                    .resolve(method.declaration)
+                    .expect("checked method identity")
+                    .module(),
                 facts.lowered.source.module_identity(),
             ) {
                 continue;

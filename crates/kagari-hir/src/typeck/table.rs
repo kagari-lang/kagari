@@ -19,7 +19,7 @@ use crate::{
     },
 };
 use kagari_common::{
-    identity::{DefinitionPath, reference::DefinitionReference},
+    identity::{reference::DefinitionReference, table::DefinitionId},
     span::Span,
 };
 use kagari_types::{
@@ -31,7 +31,7 @@ use std::collections::{HashMap, HashSet};
 
 /// A checked standard capability or applied nominal trait requirement.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConstraintTarget<I: DefinitionReference = DefinitionPath> {
+pub enum ConstraintTarget<I: DefinitionReference = DefinitionId> {
     /// An intrinsic standard capability constraint.
     Standard(StandardTypeConstraint),
     /// A nominal trait application, including arguments and associated constraints.
@@ -40,7 +40,7 @@ pub enum ConstraintTarget<I: DefinitionReference = DefinitionPath> {
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TypeTarget<I: DefinitionReference = DefinitionPath> {
+pub enum TypeTarget<I: DefinitionReference = DefinitionId> {
     /// Local native-backed type slot.
     OpaqueType(OpaqueTypeId),
     /// Installed host type slot.
@@ -61,7 +61,7 @@ pub enum TypeTarget<I: DefinitionReference = DefinitionPath> {
 
 /// A semantic type plus an optional navigable declaration/binder target.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedTypeRef<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedTypeRef<I: DefinitionReference = DefinitionId> {
     /// Resolved or recovered semantic type.
     pub ty: TypeId<I>,
     /// Navigation target; structural/intrinsic type forms may have no declaration target.
@@ -70,7 +70,7 @@ pub struct ResolvedTypeRef<I: DefinitionReference = DefinitionPath> {
 
 /// Selected callable category, distinct from the callee expression's name binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallTarget<I: DefinitionReference = DefinitionPath> {
+pub enum CallTarget<I: DefinitionReference = DefinitionId> {
     /// The recorded receiver is the callee expression. Its evaluation exits
     /// before any callable value or explicit argument can be produced.
     TerminatingCallee,
@@ -110,7 +110,7 @@ pub enum CallTarget<I: DefinitionReference = DefinitionPath> {
 /// types after coercions. This record is semantic input to compiler lowering, not
 /// a runtime function pointer or executed call.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedCall<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedCall<I: DefinitionReference = DefinitionId> {
     /// Selected callable category and canonical/local identity.
     pub target: CallTarget<I>,
     /// Evaluated before explicit arguments, exactly once.
@@ -124,7 +124,7 @@ pub struct ResolvedCall<I: DefinitionReference = DefinitionPath> {
 
 /// Selected nominal constructor and field identities aligned to source initializer order.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedStructInit<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedStructInit<I: DefinitionReference = DefinitionId> {
     /// Canonical struct definition identity.
     pub structure: I,
     /// Source order, including holes for unknown initializer fields.
@@ -133,7 +133,7 @@ pub struct ResolvedStructInit<I: DefinitionReference = DefinitionPath> {
 
 /// Known enum owner and optional selected variant for construction/recovery.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedEnumConstructor<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedEnumConstructor<I: DefinitionReference = DefinitionId> {
     /// Canonical enum definition identity.
     pub enumeration: I,
     /// Missing members keep their known enum owner for error recovery.
@@ -141,7 +141,7 @@ pub struct ResolvedEnumConstructor<I: DefinitionReference = DefinitionPath> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TraitImplementation<I: DefinitionReference = DefinitionPath> {
+struct TraitImplementation<I: DefinitionReference = DefinitionId> {
     declaration: I,
     parameters: Vec<GenericParameterType<I>>,
     bounds: super::GenericBounds<I>,
@@ -150,7 +150,7 @@ struct TraitImplementation<I: DefinitionReference = DefinitionPath> {
 
 /// Applied Iterable/Iterator contracts selected for a `for` iterable expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedIteration<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedIteration<I: DefinitionReference = DefinitionId> {
     /// Interface used to obtain the iterator.
     pub into_interface: NominalType<I>,
     /// Semantic iterator value type.
@@ -185,7 +185,7 @@ pub struct ResolvedIteration<I: DefinitionReference = DefinitionPath> {
 /// before publication. Semantic definition mapping does not remap HIR arenas; body
 /// and signature reuse use explicit source-map remappers for local IDs.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TypeTable<I: DefinitionReference = DefinitionPath> {
+pub struct TypeTable<I: DefinitionReference = DefinitionId> {
     /// Temporary body-local placeholders; removed before publishing facts.
     pub(super) inference_holes: HashMap<TypeRefId, TypeId<I>>,
     iterations: HashMap<ExprId, ResolvedIteration<I>>,
@@ -229,7 +229,7 @@ pub struct TypeTable<I: DefinitionReference = DefinitionPath> {
 
 /// Selected trait-associated constant access before executable lowering.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedAssociatedConst<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedAssociatedConst<I: DefinitionReference = DefinitionId> {
     /// Type selecting the implementation.
     pub receiver: TypeId<I>,
     /// Applied trait containing the constant.
@@ -240,7 +240,7 @@ pub struct ResolvedAssociatedConst<I: DefinitionReference = DefinitionPath> {
 
 /// Checked concrete/interface conversion and the implementation path it uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedInterfaceCoercion<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedInterfaceCoercion<I: DefinitionReference = DefinitionId> {
     /// Selected script/host/upcast implementation category.
     pub implementation: ResolvedInterfaceImplementation<I>,
     /// Source value type before interface conversion.
@@ -251,7 +251,7 @@ pub struct ResolvedInterfaceCoercion<I: DefinitionReference = DefinitionPath> {
 
 /// How an interface value obtains its implementation metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResolvedInterfaceImplementation<I: DefinitionReference = DefinitionPath> {
+pub enum ResolvedInterfaceImplementation<I: DefinitionReference = DefinitionId> {
     /// An interface-to-parent-interface conversion.
     Upcast,
     /// A selected script implementation and its applied arguments.
@@ -267,7 +267,7 @@ pub enum ResolvedInterfaceImplementation<I: DefinitionReference = DefinitionPath
 
 /// A checked expression path through declared host access, not an unrestricted Rust reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPath<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedHostPath<I: DefinitionReference = DefinitionId> {
     /// Root expression evaluated before the path's dynamic arguments.
     pub root: ExprId,
     /// Source-order expressions paired with their declared runtime argument slots.
@@ -280,7 +280,7 @@ pub struct ResolvedHostPath<I: DefinitionReference = DefinitionPath> {
 
 /// A checked assignment path through declared host access.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPlacePath<I: DefinitionReference = DefinitionPath> {
+pub struct ResolvedHostPlacePath<I: DefinitionReference = DefinitionId> {
     /// Root place anchoring the host mutation path.
     pub root: PlaceId,
     /// Source-order index expressions paired with declared runtime argument slots.
@@ -419,12 +419,12 @@ impl TypeTable {
 
     pub(crate) fn insert_implementation(
         &mut self,
-        declaration: DefinitionPath,
+        declaration: DefinitionId,
         trait_type: NominalType,
         ty: TypeId,
         parameters: Vec<GenericParameterType>,
         bounds: super::GenericBounds,
-        methods: HashMap<DefinitionPath, FunctionId>,
+        methods: HashMap<FunctionId>,
     ) {
         self.implementations
             .entry((trait_type, ty))
@@ -440,12 +440,12 @@ impl TypeTable {
         &self,
     ) -> impl Iterator<
         Item = (
-            &DefinitionPath,
+            &DefinitionId,
             &NominalType,
             &TypeId,
             &[GenericParameterType],
             &super::GenericBounds,
-            &HashMap<DefinitionPath, FunctionId>,
+            &HashMap<FunctionId>,
         ),
     > {
         self.implementations
@@ -470,7 +470,7 @@ impl TypeTable {
     /// Finds a matching implementation method plus substituted arguments; absent if no method/bounds match.
     pub fn implementation_method(
         &self,
-        method: &DefinitionPath,
+        method: &DefinitionId,
         trait_type: &NominalType,
         ty: &TypeId,
     ) -> Option<(FunctionId, Vec<TypeId>)> {
@@ -577,12 +577,12 @@ impl TypeTable {
     }
 
     /// Records/replaces the selected field definition under the matching node ID.
-    pub(crate) fn insert_expr_field(&mut self, expr: ExprId, field: DefinitionPath) {
+    pub(crate) fn insert_expr_field(&mut self, expr: ExprId, field: DefinitionId) {
         self.expr_fields.insert(expr, field);
     }
 
     /// Records/replaces the selected assignment-field definition under the matching node ID.
-    pub(crate) fn insert_place_field(&mut self, place: PlaceId, field: DefinitionPath) {
+    pub(crate) fn insert_place_field(&mut self, place: PlaceId, field: DefinitionId) {
         self.place_fields.insert(place, field);
     }
 
@@ -866,12 +866,12 @@ impl TypeTable {
     }
 
     /// Records/replaces the field definitions in pattern field order under the matching node ID.
-    pub fn insert_pattern_fields(&mut self, id: PatternId, fields: Vec<DefinitionPath>) {
+    pub fn insert_pattern_fields(&mut self, id: PatternId, fields: Vec<DefinitionId>) {
         self.pattern_fields.insert(id, fields);
     }
 
     /// Records/replaces the selected enum variant under the matching node ID.
-    pub fn insert_pattern_variant(&mut self, id: PatternId, variant: DefinitionPath) {
+    pub fn insert_pattern_variant(&mut self, id: PatternId, variant: DefinitionId) {
         self.pattern_variants.insert(id, variant);
     }
 

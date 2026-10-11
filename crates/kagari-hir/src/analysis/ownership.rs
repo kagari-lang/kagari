@@ -1,4 +1,4 @@
-//! Explicit adoption and authoring projections of cached analysis records.
+//! Scoped cache publication and recovery for unrepresentable source identities.
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule, aggregates::AggregateCatalog,
     analysis::error::AnalysisError, analyze_parsed, declare_analysis, host::HostDeclarations,
@@ -10,7 +10,6 @@ use {
     kagari_common::{
         cancellation::CancellationToken,
         identity::{
-            DefinitionPath,
             map::DefinitionContext,
             mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord},
             metadata::DefinitionMetadata,
@@ -21,32 +20,13 @@ use {
     kagari_source::source::SourceFile,
 };
 
-/// Interns portable paths in the database context and validates records with its resulting table.
-pub(super) fn scope<T: DefinitionRecord<DefinitionPath>>(
+/// Validate fixed-ID records against the analysis prefix before cache publication.
+pub(super) fn scope<T: DefinitionRecord<DefinitionId> + Clone>(
     record: &T,
     context: &DefinitionContext,
     cancel: &CancellationToken,
-) -> Result<DefinitionMetadata<T::Rebind<DefinitionId>>, DefinitionMappingError>
-where
-    T::Rebind<DefinitionId>: DefinitionRecord<DefinitionId>,
-{
-    let records = record.map_identities(&mut DefinitionMapper::new(
-        &mut |path| context.intern(path).map_err(Into::into),
-        cancel,
-    ))?;
-    DefinitionMetadata::checked(context.snapshot(), records, cancel)
-}
-
-/// Copies records while resolving every scoped ID through the supplied definition table.
-pub(crate) fn paths<T: DefinitionRecord<DefinitionId>>(
-    record: &T,
-    definitions: &DefinitionTable,
-    cancel: &CancellationToken,
-) -> Result<T::Rebind<DefinitionPath>, DefinitionMappingError> {
-    record.map_identities(&mut DefinitionMapper::new(
-        &mut |id| Ok(definitions.resolve(*id)?.to_path()),
-        cancel,
-    ))
+) -> Result<DefinitionMetadata<T>, DefinitionMappingError> {
+    DefinitionMetadata::checked(context.snapshot(), record.clone(), cancel)
 }
 
 /// Maps portable or scoped references into an existing table; invalid/absent identities return None.
@@ -74,7 +54,7 @@ pub(crate) fn recover_invalid_identity(
         &parsed.syntax(),
         &cancel,
     ));
-    let definitions = DefinitionContext::new().expect("analysis definition context exhausted");
+    let definitions = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
     let declared = declare_analysis(
         lowered,
         HostDeclarations::empty(),

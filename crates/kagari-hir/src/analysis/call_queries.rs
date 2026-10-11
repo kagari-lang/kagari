@@ -9,7 +9,6 @@ use crate::{
     typeck::table::CallTarget,
     types::TypeId,
 };
-use kagari_common::cancellation::CancellationToken;
 
 /// Presentation view of a checked call with portable declaration/type identities.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,8 +26,7 @@ impl FileAnalysis {
     /// The smallest enclosing call wins, including positions in its arguments.
     /// Source, engine-native and offline host declarations share this query.
     pub fn call_signature_at(&self, offset: usize) -> Option<CallSignature> {
-        let authoring = self.to_unverified(&CancellationToken::default()).ok()?;
-        let facts = authoring.facts();
+        let facts = self.result().facts();
         let (_, id) = facts
             .lowered
             .module

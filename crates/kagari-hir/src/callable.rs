@@ -8,14 +8,14 @@ use crate::{
     typeck::{FunctionImplementation, GenericBounds, TypedFunction},
     types::{GenericParameterType, TypeId},
 };
-use kagari_common::identity::{DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{reference::DefinitionReference, table::DefinitionId};
 
 /// The selected declaration's signature after call-site substitution. Generic
 /// types belonging to the enclosing body remain for compiler monomorphization.
 /// These are parameter types, not the types of the argument expressions: a
 /// readonly conversion or a diverging argument must not change the contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppliedCallSignature<I: DefinitionReference = DefinitionPath> {
+pub struct AppliedCallSignature<I: DefinitionReference = DefinitionId> {
     /// Includes a method receiver; excludes the callee of a function-value call.
     pub params: Vec<TypeId<I>>,
     /// Result type after the selected declaration's call-site substitution.

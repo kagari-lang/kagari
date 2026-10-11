@@ -13,14 +13,14 @@ use std::collections::HashMap;
 use {
     kagari_common::{
         cancellation::{CancellationToken, Cancelled},
-        identity::{DefinitionPath, reference::DefinitionReference},
+        identity::{reference::DefinitionReference, table::DefinitionId},
     },
     kagari_source::identity::FileId,
 };
 
 /// A canonical foreign function target and a projection of its independently checked signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedFunction<I: DefinitionReference = DefinitionPath> {
+pub struct ImportedFunction<I: DefinitionReference = DefinitionId> {
     /// Qualified source declaration address, independent of aliases.
     pub id: SourceDeclRef,
     /// Portable or scoped semantic definition identity.
@@ -33,7 +33,7 @@ pub struct ImportedFunction<I: DefinitionReference = DefinitionPath> {
 
 /// Foreign callable facts keyed by canonical source references or inherent-method definitions.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedFunctions<I: DefinitionReference = DefinitionPath> {
+pub struct ImportedFunctions<I: DefinitionReference = DefinitionId> {
     functions: HashMap<SourceDeclRef, ImportedFunction<I>>,
     methods: HashMap<I, ImportedFunction<I>>,
 }

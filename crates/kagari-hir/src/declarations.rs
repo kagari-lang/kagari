@@ -22,8 +22,9 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment,
+        DefinitionKind,
         map::DefinitionContext,
+        mapping::DefinitionMappingError,
         reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
@@ -61,8 +62,8 @@ pub struct BindingId {
 
 /// Semantic declaration identity, distinguishing nominal definitions, binders and body locals.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DeclarationId<I: DefinitionReference = DefinitionPath> {
-    /// Portable or scoped identity of a named definition.
+pub enum DeclarationId<I: DefinitionReference = DefinitionId> {
+    /// Scoped identity of a named definition.
     Definition(I),
     /// A binder identified by its declaring owner and ordinal, not spelling.
     GenericParameter {
@@ -77,7 +78,7 @@ pub enum DeclarationId<I: DefinitionReference = DefinitionPath> {
 
 /// Semantic identity and authoritative source navigation site for one declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Declaration<I: DefinitionReference = DefinitionPath> {
+pub struct Declaration<I: DefinitionReference = DefinitionId> {
     /// Named definition, generic binder or analysis-local binding identity.
     pub id: DeclarationId<I>,
     /// Display spelling; identity is carried separately.
@@ -95,14 +96,14 @@ pub struct Declaration<I: DefinitionReference = DefinitionPath> {
 /// parameter/local binding     -> AnalysisId + scoped body definition + local slot
 /// ```
 ///
-/// `collect_named` visits headers/members and builds portable paths with kind/name/
-/// occurrence segments. `with_bindings` adds parameters and locals from resolved
-/// body scopes. The shared definition context interns paths into a matching table;
-/// checked publication maps portable records to its scoped IDs. Internal site ranges
+/// `collect_named` registers headers/members directly in the shared definition
+/// context before signatures are checked. `with_bindings` adds parameters and locals
+/// under those existing body identities. Publication retains the matching prefix.
+/// Internal site ranges
 /// use analysis coordinates, which can differ from authoritative copied-source sites.
 /// Import lookup tables are shared inputs, not copied into every declaration.
 #[derive(Debug, Clone)]
-pub struct Declarations<I: DefinitionReference = DefinitionPath> {
+pub struct Declarations<I: DefinitionReference = DefinitionId> {
     /// Validated language-role identities used by ordinary syntax and protocol checking.
     pub(crate) language_items: BTreeMap<LangRole, I>,
     /// Installed array protocol bridge declarations, when available.
@@ -146,122 +147,135 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
-    /// Collects header/member identities and sites, retaining partial facts if cancellation is observed by the caller.
-    pub(crate) fn collect_named(
-        source: &SourceFile,
+    /// Construct empty recovery facts without assigning an identity to an invalid source module.
+    pub(crate) fn empty(
         lowered: &LoweredModule,
         names: &DeclarationNames,
         context: &DefinitionContext,
-        cancel: &CancellationToken,
     ) -> Self {
         let analysis = AnalysisId(
             NEXT_ANALYSIS
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("analysis identity exhausted"),
         );
+        Self {
+            language_items: BTreeMap::new(),
+            array_interfaces: names.imports.array_interfaces.clone(),
+            imported_types: Default::default(),
+            names: names.items.clone(),
+            hosts: names.hosts.clone(),
+            imports: names.imports.clone(),
+            catalog: names.catalog.clone(),
+            analysis,
+            definitions: context.snapshot(),
+            context: context.clone(),
+            targets: HashMap::new(),
+            identities: HashMap::new(),
+            site_ranges: HashMap::new(),
+            impl_identities: HashMap::new(),
+            native_types: lowered.native_types.clone(),
+        }
+    }
+
+    /// Register header/member identities before checking signatures; failed collection publishes no facts.
+    pub(crate) fn collect_named(
+        source: &SourceFile,
+        lowered: &LoweredModule,
+        names: &DeclarationNames,
+        context: &DefinitionContext,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        let root = context.intern_root(source.module_identity())?;
         let mut builder = Builder {
             source,
             cancel,
-            result: Self {
-                language_items: BTreeMap::new(),
-                array_interfaces: names.imports.array_interfaces.clone(),
-                imported_types: Default::default(),
-                names: names.items.clone(),
-                hosts: names.hosts.clone(),
-                imports: names.imports.clone(),
-                catalog: names.catalog.clone(),
-                analysis,
-                definitions: context.snapshot(),
-                context: context.clone(),
-                targets: HashMap::new(),
-                identities: HashMap::new(),
-                site_ranges: HashMap::new(),
-                impl_identities: HashMap::new(),
-                native_types: lowered.native_types.clone(),
-            },
+            result: Self::empty(lowered, names, context),
             occurrences: HashMap::new(),
         };
         let module = &lowered.module;
         let map = &lowered.source_map;
         for item in &module.functions {
-            if cancel.check().is_err() {
-                return builder.result;
-            }
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
             let kind = match item.kind {
                 FunctionKind::User => DefinitionKind::Function,
                 FunctionKind::TraitMethod | FunctionKind::ImplMethod => continue,
             };
             let owner = builder.definition(
                 ResolvedName::Function(item.id),
-                &[],
+                root,
                 kind,
                 &item.name,
                 map.item_declaration_span(Item::Function(item.id)),
                 map.item_name_span(Item::Function(item.id)).is_some(),
-            );
+            )?;
             builder.generic_params(&owner, &item.generic_params, map);
         }
         for item in &module.consts {
             if item.owner.is_some() {
                 continue;
             }
-            if cancel.check().is_err() {
-                return builder.result;
-            }
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
             builder.definition(
                 ResolvedName::Const(item.id),
-                &[],
+                root,
                 DefinitionKind::Const,
                 &item.name,
                 map.item_declaration_span(Item::Const(item.id)),
                 map.item_name_span(Item::Const(item.id)).is_some(),
-            );
+            )?;
         }
         for item in &module.modules {
-            if cancel.check().is_err() {
-                return builder.result;
-            }
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
             builder.definition(
                 ResolvedName::Module(item.id),
-                &[],
+                root,
                 DefinitionKind::Module,
                 &item.name,
                 map.item_declaration_span(Item::Module(item.id)),
                 map.item_name_span(Item::Module(item.id)).is_some(),
-            );
+            )?;
         }
         for item in &module.opaque_types {
-            if cancel.check().is_err() {
-                return builder.result;
-            }
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
             let owner = builder.definition(
                 ResolvedName::OpaqueType(item.id),
-                &[],
+                root,
                 DefinitionKind::AssociatedType,
                 &item.name,
                 map.item_declaration_span(Item::OpaqueType(item.id)),
                 map.item_name_span(Item::OpaqueType(item.id)).is_some(),
-            );
+            )?;
             builder.generic_params(&owner, &item.generic_params, map);
         }
         for item in &module.structs {
-            if cancel.check().is_err() {
-                return builder.result;
-            }
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
             let owner = builder.definition(
                 ResolvedName::Struct(item.id),
-                &[],
+                root,
                 DefinitionKind::Struct,
                 &item.name,
                 map.item_declaration_span(Item::Struct(item.id)),
                 map.item_name_span(Item::Struct(item.id)).is_some(),
-            );
+            )?;
             builder.generic_params(&owner, &item.generic_params, map);
             for field in &item.fields {
-                if cancel.check().is_err() {
-                    return builder.result;
-                }
-                let id = builder.identity(&owner.path, DefinitionKind::Field, &field.name);
+                cancel
+                    .check()
+                    .map_err(|_| DefinitionMappingError::Cancelled)?;
+                let id = builder.identity(owner, DefinitionKind::Field, &field.name)?;
                 builder.insert(
                     DeclarationKey::Field(field.id),
                     DeclarationId::Definition(id),
@@ -272,23 +286,23 @@ impl Declarations {
             }
         }
         for item in &module.enums {
-            if cancel.check().is_err() {
-                return builder.result;
-            }
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
             let owner = builder.definition(
                 ResolvedName::Enum(item.id),
-                &[],
+                root,
                 DefinitionKind::Enum,
                 &item.name,
                 map.item_declaration_span(Item::Enum(item.id)),
                 map.item_name_span(Item::Enum(item.id)).is_some(),
-            );
+            )?;
             builder.generic_params(&owner, &item.generic_params, map);
             for variant in &item.variants {
-                if cancel.check().is_err() {
-                    return builder.result;
-                }
-                let id = builder.identity(&owner.path, DefinitionKind::Variant, &variant.name);
+                cancel
+                    .check()
+                    .map_err(|_| DefinitionMappingError::Cancelled)?;
+                let id = builder.identity(owner, DefinitionKind::Variant, &variant.name)?;
                 builder.insert(
                     DeclarationKey::Variant(variant.id),
                     DeclarationId::Definition(id),
@@ -299,31 +313,31 @@ impl Declarations {
             }
         }
         for item in &module.traits {
-            if cancel.check().is_err() {
-                return builder.result;
-            }
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
             let owner = builder.definition(
                 ResolvedName::Trait(item.id),
-                &[],
+                root,
                 DefinitionKind::Trait,
                 &item.name,
                 map.item_declaration_span(Item::Trait(item.id)),
                 map.item_name_span(Item::Trait(item.id)).is_some(),
-            );
+            )?;
             builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
-                if cancel.check().is_err() {
-                    return builder.result;
-                }
+                cancel
+                    .check()
+                    .map_err(|_| DefinitionMappingError::Cancelled)?;
                 let method_owner = builder.definition(
                     ResolvedName::Function(method.function),
-                    &owner.path,
+                    owner,
                     DefinitionKind::Method,
                     &method.name,
                     map.item_declaration_span(Item::Function(method.function)),
                     map.item_name_span(Item::Function(method.function))
                         .is_some(),
-                );
+                )?;
                 let function = module
                     .functions
                     .iter()
@@ -333,28 +347,25 @@ impl Declarations {
             }
         }
         for item in &module.impls {
-            if cancel.check().is_err() {
-                return builder.result;
-            }
-            let owner = builder.identity(&[], DefinitionKind::Impl, "");
-            builder
-                .result
-                .impl_identities
-                .insert(item.id, owner.clone());
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
+            let owner = builder.identity(root, DefinitionKind::Impl, "")?;
+            builder.result.impl_identities.insert(item.id, owner);
             builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
-                if cancel.check().is_err() {
-                    return builder.result;
-                }
+                cancel
+                    .check()
+                    .map_err(|_| DefinitionMappingError::Cancelled)?;
                 let method_owner = builder.definition(
                     ResolvedName::Function(method.function),
-                    &owner.path,
+                    owner,
                     DefinitionKind::Method,
                     &method.name,
                     map.item_declaration_span(Item::Function(method.function)),
                     map.item_name_span(Item::Function(method.function))
                         .is_some(),
-                );
+                )?;
                 let function = module
                     .functions
                     .iter()
@@ -366,20 +377,20 @@ impl Declarations {
         for item in &module.consts {
             let owner = match item.owner {
                 Some(ConstOwner::Trait(id)) => {
-                    builder.result.definition(ResolvedName::Trait(id)).cloned()
+                    builder.result.definition(ResolvedName::Trait(id)).copied()
                 }
-                Some(ConstOwner::Impl(id)) => builder.result.impl_identity(id).cloned(),
+                Some(ConstOwner::Impl(id)) => builder.result.impl_identity(id).copied(),
                 None => continue,
             };
             if let Some(owner) = owner {
                 builder.definition(
                     ResolvedName::Const(item.id),
-                    &owner.path,
+                    owner,
                     DefinitionKind::Const,
                     &item.name,
                     map.item_declaration_span(Item::Const(item.id)),
                     !item.name.is_empty(),
-                );
+                )?;
             }
         }
         for (members, owner) in module
@@ -389,27 +400,26 @@ impl Declarations {
                 builder
                     .result
                     .definition(ResolvedName::Trait(item.id))
-                    .cloned()
+                    .copied()
                     .map(|owner| (&item.associated_types, owner))
             })
             .chain(module.impls.iter().filter_map(|item| {
                 builder
                     .result
                     .impl_identity(item.id)
-                    .cloned()
+                    .copied()
                     .map(|owner| (&item.associated_types, owner))
             }))
             .collect::<Vec<_>>()
         {
             for member in members {
-                if cancel.check().is_err() {
-                    return builder.result;
-                }
-                let id =
-                    builder.identity(&owner.path, DefinitionKind::AssociatedType, &member.name);
+                cancel
+                    .check()
+                    .map_err(|_| DefinitionMappingError::Cancelled)?;
+                let id = builder.identity(owner, DefinitionKind::AssociatedType, &member.name)?;
                 builder.insert(
                     DeclarationKey::AssociatedType(member.name_ref),
-                    DeclarationId::Definition(id.clone()),
+                    DeclarationId::Definition(id),
                     &member.name,
                     map.type_span(member.name_ref),
                     !member.name.is_empty(),
@@ -417,7 +427,11 @@ impl Declarations {
                 builder.generic_params(&id, &member.generic_params, map);
             }
         }
-        builder.result
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        builder.result.definitions = context.snapshot();
+        Ok(builder.result)
     }
 
     /// Adds resolved parameter/local declarations using this analysis and the owning body's scoped identity.
@@ -439,7 +453,6 @@ impl Declarations {
                 .expect("analysis identity exhausted"),
         );
         let analysis = self.analysis;
-        let definitions = self.context.clone();
         let map = &lowered.source_map;
         let mut builder = Builder {
             source: &lowered.source,
@@ -459,9 +472,6 @@ impl Declarations {
             else {
                 unreachable!("body owner is a definition")
             };
-            let body = definitions
-                .intern(&body)
-                .expect("validated source definition path");
             for binding in &scope.bindings {
                 if cancel.check().is_err() {
                     break;
@@ -484,7 +494,6 @@ impl Declarations {
                 );
             }
         }
-        builder.result.definitions = definitions.snapshot();
         builder.result
     }
 }
@@ -493,11 +502,11 @@ struct Builder<'a> {
     source: &'a SourceFile,
     cancel: &'a CancellationToken,
     result: Declarations,
-    occurrences: HashMap<(Vec<DefinitionPathSegment>, DefinitionKind, String), u32>,
+    occurrences: HashMap<(DefinitionId, DefinitionKind, String), u32>,
 }
 
 impl Builder<'_> {
-    fn generic_params(&mut self, owner: &DefinitionPath, params: &[GenericParam], map: &SourceMap) {
+    fn generic_params(&mut self, owner: &DefinitionId, params: &[GenericParam], map: &SourceMap) {
         let mut position = 0;
         for param in params {
             if self.cancel.check().is_err() {
@@ -511,7 +520,7 @@ impl Builder<'_> {
             self.insert(
                 key,
                 DeclarationId::GenericParameter {
-                    owner: owner.clone(),
+                    owner: *owner,
                     position,
                 },
                 &param.name,
@@ -524,47 +533,39 @@ impl Builder<'_> {
 
     fn identity(
         &mut self,
-        parent: &[DefinitionPathSegment],
+        parent: DefinitionId,
         kind: DefinitionKind,
         name: &str,
-    ) -> DefinitionPath {
+    ) -> Result<DefinitionId, DefinitionMappingError> {
+        self.cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
         let occurrence = self
             .occurrences
-            .entry((parent.to_vec(), kind, name.into()))
+            .entry((parent, kind, name.into()))
             .or_default();
-        let mut path = parent.to_vec();
-        path.push(DefinitionPathSegment {
-            kind,
-            name: name.into(),
-            occurrence: *occurrence,
-        });
+        let id = self
+            .result
+            .context
+            .intern_child(parent, kind, name, *occurrence)?;
         *occurrence = occurrence
             .checked_add(1)
-            .expect("declaration identity exhausted");
-        DefinitionPath {
-            module: self.source.module_identity().clone(),
-            path,
-        }
+            .ok_or(DefinitionMappingError::LimitExceeded)?;
+        Ok(id)
     }
 
     fn definition(
         &mut self,
         key: ResolvedName,
-        parent: &[DefinitionPathSegment],
+        parent: DefinitionId,
         kind: DefinitionKind,
         name: &str,
         range: Span,
         site: bool,
-    ) -> DefinitionPath {
-        let id = self.identity(parent, kind, name);
-        self.insert(
-            key,
-            DeclarationId::Definition(id.clone()),
-            name,
-            range,
-            site,
-        );
-        id
+    ) -> Result<DefinitionId, DefinitionMappingError> {
+        let id = self.identity(parent, kind, name)?;
+        self.insert(key, DeclarationId::Definition(id), name, range, site);
+        Ok(id)
     }
 
     fn insert(

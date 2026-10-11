@@ -75,22 +75,22 @@ impl FunctionAnalysis {
         })
     }
 
-    /// Returns a portable checked type at a byte offset inside the selected function.
+    /// Returns a checked type in this result's definition scope at a byte offset inside the selected function.
     pub fn type_at(&self, offset: usize) -> Option<TypeId> {
         let ty = self
             .contains(offset)
             .then(|| super::type_at_in(self.lowered(), self.type_table(), offset))
             .flatten()?;
-        ownership::paths(&ty, &self.definitions, &CancellationToken::default()).ok()
+        Some(ty)
     }
 
-    /// Returns a portable member receiver type inside the selected function.
+    /// Returns a member receiver type in this result's definition scope inside the selected function.
     pub fn member_receiver_type(&self, offset: usize) -> Option<TypeId> {
         let ty = self
             .contains(offset)
             .then(|| super::member_receiver_type_in(self.lowered(), self.type_table(), offset))
             .flatten()?;
-        ownership::paths(&ty, &self.definitions, &CancellationToken::default()).ok()
+        Some(ty)
     }
 
     /// Returns the selected declaration's identity in this result's definition table.
@@ -219,22 +219,18 @@ impl AnalysisDatabase {
             .remove(&file.source().id())
             .expect("function environment");
         let previous = self.body_cache.get(&owner);
-        let previous_environment = previous
-            .map(|old| ownership::paths(&old.environment, &old.definitions, cancel))
-            .transpose()?;
-        let previous_types = previous
-            .map(|old| ownership::paths(&old.typed, &old.definitions, cancel))
-            .transpose()?;
+        let previous_environment = previous.map(|old| &old.environment);
+        let previous_types = previous.map(|old| &old.typed);
         let result = if let Some(old) = previous.filter(|old| {
             Arc::ptr_eq(&old.file, &file)
                 && *previous_environment
                     .as_ref()
                     .expect("previous body environment")
-                    == environment
+                    == &environment
         }) {
             old.clone()
         } else {
-            let prepared = file.authoring(cancel)?;
+            let prepared = &file.prepared;
             let selection = BodySelection::Function(function);
             let names = resolve_bodies(&prepared.lowered, &prepared.names.facts, selection, cancel);
             let declarations =
@@ -361,17 +357,5 @@ impl FunctionAnalysis {
     /// Borrows the identity table owning scoped IDs in this result.
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
-    }
-
-    /// Copies checked facts while translating scoped definition IDs into portable paths.
-    ///
-    /// # Errors
-    ///
-    /// Returns a mapping error if cancellation is requested or a referenced identity is invalid.
-    pub fn type_table_to_paths(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<TypeTable, DefinitionMappingError> {
-        ownership::paths(self.type_table(), &self.definitions, cancel)
     }
 }
