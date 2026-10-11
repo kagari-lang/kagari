@@ -4,45 +4,57 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
 use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
-use kagari_runtime::{Runtime, module::LoadedModule};
+use kagari_runtime::{Runtime, RuntimeConfig, module::LoadedModule, native::module::NativeModule};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
-use kagari_types::host_interface::{HostInterface, standard_log};
-use std::sync::Arc;
+use kagari_types::host_interface::{HostFunctionDeclaration, HostInterface, standard_log};
+use std::{iter, sync::Arc};
 
-pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
+pub fn load_bytecode_module(
+    name: &str,
+    bytecode: DefinitionMetadata<BytecodeModule>,
+) -> (Runtime, LoadedModule) {
     load_bytecode_module_with_runtime(standard_runtime(Default::default()), name, bytecode)
 }
 
 pub fn load_bytecode_module_with_runtime(
     mut runtime: Runtime,
     name: &str,
-    bytecode: BytecodeModule,
+    bytecode: DefinitionMetadata<BytecodeModule>,
 ) -> (Runtime, LoadedModule) {
+    let (definitions, bytecode) = bytecode.into_parts();
     let loaded = runtime
         .load_program(
             name,
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
+            DefinitionMetadata::checked(
+                definitions,
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![bytecode],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .expect("test module should load");
     (runtime, loaded)
 }
 
-pub fn load_bytecode_program(name: &str, program: BytecodeProgram) -> (Runtime, LoadedModule) {
+pub fn load_bytecode_program(
+    name: &str,
+    program: DefinitionMetadata<BytecodeProgram>,
+) -> (Runtime, LoadedModule) {
     load_bytecode_program_with_runtime(standard_runtime(Default::default()), name, program)
 }
 
 pub fn load_bytecode_program_with_runtime(
     mut runtime: Runtime,
     name: &str,
-    program: BytecodeProgram,
+    program: DefinitionMetadata<BytecodeProgram>,
 ) -> (Runtime, LoadedModule) {
     let loaded = runtime
         .load_program(name, program)
@@ -54,7 +66,7 @@ pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
     load_bytecode_program("test.kgr", compile_test_bytecode(source_text))
 }
 
-pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
+pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kgr", source_text.into(), SourceLayer::Base)
@@ -64,7 +76,7 @@ pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
         foundation::modules()
             .unwrap()
             .iter()
-            .map(|module| Arc::new(module.to_declaration().unwrap()))
+            .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
     let (definitions, log) = standard_log().unwrap().into_parts();
@@ -96,18 +108,18 @@ pub fn test_function_module(
     return_type: ValueType,
     registers: Vec<ValueType>,
     constants: Vec<ConstantOperand>,
-) -> BytecodeModule {
+) -> DefinitionMetadata<BytecodeModule> {
     let metadata = FunctionMetadata {
         return_type,
         roots: RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
-    BytecodeModule {
+    let module = BytecodeModule {
         constants,
         types: unique_types(
-            std::iter::once(ValueType::Unit)
-                .chain(std::iter::once(metadata.return_type))
+            iter::once(ValueType::Unit)
+                .chain(iter::once(metadata.return_type))
                 .chain(metadata.registers.iter().copied()),
         ),
         function_table: vec![FunctionRecord {
@@ -129,20 +141,41 @@ pub fn test_function_module(
             instructions,
         }],
         ..BytecodeModule::default()
-    }
+    };
+    DefinitionMetadata::checked(
+        DefinitionContext::new().unwrap().snapshot(),
+        module,
+        &Default::default(),
+    )
+    .unwrap()
 }
 
+/// Adopt each independently authored Host signature before constructing executable imports.
 pub fn with_host_imports(
-    mut module: BytecodeModule,
-    functions: Vec<kagari_types::host_interface::HostFunctionDeclaration>,
-) -> BytecodeModule {
+    module: DefinitionMetadata<BytecodeModule>,
+    functions: Vec<DefinitionMetadata<HostFunctionDeclaration>>,
+) -> DefinitionMetadata<BytecodeModule> {
+    let context = DefinitionContext::new().unwrap();
+    let mut module = module
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let functions = functions
+        .iter()
+        .map(|function| {
+            function
+                .import_into(&context, &Default::default())
+                .unwrap()
+                .into_records()
+        })
+        .collect::<Vec<_>>();
     module.native_imports = functions.iter().map(NativeImport::from_host).collect();
-    module.host_interface = kagari_types::host_interface::HostInterface {
+    module.host_interface = HostInterface {
         paths: vec![],
-        types: Vec::new(),
+        types: vec![],
         functions,
     };
-    module
+    DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
 }
 
 pub fn unique_types(types: impl IntoIterator<Item = ValueType>) -> Vec<ValueType> {
@@ -162,20 +195,19 @@ pub fn point_function_module(
     return_type: ValueType,
     registers: Vec<ValueType>,
     constants: Vec<ConstantOperand>,
-) -> BytecodeModule {
-    let mut module = test_function_module(name, instructions, return_type, registers, constants);
+) -> DefinitionMetadata<BytecodeModule> {
+    let mut module =
+        test_function_module(name, instructions, return_type, registers, constants).into_records();
     let program = compile_test_bytecode("struct Point { var x: i32 }");
-    module.structures = program.modules[program.root.index()].structures.clone();
-    module
+    module.structures = program.records().modules[program.records().root.index()]
+        .structures
+        .clone();
+    DefinitionMetadata::checked(program.definitions().clone(), module, &Default::default()).unwrap()
 }
 
 /// Explicit standard installation for script fixtures and their source-free products.
-pub fn standard_runtime(config: kagari_runtime::RuntimeConfig) -> Runtime {
+pub fn standard_runtime(config: RuntimeConfig) -> Runtime {
     let mut runtime = Runtime::new(config);
-    kagari_runtime::native::module::NativeModule::install_all(
-        &foundation::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&foundation::modules().unwrap(), &mut runtime).unwrap();
     runtime
 }

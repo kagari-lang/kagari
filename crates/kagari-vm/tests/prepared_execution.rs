@@ -3,6 +3,7 @@ use kagari_abi::{
     native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
 };
 use kagari_bytecode::program::BytecodeProgram;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
@@ -14,7 +15,7 @@ use kagari_contract::{
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig, error::RuntimeErrorKind, jit_abi::jit_poll_execution,
-    module::LoadedModule, resource::RuntimeLimits, value::Value,
+    module::LoadedModule, native::module::NativeModule, resource::RuntimeLimits, value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
@@ -24,7 +25,7 @@ use kagari_vm::{
 };
 use std::{ffi::c_void, sync::Arc};
 
-fn compile(source: &str, optimize: bool) -> BytecodeProgram {
+fn compile(source: &str, optimize: bool) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kgr", source.into(), SourceLayer::Base)
@@ -44,18 +45,14 @@ fn compile(source: &str, optimize: bool) -> BytecodeProgram {
     lower_program_to_bytecode(&mir).unwrap()
 }
 
-fn setup(bytecode: BytecodeProgram) -> (Vm, LoadedModule) {
+fn setup(bytecode: DefinitionMetadata<BytecodeProgram>) -> (Vm, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
             ..Default::default()
         },
         ..Default::default()
     });
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let loaded = runtime.load_program("test", bytecode).unwrap();
     (Vm::new(runtime), loaded)
 }
@@ -276,6 +273,6 @@ fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().unwrap());
     database
 }

@@ -14,20 +14,23 @@ use kagari_bytecode::{
     },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     host::{
         HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptorId,
-        HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
-        HostTypeRegistration, PreparedHostPathWrite,
+        HostPathDescriptorRegistration, HostSchemaEpoch, HostTypeRegistration,
+        PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     module::LoadedModule,
     value::Value,
 };
 use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface,
+    path::HostPathSegmentDeclaration,
     type_declaration::{
         HostFieldDeclaration, HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership,
         PathAccess,
@@ -50,7 +53,7 @@ fn reflection_runtime() -> Runtime {
 
 fn load_reflection_bytecode_module(
     name: &str,
-    bytecode: BytecodeModule,
+    bytecode: DefinitionMetadata<BytecodeModule>,
 ) -> (Runtime, LoadedModule) {
     load_bytecode_module_with_runtime(reflection_runtime(), name, bytecode)
 }
@@ -64,6 +67,7 @@ fn load_reflection_test_module(source_text: &str) -> (Runtime, LoadedModule) {
 }
 
 fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
+    let context = DefinitionContext::new().unwrap();
     let mut runtime = host_runtime();
     let i32_id = runtime
         .types()
@@ -72,27 +76,39 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
             ..TypeRegistration::new("i32", TypeKind::Primitive)
         })
         .unwrap();
-    let host_type = HostTypeRegistration::new(player_type_declaration(), "game.Player");
+    let declaration = player_type_declaration(&context);
+    let player = declaration.id;
+    let host_type = HostTypeRegistration::new(
+        DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap(),
+        "game.Player",
+    );
     let player_id = runtime.register_host_type(host_type).unwrap();
     let root = runtime
         .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::HostFunctionDeclaration::new(
-                "host.player",
-                vec![],
-                HostValueType::opaque("game.Player"),
-            ),
+            {
+                let declaration = HostFunctionDeclaration::new(
+                    &context,
+                    "host.player",
+                    vec![],
+                    HostValueType::Opaque(player),
+                )
+                .unwrap();
+                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+                    .unwrap()
+            },
             move |cx, _| Ok(cx.runtime().gc().alloc_host_root(root).unwrap()),
         ))
         .unwrap();
     let descriptor_id = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: runtime
+            segments: vec![HostPathSegmentDeclaration::Field(
+                runtime
                     .host()
                     .host_type(player_id)
                     .unwrap()
@@ -101,9 +117,8 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
                     .iter()
                     .find(|field| field.name == "hp")
                     .unwrap()
-                    .id
-                    .clone(),
-            }],
+                    .id,
+            )],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
         })
@@ -139,7 +154,10 @@ fn path_module(
     instructions: Vec<BytecodeInstruction>,
     return_type: ValueType,
     constants: Vec<ConstantOperand>,
-) -> BytecodeModule {
+) -> DefinitionMetadata<BytecodeModule> {
+    let context = DefinitionContext::new().unwrap();
+    let player = player_type_declaration(&context);
+    let player_id = player.id;
     let metadata = FunctionMetadata {
         return_type,
         registers: vec![
@@ -152,21 +170,25 @@ fn path_module(
         ],
         ..Default::default()
     };
-    let host_interface = kagari_types::host_interface::HostInterface {
+    let host_interface = HostInterface {
         paths: vec![],
-        types: vec![player_type_declaration()],
-        functions: vec![kagari_types::host_interface::HostFunctionDeclaration::new(
-            "host.player",
-            vec![],
-            HostValueType::opaque("game.Player"),
-        )],
+        types: vec![player],
+        functions: vec![
+            HostFunctionDeclaration::new(
+                &context,
+                "host.player",
+                vec![],
+                HostValueType::Opaque(player_id),
+            )
+            .unwrap(),
+        ],
     };
     let native_imports = host_interface
         .functions
         .iter()
         .map(NativeImport::from_host)
         .collect();
-    BytecodeModule {
+    let module = BytecodeModule {
         host_interface,
         native_imports,
         module_slots: vec![],
@@ -204,14 +226,16 @@ fn path_module(
             instructions,
         }],
         ..Default::default()
-    }
+    };
+    DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
 }
 
-fn player_type_declaration() -> HostTypeDeclaration {
-    let mut declaration = HostTypeDeclaration::new("game.Player");
+fn player_type_declaration(context: &DefinitionContext) -> HostTypeDeclaration {
+    let mut declaration = HostTypeDeclaration::new(context, "game.Player").unwrap();
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
+    let mut hp =
+        HostFieldDeclaration::new(context, declaration.id, "hp", HostValueType::I32).unwrap();
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     declaration.fields.push(hp);

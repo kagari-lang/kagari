@@ -3443,3 +3443,49 @@ This completes the carried runtime consumer build repair, not full runtime test
 execution. VM/embed consumers and lasting documentation transfer/plan retirement
 remain required SI06 work. Exhaustive workspace, feature/backend and CI acceptance
 remain unrun locally.
+
+
+### SI06 VM fixture producer scope migration
+
+VM shared test producers now return DefinitionMetadata for compiled programs,
+identity-free handwritten function modules, reflected Point layouts and Host path
+modules. Module loading retains the originating table when wrapping a single module
+as a program. Host import composition explicitly adopts both module records and each
+independently authored signature into one context before building NativeImport records.
+Point reflection fixtures retain the compiler's table for their nominal layout;
+Host path fixtures distinguish authoring declarations from installed runtime field
+IDs and descriptor snapshots. No raw/metadata compatibility overload was added.
+
+The prepared_execution integration producer now keeps lowered metadata through runtime
+loading, using the current fallible standard declaration provider. Its existing static
+native ABI fixture and fallback/cleanup assertions are unchanged.
+
+Focused evidence and intermediate build status:
+
+- `cargo test -p kagari-vm --test prepared_execution --no-fail-fast
+  --message-format=short -- prepared_native_execution native_errors
+  preparation_from_an_old`: all three selected cases pass, covering native descriptor
+  reporting/frame cleanup, no interpreter restart on a native trap and rejection of
+  an old-version preparation at a new generation. Four other cases are outside the
+  selected execution scope.
+- `cargo clippy -p kagari-vm --test prepared_execution --message-format=short --
+  -D warnings` passes.
+- `cargo test -p kagari-vm --lib tests::execution:: --no-fail-fast
+  --message-format=short` is a carried consumer build failure; no selected execution
+  test ran. Before producer migration it reported 197 diagnostics; replacing raw
+  fixture return types exposed editable/read-only metadata callers as expected. The
+  latest attempt reports 187 errors in 17 consumer files, with none in the two
+  changed producer owners. Main remaining groups are helpers/host_paths (40),
+  sessions (32), conformance (14), execution/interfaces (13), execution/frames and
+  installed_access (12 each), jit (11), native_wait (10), and smaller codec/read-only
+  snapshot consumers in reentry_debug, gc, owned_drive, source_programs, reflection,
+  numeric, execution, standard and debugger. SI06 owns these repairs. Preserve each
+  source-free codec route and edited negative fixture's scope, then complete the
+  pending focused library execution selection; the integration pass is not its proof.
+- Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Manual review checks snapshot timing, adoption before composition,
+  nominal layout provenance, unchanged verifier/loader entrypoints and test-only
+  visibility/import scopes.
+
+The VM library-test build, remaining VM/embed consumers and final contract-document
+transfer/plan retirement remain required. Exhaustive validation remains CI scope.
