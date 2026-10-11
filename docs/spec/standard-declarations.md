@@ -68,14 +68,14 @@ rejecting duplicate or foreign bindings. Compiler declarations contain no Rust
 factory, payload or completion endpoint.
 
 List/MutableList declare common algorithms directly. The bundled
-`std::collections` module supplies lazy map as an ordinary function:
+`core::iter` module owns Iterable defaults for lazy map, filter and take:
 
 ```kagari
 use std::collections;
 fn main() -> i32 {
-    val values = [22, 20];
+    val values = Vec::from([22, 20]);
     values.sort();
-    val mapped = collections::map(values, |value| value + 1);
+    val mapped = values.map(|value| value + 1);
     match mapped.next() { Some(value) => value + values[1], None => 0 }
 }
 ```
@@ -86,8 +86,12 @@ requires T: Ord, while key methods accept a method-local K: Ord. Eq-only distinc
 preserves first occurrences without adding a Hash bound. These are declared trait
 methods with native defaults and optimized Vec overrides. Custom containers
 reuse the defaults through their selected iterator and set/remove operations.
-`map<T, U>` accepts a Vec and `fn(T) -> U`, returning the library-owned
-`MapIterator<T, U>`. It remains an ordinary free function.
+`Iterable.map<U>` accepts `fn(Self::Item) -> U` and returns
+`core::iter::MapIterator<Self::Item, U>`. Filter and take return element-only
+adapters in the same module. Iterator retains only next; identity Iterable
+adaptation gives cursors the same defaults with shared progress. Containers,
+generic receivers, custom Iterable implementations and interface values reuse
+checked iter/next selections. The former collections map function is removed.
 
 String also supplies the finite inherent methods documented in
 [builtins](builtins.md). Predecessor APIs outside the accepted surface, including
@@ -274,7 +278,8 @@ Length-changing algorithms preserve completed removals. Custom set/remove failur
 can leave earlier writes or removals. Comparison counts are unspecified.
 
 Only genuinely retained computations need state. MapIterator retains a
-`NativeCursor`, a stored mapper and a reentry guard. Construction performs no map
+source value, a checked stored next selection, a stored mapper and a reentry
+guard. Construction performs no map
 calls. Aliases share progress. Its next consumes one source item before invoking
 the mapper; a mapper failure does not cause that item to be processed again.
 The public Option is allocated once for a successful next result.

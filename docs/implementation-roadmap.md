@@ -34,7 +34,7 @@ carried build/test failures; their completion does not establish performance gai
 ### Unified Iterable API
 
 The [execution plan](iterable-api-plan.md) records the agreed follow-up to SA20;
-IA01 inventory is complete and IA02 is active. IA01-IA05 cover one default method surface on
+IA01–IA02 are complete and IA03 is active. IA01-IA05 cover one default method surface on
 Iterable, Iterator identity adaptation, lazy transformations, terminal operations
 and explicit collection through FromIterator. Both container.map(...) and
 container.iter().map(...) use the same default algorithm; cursors retain shared

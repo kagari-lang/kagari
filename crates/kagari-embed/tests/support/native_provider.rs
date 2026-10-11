@@ -132,11 +132,14 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
               value: ValueHandle<'_>,
               callback: CallableHandle<'_>|
               -> NativeResult<Value> {
-            cx.allocate_result_payload(Handler {
-                value: value.value(),
-                callback: callback.store(),
-                drops: drops.clone(),
-            })
+            cx.allocate_result_payload(
+                Handler {
+                    value: value.value(),
+                    callback: callback.store(),
+                    drops: drops.clone(),
+                },
+                &[],
+            )
         },
     )
 }

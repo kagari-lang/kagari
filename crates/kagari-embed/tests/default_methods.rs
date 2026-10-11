@@ -1169,3 +1169,8 @@ fn main() -> i32 {
 "#,
     );
 }
+
+#[test]
+fn generic_interface_default_retains_cursor_with_nested_function_result() {
+    execute(include_str!("fixtures/iterable-default-cursor.kgr"));
+}

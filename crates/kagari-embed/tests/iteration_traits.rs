@@ -9,6 +9,85 @@ use kagari_embed::{
 use kagari_runtime::{session::ExecutionOptions, value::Value};
 use kagari_source::source::SourceFile;
 
+#[test]
+fn lazy_adapters_do_not_prefetch_or_fuse_resumable_sources() {
+    execute(
+        r#"
+struct Pulse { var step: i32 }
+impl Iterator for Pulse {
+    type Item=i32;
+    fn next(self)->Option<i32> {
+        self.step+=1;
+        if self.step==1 { Some(1) } else if self.step==3 { Some(3) } else { None }
+    }
+}
+fn main()->i32 {
+    val source=Pulse { step:0 };
+    val zero=source.take(0usize);
+    if zero.next()!=None || source.step!=0 { return 0; }
+    val mapped=source.map(|x|x+39);
+    if mapped.next()!=Some(40) || mapped.next()!=None { return 0; }
+    val resumed=mapped.next();
+    val filtered=Pulse {step:0}.filter(|x|x==3);
+    if filtered.next()!=None || filtered.next()!=Some(3) { return 0; }
+    val limited_source=Pulse {step:0};
+    val limited=limited_source.take(1usize);
+    val alias=limited;
+    if limited.next()!=Some(1) || alias.next()!=None || limited_source.step!=1 { return 0; }
+    match resumed { Some(x)=>x, None=>0 }
+}
+"#,
+    );
+}
+
+#[test]
+fn iterable_defaults_chain_on_containers_generic_custom_and_interface_receivers() {
+    execute(
+        r#"
+struct Cursor { var position: i32 }
+impl Iterator for Cursor {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        self.position += 1;
+        if self.position <= 3 { Some(self.position) } else { None }
+    }
+}
+struct Values {}
+impl Iterable for Values {
+    type Item = i32;
+    type Iter = Cursor;
+    fn iter(self) -> Cursor { Cursor { position: 0 } }
+}
+struct Override {}
+impl Iterable for Override {
+    type Item=i32;
+    type Iter=Cursor;
+    fn iter(self)->Cursor { Cursor {position:0} }
+    fn map<U>(self, mapper:fn(i32)->U)->core::iter::MapIterator<i32,U> {
+        Vec::from([10]).map(mapper)
+    }
+}
+fn total<I: Iterable<Item=i32>>(values: I) -> i32 {
+    var sum = 0;
+    for value in values.map(|x| x * 2).filter(|x| x > 2).take(1usize) { sum += value; }
+    sum
+}
+fn main() -> i32 {
+    val custom=Override {};
+    val overridden:Iterable<Item=i32,Iter=Cursor> = custom;
+    if total(custom)!=20 || total(overridden)!=20 { return 0; }
+    val values: Iterable<Item=i32,Iter=Cursor> = Values {};
+    val cursor: Iterator<Item=i32> = Cursor { position: 0 };
+    val mapped = cursor.map(|x| x + 10);
+    val alias = mapped;
+    val first = match mapped.next() { Some(x) => x, None => 0 };
+    val second = match alias.next() { Some(x) => x, None => 0 };
+    total(Vec::from([1,2,3])) + total([1,2,3]) + total(1..4) + total(Values {}) + total(values) + total(Cursor { position: 0 }) + first + second - 5
+}
+"#,
+    );
+}
+
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);

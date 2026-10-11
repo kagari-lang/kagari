@@ -307,16 +307,16 @@ fn main()->i32 {
 #[test]
 fn native_construction_consumes_lazy_native_iterators() {
     execute(
-        r#"use std::collections::map;
+        r#"
 fn main()->i32 {
     val calls = Vec::from([0]);
-    val mapped = map(Vec::from([10,11]), |item| { calls[0] += 1; item * 2 });
+    val mapped = Vec::from([10,11]).map(|item| { calls[0] += 1; item * 2 });
     if calls[0] != 0 || i32::sum(mapped) != 42 || calls[0] != 2 { return 0; }
     if i32::sum(mapped) != 0 || i32::product(mapped) != 1 || calls[0] != 2 { return 0; }
-    val factors = map(Vec::from([2,6]), |item| item + 1);
+    val factors = Vec::from([2,6]).map(|item| item + 1);
     if i32::product(factors) != 21 { return 0; }
     val source = Vec::from(["a", "b"]);
-    val strings = map(source, |item| f"{item}!");
+    val strings = source.map(|item| f"{item}!");
     val copied = Vec<String>::from_iter(strings);
     if copied.len() != 2usize || copied[0] != "a!" || copied[1] != "b!" { return 0; }
     copied[0] = "changed";
@@ -381,8 +381,8 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
         "fn main()->u8 {u8::product([128u8,2u8])}",
         "fn main()->i8 {i8::sum(Vec::from([127i8,1i8]))}",
         "fn main()->u8 {u8::product(Vec::from([128u8,2u8]))}",
-        "fn main()->i8 {i8::sum(std::collections::map(Vec::from([127i8,1i8]), |x| x))}",
-        "fn main()->u8 {u8::product(std::collections::map(Vec::from([128u8,2u8]), |x| x))}",
+        "fn main()->i8 {i8::sum(Vec::from([127i8,1i8]).map(|x| x))}",
+        "fn main()->u8 {u8::product(Vec::from([128u8,2u8]).map(|x| x))}",
     ] {
         let artifact = engine
             .compile_to_artifact(SourceFile::new("overflow.kgr", source), Default::default())

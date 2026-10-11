@@ -299,7 +299,7 @@ async fn custom(calls:Calls) -> i32 {
 fn items() -> Vec<i32> { Vec::from([10,20,30]) }
 fn replace(items:Vec<i32>) { items[1]=99; }
 fn append(items:Vec<i32>) { items.push(40); }
-fn view(items:Vec<i32>) -> Iterator<Item=i32> { collections::map(items, |item| item) }
+fn view(items:Vec<i32>) -> Iterator<Item=i32> { items.map(|item| item) }
 async fn nested(items:Vec<i32>) -> i32 {
     for outer in items {
         for inner in view(items) {

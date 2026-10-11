@@ -41,7 +41,7 @@ fn change<C: MutableList<i32>>(values: C) {
 }
 
 
-use std::collections::map;
+
 use external::fixture::hold;
 
 fn library_and_object() -> i32 {
@@ -51,7 +51,7 @@ fn library_and_object() -> i32 {
     val handler = hold(values, |items| { items[0] += offset[0]; items });
     val shared = handler.apply();
     var sum = 0;
-    for item in map(shared, |value| value) { sum += item; }
+    for item in shared.map( |value| value) { sum += item; }
     sum
 }
 

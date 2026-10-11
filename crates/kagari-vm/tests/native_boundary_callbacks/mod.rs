@@ -215,7 +215,7 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         .bind(
             new,
             |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<Value> {
-                cx.allocate_result_payload(callback.store())
+                cx.allocate_result_payload(callback.store(), &[])
             },
         )
         .unwrap();

@@ -154,7 +154,7 @@ fn returning_expressions_stop_calls_and_generic_instantiation() {
         ("native_argument", "Vec::from([1]).sort_by(STOP); 0", 52),
         (
             "native_source",
-            "collections::map(STOP, |n:i32| { tick(count); n }); 0",
+            "STOP.map(|n:i32| { tick(count); n }); 0",
             52,
         ),
         ("callee", "STOP(tick(count)); 0", 52),

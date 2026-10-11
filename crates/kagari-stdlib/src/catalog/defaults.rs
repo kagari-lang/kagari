@@ -99,6 +99,13 @@ fn implement(
     let bindings: Vec<_> = contract
         .methods
         .iter()
+        .filter(|method| {
+            kind != RegistrationTrait::Iterable
+                || !matches!(
+                    method.implementation,
+                    CallableImplementation::NativeDefault(_)
+                )
+        })
         .map(|method| (method.name.as_str(), binding(module, family, &method.name)))
         .collect();
     module

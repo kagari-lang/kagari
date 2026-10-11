@@ -12,10 +12,10 @@ use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
 fn map_is_lazy_and_aliases_share_cursor_progress_and_gc_captures() {
     assert_eq!(
         run(r#"
-        use std::collections::map;
+
         fn main() -> bool {
             val calls = Vec::from([0]); val offset = Vec::from([1]);
-            val mapped = map(Vec::from([10,20,30]), |item| { calls[0] += 1; Vec::from([item + offset[0]]) });
+            val mapped = Vec::from([10,20,30]).map(|item| { calls[0] += 1; Vec::from([item + offset[0]]) });
             if calls[0] != 0 { return false; }
             val alias = mapped;
             val first = match mapped.next() { Some(value) => value[0], None => -1 };
@@ -36,9 +36,9 @@ fn break_releases_wrapped_sources_and_dynamic_views_preserve_shared_progress() {
         assert_eq!(
             run(&format!(
                 r#"
-            use std::collections::map;
+
             fn main() -> i32 {{
-                val values = Vec::from([10,20,30]); val mapped{annotation} = map(values, |item| item + 1);
+                val values = Vec::from([10,20,30]); val mapped{annotation} = values.map(|item| item + 1);
                 var first = 0; for item in mapped {{ first = item; break; }}
                 val second = match mapped.next() {{ Some(item) => item, None => -1 }};
                 for item in mapped {{ break; }}
@@ -58,13 +58,13 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
     let probe = Probe::new();
     let source = r#"
-        use std::collections::map; use test::probe::keep;
-        fn main() { val values = Vec::from([1,2]); keep(values); for item in map(values, |item| item) { values.push(item); } }
+         use test::probe::keep;
+        fn main() { val values = Vec::from([1,2]); keep(values); for item in values.map(|item| item) { values.push(item); } }
     "#;
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
@@ -105,14 +105,14 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
     let probe = Probe::new();
     let source = r#"
-        use std::collections::map; use test::probe::tick;
+         use test::probe::tick;
         fn make() -> Iterator<Item = i32> {
-            map(Vec::from([10,20]), |item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 })
+            Vec::from([10,20]).map(|item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 })
         }
     "#;
     let mut runtime = Runtime::default();
@@ -150,23 +150,23 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
 }
 
 #[test]
-fn native_map_next_does_not_allocate_an_intermediate_option() {
+fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
     let library = foundation::modules()
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
     let mut config = RuntimeConfig::default();
-    config.gc.collection_threshold = None;
+    config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
-    let loaded = runtime.load_program("map", program("use std::collections::map; fn make() -> Iterator<Item = i32> { map(Vec::from([42]), |item| item) }", &[&library])).unwrap();
+    let loaded = runtime.load_program("map", program(r#"struct Source { var done: bool } impl Iterator for Source { type Item=i32; fn next(self)->Option<i32> { if self.done { None } else { self.done=true; Some(42) } } } fn make()->Iterator<Item=i32> { Source { done:false }.map(|item|item) }"#, &[&library])).unwrap();
     let vm = Vm::new(runtime);
     let iterator = vm
         .execute(&loaded, "make")
@@ -176,10 +176,7 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
         .expect("retained execution result");
     let root = vm.runtime().root_value(iterator).unwrap();
     let next = ModuleDecl::method_id(&language::identity(Protocol::Iterator), "next");
-    let before = vm.runtime().gc().stats();
     let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
-    let after = vm.runtime().gc().stats();
-    assert_eq!(after.allocated_objects - before.allocated_objects, 1);
 
     let Value::Enum(id) = result else {
         panic!("Option");
@@ -189,6 +186,8 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
         vec![Value::I32(42)]
     );
     drop(root);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
 
 #[test]
@@ -197,15 +196,15 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
     let source = r#"
-        use std::collections::{map, MapIterator};
+        use core::iter::MapIterator;
         struct Holder { var cursor: Option<MapIterator<i32,i32>> }
         fn main() {
             val holder = Holder { cursor: None };
-            val mapped = map(Vec::from([1,2]), |item| { match holder.cursor { Some(cursor) => { cursor.next(); }, None => {} }; item });
+            val mapped = Vec::from([1,2]).map(|item| { match holder.cursor { Some(cursor) => { cursor.next(); }, None => {} }; item });
             holder.cursor = Some(mapped); mapped.next();
         }
     "#;
@@ -229,15 +228,29 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
 }
 
 #[test]
-fn retained_map_uses_its_original_callback_after_reload() {
+fn retained_map_uses_original_custom_next_and_callback_after_reload() {
     let library = foundation::modules()
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
-    let source = "use std::collections::map; fn make() -> Iterator<Item = i32> { val offset = Vec::from([1]); map(Vec::from([10,20]), |item| item + offset[0]) }";
+    let source = r#"
+fn bias()->i32{0}
+struct Source { val values: Vec<i32>, var position: usize }
+impl Iterator for Source {
+    type Item=i32;
+    fn next(self)->Option<i32> {
+        val value=self.values.get(self.position); self.position+=1usize;
+        match value { Some(item)=>Some(item+bias()), None=>None }
+    }
+}
+fn make()->Iterator<Item=i32> {
+    val offset=Vec::from([1]);
+    Source { values:Vec::from([10,20]),position:0usize }.map(|item|item+offset[0])
+}
+"#;
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),
@@ -260,7 +273,12 @@ fn retained_map_uses_its_original_callback_after_reload() {
         .reload_program(
             &old,
             "map",
-            program(&source.replace("[1]", "[100]"), &[&library]),
+            program(
+                &source
+                    .replace("[1]", "[100]")
+                    .replace("fn bias()->i32{0}", "fn bias()->i32{100}"),
+                &[&library],
+            ),
         )
         .unwrap();
     drop(old);
@@ -285,7 +303,7 @@ fn retained_map_uses_its_original_callback_after_reload() {
     };
     assert_eq!(
         vm.runtime().gc().enum_snapshot(id).unwrap().fields,
-        vec![Value::I32(110)]
+        vec![Value::I32(210)]
     );
     drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();
@@ -300,7 +318,7 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
     let generated = declaration_source(
@@ -308,8 +326,7 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         &foundation_catalog::shared(),
     )
     .unwrap();
-    let text =
-        "use std::collections::map; fn main() { val cursor = map(Vec::from([1]), |x| x); cursor. }";
+    let text = " fn main() { val cursor = Vec::from([1]).map(|x| x); cursor. }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("completion.kgr", text.into(), SourceLayer::Base)

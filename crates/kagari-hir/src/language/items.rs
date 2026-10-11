@@ -4,9 +4,11 @@ mod tests;
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
+    aggregates::traits::MethodDefault,
     declarations::{DeclarationId, Declarations},
     hir::item::Item,
     lower::{AttributeValue, LoweredModule},
+    native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::table::ConstraintTarget,
     types::semantic::{lower_nominal_type, lower_type},
@@ -17,7 +19,11 @@ use kagari_source::{
     literal::decode_string_literal,
 };
 use kagari_types::{
-    declaration::TraitDef, language, language::role::LangRole, ty::Constraint,
+    callable::CallableImplementation,
+    declaration::TraitDef,
+    language,
+    language::role::LangRole,
+    ty::{Constraint, GenericBound},
     visibility::Visibility,
 };
 use std::collections::{BTreeMap, btree_map::Entry};
@@ -162,11 +168,46 @@ pub(crate) fn validate_shapes(
                     .zip(&expected.methods)
                     .all(|(actual, expected)| {
                         actual.name == expected.name
-                            && actual.default.is_none()
+                            && match &expected.implementation {
+                                CallableImplementation::NativeDefault(application) => {
+                                    actual.default
+                                        == Some(MethodDefault::Native(NativeBinding::Default(
+                                            application.clone(),
+                                        )))
+                                }
+                                CallableImplementation::Required => actual.default.is_none(),
+                                _ => false,
+                            }
                             && actual.policy == expected.method_policy
                             && actual.generic_params.len()
                                 == expected.generic_params.len() + owner_generic_count
-                            && actual.bounds.values().all(Vec::is_empty)
+                            && {
+                                let mut bounds: Vec<_> = actual
+                                    .bounds
+                                    .iter()
+                                    .filter(|(_, bounds)| !bounds.is_empty())
+                                    .map(|(ty, bounds)| {
+                                        let mut constraints: Vec<_> = bounds
+                                            .iter()
+                                            .map(|bound| match bound {
+                                                ConstraintTarget::Standard(bound) => {
+                                                    Constraint::Standard(*bound)
+                                                }
+                                                ConstraintTarget::Trait(bound) => {
+                                                    Constraint::Trait(lower_nominal_type(bound))
+                                                }
+                                            })
+                                            .collect();
+                                        constraints.sort();
+                                        GenericBound {
+                                            ty: lower_type(ty),
+                                            constraints,
+                                        }
+                                    })
+                                    .collect();
+                                bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
+                                bounds == expected.bounds
+                            }
                             && actual.params.len() == expected.params.len()
                             && actual.params.iter().zip(&expected.params).all(
                                 |(actual, expected)| {

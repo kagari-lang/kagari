@@ -409,6 +409,10 @@ pub(super) fn complete(module: &mut ModuleDecl) {
                 "A shared built-in cursor. Copies share progress. next returns None when exhausted; active iteration guards its source against structural edits.",
                 "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
             ),
+            "MapIterator" | "FilterIterator" | "TakeIterator" => (
+                "A lazy shared cursor. Retains its source, callback and selected next target; aliases share progress and original generations. Recursive next on the same cursor traps.",
+                "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1usize).next() }",
+            ),
             "Option" => (
                 "An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.",
                 "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",

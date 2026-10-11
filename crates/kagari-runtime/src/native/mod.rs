@@ -9,7 +9,6 @@ pub mod collections;
 pub mod completion;
 pub mod context;
 pub mod conversion;
-pub mod cursor;
 pub mod declarations;
 pub mod enums;
 pub mod function_handle;

@@ -126,7 +126,7 @@ fn expected_collection_types_constrain_sources_and_callbacks() {
         use std::collections;
         fn main() -> i32 {
             val source = Vec::from([20, 22]);
-            val selected: collections::MapIterator<i32,Result<i32,String>> = collections::map(source, |x| Ok(x));
+            val selected: core::iter::MapIterator<i32,Result<i32,String>> = source.map(|x| Ok(x));
             var total=0;
             for item in selected {match item {Ok(n)=>{total+=n;},Err(_)=>{return 0;}};}
             val nested: Vec<Vec<i32>> = Vec::from([Vec::from([]), Vec::from([total])]);
@@ -246,7 +246,7 @@ fn explicit_type_arguments_and_local_placeholders_execute() {
         fn main() -> i32 {
             val values: Vec<_> = Vec::from([20, 22]);
             val copy = identity::<Vec<i32>>(values);
-            val mapped = collections::map::<i32,i64>(Vec::from([42]), |x| 42i64).next();
+            val mapped = Vec::from([42]).map::<i64>(|x| 42i64).next();
             { val passed = mapped == Some(42i64); if !passed {val zero=0;1/zero;} };
             val success = Ok::<i32, String>(42);
             { val passed = match success {Ok(_)=>true,Err(_)=>false}; if !passed {val zero=0;1/zero;} };

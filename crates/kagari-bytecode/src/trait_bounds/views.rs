@@ -23,7 +23,7 @@ use kagari_types::{
     ty::{
         GenericParam, NominalTy, Ty,
         inheritance::{erased_iterator_view, interface_views},
-        substitution::TypeTransformError,
+        substitution::{TypeSubstitution, TypeTransformError},
     },
 };
 
@@ -92,17 +92,32 @@ pub fn links(
                     arguments: method.generic_params.iter().map(|p| p.as_type()).collect(),
                 };
                 let signature = call.signature(declared, cancel)?;
+                if raw_method.generic_params.len() != call.arguments.len() {
+                    return Err(invalid);
+                }
+                // The view and concrete implementation have distinct method
+                // binders. Compare their applied signatures in the view's scope.
+                let mut substitution = TypeSubstitution::default();
+                for (parameter, argument) in raw_method.generic_params.iter().zip(&call.arguments) {
+                    substitution.bind(&parameter.owner, parameter.position, argument);
+                }
+                let params = raw_method
+                    .params
+                    .iter()
+                    .map(|parameter| substitution.apply(&parameter.ty, cancel))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let raw_result = substitution.apply(&raw_method.return_type, cancel)?;
                 if signature.params.len() != raw_method.params.len()
                     || signature
                         .params
                         .iter()
                         .skip(1)
-                        .zip(raw_method.params.iter().skip(1))
-                        .any(|(a, b)| a != &b.ty)
+                        .zip(params.iter().skip(1))
+                        .any(|(a, b)| a != b)
                 {
                     return Err(invalid);
                 }
-                if signature.result == raw_method.return_type {
+                if signature.result == raw_result {
                     continue;
                 }
                 let Ty::Trait(result) = signature.result else {
@@ -110,7 +125,7 @@ pub fn links(
                 };
                 let selected = select(
                     &result,
-                    &raw_method.return_type,
+                    &raw_result,
                     &template.generic_params,
                     closure,
                     cancel,

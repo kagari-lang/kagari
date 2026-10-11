@@ -57,7 +57,9 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
         "ParseError" | "TryFromIntError" => module("core", "num"),
         "ControlFlow" | "Bound" | "Range" | "RangeInclusive" | "RangeFrom" | "RangeTo"
         | "RangeToInclusive" | "RangeFull" => module("core", "ops"),
-        "CollectionCursor" => module("core", "iter"),
+        "CollectionCursor" | "MapIterator" | "FilterIterator" | "TakeIterator" => {
+            module("core", "iter")
+        }
         "HashMap" | "HashSet" => module("std", "collections"),
         _ => panic!("unknown bundled type {name}"),
     }

@@ -381,7 +381,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         .unwrap()
         .into_iter()
         .find(|module| {
-            module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
+            module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
     let generated = declaration_source(
@@ -389,7 +389,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         &foundation_catalog::shared(),
     )
     .unwrap();
-    let text = "use std::collections::map; fn main() { val values = map(Vec::from([2,1]), |value| value); }";
+    let text = " fn main() { val values = Vec::from([2,1]).map(|value| value); }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("tooling.kgr", text.into(), SourceLayer::Base)
@@ -405,7 +405,7 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let offset = text.find("map(Vec::from([2,1]").unwrap();
+    let offset = text.find("map(|value|").unwrap();
     let target = snapshot.definition_at(file, offset).unwrap();
     let source = snapshot.source(target.location.file).unwrap();
     assert_eq!(source.name(), generated.uri);
@@ -416,9 +416,8 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
     let documentation = snapshot.documentation_at(file, offset).unwrap();
     assert!(documentation.documentation.contains("Lazily transform"));
     assert!(documentation.written_signature.contains("MapIterator"));
-    assert!(documentation.written_signature.contains("Vec"));
-    // visible_bindings is a lexical-local query. Module functions are exposed
-    // through the declaration inventory.
+    assert!(documentation.written_signature.contains("Self"));
+    // Trait methods and types are exposed through the declaration inventory.
     for name in ["map", "MapIterator"] {
         let (id, site) = generated
             .sites

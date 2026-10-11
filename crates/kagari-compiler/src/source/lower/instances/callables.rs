@@ -219,6 +219,42 @@ impl InstancePlanner<'_> {
                 )
                 .map_err(|_| invalid())?;
             let Some((implementation, arguments)) = implementation else {
+                if self
+                    .catalog
+                    .trait_method(&required.member)
+                    .is_some_and(|method| {
+                        matches!(
+                            method.default,
+                            Some(MethodDefault::Native(NativeBinding::Default(_)))
+                        )
+                    })
+                {
+                    let import = self.native_default_import(
+                        &receiver,
+                        &interface,
+                        &required.member,
+                        &required
+                            .arguments
+                            .iter()
+                            .map(raise_type)
+                            .collect::<Vec<_>>(),
+                        span,
+                    )?;
+                    let target = self
+                        .registered_native_declaration(&import.instance.declaration)
+                        .ok_or_else(invalid)?;
+                    let implementation = target.function.implementation.clone();
+                    self.record_layout_root(&receiver, &Default::default(), span)?;
+                    selected.push(NativeCallableApplication {
+                        origin: NativeCallableOrigin::Implementation,
+                        requirement: required,
+                        instance: import.instance,
+                        implementation,
+                        signature: import.signature,
+                        effects: EffectSet::native_call(),
+                    });
+                    continue;
+                }
                 let application = self
                     .catalog
                     .implicit_protocol_application(

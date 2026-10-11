@@ -3,7 +3,7 @@ use crate::{
     frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
     layout_fixtures,
     module::{EnumVariantRef, StructLayoutRef},
-    native::{callable::StoredCallable, cursor::NativeCursor, storage_type::StorageType},
+    native::{callable::StoredCallable, storage_type::StorageType},
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
@@ -196,6 +196,5 @@ fn immutable_runtime_descriptors_are_send_and_sync() {
     shareable::<EnumVariantRef>();
     shareable::<StorageType>();
     shareable::<StoredCallable>();
-    shareable::<NativeCursor>();
     shareable::<Value>();
 }

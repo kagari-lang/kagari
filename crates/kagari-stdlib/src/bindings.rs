@@ -4,12 +4,13 @@ mod arrays;
 mod construction;
 mod enums;
 mod hash;
+mod iterable;
 mod lists;
 mod propagation;
 mod strings;
 mod tasks;
 mod vectors;
-use crate::{catalog, collections, declarations::StandardDeclarations, namespaces};
+use crate::{catalog, declarations::StandardDeclarations, namespaces};
 use kagari_common::identity::DefinitionKind;
 use kagari_contract::operations::IterOp;
 use kagari_runtime::{
@@ -85,6 +86,10 @@ fn build_module(
             continue;
         }
         if let Some(binding) = vectors::binding(name, &function)? {
+            bindings.insert(id.clone(), binding);
+            continue;
+        }
+        if let Some(binding) = iterable::binding(name) {
             bindings.insert(id.clone(), binding);
             continue;
         }
@@ -169,7 +174,7 @@ fn build_module(
             ),
         );
     }
-    let collections_module = declaration.identity == namespaces::module("std", "collections");
+    let iterator_module = declaration.identity == namespaces::module("core", "iter");
     let vector_module = declaration.identity == namespaces::type_owner("Vec");
     let future_module = declaration.identity == namespaces::module("core", "future");
     let task_module = declaration.identity == namespaces::module("core", "task");
@@ -186,8 +191,12 @@ fn build_module(
         builder.bind_storage(&catalog.task_type()?, NativeStorage::task())?;
         builder.bind_storage(&catalog.task_scope_type()?, NativeStorage::task_scope())?;
     }
-    if collections_module {
-        collections::register(&mut builder, language)?;
+    if iterator_module {
+        for name in ["MapIterator", "FilterIterator", "TakeIterator"] {
+            let id = ModuleDecl::new(namespaces::type_owner(name))
+                .definition(DefinitionKind::AssociatedType, name);
+            builder.bind_storage(&catalog.type_reference(&id)?, iterable::storage())?;
+        }
     }
     builder.finish()
 }

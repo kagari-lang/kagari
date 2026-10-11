@@ -332,14 +332,6 @@ impl GcHeap {
         Err(invalid())
     }
 
-    pub(crate) fn next_iter_item(
-        &self,
-        value: &Value,
-        ty: &Ty<DefinitionId>,
-    ) -> Result<Option<Value>, RuntimeError> {
-        self.advance_iter_with(value, ty, Ok)
-    }
-
     pub(crate) fn advance_iter_with<R>(
         &self,
         value: &Value,

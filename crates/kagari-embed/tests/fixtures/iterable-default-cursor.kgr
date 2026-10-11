@@ -1,0 +1,41 @@
+struct Deferred<T, U> { val read: fn() -> Option<T>, val mapper: fn(T) -> U }
+impl<T, U> Iterator for Deferred<T, U> {
+    type Item = U;
+    fn next(self) -> Option<U> {
+        match (self.read)() { Some(item) => Some((self.mapper)(item)), None => None }
+    }
+}
+trait Preview<T>: Iterable<Item = T> {
+    fn deferred<U>(self, mapper: fn(Self::Item) -> U) -> Deferred<Self::Item, U> {
+        val cursor = self.iter();
+        Deferred { read: || cursor.next(), mapper }
+    }
+}
+struct Counter { var remaining: i32 }
+impl Iterator for Counter {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        if self.remaining == 0 { None } else { self.remaining = 0; Some(13) }
+    }
+}
+struct Values {}
+impl Iterable for Values {
+    type Item = i32;
+    type Iter = Counter;
+    fn iter(self) -> Counter { Counter { remaining: 1 } }
+}
+impl Preview<i32> for Values {}
+fn generic<I: Preview<i32>>(values: I) -> i32 {
+    match values.deferred(|item| item + 1).next() { Some(item) => item, None => 0 }
+}
+fn main() -> i32 {
+    val values = Values {};
+    val deferred = values.deferred(|item| item + 1);
+    val alias = deferred;
+    val first = match deferred.next() { Some(item) => item, None => 0 };
+    if alias.next() != None { return 0; }
+    val erased: Preview<i32> = values;
+    first + generic(values) + match erased.deferred(|item| item + 1).next() {
+        Some(item) => item, None => 0
+    }
+}

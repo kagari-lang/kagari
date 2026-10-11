@@ -1,6 +1,6 @@
 # Unified Iterable API execution plan
 
-Status: IA01 inventory and contract proof are complete; IA02 implementation is active. The
+Status: IA01–IA02 are complete; IA03 implementation is active. The
 [roadmap](implementation-roadmap.md#unified-iterable-api) owns queue placement.
 This file owns the finite API inventory, phase order, acceptance and progress
 ledger. Examples below describe the target API, not currently implemented calls.
@@ -46,9 +46,9 @@ no performance target or claim that adapter allocation/dispatch is free.
 | [Protocol declarations](../crates/kagari-stdlib/src/catalog/roles.rs) | Iterable declares Item, Iter and iter; Iterator declares Item and next. Add the default method surface without making custom implementers repeat it. |
 | [List defaults](../crates/kagari-stdlib/src/catalog/list_methods.rs), [native default contract](native-default-bodies-plan.md) | Reuse checked native default recipes and generated forwarding bodies. Defaults, overrides, source checking and source-free proofs must agree. |
 | [HIR iteration semantics](../crates/kagari-hir/src/language/semantics.rs), [method checking](../crates/kagari-hir/src/typeck/body/methods.rs), [portable adapters](../crates/kagari-types/src/language/adapter.rs) | Iterator-to-Iterable proof/identity adaptation already exists. This alone does not establish lookup, generic defaults or interface dispatch for new methods; complete those paths coherently. |
-| [Current mapping](../crates/kagari-stdlib/src/collections/mapping.rs) | The free function accepts only Vec and stores a NativeCursor created through sequence_cursor. Replace this source-specific path with the general iterable method and checked retained iterator state. |
+| [Mapping replacement](../crates/kagari-stdlib/src/bindings/iterable.rs) | The free function accepts only Vec and stores a NativeCursor created through sequence_cursor. Replace this source-specific path with the general iterable method and checked retained iterator state. |
 | [Construction declarations](../crates/kagari-stdlib/src/catalog/construction.rs), [selected iteration requirements](../crates/kagari-stdlib/src/catalog/construction_defaults.rs), [implementations](../crates/kagari-stdlib/src/bindings/construction.rs) | FromIterator, Sum and Product already consume generic Iterable inputs. Delegate to these contracts rather than implement competing aggregation/construction algorithms. |
-| [Native call context](../crates/kagari-runtime/src/native/context.rs), [stored callbacks](../crates/kagari-runtime/src/native/callable.rs), [native cursor](../crates/kagari-runtime/src/native/cursor.rs) | Selected calls are scoped to an invocation; StoredCallable currently retains a traced closure. Audit how to retain a checked source next operation and its supplying generation between calls. Keep policy in stdlib and any necessary retained-call capability in runtime. |
+| [Native call context](../crates/kagari-runtime/src/native/context.rs), [stored callbacks](../crates/kagari-runtime/src/native/callable.rs), [stored selections](../crates/kagari-runtime/src/native/stored_selection.rs) | Selected calls are scoped to an invocation; StoredCallable currently retains a traced closure. Audit how to retain a checked source next operation and its supplying generation between calls. Keep policy in stdlib and any necessary retained-call capability in runtime. |
 | [Collection semantics](spec/collection-access.md), [iteration semantics](spec/builtins.md#iteration-protocols) | Preserve source order, aliases, structural mutation guards and existing collection ownership. Update implemented specifications only as phases land. |
 
 Declare adapter types in the iteration library owner, `core::iter`, with normal
@@ -296,15 +296,15 @@ separately. Documentation-only planning needs content/link/diff checks, not buil
 
 - [x] Record agreed ownership, API inventory, examples and phase acceptance.
 - [x] IA01: Inventory and contract proof.
-- [ ] IA02: Lazy transformation foundation and mapping migration.
+- [x] IA02: Lazy transformation foundation and mapping migration.
 - [ ] IA03: Terminal construction and reduction.
 - [ ] IA04: Remaining APIs and hash collection construction.
 - [ ] IA05: Integration and final acceptance.
 
 Planning baseline: `acdcbd32`. No implementation changes or build claims are made
 by this document. Existing Iterator identity support is evidence to reuse, not
-proof that new generic default methods already work. No intermediate failure is
-currently carried; findings from IA01 belong in this ledger.
+proof that new generic default methods already work. Current implementation
+evidence and intermediate findings are recorded below.
 
 Planning validation: the four changed documentation files passed local file-link
 checks (152 targets), code-fence and phase-ledger checks, whitespace review and
@@ -382,3 +382,56 @@ passed. No failing test/stub or production API is committed by IA01.
 
 IA01 format/structure/diff and documentation-link checks are recorded with this
 checkpoint. Full workspace validation remains reserved for IA05; CI is unrun.
+
+
+### IA02 lazy transformation foundation
+
+- Added element-only MapIterator/FilterIterator/TakeIterator declarations and
+  Iterable native defaults under core::iter. Removed the collections free map
+  registration and migrated its consumers/examples/source-free fixture source.
+- Native payload allocation retains explicitly requested checked selections as
+  metadata graph edges. Stored invocation borrows the containing call's rooted
+  argument; it validates source arguments/results against the original target
+  generation without a host-owned root lease or per-next member lookup.
+- Reserved role validation compares installed default recipes and method bounds.
+  Implicit Iterable default selection uses the ordinary native-template proof;
+  identity iter remains the closed protocol adapter.
+- Erased Iterable result views now align concrete/view method binders before
+  comparing signatures. This fixes rejection of generic map<U> while preserving
+  exact parameter/result checks. Iterator still has only next.
+- The default Iter projection uses the owning Iterable contract rather than an
+  extra embedded Item application. This preserves the declared associated-output
+  assumption used by source-free default validation.
+- Lazy construction, shared progress, non-fused custom sources, take(0), callback
+  effects, recursion rejection, guard cleanup and retained generations have
+  focused coverage at the existing iteration/mapping contract owners.
+
+Focused checks so far: iteration_traits (14 passed), mapping cases (8 passed),
+custom-next plus callback reload (1 passed), lazy construction (1 passed), expected
+collection inference (1 passed), and terminating source evaluation (1 passed).
+The callable suite initially passed 10/11: native callback composition exposed
+an overly broad registration filter that removed existing Vec algorithm overrides.
+Restricting that filter to Iterable preserves those overrides; the focused
+callback case passed. Generated map navigation/signatures also passed after
+updating the expected receiver from Vec to the generic Iterable surface.
+
+The IA01 Deferred prototype is resolved: layout collection omitted nested
+function parameter/result types, leaving the generic Deferred read field without
+its Option template. Traversing function types preserves strict layout validation
+and the original prototype now passes all three execution routes. Its lasting
+fixture lives with generic interface default coverage. The simpler direct
+Deferred construction also passed during isolation. The obsolete sequence-only
+NativeCursor SDK is removed with its sole mapping consumer; payload allocation
+callers now explicitly supply retained selected slots. No compatibility alias or
+ABI identifier bump is introduced.
+Full workspace checks and CI remain reserved for IA05.
+
+
+IA02 checkpoint validation also passed generic interface defaults (5 cases),
+portable native default proofs (13 cases), array/range/container/custom/generic/
+interface chaining including explicit custom map overrides, and final lazy-source
+checks after obsolete cursor removal. Structural review found no production glob,
+re-export, deep parent traversal or borrowed callback/payload state across reentry.
+`uv run --locked scripts/check_structure.py`, `cargo fmt --all -- --check`,
+changed-document link checks and `git diff --check` passed. No intermediate error
+remains. Full workspace/local feature acceptance and CI are still unrun.

@@ -1,7 +1,6 @@
 //! Concrete standard declarations and native implementations installed by the host.
 mod bindings;
 pub mod catalog;
-mod collections;
 pub mod declarations;
 pub mod identity;
 pub mod namespaces;

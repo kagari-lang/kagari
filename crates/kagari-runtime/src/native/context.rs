@@ -29,6 +29,7 @@ use crate::{
         sequence::{NativeElement, SequencePayload},
         storage::{NativePayload, StorageContext},
         storage_type::StorageType,
+        stored_selection::StoredSelection,
     },
     value::Value,
 };
@@ -283,7 +284,12 @@ impl<'call> CallContext<'call> {
         })
     }
 
-    pub fn allocate_result_payload<S: NativePayload>(&self, payload: S) -> NativeResult<Value> {
+    /// Retain only declared selected slots as metadata edges of the result.
+    pub fn allocate_result_payload<S: NativePayload>(
+        &self,
+        payload: S,
+        slots: &[usize],
+    ) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
         let ty = self.result_type();
         let Ty::NativeObject(nominal) = ty else {
@@ -300,7 +306,29 @@ impl<'call> CallContext<'call> {
         self.runtime.validate_loaded_module(self.owner)?;
         let mut object = storage.prepare_payload(self.heap(), ty, payload, self.owner)?;
         object.scope = Some(self.function.type_signature()?.result.clone());
+        object.selected = slots
+            .iter()
+            .map(|slot| StoredSelection::new(self.owner, self.selected_at(*slot)?))
+            .collect::<NativeResult<Arc<[_]>>>()?;
         self.heap().alloc_native(object).map(Value::GcHandle)
+    }
+
+    /// Invoke an edge while its containing argument remains rooted by this call.
+    pub fn call_stored_values(
+        &mut self,
+        argument: usize,
+        slot: usize,
+        values: &[Value],
+    ) -> NativeResult<Value> {
+        let Value::GcHandle(id) = self.argument(argument)? else {
+            return Err(RuntimeError::module_validation("stored callable receiver"));
+        };
+        let selections = self.heap().native_selections(id)?;
+        let target = selections
+            .get(slot)
+            .ok_or_else(|| RuntimeError::module_validation("stored callable slot"))?
+            .borrowed();
+        self.call_values(&target, values)
     }
 
     pub fn with_payload<S: NativePayload, R>(

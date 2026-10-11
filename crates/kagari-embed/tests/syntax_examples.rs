@@ -322,7 +322,7 @@ fn grouped_standard_globs_execute() {
         .compile_to_artifact(
             SourceFile::new(
                 "standard-glob.kgr",
-                "use std::{collections::*}; fn main() -> i32 { var total=0;for value in map(Vec::from([22,20]),|value|value){total+=value;}total }",
+                "use std::{collections::*}; fn main() -> i32 { var total=0;for value in Vec::from([22,20]).map(|value|value){total+=value;}total }",
             ),
 
             Default::default(),

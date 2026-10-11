@@ -76,15 +76,18 @@ impl ModuleBuilder {
                     .map(|index| call.argument(index))
                     .collect::<NativeResult<Vec<_>>>()?;
                 call.runtime.gc().validate_async_values(&values)?;
-                call.allocate_result_payload(FuturePayload {
-                    cold: Some(ColdFuture::Native(NativeFuture {
-                        owner: call.owner.clone(),
-                        parameters: signature.params.clone(),
-                        output,
-                        values,
-                        producer: producer.clone(),
-                    })),
-                })
+                call.allocate_result_payload(
+                    FuturePayload {
+                        cold: Some(ColdFuture::Native(NativeFuture {
+                            owner: call.owner.clone(),
+                            parameters: signature.params.clone(),
+                            output,
+                            values,
+                            producer: producer.clone(),
+                        })),
+                    },
+                    &[],
+                )
             },
         );
         self.add_prepared_function(spec, parameters, result, binding, &catalog)

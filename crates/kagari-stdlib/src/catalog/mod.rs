@@ -8,6 +8,7 @@ mod defaults;
 mod documentation;
 mod enums;
 mod future;
+mod iterable;
 mod key;
 mod list_methods;
 mod partition;
@@ -33,6 +34,7 @@ pub fn declarations() -> Vec<ModuleDecl> {
     tasks::declare(&mut module);
     construction::declare(&mut module);
     collections::declare(&mut module);
+    iterable::declare(&mut module);
     list_methods::declare(&mut module);
     defaults::declare(&mut module);
     construction_defaults::declare(&mut module);

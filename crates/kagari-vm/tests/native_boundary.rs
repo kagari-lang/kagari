@@ -1123,10 +1123,13 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .bind_with(
             new,
             NativeBinding::new(vec![Codec::Sequence], counter.codec(), move |cx| {
-                cx.allocate_result_payload(TracedCounter {
-                    values: cx.argument(0)?,
-                    dropped: capture.clone(),
-                })
+                cx.allocate_result_payload(
+                    TracedCounter {
+                        values: cx.argument(0)?,
+                        dropped: capture.clone(),
+                    },
+                    &[],
+                )
             }),
         )
         .unwrap();

@@ -276,6 +276,10 @@ pub(super) fn collect(
                 pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
             }
             TypeId::Tuple(types) => pending.extend(types.into_iter().map(|ty| (ty, span))),
+            TypeId::Function { params, result } => {
+                pending.extend(params.into_iter().map(|ty| (ty, span)));
+                pending.push_back((*result, span));
+            }
             TypeId::Array(ty) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
                 pending.push_back((*ty, span))
             }
