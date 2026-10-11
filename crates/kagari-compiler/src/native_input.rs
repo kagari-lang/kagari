@@ -6,10 +6,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        metadata::{PortableMetadata, scope_record},
-        table::wire::PortableDefinitionRef,
-    },
+    identity::{metadata::PortableMetadata, table::wire::PortableDefinitionRef},
 };
 use kagari_mir::{
     codec::{MirCodecError, decode_program},
@@ -53,7 +50,7 @@ pub fn verify_native_input(
     check_cancel(cancel)?;
     let mir = decode_program(bytes, cancel)?;
     let lowered = lower_program_for_comparison(&mir).map_err(NativeInputError::Lowering)?;
-    validate_program_resource_limits(&lowered)
+    validate_program_resource_limits(lowered.records(), lowered.definitions())
         .map_err(|error| NativeInputError::Bytecode(error.to_string()))?;
     check_cancel(cancel)?;
     // Resource validation bounds both encodings before allocation. Comparing
@@ -66,8 +63,8 @@ pub fn verify_native_input(
     )?;
     check_cancel(cancel)?;
     let actual = canonical(
-        &scope_record(&lowered, cancel)
-            .and_then(|metadata| metadata.to_portable(cancel))
+        &lowered
+            .to_portable(cancel)
             .map_err(|error| conversion_error(error, cancel))?,
     )?;
     check_cancel(cancel)?;

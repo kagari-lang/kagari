@@ -18,7 +18,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity,
-        map::DefinitionContext,
         mapping::{DefinitionMappingError, DefinitionRecord},
         table::{DefinitionId, DefinitionTable},
     },
@@ -29,7 +28,6 @@ use kagari_types::{
         verify::{DeclarationValidationError, validate_native_declarations},
     },
     host_interface::type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
-    language::{self, Protocol, binding},
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty, inheritance,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -107,63 +105,47 @@ impl<'a> ProofCatalog<'a> {
         self.contracts.get(declaration).copied()
     }
 
+    /// Check linked contracts in an immutable, already registered identity scope.
+    ///
+    /// Registration must collect implicit method, Host implementation and language
+    /// names before taking this snapshot. Missing or foreign references reject;
+    /// names alone never establish an implementation or a valid declaration.
+    /// Cancellation, proof limits and invalid contracts return an error.
     pub fn new(
         implementations: Vec<Implementation<'a>>,
         hosts: Vec<&'a HostTypeDeclaration<DefinitionId>>,
         enumerations: impl IntoIterator<Item = &'a EnumLayout<DefinitionId>>,
         contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitDef<DefinitionId>)>,
         native_declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
-        context: &DefinitionContext,
+        definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        let input_definitions = context.snapshot();
-        // These identities name language contracts; interning does not prove
-        // declaration existence or grant a protocol implementation.
-        for protocol in Protocol::ALL {
-            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            let id = context
-                .intern(&language::identity(protocol))
-                .map_err(|_| TypeTransformError::InvalidContract)?;
-            for name in ["Output", "Item", "Iter"] {
-                context
-                    .intern_child(id, DefinitionKind::AssociatedType, name, 0)
-                    .map_err(|_| TypeTransformError::InvalidContract)?;
-            }
-        }
-        for path in [
-            binding::option_declaration(),
-            binding::ordering_declaration(),
-        ] {
-            context
-                .intern(&path)
-                .map_err(|_| TypeTransformError::InvalidContract)?;
-        }
         let copier = TypeSubstitution::default();
         let mut ids = HashSet::new();
         let mut count = 0;
         for implementation in &implementations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            input_definitions
+            definitions
                 .resolve(*implementation.declaration())
                 .map_err(|_| TypeTransformError::InvalidContract)?;
             match implementation {
                 Implementation::Interface(record) => {
-                    validate_references(*record, &input_definitions, cancel)?
+                    validate_references(*record, definitions, cancel)?
                 }
                 Implementation::Native { implementation, .. } => {
-                    validate_references(*implementation, &input_definitions, cancel)?
+                    validate_references(*implementation, definitions, cancel)?
                 }
             }
             for method in implementation.methods() {
-                context
-                    .intern_child(
+                definitions
+                    .lookup_child(
                         *implementation.declaration(),
                         DefinitionKind::Method,
                         &method.name,
                         0,
                     )
-                    .map_err(|_| TypeTransformError::InvalidContract)?;
+                    .ok_or(TypeTransformError::InvalidContract)?;
             }
             if !ids.insert(*implementation.declaration())
                 || implementation.is_bridge()
@@ -185,16 +167,16 @@ impl<'a> ProofCatalog<'a> {
         let mut host_ids = HashSet::new();
         let mut unique_hosts = Vec::new();
         for host in hosts {
-            validate_references(host, &input_definitions, cancel)?;
+            validate_references(host, definitions, cancel)?;
             if !host_ids.insert(&host.id) {
                 continue;
             }
             for (index, implementation) in host.trait_implementations.iter().enumerate() {
                 let occurrence =
                     u32::try_from(index).map_err(|_| TypeTransformError::LimitExceeded)?;
-                let id = context
-                    .intern_child(host.id, DefinitionKind::Impl, "", occurrence)
-                    .map_err(|_| TypeTransformError::InvalidContract)?;
+                let id = definitions
+                    .lookup_child(host.id, DefinitionKind::Impl, "", occurrence)
+                    .ok_or(TypeTransformError::InvalidContract)?;
                 if !ids.insert(id) {
                     return Err(TypeTransformError::InvalidContract);
                 }
@@ -208,7 +190,7 @@ impl<'a> ProofCatalog<'a> {
         }
         let mut payloads = BTreeMap::new();
         for layout in enumerations {
-            validate_references(layout, &input_definitions, cancel)?;
+            validate_references(layout, definitions, cancel)?;
             let key = NominalTy {
                 declaration: layout.declaration,
                 arguments: layout.arguments.clone(),
@@ -231,14 +213,14 @@ impl<'a> ProofCatalog<'a> {
         }
         let mut declarations = BTreeMap::new();
         for (id, contract) in contracts {
-            input_definitions
+            definitions
                 .resolve(id)
                 .map_err(|_| TypeTransformError::InvalidContract)?;
-            validate_references(contract, &input_definitions, cancel)?;
+            validate_references(contract, definitions, cancel)?;
             for method in &contract.methods {
-                context
-                    .intern_child(id, DefinitionKind::Method, &method.name, 0)
-                    .map_err(|_| TypeTransformError::InvalidContract)?;
+                definitions
+                    .lookup_child(id, DefinitionKind::Method, &method.name, 0)
+                    .ok_or(TypeTransformError::InvalidContract)?;
             }
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if let Some(old) = declarations.insert(id, contract)
@@ -247,21 +229,20 @@ impl<'a> ProofCatalog<'a> {
                 return Err(TypeTransformError::InvalidContract);
             }
         }
-        let definitions = context.snapshot();
         let mut templates = BTreeMap::new();
         for template in native_declarations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if templates.len() >= MAX_NATIVE_DECLARATIONS {
                 return Err(TypeTransformError::LimitExceeded);
             }
-            validate_references(template, &input_definitions, cancel)?;
+            validate_references(template, definitions, cancel)?;
             let owner = definitions
                 .resolve(template.declaration)
                 .map_err(|_| TypeTransformError::InvalidContract)?;
             validate_native_declarations(
                 slice::from_ref(template),
                 owner.module(),
-                &definitions,
+                definitions,
                 cancel,
             )
             .map_err(|error| match error {
@@ -273,7 +254,7 @@ impl<'a> ProofCatalog<'a> {
             }
         }
         let result = Self {
-            definitions,
+            definitions: definitions.clone(),
             implementations,
             hosts: unique_hosts,
             enumerations: payloads,

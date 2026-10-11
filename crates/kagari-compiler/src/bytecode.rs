@@ -17,11 +17,7 @@ use kagari_bytecode::{
     verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::{
-    identity::{
-        ModuleIdentity,
-        mapping::{DefinitionMapper, DefinitionRecord},
-        table::DefinitionId,
-    },
+    identity::{ModuleIdentity, metadata::DefinitionMetadata, table::DefinitionId},
     span::Span,
 };
 use kagari_contract::{
@@ -63,7 +59,12 @@ pub enum BytecodeLoweringError {
     InvalidNativeInterface,
 }
 
-pub fn lower_to_bytecode(ir: &VerifiedMirModule) -> Result<BytecodeModule, BytecodeLoweringError> {
+/// Lower and verify an independent MIR module while retaining its identity scope.
+///
+/// The returned editable metadata carries identities, not an execution seal.
+pub fn lower_to_bytecode(
+    ir: &VerifiedMirModule,
+) -> Result<DefinitionMetadata<BytecodeModule>, BytecodeLoweringError> {
     if !ir.dependencies.is_empty()
         || ir
             .functions
@@ -107,13 +108,11 @@ pub fn lower_to_bytecode(ir: &VerifiedMirModule) -> Result<BytecodeModule, Bytec
     {
         return Err(BytecodeLoweringError::UnlinkedSourceModules);
     }
-    let compact = lower_linked_module(ir, None, Vec::new())?;
-    let mut module = ir
-        .paths(&compact, &Default::default())
-        .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
-    views::populate(slice::from_mut(&mut module))?;
-    verify_module(&module).map_err(BytecodeLoweringError::Verification)?;
-    Ok(module)
+    let mut module = lower_linked_module(ir, None, Vec::new())?;
+    views::populate(slice::from_mut(&mut module), ir.definitions())?;
+    verify_module(&module, ir.definitions()).map_err(BytecodeLoweringError::Verification)?;
+    DefinitionMetadata::checked(ir.definitions().clone(), module, &Default::default())
+        .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
 }
 
 fn lower_linked_module(
@@ -1069,11 +1068,16 @@ fn lower_jump(
         .ok_or(BytecodeLoweringError::InvalidBranchTarget(block))
 }
 
+/// Lower and verify linked MIR in its existing immutable identity scope.
+///
+/// The result retains that scope. Extracting records does not retain bytecode
+/// verification evidence; execution requires the ordinary artifact/seal boundary.
 pub fn lower_program_to_bytecode(
     program: &VerifiedMirProgram,
-) -> Result<BytecodeProgram, BytecodeLoweringError> {
+) -> Result<DefinitionMetadata<BytecodeProgram>, BytecodeLoweringError> {
     let bytecode = lower_program_for_comparison(program)?;
-    verify_program(&bytecode).map_err(BytecodeLoweringError::Verification)?;
+    verify_program(bytecode.records(), bytecode.definitions())
+        .map_err(BytecodeLoweringError::Verification)?;
     Ok(bytecode)
 }
 
@@ -1081,7 +1085,7 @@ pub fn lower_program_to_bytecode(
 /// verified bytecode. Public emission must verify it before returning code.
 pub(crate) fn lower_program_for_comparison(
     program: &VerifiedMirProgram,
-) -> Result<BytecodeProgram, BytecodeLoweringError> {
+) -> Result<DefinitionMetadata<BytecodeProgram>, BytecodeLoweringError> {
     let indices = program
         .modules()
         .iter()
@@ -1103,16 +1107,11 @@ pub(crate) fn lower_program_for_comparison(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let bytecode = BytecodeProgram {
+    let mut bytecode = BytecodeProgram {
         root: indices[program.root()],
         modules,
     };
-    let mut bytecode = bytecode
-        .map_identities(&mut DefinitionMapper::new(
-            &mut |id| Ok(program.definitions().resolve(*id)?.to_path()),
-            &Default::default(),
-        ))
-        .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
-    views::populate(&mut bytecode.modules)?;
-    Ok(bytecode)
+    views::populate(&mut bytecode.modules, program.definitions())?;
+    DefinitionMetadata::checked(program.definitions().clone(), bytecode, &Default::default())
+        .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
 }

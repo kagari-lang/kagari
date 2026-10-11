@@ -554,7 +554,7 @@ pub fn verify_program(
                 ));
             }
         }
-        if !native::validate(module, &closure, context, cancel).map_err(|cause| {
+        if !native::validate(module, &closure, &definitions, cancel).map_err(|cause| {
             error(
                 &module.identity,
                 match cause {
@@ -566,28 +566,10 @@ pub fn verify_program(
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
     }
-    let definitions = context.snapshot();
-    let modules = modules
-        .into_iter()
-        .map(|checked| {
-            let metadata = DefinitionMetadata::checked(
-                definitions.clone(),
-                checked.metadata.into_records(),
-                cancel,
-            )
-            .map_err(|cause| {
-                error(
-                    &root,
-                    ProgramErrorKind::Verification(ownership::mapping_error(cause)),
-                )
-            })?;
-            Ok(ValidatedMirModule {
-                metadata,
-                analyses: checked.analyses,
-            }
-            .seal())
-        })
-        .collect::<Result<_, ProgramError>>()?;
+    cancel
+        .check()
+        .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+    let modules = modules.into_iter().map(ValidatedMirModule::seal).collect();
     Ok(VerifiedMirProgram {
         root,
         modules,

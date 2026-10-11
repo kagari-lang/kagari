@@ -16,7 +16,6 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{
     DefinitionKind,
-    map::DefinitionContext,
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_contract::{
@@ -197,16 +196,20 @@ impl BytecodeVerificationError {
     }
 }
 
+/// Check an independent module against an already registered identity prefix.
+///
+/// Dependencies require program verification. This function validates references
+/// before semantic contracts and never extends the supplied snapshot.
 pub fn verify_module(
     module: &BytecodeModule,
-    context: &DefinitionContext,
+    definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
     if !module.dependencies.is_empty() {
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
-    let definitions = identity::collect(&[module], context)?;
-    verify_module_with_program(module, None, &mut FlowBudget::default(), &definitions)?;
-    trait_bounds::verify_trait_bounds(module, &[module], None, context)?;
+    identity::validate(&[module], definitions)?;
+    verify_module_with_program(module, None, &mut FlowBudget::default(), definitions)?;
+    trait_bounds::verify_trait_bounds(module, &[module], None, definitions)?;
     Ok(())
 }
 

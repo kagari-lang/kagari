@@ -7,7 +7,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, map::DefinitionContext},
+    identity::{DefinitionKind, table::DefinitionTable},
 };
 use kagari_contract::{
     native_import::callables::NativeCallableOrigin,
@@ -28,10 +28,9 @@ use kagari_types::{
 pub(super) fn validate(
     caller: &MirModule,
     closure: &[&ValidatedMirModule],
-    context: &DefinitionContext,
+    definitions: &DefinitionTable,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
-    let definitions = context.snapshot();
     let tables = closure
         .iter()
         .flat_map(|module| &module.abi.public_items)
@@ -87,7 +86,7 @@ pub(super) fn validate(
         closure
             .iter()
             .flat_map(|module| &module.abi.native_declarations),
-        context,
+        definitions,
         cancel,
     )?;
     if !catalog.overrides_valid(&owners, cancel)? {

@@ -8,11 +8,17 @@ use kagari_common::{
     },
 };
 
+use kagari_types::{
+    host_interface::type_declaration::HostTypeDeclaration,
+    language::{self, Protocol, binding},
+};
+
 /// Register implicit ABI names without granting declaration or execution authority.
 ///
 /// Callers must validate all input references against their original context prefix
 /// before collecting names for any module in a batch. This operation appends module,
-/// public item and method identities; it does not change existing IDs. A marker trait
+/// public item, method, Host implementation and language identities; existing IDs
+/// remain unchanged. A marker trait
 /// with no identity-bearing members still receives its named declaration identity.
 ///
 /// Cancellation and identity allocation failures return an error. Appended names
@@ -21,12 +27,14 @@ pub fn collect(
     module: &ModuleIdentity,
     items: &[PublicItem<DefinitionId>],
     contracts: &[TraitContract<DefinitionId>],
+    hosts: &[HostTypeDeclaration<DefinitionId>],
     context: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<(), DefinitionMappingError> {
     cancel
         .check()
         .map_err(|_| DefinitionMappingError::Cancelled)?;
+    collect_language(context, cancel)?;
     let root = context.intern_root(module)?;
     for item in items {
         cancel
@@ -68,6 +76,45 @@ pub fn collect(
                 0,
             )?;
         }
+    }
+    for host in hosts {
+        for (index, _) in host.trait_implementations.iter().enumerate() {
+            cancel
+                .check()
+                .map_err(|_| DefinitionMappingError::Cancelled)?;
+            let occurrence =
+                u32::try_from(index).map_err(|_| DefinitionMappingError::LimitExceeded)?;
+            context.intern_child(host.id, DefinitionKind::Impl, "", occurrence)?;
+        }
+    }
+    Ok(())
+}
+
+/// Register built-in protocol names used by executable proof queries.
+///
+/// These names establish identity only, never implementation or declaration evidence.
+/// Cancellation and allocation errors abort collection; appended names may remain.
+pub fn collect_language(
+    context: &DefinitionContext,
+    cancel: &CancellationToken,
+) -> Result<(), DefinitionMappingError> {
+    for protocol in Protocol::ALL {
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        let owner = context.intern(&language::identity(protocol))?;
+        for name in ["Output", "Item", "Iter"] {
+            context.intern_child(owner, DefinitionKind::AssociatedType, name, 0)?;
+        }
+    }
+    for path in [
+        binding::option_declaration(),
+        binding::ordering_declaration(),
+    ] {
+        cancel
+            .check()
+            .map_err(|_| DefinitionMappingError::Cancelled)?;
+        context.intern(&path)?;
     }
     Ok(())
 }

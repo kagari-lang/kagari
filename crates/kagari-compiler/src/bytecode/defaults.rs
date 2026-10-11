@@ -1,106 +1,67 @@
-//! Normalize already checked default applications over the portable MIR closure.
+//! Normalize checked default applications in the retained MIR identity scope.
 use crate::bytecode::BytecodeLoweringError;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity},
+    identity::{DefinitionKind, table::DefinitionTable},
 };
-use kagari_contract::{
-    layout::EnumLayout,
-    types::{
-        ModuleContract, PublicItem,
-        proofs::{ProofCatalog, implementation::Implementation},
-    },
+use kagari_contract::types::{
+    PublicItem,
+    proofs::{ProofCatalog, implementation::Implementation},
 };
 use kagari_mir::verify::VerifiedMirModule;
-use kagari_types::host_interface::type_declaration::HostTypeDeclaration;
 
-pub(super) struct Contracts {
-    declarations: Vec<(ModuleIdentity, ModuleContract)>,
-    hosts: Vec<HostTypeDeclaration>,
-    enumerations: Vec<EnumLayout>,
-}
-
-impl Contracts {
-    /// Declaration proof checking is an explicit authoring-contract boundary.
-    /// Function bodies and backend facts stay in their compact immutable scope.
-    pub(super) fn from_modules(
-        modules: &[VerifiedMirModule],
-        cancel: &CancellationToken,
-    ) -> Result<Self, BytecodeLoweringError> {
-        let mut contracts = Self {
-            declarations: vec![],
-            hosts: vec![],
-            enumerations: vec![],
-        };
-        for module in modules {
-            let project = |cause| {
-                let _ = cause;
-                BytecodeLoweringError::InvalidNativeInterface
+pub(super) fn catalog<'a>(
+    modules: &'a [VerifiedMirModule],
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<ProofCatalog<'a>, BytecodeLoweringError> {
+    let mut contracts = Vec::new();
+    for module in modules {
+        for item in &module.abi.public_items {
+            cancel
+                .check()
+                .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
+            let PublicItem::Trait(contract) = item else {
+                continue;
             };
-            contracts.declarations.push((
-                module.identity.clone(),
-                module.paths(&module.abi, cancel).map_err(project)?,
-            ));
-            contracts
-                .hosts
-                .extend(module.paths(&module.host_types, cancel).map_err(project)?);
-            contracts.enumerations.extend(
-                module
-                    .paths(&module.enumerations, cancel)
-                    .map_err(project)?,
-            );
+            let owner = definitions
+                .lookup_root(&module.identity)
+                .and_then(|root| {
+                    definitions.lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
+                })
+                .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
+            contracts.push((owner, contract));
         }
-        Ok(contracts)
+        contracts.extend(
+            module
+                .abi
+                .trait_contracts
+                .iter()
+                .map(|contract| (contract.declaration, &contract.abi)),
+        );
     }
-
-    pub(super) fn catalog(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<ProofCatalog<'_>, BytecodeLoweringError> {
-        let contracts = self.declarations.iter().flat_map(|(identity, abi)| {
-            abi.public_items
-                .iter()
-                .filter_map(|item| {
-                    let PublicItem::Trait(contract) = item else {
-                        return None;
-                    };
-                    Some((
-                        DefinitionPath {
-                            module: identity.clone(),
-                            path: vec![DefinitionPathSegment {
-                                kind: DefinitionKind::Trait,
-                                name: contract.name.clone(),
-                                occurrence: 0,
-                            }],
-                        },
-                        contract,
-                    ))
-                })
-                .chain(
-                    abi.trait_contracts
-                        .iter()
-                        .map(|contract| (contract.declaration.clone(), &contract.abi)),
-                )
-        });
-        ProofCatalog::new(
-            self.declarations
-                .iter()
-                .flat_map(|(_, abi)| &abi.public_items)
-                .filter_map(|item| {
-                    let PublicItem::InterfaceTable(table) = item else {
-                        return None;
-                    };
-                    (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))
-                })
-                .collect(),
-            self.hosts.iter().collect(),
-            &self.enumerations,
-            contracts,
-            self.declarations
-                .iter()
-                .flat_map(|(_, abi)| &abi.native_declarations),
-            cancel,
-        )
-        .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
-    }
+    ProofCatalog::new(
+        modules
+            .iter()
+            .flat_map(|module| &module.abi.public_items)
+            .filter_map(|item| {
+                let PublicItem::InterfaceTable(table) = item else {
+                    return None;
+                };
+                (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))
+            })
+            .collect(),
+        modules
+            .iter()
+            .flat_map(|module| &module.host_types)
+            .collect(),
+        modules.iter().flat_map(|module| &module.enumerations),
+        contracts,
+        modules
+            .iter()
+            .flat_map(|module| &module.abi.native_declarations),
+        definitions,
+        cancel,
+    )
+    .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
 }

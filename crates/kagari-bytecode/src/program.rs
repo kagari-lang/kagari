@@ -8,7 +8,6 @@ use crate::{
 };
 use kagari_common::identity::{
     DefinitionKind,
-    map::DefinitionContext,
     mapping::DefinitionMappingError,
     reference::DefinitionReference,
     table::{DefinitionId, DefinitionTable},
@@ -58,18 +57,22 @@ pub struct BytecodeProgram<I = DefinitionId> {
     pub modules: Vec<BytecodeModule<I>>,
 }
 
+/// Check a complete executable graph against its retained identity prefix.
+///
+/// This does not allocate names or change the table. Construction/import boundaries
+/// collect implicit names first; foreign, absent or later references are rejected.
 pub fn verify_program(
     program: &BytecodeProgram,
-    context: &DefinitionContext,
+    definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
-    verify_with_suspensions(program, context).map(|_| ())
+    verify_with_suspensions(program, definitions).map(|_| ())
 }
 
 pub(crate) fn verify_with_suspensions(
     program: &BytecodeProgram,
-    context: &DefinitionContext,
+    definitions: &DefinitionTable,
 ) -> Result<ProgramSuspensions, BytecodeVerificationError> {
-    let definitions = &identity::collect(&program.modules.iter().collect::<Vec<_>>(), context)?;
+    identity::validate(&program.modules.iter().collect::<Vec<_>>(), definitions)?;
     let mut flow_budget = FlowBudget::default();
     let mut suspensions = Vec::with_capacity(program.modules.len());
     let invalid = || BytecodeVerificationError::InvalidProgramGraph;
@@ -293,7 +296,7 @@ pub(crate) fn verify_with_suspensions(
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
-        trait_bounds::verify_trait_bounds(module, &closure, Some(program), context)?;
+        trait_bounds::verify_trait_bounds(module, &closure, Some(program), definitions)?;
         for instruction in module
             .functions
             .iter()

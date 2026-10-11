@@ -4,7 +4,8 @@ use crate::{
     module::{BytecodeDebugMetadata, BytecodeModule, RootSlotLayout},
     native_input::PortableMir,
     program::{
-        BytecodeProgram, verified::VerifiedBytecodeProgram, verify_program, verify_with_suspensions,
+        BytecodeProgram, identity, verified::VerifiedBytecodeProgram, verify_program,
+        verify_with_suspensions,
     },
     suspension::ProgramSuspensions,
     verifier::BytecodeVerificationError,
@@ -247,9 +248,11 @@ impl KbcArtifact {
     ) -> Result<ProgramSuspensions, ArtifactValidationError> {
         self.validate_resource_limits(&context.snapshot())?;
         self.validate_header(requirements)?;
-        let suspensions = verify_with_suspensions(&self.program, context)
+        let definitions =
+            identity::collect(&self.program.modules.iter().collect::<Vec<_>>(), context)
+                .map_err(ArtifactValidationError::Bytecode)?;
+        let suspensions = verify_with_suspensions(&self.program, &definitions)
             .map_err(ArtifactValidationError::Bytecode)?;
-        let definitions = context.snapshot();
         if self.header.content_hash != self.compute_content_hash(&definitions)? {
             return Err(ArtifactValidationError::ContentHashMismatch);
         }
@@ -765,8 +768,10 @@ impl VerificationMetadata {
         options: &ArtifactBuildOptions,
         context: &DefinitionContext,
     ) -> Result<Self, ArtifactValidationError> {
-        verify_program(program, context).map_err(ArtifactValidationError::Bytecode)?;
-        Ok(Self::build(program, options, &context.snapshot())?)
+        let definitions = identity::collect(&program.modules.iter().collect::<Vec<_>>(), context)
+            .map_err(ArtifactValidationError::Bytecode)?;
+        verify_program(program, &definitions).map_err(ArtifactValidationError::Bytecode)?;
+        Ok(Self::build(program, options, &definitions)?)
     }
 
     fn build(

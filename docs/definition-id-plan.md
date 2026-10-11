@@ -1959,3 +1959,83 @@ parser initially treated `&raw` as a raw-reference prefix; renaming that argumen
 workspace/backend suite or performance measurement was run. Compiler integration,
 selected end-to-end/source-free/reload tests, the HIR BindingId visitor audit and
 remaining SI06 generic removal/documentation cleanup prevent overall acceptance.
+
+### SI04 scoped bytecode assembly and immutable linked proofs
+
+Frontend-free compiler emission now returns DefinitionMetadata<BytecodeModule> or
+DefinitionMetadata<BytecodeProgram> in the original verified MIR scope. Default
+method selection borrows the closure's ABI, Host and enum records directly;
+interface arguments, binder scope, assumptions and selected Native instances remain
+IDs throughout. Interface parent/view population receives the same table. Native
+input comparison validates the retained records and encodes their ordinary portable
+projection, preserving exact canonical byte comparison and floating-point payloads.
+No compiler bytecode/default/interface/native-input whole-record path conversion
+remains. Editable emission does not carry an execution seal.
+
+Inspection exposed an ownership defect in the previous coupled migration:
+ProofCatalog allocated implicit names while validating contracts. A compiler holding
+an immutable MIR snapshot could therefore not use that checker without recovering a
+writer or rebuilding a path-shaped catalog. ProofCatalog now accepts a retained
+DefinitionTable and performs read-only queries. The existing contract registration
+owner collects language protocol/associated-output names and Host implementation
+occurrences; ABI methods already belong to that collector. Native catalog creation
+and import collect their implicit names before proof construction. Method and Host
+implementation lookup rejects missing names; registration alone still supplies no
+proof of declaration validity or implementation applicability.
+
+Bytecode module/program verification likewise reads a DefinitionTable. Artifact and
+VerifiedBytecodeProgram construction own name collection before calling verification.
+Both collection and read-only verification validate all input references against the
+original prefix before semantic checks; collection checks the complete module batch
+before appending names. Foreign IDs and IDs beyond the retained prefix cannot become
+valid merely because collection later appends entries. MIR's linked checker now
+borrows the same immutable prefix used for module verification, so final sealing no
+longer refreshes each module's metadata after proof construction. Cancellation is
+still checked before publishing the seal. No seal fields or unchecked construction
+entrypoints were exposed, and no ABI/format identifiers changed.
+
+Focused validation:
+
+- `cargo check -p kagari-compiler --no-default-features --lib --message-format=short`
+  and `cargo build -p kagari-compiler --no-default-features --lib --message-format=short`
+  pass. This selects executable lowering/native-input processing without the source
+  compiler. `cargo clippy -p kagari-compiler --no-default-features --lib
+  --message-format=short -- -D warnings` also passes, including the affected MIR,
+  bytecode and contract dependencies. The final run follows the removal of MIR's
+  redundant post-proof metadata refresh.
+- `cargo check -p kagari-runtime --lib --message-format=short` and
+  `cargo clippy -p kagari-runtime --lib --message-format=short -- -D warnings` pass
+  for the Native catalog registration/proof caller change.
+- A temporary source-free public-API probe, compiled with rustc against the default
+  workspace build artifacts, verifies single-module/program lowering retains MIR's
+  exact table and function ID. Independent MIR decoding produces identical canonical
+  bytecode bytes. A later ID substituted into the lowered function and a foreign
+  table are rejected. Explicit adoption into a new context followed by ordinary
+  bytecode sealing allows Native input verification; changing constant 42 to 43 in
+  otherwise valid sealed bytecode produces NativeInputError::Mismatch. Cancelled
+  Native verification rejects. The preceding MIR snapshot, optimization, codec,
+  seal invalidation and cancellation assertions also pass in that probe.
+- A temporary scoped adaptation of the existing native_defaults fixture verifies
+  generic Native default selection retains the registered template ID, concrete i32
+  argument/signature and Native binding. Catalog construction leaves the writer's
+  length unchanged. The prefix containing all explicit fixture references but no
+  implicit methods, an independent table, and a catalog lacking the required Native
+  template each reject. These probes are diagnostic evidence, not retained duplicate
+  smoke tests or substitutes for the existing broader codec/default-method owners.
+- `cargo check -p kagari-compiler --lib --message-format=short` still fails with 430
+  source compilation errors. Representative failures are source/program treating
+  DefinitionMetadata<AnalyzedModule> as a bare record and passing the old MIR
+  verification arguments; source/lower ABI and specialization helpers still expect
+  path-based types/identities. No source compiler tests executed. SI04 owns migration
+  of that closure/specialization context and its consumers, followed by the already
+  recorded selected compiler tests. The prior 873 lib-test failure and these 430
+  library diagnostics are different build scopes, not comparable error counts.
+
+Structure checks 1056 Rust files with zero violations or documented exceptions;
+formatting and diff checks pass. Manual review covers read-only verifier imports,
+borrowed default contracts, exact table-prefix ownership, implicit registration,
+private seal creation and no production re-exports or path projections. No workspace
+suite, complete backend matrix or performance measurement ran. Source specialization,
+remaining registration/test consumers, the HIR BindingId visitor audit, codec/private
+wire and representation-generic removal, selected source-free/reload integration and
+final documentation cleanup remain pending under SI02-SI06.

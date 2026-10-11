@@ -1,7 +1,7 @@
 //! Immutable evidence for a resource-bounded, fully checked bytecode graph.
 use crate::{
     artifact::{ArtifactValidationError, validate_program_resource_limits},
-    program::{BytecodeProgram, ModuleRef, verify_with_suspensions},
+    program::{BytecodeProgram, ModuleRef, identity, verify_with_suspensions},
     suspension::{AwaitLiveness, ProgramSuspensions},
 };
 use kagari_common::{
@@ -42,9 +42,11 @@ impl VerifiedBytecodeProgram {
         context: &DefinitionContext,
     ) -> Result<Self, ArtifactValidationError> {
         validate_program_resource_limits(&program, &context.snapshot())?;
-        let suspensions = verify_with_suspensions(&program, context)
+        let definitions = identity::collect(&program.modules.iter().collect::<Vec<_>>(), context)
             .map_err(ArtifactValidationError::Bytecode)?;
-        Self::from_verified(program, suspensions, context.snapshot())
+        let suspensions = verify_with_suspensions(&program, &definitions)
+            .map_err(ArtifactValidationError::Bytecode)?;
+        Self::from_verified(program, suspensions, definitions)
     }
 
     // Only bytecode-owned validation may retain evidence without repeating it.

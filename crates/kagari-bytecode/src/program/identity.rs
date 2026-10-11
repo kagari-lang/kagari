@@ -14,20 +14,30 @@ pub fn collect(
 ) -> Result<DefinitionTable, BytecodeVerificationError> {
     let cancel = CancellationToken::default();
     let input = context.snapshot();
-    for module in modules {
-        module
-            .visit_definitions(&mut |id| Ok(input.resolve(*id).map(|_| ())?), &cancel)
-            .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    }
+    validate(modules, &input)?;
     for module in modules {
         identity::collect(
             &module.identity,
             &module.public_items,
             &module.trait_contracts,
+            &module.host_interface.types,
             context,
             &cancel,
         )
         .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     }
     Ok(context.snapshot())
+}
+
+pub(crate) fn validate(
+    modules: &[&BytecodeModule],
+    definitions: &DefinitionTable,
+) -> Result<(), BytecodeVerificationError> {
+    let cancel = CancellationToken::default();
+    for module in modules {
+        module
+            .visit_definitions(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
+            .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    }
+    Ok(())
 }

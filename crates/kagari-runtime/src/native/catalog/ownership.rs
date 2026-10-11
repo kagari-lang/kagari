@@ -17,6 +17,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
+use kagari_contract::types::identity;
 use kagari_types::declaration::{
     NativeDeclaration, TraitDef, TypeDef,
     module::{ImplDecl, ModuleDecl},
@@ -176,6 +177,7 @@ impl DeclarationCatalog {
                 }
             }
         }
+        result.collect_implicit_definitions()?;
         Ok(result)
     }
 
@@ -302,6 +304,7 @@ impl DeclarationCatalog {
     /// Register those names separately; this operation grants no ABI authority.
     pub(super) fn collect_implicit_definitions(&self) -> Result<(), RuntimeError> {
         let context = self.types.context();
+        identity::collect_language(context, &CancellationToken::default()).map_err(conflict)?;
         for (owner, ty) in self.types.entries() {
             for variant in &ty.variants {
                 context

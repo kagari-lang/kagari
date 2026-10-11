@@ -1,6 +1,6 @@
 //! Executable interface slots use checked declaration applications, without bodies
 //! or per-library method selection for registered native entries.
-use crate::bytecode::{BytecodeLoweringError, defaults::Contracts};
+use crate::bytecode::{BytecodeLoweringError, defaults};
 use kagari_bytecode::{
     instruction::NativeImportId,
     module::{CallableTarget, InterfaceMethodSlot, InterfaceTableRecord},
@@ -124,15 +124,11 @@ pub(super) fn collect_interface_tables(
                 CallableImplementation::NativeDefault(_)
             )
         });
-    let default_contracts = if has_defaults {
-        Some(Contracts::from_modules(closure, &cancel)?)
+    let catalog = if has_defaults {
+        Some(defaults::catalog(closure, ir.definitions(), &cancel)?)
     } else {
         None
     };
-    let catalog = default_contracts
-        .as_ref()
-        .map(|contracts| contracts.catalog(&cancel))
-        .transpose()?;
     interface_instances(ir, program)
         .into_iter()
         .map(|instance| {
@@ -235,25 +231,13 @@ pub(super) fn collect_interface_tables(
                             .chain(&applied.generic_params)
                             .cloned()
                             .collect::<Vec<_>>();
-                        let application = ir
-                            .paths(application, &cancel)
-                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
-                        let scope = ir
-                            .paths(&scope, &cancel)
-                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
-                        let assumptions = ir
-                            .paths(&assumptions, &cancel)
-                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
-                        let instance = catalog
+                        let mut instance = catalog
                             .as_ref()
                             .expect("default catalog")
-                            .resolve_native_default_in(&application, &scope, &assumptions, &cancel)
+                            .resolve_native_default_in(application, &scope, &assumptions, &cancel)
                             .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
                             .instance;
-                        let mut instance = ir
-                            .scope(&instance, &cancel)
-                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?;
                         if !instance.arguments.is_empty() {
                             entry_arguments = instance.arguments.clone();
                             instance.arguments = (0..instance.arguments.len())

@@ -81,6 +81,7 @@ pub(crate) fn collect(
             &module.identity,
             &module.abi.public_items,
             &module.abi.trait_contracts,
+            &module.host_types,
             context,
             cancel,
         )?;

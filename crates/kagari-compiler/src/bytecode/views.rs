@@ -1,9 +1,12 @@
 //! Carry preselected interface links into the executable product.
 use crate::bytecode::BytecodeLoweringError;
 use kagari_bytecode::{module::BytecodeModule, trait_bounds::views};
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 
-pub(super) fn populate(modules: &mut [BytecodeModule]) -> Result<(), BytecodeLoweringError> {
+pub(super) fn populate(
+    modules: &mut [BytecodeModule],
+    definitions: &DefinitionTable,
+) -> Result<(), BytecodeLoweringError> {
     let cancel = CancellationToken::default();
     let closure: Vec<_> = modules.iter().collect();
     let mut links = vec![];
@@ -12,7 +15,7 @@ pub(super) fn populate(modules: &mut [BytecodeModule]) -> Result<(), BytecodeLow
             links.push((
                 owner,
                 index,
-                views::links(module, table, &closure, &cancel)
+                views::links(module, table, &closure, &cancel, definitions)
                     .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?,
             ));
         }

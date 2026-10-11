@@ -19,7 +19,7 @@ impl DeclarationCatalog {
             [],
             self.traits.entries(),
             self.declarations.values(),
-            self.types.context(),
+            &self.definitions(),
             &CancellationToken::default(),
         )
         .map_err(|_| {

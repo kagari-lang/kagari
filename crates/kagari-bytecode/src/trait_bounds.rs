@@ -17,7 +17,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind,
-        map::DefinitionContext,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -204,9 +203,9 @@ pub(super) fn verify_trait_bounds(
     module: &BytecodeModule,
     closure: &[&BytecodeModule],
     program: Option<&BytecodeProgram>,
-    context: &DefinitionContext,
+    definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
-    match linked_bounds_match(module, closure, program, context) {
+    match linked_bounds_match(module, closure, program, definitions) {
         Ok(true) => Ok(()),
         Err(LinkedValidationError::InterfaceTable) => {
             Err(BytecodeVerificationError::InvalidInterfaceTable)
@@ -232,18 +231,17 @@ fn linked_bounds_match(
     module: &BytecodeModule,
     closure: &[&BytecodeModule],
     program: Option<&BytecodeProgram>,
-    context: &DefinitionContext,
+    definitions: &DefinitionTable,
 ) -> Result<bool, LinkedValidationError> {
     let cancel = CancellationToken::default();
-    let input_definitions = context.snapshot();
     let declarations = closure
         .iter()
-        .map(|module| declarations(module, &input_definitions))
+        .map(|module| declarations(module, definitions))
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-    applications::validate(module, closure, &cancel, &input_definitions)?;
+    applications::validate(module, closure, &cancel, definitions)?;
     let tables: Vec<_> = closure
         .iter()
         .flat_map(|dependency| &dependency.public_items)
@@ -277,7 +275,7 @@ fn linked_bounds_match(
         closure
             .iter()
             .flat_map(|module| &module.native_declarations),
-        context,
+        definitions,
         &cancel,
     )?;
     let definitions = catalog.definitions();
