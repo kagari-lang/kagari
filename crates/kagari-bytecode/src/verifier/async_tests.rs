@@ -9,7 +9,7 @@ use crate::{
     verifier::BytecodeVerificationError,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionKind, ModuleIdentity};
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
@@ -17,12 +17,15 @@ use kagari_types::{
     ty::{GenericParam, NominalTy, Ty},
 };
 
-fn program() -> BytecodeProgram {
+fn program(context: &DefinitionContext) -> BytecodeProgram {
     let owner = ModuleDecl::new(ModuleIdentity::single_file("await-contract"));
-    let id = owner.definition(DefinitionKind::AssociatedType, "Future");
+    let root = context.intern_root(&owner.identity).unwrap();
+    let id = context
+        .intern_child(root, DefinitionKind::AssociatedType, "Future", 0)
+        .unwrap();
     let output = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
     let future = Ty::NativeObject(NominalTy {
-        declaration: id.clone(),
+        declaration: id,
         arguments: vec![output.clone()],
         associated_types: Default::default(),
     });
@@ -91,8 +94,8 @@ fn program() -> BytecodeProgram {
     }
 }
 
-fn loop_program() -> BytecodeProgram {
-    let mut program = program();
+fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
+    let mut program = program(context);
     let module = &mut program.modules[0];
     module
         .types
@@ -180,8 +183,9 @@ fn loop_program() -> BytecodeProgram {
 
 #[test]
 fn async_flow_validation_contract() {
-    let valid = loop_program();
-    let verified = VerifiedBytecodeProgram::new(valid.clone()).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let valid = loop_program(&context);
+    let verified = VerifiedBytecodeProgram::new(valid.clone(), &context).unwrap();
     let points = verified.suspensions(ModuleRef::new(0)).unwrap();
     assert_eq!(points[0].len(), 1);
     let live: Vec<_> = points[0][0].live_slots().collect();
@@ -238,7 +242,7 @@ fn async_flow_validation_contract() {
             _ => unreachable!(),
         };
         assert_eq!(
-            verify_program(&invalid),
+            verify_program(&invalid, &context.snapshot()),
             Err(BytecodeVerificationError::InvalidOperation {
                 function: FunctionRef::new(0),
                 reason,
@@ -254,20 +258,31 @@ fn async_flow_validation_contract() {
     function.instructions[7] = I::Jump {
         target: JumpTarget::new(1),
     };
-    verify_program(&backedge).unwrap();
+    verify_program(&backedge, &context.snapshot()).unwrap();
 }
 
 #[test]
 fn async_artifact_validation_contract() {
+    let context = DefinitionContext::new().unwrap();
     for layout in [NativeStorageLayout::Future, NativeStorageLayout::Task] {
-        let mut valid = program();
+        let mut valid = program(&context);
         let PublicItem::Type(ty) = &mut valid.modules[0].public_items[0] else {
             unreachable!()
         };
         ty.kind = TypeDefKind::NativeStorage(layout);
-        let artifact = KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
-        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        decoded.validate_for_loader(&Default::default()).unwrap();
+        let artifact =
+            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+            .map(|metadata| {
+                metadata
+                    .import_into(&context, &Default::default())
+                    .unwrap()
+                    .into_records()
+            })
+            .unwrap();
+        decoded
+            .validate_for_loader(&Default::default(), &context)
+            .unwrap();
         // Every case keeps the physical heap-object representation unchanged.
         for mutation in 0..6 {
             let mut invalid = valid.clone();
@@ -310,7 +325,7 @@ fn async_artifact_validation_contract() {
                 _ => unreachable!(),
             }
             assert!(
-                verify_program(&invalid).is_err(),
+                verify_program(&invalid, &context.snapshot()).is_err(),
                 "invalid {layout:?} await contract {mutation}"
             );
         }
@@ -319,7 +334,8 @@ fn async_artifact_validation_contract() {
 
 #[test]
 fn async_factory_artifact_contract() {
-    let mut valid = program();
+    let context = DefinitionContext::new().unwrap();
+    let mut valid = program(&context);
     let module = &mut valid.modules[0];
     let mut factory = module.functions[0].clone();
     let future = factory.metadata.semantic.params[&0].clone();
@@ -347,10 +363,16 @@ fn async_factory_artifact_contract() {
         effects: factory.metadata.effects,
     });
     module.functions.push(factory);
-    let artifact = KbcArtifact::from_program(valid.clone(), Default::default()).unwrap();
-    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+    let artifact = KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+    KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+        .map(|metadata| {
+            metadata
+                .import_into(&context, &Default::default())
+                .unwrap()
+                .into_records()
+        })
         .unwrap()
-        .validate_for_loader(&Default::default())
+        .validate_for_loader(&Default::default(), &context)
         .unwrap();
     for mutation in 0..6 {
         let mut invalid = valid.clone();
@@ -386,7 +408,7 @@ fn async_factory_artifact_contract() {
             }
         }
         assert!(
-            verify_program(&invalid).is_err(),
+            verify_program(&invalid, &context.snapshot()).is_err(),
             "factory mutation {mutation}"
         );
     }

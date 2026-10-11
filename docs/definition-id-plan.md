@@ -3204,3 +3204,41 @@ Focused local evidence (103 distinct selected tests, no workspace/backend sweep)
 Runtime/SDK/VM consumers and bytecode codec fixtures remain SI06 work, as do the
 final architecture/specification documentation transfer and plan retirement.
 Exhaustive workspace, feature/backend and CI acceptance remains unrun locally.
+
+
+### SI06 bytecode codec and verification fixtures
+
+Migrated canonical artifact, linked associated-type/family-bound and async bytecode
+fixtures to explicit DefinitionContext ownership. Artifact creation, hashing,
+encoding and loader validation now receive the retained scope; decoded metadata is
+explicitly imported before use. Tests of oversized wire collections use the codec
+owner's real ArtifactEnvelope conversion, replacing portable_projection and direct
+semantic instruction serialization. There is no public unverified encoder addition.
+
+Oversized Host identity paths are now unrepresentable as semantic IDs. The existing
+path-limit fixture therefore asserts PathLimit at root/definition registration and
+retains the separate module-record/header artifact preflight checks. Invalid Host
+type fixtures retain direct semantic verifier rejection and now assert the precise
+Identity(InvalidContract) returned by bounded reference traversal before artifact
+encoding/fingerprinting. The initial failed expectation assumed this work still
+reached the later bytecode-verification stage; no validation was removed or relaxed.
+Protocol test setup registers only intrinsic names; declared Hash and associated
+contracts remain the evidence used by the linked-bound verifier.
+
+Focused local evidence:
+
+- `cargo test -p kagari-bytecode --lib artifact::canonical_tests:: --no-fail-fast
+  --message-format=short`: 20 passed initially; the invalid Host type case's repaired
+  exact-name rerun passes, completing all 21 selected codec/resource cases.
+- `cargo test -p kagari-bytecode --lib --no-fail-fast --message-format=short --
+  trait_bounds::tests:: verifier::async_tests::`: all five cases pass, preserving
+  corrupted associated outputs, family input assumptions, suspension liveness,
+  Host capability rejection and source-free async artifact validation.
+- `cargo clippy -p kagari-bytecode --lib --tests --message-format=short --
+  -D warnings` passes after one unnecessary-reference fixture repair.
+- Structure checks 1086 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Manual review covers actual wire records, preflight order,
+  explicit adoption, registration versus semantic proof and test-only glob scopes.
+
+Runtime/SDK/VM test consumers, final contract-document transfer and plan retirement
+remain outstanding. This fixture checkpoint does not claim unrun workspace CI.
