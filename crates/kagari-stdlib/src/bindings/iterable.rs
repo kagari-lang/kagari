@@ -52,6 +52,20 @@ pub(super) fn storage() -> NativeStorage {
 
 pub(super) fn binding(name: &str) -> Option<NativeBinding> {
     let operation = match name {
+        "__default_Iterable_collect" | "__default_Iterable_sum" | "__default_Iterable_product" => {
+            return Some(NativeBinding::new(
+                vec![Codec::Value],
+                Codec::Value,
+                destination,
+            ));
+        }
+        "__default_Iterable_fold" => {
+            return Some(NativeBinding::new(
+                vec![Codec::Value; 3],
+                Codec::Value,
+                fold,
+            ));
+        }
         "$foundation_MapIterator_next"
         | "$foundation_FilterIterator_next"
         | "$foundation_TakeIterator_next" => return Some(next.binding()),
@@ -65,6 +79,29 @@ pub(super) fn binding(name: &str) -> Option<NativeBinding> {
         Codec::Value,
         move |cx| construct(cx, operation),
     ))
+}
+
+fn destination(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])
+}
+
+fn fold(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let callback = cx.callable(2)?.store();
+    let mut accumulator = cx.argument(1)?;
+    let root = cx.heap().root_value(accumulator).ok_or_else(invalid)?;
+    let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
+    let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
+    let _scope = cx.heap().begin_collection_iteration(&cursor)?;
+    loop {
+        cx.poll()?;
+        let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
+        let Some(item) = enums::option(cx, &result)? else {
+            return Ok(accumulator);
+        };
+        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
+        accumulator = callback.call_values(cx, &[accumulator, item])?;
+        root.set(cx.heap(), accumulator).ok_or_else(invalid)?;
+    }
 }
 
 fn invalid() -> RuntimeError {

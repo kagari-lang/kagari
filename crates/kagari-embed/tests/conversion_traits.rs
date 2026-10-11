@@ -323,6 +323,7 @@ fn main()->i32 {
     if source[0] != "a" || !Vec<String>::from_iter(strings).is_empty() { return 0; }
     42
 }
+
 "#,
     );
 }
@@ -330,6 +331,7 @@ fn main()->i32 {
 #[test]
 fn construction_contracts_reject_invalid_signatures_and_bounds() {
     for source in [
+        "fn main() { val result:i32 = [1,2].collect(); }",
         "struct X{} impl Into<i32> for X {fn into(self)->i32 {1}} fn main(){}",
         "struct X{} impl TryInto<i32> for X {type Error=String;fn try_into(self)->Result<i32,String>{Ok(1)}} fn main(){}",
         "use std::str::{FromStr};\nstruct X{} impl FromStr for X {type Err=String;fn from_str(text:i32)->Result<X,String>{Ok(X{})}} fn main(){}",
@@ -377,12 +379,12 @@ fn main()->i32 {
 fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
     let engine = KagariEngine::builder().unwrap().build().unwrap();
     for source in [
-        "fn main()->i8 {i8::sum([127i8,1i8])}",
-        "fn main()->u8 {u8::product([128u8,2u8])}",
-        "fn main()->i8 {i8::sum(Vec::from([127i8,1i8]))}",
-        "fn main()->u8 {u8::product(Vec::from([128u8,2u8]))}",
-        "fn main()->i8 {i8::sum(Vec::from([127i8,1i8]).map(|x| x))}",
-        "fn main()->u8 {u8::product(Vec::from([128u8,2u8]).map(|x| x))}",
+        "fn main()->i8 {[127i8,1i8].sum()}",
+        "fn main()->u8 {[128u8,2u8].product()}",
+        "fn main()->i8 {Vec::from([127i8,1i8]).sum()}",
+        "fn main()->u8 {Vec::from([128u8,2u8]).product()}",
+        "fn main()->i8 {Vec::from([127i8,1i8]).map(|x| x).sum()}",
+        "fn main()->u8 {Vec::from([128u8,2u8]).map(|x| x).product()}",
     ] {
         let artifact = engine
             .compile_to_artifact(SourceFile::new("overflow.kgr", source), Default::default())
@@ -427,6 +429,56 @@ impl Iterable for Source {
     fn iter(self)->Cursor {Cursor{values:self.values,index:0usize}}
 }
 fn main()->i32 {i32::sum(Source{values:Vec::from([20,22])})}
+"#,
+    );
+}
+
+#[test]
+fn iterable_terminals_delegate_and_fold_allocated_values_in_source_order() {
+    execute(
+        r#"
+use core::iter::Sum;
+struct Destination { val result:i32 }
+struct Counted { val calls:Vec<i32> }
+impl Iterable for Counted {
+    type Item=i32;
+    type Iter=core::iter::CollectionCursor<i32>;
+    fn iter(self)->core::iter::CollectionCursor<i32> {
+        self.calls[0]+=1;
+        Vec::from([2,4]).iter()
+    }
+}
+impl FromIterator<i32> for Destination {
+    fn from_iter<I:Iterable<Item=i32>>(source:I)->Destination {
+        var result=10;
+        for item in source { result+=item; break; }
+        Destination {result}
+    }
+}
+fn collect<I:Iterable<Item=i32>,C:FromIterator<i32>>(source:I)->C { source.collect() }
+fn sum<I:Iterable<Item=i32>,S:Sum<i32>>(source:I)->S { source.sum() }
+fn main()->i32 {
+    val calls=Vec::from([0]);
+    val counted=Counted {calls};
+    val requested:Destination=counted.collect();
+    if calls[0]!=1 || requested.result!=12 { return 0; }
+    val source=Vec::from([1,2,3]);
+    val cursor=source.map(|x|x*2);
+    val selected:Destination=collect(cursor);
+    source.push(4);
+    if selected.result!=12 { return 0; }
+    val values:Vec<i32> = (1..4).map(|x|x*2).collect();
+    if values.len()!=3usize || values[0]!=2 || values[1]!=4 || values[2]!=6 {return 0;}
+    val total:i32=sum(values);
+    val multiplied:i32=Vec::from([2,3]).product();
+    val empty:Vec<i32> =Vec::from([]);
+    val zero:i32=empty.sum();
+    val one:i32=empty.product();
+    val erased:Iterator<Item=Vec<i32>> = Vec::from([Vec::from([10]),Vec::from([11])]).iter();
+    val folded=erased.fold(Vec::from([0]), |acc,item| Vec::from([acc[0]+item[0]]));
+    val untouched=empty.fold(Vec::from([7]),|acc,item| {acc.push(item);acc});
+    total+multiplied+folded[0]+zero+one+untouched[0]-5
+}
 "#,
     );
 }

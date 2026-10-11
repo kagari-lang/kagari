@@ -68,7 +68,8 @@ rejecting duplicate or foreign bindings. Compiler declarations contain no Rust
 factory, payload or completion endpoint.
 
 List/MutableList declare common algorithms directly. The bundled
-`core::iter` module owns Iterable defaults for lazy map, filter and take:
+`core::iter` module owns Iterable defaults for lazy map, filter and take and terminal
+collect, fold, sum and product:
 
 ```kagari
 use std::collections;
@@ -92,10 +93,14 @@ adapters in the same module. Iterator retains only next; identity Iterable
 adaptation gives cursors the same defaults with shared progress. Containers,
 generic receivers, custom Iterable implementations and interface values reuse
 checked iter/next selections. The former collections map function is removed.
+Collect, sum and product delegate to FromIterator, Sum and Product on the
+requested destination. Fold consumes one cursor in source order and returns its
+initial accumulator on empty input. Native terminal consumption uses scoped
+iteration protection, released on return or failure.
 
 String also supplies the finite inherent methods documented in
 [builtins](builtins.md). Predecessor APIs outside the accepted surface, including
-parse conveniences, enum combinators, iterator terminals, snapshots, windows,
+parse conveniences, enum combinators, snapshots, windows,
 grouping and set algebra, remain withdrawn. They are not compatibility
 requirements. New libraries may implement such APIs through ordinary registrations.
 

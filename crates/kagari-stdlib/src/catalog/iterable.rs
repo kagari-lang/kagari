@@ -139,6 +139,65 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             .methods
             .push(method);
     }
+    for (name, protocol, target) in [
+        ("collect", RegistrationTrait::FromIterator, "from_iter"),
+        ("sum", RegistrationTrait::Sum, "sum"),
+        ("product", RegistrationTrait::Product, "product"),
+    ] {
+        let parameter = GenericParam {
+            owner: ModuleDecl::method_id(&owner, name),
+            position: 0,
+        };
+        let mut method = contracts::method(name, vec![receiver.clone()], parameter.as_type());
+        method.bounds.push(GenericBound {
+            ty: parameter.as_type(),
+            constraints: vec![Constraint::Trait(key::applied(
+                protocol,
+                vec![item.clone()],
+            ))],
+        });
+        method.generic_params.push(parameter);
+        default(module, &item, &mut method);
+        module.documentation.insert(ModuleDecl::method_id(&owner, name), format!("Consume through the requested destination's {target} implementation; preserve its checked construction and arithmetic semantics."));
+        module
+            .traits
+            .iter_mut()
+            .find(|t| t.name == "Iterable")
+            .unwrap()
+            .methods
+            .push(method);
+    }
+    let parameter = GenericParam {
+        owner: ModuleDecl::method_id(&owner, "fold"),
+        position: 0,
+    };
+    let accumulator = parameter.as_type();
+    let mut method = contracts::method("fold", vec![receiver], accumulator.clone());
+    method.generic_params.push(parameter);
+    method.params.extend([
+        Param {
+            name: "initial".into(),
+            ty: accumulator.clone(),
+            mutable: false,
+        },
+        Param {
+            name: "callback".into(),
+            ty: Ty::Function {
+                params: vec![accumulator.clone(), item.clone()],
+                result: Box::new(accumulator),
+            },
+            mutable: false,
+        },
+    ]);
+    default(module, &item, &mut method);
+    module.documentation.insert(ModuleDecl::method_id(&owner, "fold"), "Consume in source order, passing the accumulator and each item to the callback. Empty input returns initial; completed source/callback effects survive failure.".into());
+    module
+        .traits
+        .iter_mut()
+        .find(|t| t.name == "Iterable")
+        .unwrap()
+        .methods
+        .push(method);
 }
 
 fn default(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
@@ -151,13 +210,21 @@ fn default(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
         .into_iter()
         .chain(method.generic_params.iter().map(GenericParam::as_type))
         .collect();
+    let destination = match method.name.as_str() {
+        "collect" => Some((RegistrationTrait::FromIterator, "from_iter")),
+        "sum" => Some((RegistrationTrait::Sum, "sum")),
+        "product" => Some((RegistrationTrait::Product, "product")),
+        _ => None,
+    };
     let iterable = key::applied(RegistrationTrait::Iterable, vec![]);
-    arguments.push(Ty::Projection {
-        receiver: Box::new(arguments[0].clone()),
-        member: associated_type_id(&owner, "Iter"),
-        interface: Box::new(iterable),
-        arguments: vec![],
-    });
+    if destination.is_none() {
+        arguments.push(Ty::Projection {
+            receiver: Box::new(arguments[0].clone()),
+            member: associated_type_id(&owner, "Iter"),
+            interface: Box::new(iterable),
+            arguments: vec![],
+        });
+    }
     let parameters: Vec<_> = (0..arguments.len())
         .map(|position| GenericParam {
             owner: id.clone(),
@@ -174,9 +241,11 @@ fn default(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
         substitution.bind(&parameter.owner, parameter.position, ty);
     }
     let mut iterable = contracts::applied_item(RegistrationTrait::Iterable, types[1].clone());
-    iterable
-        .associated_types
-        .insert(associated_type_id(&owner, "Iter"), cursor.clone());
+    if destination.is_none() {
+        iterable
+            .associated_types
+            .insert(associated_type_id(&owner, "Iter"), cursor.clone());
+    }
     let normalize = |ty: &Ty| {
         resolve_associated_outputs(
             &substitution
@@ -188,34 +257,64 @@ fn default(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
         .expect("Iterable outputs")
     };
     let iterator = contracts::applied_item(RegistrationTrait::Iterator, types[1].clone());
-    let requirements = vec![
-        NativeCallableRequirement {
-            receiver: types[0].clone(),
-            member: ModuleDecl::method_id(&owner, "iter"),
-            interface: iterable.clone(),
-            arguments: vec![],
-        },
-        NativeCallableRequirement {
-            receiver: cursor.clone(),
-            member: ModuleDecl::method_id(&iterator.declaration, "next"),
-            interface: iterator.clone(),
-            arguments: vec![],
-        },
-    ];
+    let requirements = if let Some((protocol, target)) = destination {
+        let interface = key::applied(protocol, vec![types[1].clone()]);
+        vec![NativeCallableRequirement {
+            receiver: types[2].clone(),
+            member: ModuleDecl::method_id(&interface.declaration, target),
+            interface,
+            arguments: vec![types[0].clone()],
+        }]
+    } else {
+        vec![
+            NativeCallableRequirement {
+                receiver: types[0].clone(),
+                member: ModuleDecl::method_id(&owner, "iter"),
+                interface: iterable.clone(),
+                arguments: vec![],
+            },
+            NativeCallableRequirement {
+                receiver: cursor.clone(),
+                member: ModuleDecl::method_id(&iterator.declaration, "next"),
+                interface: iterator.clone(),
+                arguments: vec![],
+            },
+        ]
+    };
     let mut template = method.clone();
     template.name = id.path.last().unwrap().name.clone();
     template.generic_params = parameters;
     template.implementation = CallableImplementation::Native(id.clone());
-    template.bounds = vec![
-        GenericBound {
-            ty: types[0].clone(),
-            constraints: vec![Constraint::Trait(iterable.clone())],
-        },
-        GenericBound {
+    template.bounds = method
+        .bounds
+        .iter()
+        .map(|bound| GenericBound {
+            ty: normalize(&bound.ty),
+            constraints: bound
+                .constraints
+                .iter()
+                .map(|constraint| match constraint {
+                    Constraint::Standard(value) => Constraint::Standard(*value),
+                    Constraint::Trait(value) => {
+                        let Ty::Trait(value) = normalize(&Ty::Trait(value.clone())) else {
+                            unreachable!("bound interface")
+                        };
+                        Constraint::Trait(value)
+                    }
+                })
+                .collect(),
+        })
+        .collect();
+    template.bounds.push(GenericBound {
+        ty: types[0].clone(),
+        constraints: vec![Constraint::Trait(iterable.clone())],
+    });
+    if destination.is_none() {
+        template.bounds.push(GenericBound {
             ty: cursor,
             constraints: vec![Constraint::Trait(iterator)],
-        },
-    ];
+        });
+    }
     for parameter in &mut template.params {
         if parameter.name == "self" {
             parameter.name = "receiver".into();

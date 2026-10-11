@@ -68,9 +68,7 @@ impl Iterable for Override {
     }
 }
 fn total<I: Iterable<Item=i32>>(values: I) -> i32 {
-    var sum = 0;
-    for value in values.map(|x| x * 2).filter(|x| x > 2).take(1usize) { sum += value; }
-    sum
+    values.map(|x| x * 2).filter(|x| x > 2).take(1usize).sum()
 }
 fn main() -> i32 {
     val custom=Override {};

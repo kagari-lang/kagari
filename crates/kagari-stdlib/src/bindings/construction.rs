@@ -143,6 +143,7 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
     };
     let kind = *kind;
     if vec_argument(cx)?.is_some() {
+        let _scope = cx.heap().begin_collection_iteration(&cx.argument(0)?)?;
         return scalar_vec_aggregate(cx, kind, product);
     }
     let identity = i32::from(product);
@@ -210,6 +211,7 @@ fn for_each(
     // The standard Vec has no iteration callbacks. Read its contiguous storage
     // directly without allocating a cursor or Option for each element.
     if let Some(id) = vec_argument(cx)? {
+        let _scope = cx.heap().begin_collection_iteration(&source)?;
         let length = cx.heap().sequence_len(id).ok_or_else(invalid)?;
         for index in 0..length {
             if index % 256 == 0 {
@@ -223,6 +225,7 @@ fn for_each(
     let next = cx.selected_at(1)?;
     let cursor = cx.call_values(iter, &[source])?;
     let _root = cx.heap().root_value(cursor).ok_or_else(invalid)?;
+    let _scope = cx.heap().begin_collection_iteration(&cursor)?;
     loop {
         cx.poll()?;
         let value = cx.call_values(next, slice::from_ref(&cursor))?;

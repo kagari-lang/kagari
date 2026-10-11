@@ -1,6 +1,6 @@
 # Unified Iterable API execution plan
 
-Status: IA01–IA02 are complete; IA03 implementation is active. The
+Status: IA01–IA03 are complete; IA04 implementation is active. The
 [roadmap](implementation-roadmap.md#unified-iterable-api) owns queue placement.
 This file owns the finite API inventory, phase order, acceptance and progress
 ledger. Examples below describe the target API, not currently implemented calls.
@@ -297,7 +297,7 @@ separately. Documentation-only planning needs content/link/diff checks, not buil
 - [x] Record agreed ownership, API inventory, examples and phase acceptance.
 - [x] IA01: Inventory and contract proof.
 - [x] IA02: Lazy transformation foundation and mapping migration.
-- [ ] IA03: Terminal construction and reduction.
+- [x] IA03: Terminal construction and reduction.
 - [ ] IA04: Remaining APIs and hash collection construction.
 - [ ] IA05: Integration and final acceptance.
 
@@ -435,3 +435,35 @@ re-export, deep parent traversal or borrowed callback/payload state across reent
 `uv run --locked scripts/check_structure.py`, `cargo fmt --all -- --check`,
 changed-document link checks and `git diff --check` passed. No intermediate error
 remains. Full workspace/local feature acceptance and CI are still unrun.
+
+
+### IA03 terminal construction and reduction
+
+- Iterable declares collect<C: FromIterator<Item>>, sum<S: Sum<Item>>,
+  product<P: Product<Item>> and fold<A>. Destination defaults retain one checked
+  constructor/reducer call with the original source type; they neither call iter
+  themselves nor prepare a second unused cursor. Existing implementations remain
+  the semantic owner of construction, custom destination behavior and arithmetic.
+- Fold obtains its cursor once, roots the cursor/item/accumulator and updates the
+  accumulator root before another callback or allocation. It stops at the first
+  None and preserves empty initial values and completed callback effects.
+- Native generic FromIterator/Sum/Product traversal now holds the shared
+  begin_collection_iteration consumer scope. Standard Vec direct traversal and
+  scalar reduction keep their validated concrete ownership and receive equivalent
+  short-lived structural protection. Scope drop preserves cursor progress and
+  releases protections on every exit.
+- Existing width/overflow coverage now invokes the terminal methods across array,
+  Vec and mapped sources. A custom destination stops after one item; a counted
+  Iterable confirms exactly one iter conversion. GC-stressed erased-cursor fold
+  uses allocated items and fresh allocated accumulators, and the original lazy
+  pipeline case now terminates through sum.
+
+Focused evidence: terminal delegation/allocated fold passed all three execution
+routes; the existing native construction subset passed 4 cases; declared-width
+traps/root cleanup and invalid destination bounds passed; the generic/custom/interface filter/map/take/sum pipeline passed. Initial test-only parse/import mistakes and
+an identity-based Vec equality assertion were corrected to explicit slot checks.
+No production stub or weakened semantic assertion was introduced. Full workspace
+acceptance and CI remain reserved for IA05.
+
+IA03 structure, formatting, changed-document links and diff checks passed.
+No carried implementation or integration error remains at this checkpoint.
