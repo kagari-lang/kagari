@@ -1,11 +1,16 @@
 //! Base implementations use ordinary native declarations and selected callbacks.
-use crate::catalog::{contracts, defaults};
-use crate::catalog::{key, key::RegistrationTrait};
-use kagari_common::identity::{DefinitionKind, associated_type_id};
+use crate::catalog::{
+    contracts, defaults, identities,
+    key::{self, RegistrationTrait},
+};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
     collection::CollectionAccess,
     conversion::checked_conversion_fallible,
-    declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
+    declaration::{
+        module::{DeclarationError, ImplDecl, ModuleDecl},
+        requirement::NativeCallableRequirement,
+    },
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
 };
@@ -26,21 +31,25 @@ const SCALARS: [BuiltinType; 13] = [
     BuiltinType::F64,
 ];
 
-pub(super) fn declare(module: &mut ModuleDecl) {
-    checked_conversions(module);
+pub(super) fn declare(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
+    checked_conversions(ids, module)?;
     for target in SCALARS {
-        let mut interface = key::applied(RegistrationTrait::FromStr, vec![]);
+        let mut interface = key::applied(ids, RegistrationTrait::FromStr, vec![])?;
         interface.associated_types.insert(
-            associated_type_id(&interface.declaration, "Err"),
-            contracts::enum_type("ParseError", vec![]),
+            identities::associated(ids, &interface.declaration, "Err")?,
+            contracts::enum_type(ids, "ParseError", vec![])?,
         );
         implement(
+            ids,
             module,
             interface,
             Ty::Builtin(target),
             vec![],
             "$foundation_from_str",
-        );
+        )?;
         if target.number_type().is_some() {
             for (kind, binding) in [
                 (RegistrationTrait::Sum, "$foundation_sum"),
@@ -48,128 +57,157 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             ] {
                 let item = Ty::Builtin(target);
                 implement(
+                    ids,
                     module,
-                    key::applied(kind, vec![item.clone()]),
+                    key::applied(ids, kind, vec![item.clone()])?,
                     item.clone(),
                     vec![],
                     binding,
-                );
-                iteration_calls(module, item);
+                )?;
+                iteration_calls(ids, module, item)?;
             }
         }
     }
     let parameter = GenericParam {
-        owner: module.implementation_id(module.implementations.len()),
+        owner: identities::implementation(ids, module.implementations.len())?,
         position: 0,
     };
     let item = parameter.as_type();
     implement(
+        ids,
         module,
-        key::applied(RegistrationTrait::FromIterator, vec![item.clone()]),
-        contracts::vec_type(item.clone()),
+        key::applied(ids, RegistrationTrait::FromIterator, vec![item.clone()])?,
+        contracts::vec_type(ids, item.clone())?,
         vec![parameter],
         "$foundation_list_from_iter",
-    );
-    iteration_calls(module, item);
-    hash_constructors(module);
+    )?;
+    iteration_calls(ids, module, item)?;
+    hash_constructors(ids, module)?;
+
+    Ok(())
 }
 
-fn checked_conversions(module: &mut ModuleDecl) {
+fn checked_conversions(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     for source in SCALARS {
         for target in SCALARS {
             let Some(fallible) = checked_conversion_fallible(source, target) else {
                 continue;
             };
-            let mut interface = key::applied(RegistrationTrait::TryFrom, vec![Ty::Builtin(source)]);
+            let mut interface =
+                key::applied(ids, RegistrationTrait::TryFrom, vec![Ty::Builtin(source)])?;
             interface.associated_types.insert(
-                associated_type_id(&interface.declaration, "Error"),
+                identities::associated(ids, &interface.declaration, "Error")?,
                 contracts::enum_type(
+                    ids,
                     if fallible {
                         "TryFromIntError"
                     } else {
                         "Infallible"
                     },
                     vec![],
-                ),
+                )?,
             );
             implement(
+                ids,
                 module,
                 interface,
                 Ty::Builtin(target),
                 vec![],
                 "$foundation_try_from",
-            );
+            )?;
         }
     }
+
+    Ok(())
 }
 
 fn implement(
+    ids: &DefinitionContext,
     module: &mut ModuleDecl,
-    interface: NominalTy,
-    receiver: Ty,
-    parameters: Vec<GenericParam>,
+    interface: NominalTy<DefinitionId>,
+    receiver: Ty<DefinitionId>,
+    parameters: Vec<GenericParam<DefinitionId>>,
     binding: &str,
-) {
+) -> Result<(), DeclarationError> {
     let contract = module
         .traits
         .iter()
         .find(|contract| {
-            module.definition(DefinitionKind::Trait, &contract.name) == interface.declaration
+            ids.snapshot()
+                .resolve(interface.declaration)
+                .is_ok_and(|view| {
+                    view.last()
+                        .is_some_and(|member| member.name == contract.name)
+                })
         })
         .expect("foundation contract")
         .clone();
     let method = contract.methods[0].name.as_str();
-    let binding = module.definition(DefinitionKind::Function, binding);
-    module
-        .implement_trait(
-            &contract,
-            interface,
-            receiver,
-            parameters,
-            &[(method, binding)],
-        )
-        .expect("foundation implementation");
+    let binding = identities::definition(ids, DefinitionKind::Function, binding)?;
+    module.implement_trait(
+        &contract,
+        ImplDecl {
+            generic_params: parameters,
+            bounds: vec![],
+            trait_type: Some(interface),
+            for_type: receiver,
+            methods: vec![],
+        },
+        &[(method, binding)],
+        ids,
+    )?;
+
+    Ok(())
 }
 
-fn iteration_calls(module: &mut ModuleDecl, item: Ty) {
-    let owner = module.implementation_id(module.implementations.len() - 1);
+fn iteration_calls(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+    item: Ty<DefinitionId>,
+) -> Result<(), DeclarationError> {
+    let owner = identities::implementation(ids, module.implementations.len() - 1)?;
     let method = &module.implementations.last().unwrap().methods[0];
     let source = method.params[0].ty.clone();
-    let iterable = contracts::applied_item(RegistrationTrait::Iterable, item.clone());
+    let iterable = contracts::applied_item(ids, RegistrationTrait::Iterable, item.clone())?;
     let cursor = Ty::Projection {
         receiver: Box::new(source.clone()),
-        member: associated_type_id(&iterable.declaration, "Iter"),
+        member: identities::associated(ids, &iterable.declaration, "Iter")?,
         interface: Box::new(iterable.clone()),
         arguments: vec![],
     };
-    let iterator = contracts::applied_item(RegistrationTrait::Iterator, item);
+    let iterator = contracts::applied_item(ids, RegistrationTrait::Iterator, item)?;
     module.callable_requirements.insert(
-        ModuleDecl::method_id(&owner, &method.name),
+        identities::method(ids, &owner, &method.name)?,
         vec![
             NativeCallableRequirement {
                 receiver: source,
-                member: ModuleDecl::method_id(&iterable.declaration, "iter"),
+                member: identities::method(ids, &iterable.declaration, "iter")?,
                 interface: iterable,
                 arguments: vec![],
             },
             NativeCallableRequirement {
                 receiver: cursor,
-                member: ModuleDecl::method_id(&iterator.declaration, "next"),
+                member: identities::method(ids, &iterator.declaration, "next")?,
                 interface: iterator,
                 arguments: vec![],
             },
         ],
     );
+
+    Ok(())
 }
 
-fn hash_constructors(module: &mut ModuleDecl) {
+fn hash_constructors(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     for map in [false, true] {
-        let owner = module.implementation_id(module.implementations.len());
+        let owner = identities::implementation(ids, module.implementations.len())?;
         let parameters: Vec<_> = (0..if map { 2 } else { 1 })
-            .map(|position| GenericParam {
-                owner: owner.clone(),
-                position,
-            })
+            .map(|position| GenericParam { owner, position })
             .collect();
         let key_type = parameters[0].as_type();
         let value = if map {
@@ -190,8 +228,9 @@ fn hash_constructors(module: &mut ModuleDecl) {
             },
         );
         implement(
+            ids,
             module,
-            key::applied(RegistrationTrait::FromIterator, vec![item.clone()]),
+            key::applied(ids, RegistrationTrait::FromIterator, vec![item.clone()])?,
             receiver.clone(),
             parameters,
             if map {
@@ -199,10 +238,11 @@ fn hash_constructors(module: &mut ModuleDecl) {
             } else {
                 "$foundation_set_from_iter"
             },
-        );
-        module.implementations.last_mut().unwrap().bounds = defaults::hash_bounds(key_type.clone());
-        iteration_calls(module, item);
-        let method = ModuleDecl::method_id(&owner, "from_iter");
+        )?;
+        module.implementations.last_mut().unwrap().bounds =
+            defaults::hash_bounds(ids, key_type.clone())?;
+        iteration_calls(ids, module, item)?;
+        let method = identities::method(ids, &owner, "from_iter")?;
         let iteration = module.callable_requirements.remove(&method).unwrap();
         let mut requirements: Vec<_> = [
             (RegistrationTrait::Hash, "hash"),
@@ -210,16 +250,17 @@ fn hash_constructors(module: &mut ModuleDecl) {
         ]
         .into_iter()
         .map(|(protocol, name)| {
-            let interface = key::applied(protocol, vec![]);
-            NativeCallableRequirement {
+            let interface = key::applied(ids, protocol, vec![])?;
+            Ok(NativeCallableRequirement {
                 receiver: key_type.clone(),
-                member: ModuleDecl::method_id(&interface.declaration, name),
+                member: identities::method(ids, &interface.declaration, name)?,
                 interface,
                 arguments: vec![],
-            }
+            })
         })
-        .collect();
+        .collect::<Result<_, DeclarationError>>()?;
         let interface = key::applied(
+            ids,
             if map {
                 RegistrationTrait::MutableMap
             } else {
@@ -229,14 +270,16 @@ fn hash_constructors(module: &mut ModuleDecl) {
                 || vec![key_type.clone()],
                 |value| vec![key_type.clone(), value],
             ),
-        );
+        )?;
         requirements.push(NativeCallableRequirement {
             receiver,
-            member: ModuleDecl::method_id(&interface.declaration, "insert"),
+            member: identities::method(ids, &interface.declaration, "insert")?,
             interface,
             arguments: vec![],
         });
         requirements.extend(iteration);
         module.callable_requirements.insert(method, requirements);
     }
+
+    Ok(())
 }

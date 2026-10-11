@@ -1,33 +1,44 @@
 //! Checked source/destination requirements for the shared Iterable templates.
-use crate::catalog::{contracts, key, key::RegistrationTrait};
-use kagari_common::identity::{DefinitionKind, associated_type_id};
+use crate::catalog::{
+    contracts, identities,
+    key::{self, RegistrationTrait},
+};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
-    declaration::{FnDecl, module::ModuleDecl, requirement::NativeCallableRequirement},
+    declaration::{
+        FnDecl,
+        module::{DeclarationError, ModuleDecl},
+        requirement::NativeCallableRequirement,
+    },
     ty::{
         Constraint, GenericBound, GenericParam, Ty,
         substitution::{TypeSubstitution, normalize_projections},
     },
 };
-use std::collections::{BTreeMap, BTreeSet};
 
 struct Source {
-    receiver: Ty,
-    item: Ty,
-    cursor: Ty,
+    receiver: Ty<DefinitionId>,
+    item: Ty<DefinitionId>,
+    cursor: Ty<DefinitionId>,
 }
 
-fn projection(receiver: Ty, name: &str, item: Option<Ty>) -> Ty {
-    let interface = item.map_or_else(
-        || key::applied(RegistrationTrait::Iterable, vec![]),
-        |item| contracts::applied_item(RegistrationTrait::Iterable, item),
-    );
-    Ty::Projection {
+fn projection(
+    ids: &DefinitionContext,
+    receiver: Ty<DefinitionId>,
+    name: &str,
+    item: Option<Ty<DefinitionId>>,
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    let interface = match item {
+        Some(item) => contracts::applied_item(ids, RegistrationTrait::Iterable, item)?,
+        None => key::applied(ids, RegistrationTrait::Iterable, vec![])?,
+    };
+    Ok(Ty::Projection {
         receiver: Box::new(receiver),
-        member: associated_type_id(&interface.declaration, name),
+        member: identities::associated(ids, &interface.declaration, name)?,
         interface: Box::new(interface),
         arguments: vec![],
-    }
+    })
 }
 
 fn destination(name: &str) -> Option<(RegistrationTrait, &str)> {
@@ -39,51 +50,61 @@ fn destination(name: &str) -> Option<(RegistrationTrait, &str)> {
     }
 }
 
-fn calls(source: &Source) -> Vec<NativeCallableRequirement> {
-    let mut iterable = contracts::applied_item(RegistrationTrait::Iterable, source.item.clone());
+fn calls(
+    ids: &DefinitionContext,
+    source: &Source,
+) -> Result<Vec<NativeCallableRequirement<DefinitionId>>, DeclarationError> {
+    let mut iterable =
+        contracts::applied_item(ids, RegistrationTrait::Iterable, source.item.clone())?;
     iterable.associated_types.insert(
-        associated_type_id(&iterable.declaration, "Iter"),
+        identities::associated(ids, &iterable.declaration, "Iter")?,
         source.cursor.clone(),
     );
-    let iterator = contracts::applied_item(RegistrationTrait::Iterator, source.item.clone());
-    vec![
+    let iterator = contracts::applied_item(ids, RegistrationTrait::Iterator, source.item.clone())?;
+    Ok(vec![
         NativeCallableRequirement {
             receiver: source.receiver.clone(),
-            member: ModuleDecl::method_id(&iterable.declaration, "iter"),
+            member: identities::method(ids, &iterable.declaration, "iter")?,
             interface: iterable,
             arguments: vec![],
         },
         NativeCallableRequirement {
             receiver: source.cursor.clone(),
-            member: ModuleDecl::method_id(&iterator.declaration, "next"),
+            member: identities::method(ids, &iterator.declaration, "next")?,
             interface: iterator,
             arguments: vec![],
         },
-    ]
+    ])
 }
 
-pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
-    let owner = key::identity(RegistrationTrait::Iterable);
-    let id = module.definition(
+pub(super) fn apply(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+    item: &Ty<DefinitionId>,
+    method: &mut FnDecl<DefinitionId>,
+) -> Result<(), DeclarationError> {
+    let owner = key::identity(ids, RegistrationTrait::Iterable)?;
+    let id = identities::definition(
+        ids,
         DefinitionKind::Function,
         &format!("__default_Iterable_{}", method.name),
-    );
+    )?;
     let destination = destination(&method.name);
     let paired = matches!(method.name.as_str(), "zip" | "chain");
-    let mut arguments: Vec<_> = [Ty::SelfType(owner.clone()), item.clone()]
+    let mut arguments: Vec<_> = [Ty::SelfType(owner), item.clone()]
         .into_iter()
         .chain(method.generic_params.iter().map(GenericParam::as_type))
         .collect();
     let right_item = if method.name == "zip" {
         let index = arguments.len();
-        arguments.push(projection(arguments[2].clone(), "Item", None));
+        arguments.push(projection(ids, arguments[2].clone(), "Item", None)?);
         Some(index)
     } else {
         None
     };
     let left_cursor = if destination.is_none() {
         let index = arguments.len();
-        arguments.push(projection(arguments[0].clone(), "Iter", None));
+        arguments.push(projection(ids, arguments[0].clone(), "Iter", None)?);
         Some(index)
     } else {
         None
@@ -91,17 +112,18 @@ pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
     let right_cursor = if paired {
         let index = arguments.len();
         arguments.push(projection(
+            ids,
             arguments[2].clone(),
             "Iter",
             (method.name == "chain").then(|| item.clone()),
-        ));
+        )?);
         Some(index)
     } else {
         None
     };
     let parameters: Vec<_> = (0..arguments.len())
         .map(|position| GenericParam {
-            owner: id.clone(),
+            owner: id,
             position,
         })
         .collect();
@@ -127,7 +149,9 @@ pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
         substitution.bind(&parameter.owner, parameter.position, ty);
     }
     let cancel = Default::default();
-    let normalize = |ty: &Ty| {
+    let item_member = identities::associated(ids, &owner, "Item")?;
+    let iter_member = identities::associated(ids, &owner, "Iter")?;
+    let normalize = |ty: &Ty<DefinitionId>| {
         let applied = substitution
             .apply(ty, &cancel)
             .expect("Iterable substitution");
@@ -137,17 +161,20 @@ pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
                 if interface.declaration != owner {
                     return Ok(None);
                 }
-                let name = member.path.last().map(|part| part.name.as_str());
-                if *receiver == types[0] && name == Some("Item") {
+                if *receiver == types[0] && *member == item_member {
                     return Ok(Some(types[1].clone()));
                 }
                 Ok(sources
                     .iter()
                     .find(|source| source.receiver == *receiver)
-                    .and_then(|source| match name {
-                        Some("Item") => Some(source.item.clone()),
-                        Some("Iter") => Some(source.cursor.clone()),
-                        _ => None,
+                    .and_then(|source| {
+                        if *member == item_member {
+                            Some(source.item.clone())
+                        } else if *member == iter_member {
+                            Some(source.cursor.clone())
+                        } else {
+                            None
+                        }
                     }))
             },
             &cancel,
@@ -156,13 +183,13 @@ pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
     };
     let mut requirements = vec![];
     for source in &sources {
-        requirements.extend(calls(source));
+        requirements.extend(calls(ids, source)?);
     }
     if let Some((protocol, target)) = destination {
-        let interface = key::applied(protocol, vec![types[1].clone()]);
+        let interface = key::applied(ids, protocol, vec![types[1].clone()])?;
         requirements.push(NativeCallableRequirement {
             receiver: types[2].clone(),
-            member: ModuleDecl::method_id(&interface.declaration, target),
+            member: identities::method(ids, &interface.declaration, target)?,
             interface,
             arguments: vec![types[0].clone()],
         });
@@ -191,17 +218,19 @@ pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
         bounds.push(GenericBound {
             ty: types[0].clone(),
             constraints: vec![Constraint::Trait(contracts::applied_item(
+                ids,
                 RegistrationTrait::Iterable,
                 types[1].clone(),
-            ))],
+            )?)],
         });
     }
     for source in &sources {
         let mut iterable =
-            contracts::applied_item(RegistrationTrait::Iterable, source.item.clone());
-        iterable
-            .associated_types
-            .insert(associated_type_id(&owner, "Iter"), source.cursor.clone());
+            contracts::applied_item(ids, RegistrationTrait::Iterable, source.item.clone())?;
+        iterable.associated_types.insert(
+            identities::associated(ids, &owner, "Iter")?,
+            source.cursor.clone(),
+        );
         bounds.extend([
             GenericBound {
                 ty: source.receiver.clone(),
@@ -210,30 +239,26 @@ pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
             GenericBound {
                 ty: source.cursor.clone(),
                 constraints: vec![Constraint::Trait(contracts::applied_item(
+                    ids,
                     RegistrationTrait::Iterator,
                     source.item.clone(),
-                ))],
+                )?)],
             },
         ]);
     }
-    let mut normalized: BTreeMap<Ty, BTreeSet<Constraint>> = BTreeMap::new();
-    for bound in bounds {
-        normalized
-            .entry(bound.ty)
-            .or_default()
-            .extend(bound.constraints);
-    }
     let mut template = method.clone();
-    template.name = id.path.last().unwrap().name.clone();
+    template.name = ids
+        .snapshot()
+        .resolve(id)
+        .map_err(identities::invalid)?
+        .last()
+        .expect("template member")
+        .name
+        .to_owned();
     template.generic_params = parameters;
-    template.implementation = CallableImplementation::Native(id.clone());
-    template.bounds = normalized
-        .into_iter()
-        .map(|(ty, constraints)| GenericBound {
-            ty,
-            constraints: constraints.into_iter().collect(),
-        })
-        .collect();
+    template.implementation = CallableImplementation::Native(id);
+    template.bounds = GenericBound::normalize(bounds, &ids.snapshot(), &Default::default())
+        .map_err(|error| DeclarationError(format!("foundation bounds: {error:?}")))?;
     for parameter in &mut template.params {
         if parameter.name == "self" {
             parameter.name = "receiver".into();
@@ -241,13 +266,13 @@ pub(super) fn apply(module: &mut ModuleDecl, item: &Ty, method: &mut FnDecl) {
         parameter.ty = normalize(&parameter.ty);
     }
     template.return_type = normalize(&template.return_type);
-    module.private_functions.insert(id.clone());
-    module
-        .callable_requirements
-        .insert(id.clone(), requirements);
+    module.private_functions.insert(id);
+    module.callable_requirements.insert(id, requirements);
     module.functions.push(template);
     method.implementation = CallableImplementation::NativeDefault(NativeDefaultApplication {
         declaration: id,
         arguments,
     });
+
+    Ok(())
 }

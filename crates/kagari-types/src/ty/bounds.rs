@@ -7,6 +7,7 @@ use kagari_common::{
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
+    mem,
 };
 
 impl GenericBound<DefinitionId> {
@@ -21,17 +22,11 @@ impl GenericBound<DefinitionId> {
         let mut merged = BTreeMap::<Ty<DefinitionId>, BTreeSet<Constraint<DefinitionId>>>::new();
         for bound in bounds {
             bound.ty.canonical_cmp(&bound.ty, definitions, cancel)?;
-            for constraint in &bound.constraints {
+            let constraints = merged.entry(bound.ty).or_default();
+            for constraint in bound.constraints {
                 cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-                if let Constraint::Trait(interface) = constraint {
-                    let ty = Ty::Trait(interface.clone());
-                    ty.canonical_cmp(&ty, definitions, cancel)?;
-                }
+                constraints.insert(constraint);
             }
-            merged
-                .entry(bound.ty)
-                .or_default()
-                .extend(bound.constraints);
         }
         let mut result = merged
             .into_iter()
@@ -44,19 +39,45 @@ impl GenericBound<DefinitionId> {
             left.ty.canonical_cmp(&right.ty, definitions, cancel)
         })?;
         for bound in &mut result {
-            sort(&mut bound.constraints, &|left, right| {
-                cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-                match (left, right) {
-                    (Constraint::Standard(left), Constraint::Standard(right)) => {
-                        Ok(left.cmp(right))
-                    }
-                    (Constraint::Standard(_), Constraint::Trait(_)) => Ok(Ordering::Less),
-                    (Constraint::Trait(_), Constraint::Standard(_)) => Ok(Ordering::Greater),
-                    (Constraint::Trait(left), Constraint::Trait(right)) => Ty::Trait(left.clone())
-                        .canonical_cmp(&Ty::Trait(right.clone()), definitions, cancel),
-                }
-            })?;
+            bound.constraints =
+                Constraint::normalize(mem::take(&mut bound.constraints), definitions, cancel)?;
         }
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        Ok(result)
+    }
+}
+
+impl Constraint<DefinitionId> {
+    /// Deduplicate constraints and order them by exact identity in the supplied scope.
+    /// Associated outputs and ordinary generic bounds share this normalization.
+    pub fn normalize(
+        constraints: impl IntoIterator<Item = Self>,
+        definitions: &DefinitionTable,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<Self>, TypeTransformError> {
+        let mut unique = BTreeSet::new();
+        for constraint in constraints {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            if let Self::Trait(interface) = &constraint {
+                let ty = Ty::Trait(interface.clone());
+                ty.canonical_cmp(&ty, definitions, cancel)?;
+            }
+            unique.insert(constraint);
+        }
+        let mut result = unique.into_iter().collect::<Vec<_>>();
+        sort(&mut result, &|left, right| {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            match (left, right) {
+                (Self::Standard(left), Self::Standard(right)) => Ok(left.cmp(right)),
+                (Self::Standard(_), Self::Trait(_)) => Ok(Ordering::Less),
+                (Self::Trait(_), Self::Standard(_)) => Ok(Ordering::Greater),
+                (Self::Trait(left), Self::Trait(right)) => Ty::Trait(left.clone()).canonical_cmp(
+                    &Ty::Trait(right.clone()),
+                    definitions,
+                    cancel,
+                ),
+            }
+        })?;
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         Ok(result)
     }

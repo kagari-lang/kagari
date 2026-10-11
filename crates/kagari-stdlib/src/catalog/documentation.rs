@@ -1,7 +1,11 @@
 //! Standard-library Markdown lives with the registrations that define the API.
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use crate::catalog::identities;
+use kagari_common::identity::{
+    DefinitionKind,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::{
-    declaration::{TypeDefKind, module::ModuleDecl},
+    declaration::module::{DeclarationError, ModuleDecl},
     scalar::BuiltinType,
     ty::Ty,
 };
@@ -208,7 +212,7 @@ fn member_docs(trait_name: &str, name: &str, overview: &str) -> String {
     format!("{behavior}\n\nSee `{trait_name}` for the behavioral contract and examples.")
 }
 
-fn inherent_example(receiver: &Ty, name: &str) -> String {
+fn inherent_example(receiver: &Ty<DefinitionId>, name: &str) -> String {
     let (ty, arguments) = if *receiver == Ty::Builtin(BuiltinType::String) {
         (
             "String",
@@ -260,7 +264,10 @@ fn inherent_example(receiver: &Ty, name: &str) -> String {
     }
 }
 
-pub(super) fn complete(module: &mut ModuleDecl) {
+pub(super) fn complete(
+    definitions: &DefinitionTable,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     let path = module.identity.path.join("::");
     let overview = match path.as_str() {
         "array" => {
@@ -331,27 +338,23 @@ pub(super) fn complete(module: &mut ModuleDecl) {
     };
     module.module_documentation = example(overview, code);
     for contract in &module.traits {
-        let id = module.definition(DefinitionKind::Trait, &contract.name);
+        let id = module.definition(DefinitionKind::Trait, &contract.name, definitions)?;
         let (overview, code) = trait_docs(&contract.name);
-        module
-            .documentation
-            .insert(id.clone(), example(overview, code));
+        module.documentation.insert(id, example(overview, code));
         for method in &contract.methods {
             module
                 .documentation
-                .entry(ModuleDecl::method_id(&id, &method.name))
+                .entry(ModuleDecl::method_id(id, &method.name, definitions)?)
                 .or_insert_with(|| {
                     example(&member_docs(&contract.name, &method.name, overview), code)
                 });
         }
         for member in &contract.associated_types {
-            let name = &member
-                .declaration
-                .path
-                .last()
-                .expect("associated type")
-                .name;
-            let text = match name.as_str() {
+            let view = definitions
+                .resolve(member.declaration)
+                .map_err(identities::invalid)?;
+            let name = view.last().expect("associated type").name;
+            let text = match name {
                 "Item" => "The item yielded by this iterator or iterable.",
                 "Iter" => "The iterator produced by iter; its Item equals this iterable's Item.",
                 "Output" => "The result type of the declared operation.",
@@ -361,17 +364,12 @@ pub(super) fn complete(module: &mut ModuleDecl) {
                 }
                 _ => unreachable!("standard associated type documentation: {name}"),
             };
-            module
-                .documentation
-                .insert(member.declaration.clone(), text.into());
+            module.documentation.insert(member.declaration, text.into());
         }
     }
     for ty in &module.types {
-        let kind = match ty.kind {
-            TypeDefKind::Native(constructor) => constructor.declaration_kind(),
-            _ => DefinitionKind::AssociatedType,
-        };
-        let id = module.definition(kind, &ty.name);
+        let kind = ty.kind.definition_kind();
+        let id = module.definition(kind, &ty.name, definitions)?;
         let (description, code) = match ty.name.as_str() {
             "SpawnError" => (
                 "A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.",
@@ -452,16 +450,9 @@ pub(super) fn complete(module: &mut ModuleDecl) {
             ),
             name => unreachable!("standard type documentation inventory: {name}"),
         };
-        module
-            .documentation
-            .insert(id.clone(), example(description, code));
+        module.documentation.insert(id, example(description, code));
         for variant in &ty.variants {
-            let mut member = id.clone();
-            member.path.push(DefinitionPathSegment {
-                kind: DefinitionKind::Variant,
-                name: variant.name.clone(),
-                occurrence: 0,
-            });
+            let member = ModuleDecl::variant_id(id, &variant.name, definitions)?;
             module.documentation.insert(
                 member,
                 format!(
@@ -472,11 +463,12 @@ pub(super) fn complete(module: &mut ModuleDecl) {
         }
     }
     for (index, implementation) in module.implementations.iter().enumerate() {
-        let owner = module.implementation_id(index);
+        let owner = module.implementation_id(index, definitions)?;
         for method in &implementation.methods {
-            let id = ModuleDecl::method_id(&owner, &method.name);
+            let id = ModuleDecl::method_id(owner, &method.name, definitions)?;
             if let Some(interface) = &implementation.trait_type {
-                let source = ModuleDecl::method_id(&interface.declaration, &method.name);
+                let source =
+                    ModuleDecl::method_id(interface.declaration, &method.name, definitions)?;
                 // Cross-module trait documentation is attached after all modules are complete.
                 if let Some(text) = module.documentation.get(&source).cloned() {
                     module.documentation.entry(id).or_insert(text);
@@ -492,29 +484,37 @@ pub(super) fn complete(module: &mut ModuleDecl) {
             }
         }
     }
+
+    Ok(())
 }
 
-pub(super) fn inherit(modules: &mut [ModuleDecl]) {
+pub(super) fn inherit(
+    definitions: &DefinitionTable,
+    modules: &mut [ModuleDecl],
+) -> Result<(), DeclarationError> {
     let documents = modules
         .iter()
         .flat_map(|module| &module.documentation)
-        .map(|(id, text)| (id.clone(), text.clone()))
+        .map(|(id, text)| (*id, text.clone()))
         .collect::<BTreeMap<_, _>>();
     for module in modules {
         for (index, implementation) in module.implementations.iter().enumerate() {
             let Some(interface) = &implementation.trait_type else {
                 continue;
             };
-            let owner = module.implementation_id(index);
+            let owner = module.implementation_id(index, definitions)?;
             for method in &implementation.methods {
-                let source = ModuleDecl::method_id(&interface.declaration, &method.name);
+                let source =
+                    ModuleDecl::method_id(interface.declaration, &method.name, definitions)?;
                 if let Some(text) = documents.get(&source) {
                     module
                         .documentation
-                        .entry(ModuleDecl::method_id(&owner, &method.name))
+                        .entry(ModuleDecl::method_id(owner, &method.name, definitions)?)
                         .or_insert_with(|| text.clone());
                 }
             }
         }
     }
+
+    Ok(())
 }

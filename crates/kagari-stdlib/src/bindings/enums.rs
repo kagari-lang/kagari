@@ -36,12 +36,16 @@ pub(super) fn read<R>(
         .ok_or_else(|| RuntimeError::module_validation("library enum handle"))?;
     let EnumTag::Declared(layout) = &view.tag;
     let enumeration = StandardDeclarations::enumeration(name)?;
-    let expected = layout
+    let expected = enumeration
+        .definitions()
+        .resolve(enumeration.id())
+        .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+    let actual = layout
         .module()
         .definitions()
-        .lookup(enumeration.id())
-        .ok_or_else(|| RuntimeError::module_validation("library enum declaration"))?;
-    if layout.layout().declaration != expected {
+        .resolve(layout.layout().declaration)
+        .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+    if actual.module() != expected.module() || !actual.segments().eq(expected.segments()) {
         return Err(RuntimeError::module_validation("foreign library enum"));
     }
     let member = layout

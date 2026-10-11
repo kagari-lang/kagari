@@ -9,10 +9,11 @@ use kagari_runtime::{
         conversion::KagariType,
         primitive::NativePrimitive,
         scalar::NativeScalar,
+        types::Type,
     },
     value::Value,
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::scalar::BuiltinType;
 use std::cell::Ref;
 
 pub(super) fn binding(
@@ -52,9 +53,9 @@ fn method<R: KagariType>(
     Ok(NativeBinding::new(
         arguments
             .iter()
-            .map(|ty| Codec::Scalar(Ty::Builtin(*ty)))
+            .map(|ty| Codec::Exact(Type::scalar(*ty)))
             .collect::<Vec<_>>(),
-        Codec::Scalar(R::kagari_type(catalog)?.abi().clone()),
+        Codec::Exact(R::kagari_type(catalog)?),
         entry,
     ))
 }

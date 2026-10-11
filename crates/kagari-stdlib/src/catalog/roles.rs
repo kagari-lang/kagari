@@ -1,35 +1,50 @@
 //! Explicit registrations of reserved language traits; no compiled metadata input.
-use crate::catalog::{contracts, key, key::RegistrationTrait, propagation};
-use kagari_common::identity::associated_type_id;
+use crate::catalog::{
+    contracts, identities,
+    key::{self, RegistrationTrait},
+    propagation,
+};
+use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
-    declaration::TraitDef,
+    declaration::{TraitDef, module::DeclarationError},
     scalar::BuiltinType,
     ty::{Constraint, NominalTy, Ty},
 };
 use std::collections::BTreeMap;
 
-fn projection(kind: RegistrationTrait, name: &str, arguments: Vec<Ty>) -> Ty {
-    let owner = key::identity(kind);
-    Ty::Projection {
-        receiver: Box::new(Ty::SelfType(owner.clone())),
+fn projection(
+    ids: &DefinitionContext,
+    kind: RegistrationTrait,
+    name: &str,
+    arguments: Vec<Ty<DefinitionId>>,
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    let owner = key::identity(ids, kind)?;
+    Ok(Ty::Projection {
+        receiver: Box::new(Ty::SelfType(owner)),
         interface: Box::new(NominalTy {
-            declaration: owner.clone(),
+            declaration: owner,
             arguments,
             associated_types: BTreeMap::new(),
         }),
-        member: associated_type_id(&owner, name),
+        member: identities::associated(ids, &owner, name)?,
         arguments: vec![],
-    }
+    })
 }
 
-fn operator(kind: RegistrationTrait, name: &str, binary: bool) -> TraitDef {
-    let mut definition = contracts::contract(kind, if binary { &["T0"] } else { &[] });
+fn operator(
+    ids: &DefinitionContext,
+    kind: RegistrationTrait,
+    name: &str,
+    binary: bool,
+) -> Result<TraitDef<DefinitionId>, DeclarationError> {
+    let mut definition = contracts::contract(ids, kind, if binary { &["T0"] } else { &[] })?;
     definition.associated_types.push(contracts::associated(
-        &key::identity(kind),
+        ids,
+        &key::identity(ids, kind)?,
         "Output",
         vec![],
-    ));
-    let mut params = vec![contracts::receiver(kind)];
+    )?);
+    let mut params = vec![contracts::receiver(ids, kind)?];
     let arguments = definition
         .generic_params
         .iter()
@@ -39,106 +54,111 @@ fn operator(kind: RegistrationTrait, name: &str, binary: bool) -> TraitDef {
     definition.methods.push(contracts::method(
         name,
         params,
-        projection(kind, "Output", arguments),
+        projection(ids, kind, "Output", arguments)?,
     ));
-    definition
+    Ok(definition)
 }
 
-pub(super) fn declarations() -> Vec<TraitDef> {
+pub(super) fn declarations(
+    ids: &DefinitionContext,
+) -> Result<Vec<TraitDef<DefinitionId>>, DeclarationError> {
     let iterator_kind = RegistrationTrait::Iterator;
-    let mut iterator = contracts::contract(iterator_kind, &[]);
+    let mut iterator = contracts::contract(ids, iterator_kind, &[])?;
     iterator.associated_types.push(contracts::associated(
-        &key::identity(iterator_kind),
+        ids,
+        &key::identity(ids, iterator_kind)?,
         "Item",
         vec![],
-    ));
+    )?);
     iterator.methods.push(contracts::method(
         "next",
-        vec![contracts::receiver(iterator_kind)],
-        contracts::option(projection(iterator_kind, "Item", vec![])),
+        vec![contracts::receiver(ids, iterator_kind)?],
+        contracts::option(ids, projection(ids, iterator_kind, "Item", vec![])?)?,
     ));
 
     let iterable_kind = RegistrationTrait::Iterable;
-    let mut iterable = contracts::contract(iterable_kind, &[]);
+    let mut iterable = contracts::contract(ids, iterable_kind, &[])?;
     iterable.associated_types.push(contracts::associated(
-        &key::identity(iterable_kind),
+        ids,
+        &key::identity(ids, iterable_kind)?,
         "Item",
         vec![],
-    ));
-    let mut iter_bound = key::applied(iterator_kind, vec![]);
+    )?);
+    let mut iter_bound = key::applied(ids, iterator_kind, vec![])?;
     iter_bound.associated_types.insert(
-        associated_type_id(&key::identity(iterator_kind), "Item"),
-        projection(iterable_kind, "Item", vec![]),
+        identities::associated(ids, &key::identity(ids, iterator_kind)?, "Item")?,
+        projection(ids, iterable_kind, "Item", vec![])?,
     );
     iterable.associated_types.push(contracts::associated(
-        &key::identity(iterable_kind),
+        ids,
+        &key::identity(ids, iterable_kind)?,
         "Iter",
         vec![Constraint::Trait(iter_bound)],
-    ));
+    )?);
     iterable.methods.push(contracts::method(
         "iter",
-        vec![contracts::receiver(iterable_kind)],
-        projection(iterable_kind, "Iter", vec![]),
+        vec![contracts::receiver(ids, iterable_kind)?],
+        projection(ids, iterable_kind, "Iter", vec![])?,
     ));
 
-    let mut partial_eq = contracts::contract(RegistrationTrait::PartialEq, &[]);
+    let mut partial_eq = contracts::contract(ids, RegistrationTrait::PartialEq, &[])?;
     partial_eq.methods.push(contracts::method(
         "eq",
-        vec![contracts::receiver(RegistrationTrait::PartialEq); 2],
+        vec![contracts::receiver(ids, RegistrationTrait::PartialEq)?; 2],
         Ty::Builtin(BuiltinType::Bool),
     ));
-    let mut eq = contracts::contract(RegistrationTrait::Eq, &[]);
+    let mut eq = contracts::contract(ids, RegistrationTrait::Eq, &[])?;
     eq.supertraits
-        .push(key::applied(RegistrationTrait::PartialEq, vec![]));
-    let mut hash = contracts::contract(RegistrationTrait::Hash, &[]);
+        .push(key::applied(ids, RegistrationTrait::PartialEq, vec![])?);
+    let mut hash = contracts::contract(ids, RegistrationTrait::Hash, &[])?;
     hash.methods.push(contracts::method(
         "hash",
-        vec![contracts::receiver(RegistrationTrait::Hash)],
+        vec![contracts::receiver(ids, RegistrationTrait::Hash)?],
         Ty::Builtin(BuiltinType::I64),
     ));
-    let ordering = contracts::enum_type("Ordering", vec![]);
-    let mut partial_ord = contracts::contract(RegistrationTrait::PartialOrd, &[]);
+    let ordering = contracts::enum_type(ids, "Ordering", vec![])?;
+    let mut partial_ord = contracts::contract(ids, RegistrationTrait::PartialOrd, &[])?;
     partial_ord
         .supertraits
-        .push(key::applied(RegistrationTrait::PartialEq, vec![]));
+        .push(key::applied(ids, RegistrationTrait::PartialEq, vec![])?);
     partial_ord.methods.push(contracts::method(
         "partial_cmp",
-        vec![contracts::receiver(RegistrationTrait::PartialOrd); 2],
-        contracts::option(ordering.clone()),
+        vec![contracts::receiver(ids, RegistrationTrait::PartialOrd)?; 2],
+        contracts::option(ids, ordering.clone())?,
     ));
-    let mut ord = contracts::contract(RegistrationTrait::Ord, &[]);
+    let mut ord = contracts::contract(ids, RegistrationTrait::Ord, &[])?;
     ord.supertraits.extend([
-        key::applied(RegistrationTrait::Eq, vec![]),
-        key::applied(RegistrationTrait::PartialOrd, vec![]),
+        key::applied(ids, RegistrationTrait::Eq, vec![])?,
+        key::applied(ids, RegistrationTrait::PartialOrd, vec![])?,
     ]);
     ord.methods.push(contracts::method(
         "cmp",
-        vec![contracts::receiver(RegistrationTrait::Ord); 2],
+        vec![contracts::receiver(ids, RegistrationTrait::Ord)?; 2],
         ordering,
     ));
 
-    let mut debug = contracts::contract(RegistrationTrait::Debug, &[]);
+    let mut debug = contracts::contract(ids, RegistrationTrait::Debug, &[])?;
     debug.methods.push(contracts::method(
         "debug",
-        vec![contracts::receiver(RegistrationTrait::Debug)],
+        vec![contracts::receiver(ids, RegistrationTrait::Debug)?],
         Ty::Builtin(BuiltinType::String),
     ));
-    let mut display = contracts::contract(RegistrationTrait::Display, &[]);
+    let mut display = contracts::contract(ids, RegistrationTrait::Display, &[])?;
     display.methods.push(contracts::method(
         "display",
-        vec![contracts::receiver(RegistrationTrait::Display)],
+        vec![contracts::receiver(ids, RegistrationTrait::Display)?],
         Ty::Builtin(BuiltinType::String),
     ));
-    let mut from = contracts::contract(RegistrationTrait::From, &["T0"]);
+    let mut from = contracts::contract(ids, RegistrationTrait::From, &["T0"])?;
     let mut from_method = contracts::method(
         "from",
         vec![from.generic_params[0].as_type()],
-        contracts::receiver(RegistrationTrait::From),
+        contracts::receiver(ids, RegistrationTrait::From)?,
     );
     from_method.params[0].name = "value".into();
     from.methods.push(from_method);
 
-    vec![
+    Ok(vec![
         iterator,
         iterable,
         partial_eq,
@@ -146,25 +166,25 @@ pub(super) fn declarations() -> Vec<TraitDef> {
         hash,
         partial_ord,
         ord,
-        operator(RegistrationTrait::Add, "add", true),
-        operator(RegistrationTrait::Sub, "sub", true),
-        operator(RegistrationTrait::Mul, "mul", true),
-        operator(RegistrationTrait::Div, "div", true),
-        operator(RegistrationTrait::Rem, "rem", true),
-        operator(RegistrationTrait::BitAnd, "bitand", true),
-        operator(RegistrationTrait::BitOr, "bitor", true),
-        operator(RegistrationTrait::BitXor, "bitxor", true),
-        operator(RegistrationTrait::Shl, "shl", true),
-        operator(RegistrationTrait::Shr, "shr", true),
-        operator(RegistrationTrait::Neg, "neg", false),
-        operator(RegistrationTrait::Not, "not", false),
-        operator(RegistrationTrait::Index, "index", true),
-        operator(RegistrationTrait::Fn, "call", true),
+        operator(ids, RegistrationTrait::Add, "add", true)?,
+        operator(ids, RegistrationTrait::Sub, "sub", true)?,
+        operator(ids, RegistrationTrait::Mul, "mul", true)?,
+        operator(ids, RegistrationTrait::Div, "div", true)?,
+        operator(ids, RegistrationTrait::Rem, "rem", true)?,
+        operator(ids, RegistrationTrait::BitAnd, "bitand", true)?,
+        operator(ids, RegistrationTrait::BitOr, "bitor", true)?,
+        operator(ids, RegistrationTrait::BitXor, "bitxor", true)?,
+        operator(ids, RegistrationTrait::Shl, "shl", true)?,
+        operator(ids, RegistrationTrait::Shr, "shr", true)?,
+        operator(ids, RegistrationTrait::Neg, "neg", false)?,
+        operator(ids, RegistrationTrait::Not, "not", false)?,
+        operator(ids, RegistrationTrait::Index, "index", true)?,
+        operator(ids, RegistrationTrait::Fn, "call", true)?,
         debug,
         display,
         from,
     ]
     .into_iter()
-    .chain(propagation::traits())
-    .collect()
+    .chain(propagation::traits(ids)?)
+    .collect())
 }

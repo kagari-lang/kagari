@@ -1,22 +1,36 @@
 //! Iterable owns the finite lazy/terminal surface; cursors expose only next.
-use crate::catalog::{contracts, iterable_defaults, key, key::RegistrationTrait};
-use kagari_common::identity::{DefinitionKind, associated_type_id};
+use crate::catalog::{
+    contracts, identities, iterable_defaults,
+    key::{self, RegistrationTrait},
+};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
-    declaration::{Param, TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
+    declaration::{
+        Param, TypeDef, TypeDefKind,
+        module::{DeclarationError, ImplDecl, ModuleDecl},
+        native::NativeStorageLayout,
+    },
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
 use std::collections::BTreeMap;
 
-pub(super) fn adapter_type(module: &ModuleDecl, name: &str, arguments: Vec<Ty>) -> Ty {
-    Ty::NativeObject(NominalTy {
-        declaration: module.definition(DefinitionKind::AssociatedType, name),
+pub(super) fn adapter_type(
+    ids: &DefinitionContext,
+    name: &str,
+    arguments: Vec<Ty<DefinitionId>>,
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    Ok(Ty::NativeObject(NominalTy {
+        declaration: identities::definition(ids, DefinitionKind::AssociatedType, name)?,
         arguments,
         associated_types: BTreeMap::new(),
-    })
+    }))
 }
 
-pub(super) fn declare(module: &mut ModuleDecl) {
+pub(super) fn declare(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     for (name, arity) in [
         ("MapIterator", 2),
         ("FilterIterator", 1),
@@ -27,27 +41,21 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         ("ZipIterator", 2),
         ("ChainIterator", 1),
     ] {
-        let owner = module.definition(DefinitionKind::AssociatedType, name);
-        module.documentation.insert(owner.clone(), format!("Lazy {name} cursor. Aliases share progress; the source and selected next target retain their original generation."));
+        let owner = identities::definition(ids, DefinitionKind::AssociatedType, name)?;
+        module.documentation.insert(owner, format!("Lazy {name} cursor. Aliases share progress; the source and selected next target retain their original generation."));
         module.types.push(TypeDef {
             name: name.into(),
             kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
             generic_params: (0..arity)
-                .map(|position| GenericParam {
-                    owner: owner.clone(),
-                    position,
-                })
+                .map(|position| GenericParam { owner, position })
                 .collect(),
             bounds: vec![],
             fields: vec![],
             variants: vec![],
         });
-        let owner = module.implementation_id(module.implementations.len());
+        let owner = identities::implementation(ids, module.implementations.len())?;
         let parameters: Vec<_> = (0..arity)
-            .map(|position| GenericParam {
-                owner: owner.clone(),
-                position,
-            })
+            .map(|position| GenericParam { owner, position })
             .collect();
         let items: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
         let contract = module
@@ -56,15 +64,19 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             .find(|t| t.name == "Iterator")
             .unwrap()
             .clone();
-        let binding = module.definition(
+        let binding = identities::definition(
+            ids,
             DefinitionKind::Function,
             &format!("$foundation_{name}_next"),
-        );
-        module.documentation.insert(ModuleDecl::method_id(&owner, "next"), "Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.".into());
-        module
-            .implement_trait(
-                &contract,
-                contracts::applied_item(
+        )?;
+        module.documentation.insert(identities::method(ids, &owner, "next")?, "Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.".into());
+        module.implement_trait(
+            &contract,
+            ImplDecl {
+                generic_params: parameters,
+                bounds: vec![],
+                trait_type: Some(contracts::applied_item(
+                    ids,
                     RegistrationTrait::Iterator,
                     match name {
                         "EnumerateIterator" => {
@@ -73,24 +85,25 @@ pub(super) fn declare(module: &mut ModuleDecl) {
                         "ZipIterator" => Ty::Tuple(items.clone()),
                         _ => items[arity - 1].clone(),
                     },
-                ),
-                adapter_type(module, name, items),
-                parameters,
-                &[("next", binding)],
-            )
-            .expect("adapter Iterator");
+                )?),
+                for_type: adapter_type(ids, name, items)?,
+                methods: vec![],
+            },
+            &[("next", binding)],
+            ids,
+        )?;
     }
-    let owner = key::identity(RegistrationTrait::Iterable);
-    let receiver = Ty::SelfType(owner.clone());
+    let owner = key::identity(ids, RegistrationTrait::Iterable)?;
+    let receiver = Ty::SelfType(owner);
     let item = Ty::Projection {
         receiver: Box::new(receiver.clone()),
-        interface: Box::new(key::applied(RegistrationTrait::Iterable, vec![])),
-        member: associated_type_id(&owner, "Item"),
+        interface: Box::new(key::applied(ids, RegistrationTrait::Iterable, vec![])?),
+        member: identities::associated(ids, &owner, "Item")?,
         arguments: vec![],
     };
     for name in ["map", "filter", "take"] {
         let parameter = GenericParam {
-            owner: ModuleDecl::method_id(&owner, name),
+            owner: identities::method(ids, &owner, name)?,
             position: 0,
         };
         let output = if name == "map" {
@@ -111,7 +124,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         let mut method = contracts::method(
             name,
             vec![receiver.clone()],
-            adapter_type(module, adapter, arguments),
+            adapter_type(ids, adapter, arguments)?,
         );
         if name == "map" {
             method.generic_params.push(parameter);
@@ -132,8 +145,8 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             },
             mutable: false,
         });
-        iterable_defaults::apply(module, &item, &mut method);
-        module.documentation.insert(ModuleDecl::method_id(&owner, name), match name {
+        iterable_defaults::apply(ids, module, &item, &mut method)?;
+        module.documentation.insert(identities::method(ids, &owner, name)?, match name {
             "map" => "Lazily transform each element with the callback. Obtain the source cursor once; copies share progress.",
             "filter" => "Lazily return elements accepted by the predicate, preserving source order and callback effects.",
             _ => "Lazily return at most limit elements. A zero limit never advances the source.",
@@ -152,20 +165,21 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         ("product", RegistrationTrait::Product, "product"),
     ] {
         let parameter = GenericParam {
-            owner: ModuleDecl::method_id(&owner, name),
+            owner: identities::method(ids, &owner, name)?,
             position: 0,
         };
         let mut method = contracts::method(name, vec![receiver.clone()], parameter.as_type());
         method.bounds.push(GenericBound {
             ty: parameter.as_type(),
             constraints: vec![Constraint::Trait(key::applied(
+                ids,
                 protocol,
                 vec![item.clone()],
-            ))],
+            )?)],
         });
         method.generic_params.push(parameter);
-        iterable_defaults::apply(module, &item, &mut method);
-        module.documentation.insert(ModuleDecl::method_id(&owner, name), format!("Consume through the requested destination's {target} implementation; preserve its checked construction and arithmetic semantics."));
+        iterable_defaults::apply(ids, module, &item, &mut method)?;
+        module.documentation.insert(identities::method(ids, &owner, name)?, format!("Consume through the requested destination's {target} implementation; preserve its checked construction and arithmetic semantics."));
         module
             .traits
             .iter_mut()
@@ -175,7 +189,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             .push(method);
     }
     let parameter = GenericParam {
-        owner: ModuleDecl::method_id(&owner, "fold"),
+        owner: identities::method(ids, &owner, "fold")?,
         position: 0,
     };
     let accumulator = parameter.as_type();
@@ -196,8 +210,8 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             mutable: false,
         },
     ]);
-    iterable_defaults::apply(module, &item, &mut method);
-    module.documentation.insert(ModuleDecl::method_id(&owner, "fold"), "Consume in source order, passing the accumulator and each item to the callback. Empty input returns initial; completed source/callback effects survive failure.".into());
+    iterable_defaults::apply(ids, module, &item, &mut method)?;
+    module.documentation.insert(identities::method(ids, &owner, "fold")?, "Consume in source order, passing the accumulator and each item to the callback. Empty input returns initial; completed source/callback effects survive failure.".into());
     module
         .traits
         .iter_mut()
@@ -218,7 +232,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         ("for_each", ""),
     ] {
         let generic = GenericParam {
-            owner: ModuleDecl::method_id(&owner, name),
+            owner: identities::method(ids, &owner, name)?,
             position: 0,
         };
         let parameter = generic.as_type();
@@ -226,8 +240,8 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         let output = if name == "zip" {
             Ty::Projection {
                 receiver: Box::new(parameter.clone()),
-                interface: Box::new(key::applied(RegistrationTrait::Iterable, vec![])),
-                member: associated_type_id(&owner, "Item"),
+                interface: Box::new(key::applied(ids, RegistrationTrait::Iterable, vec![])?),
+                member: identities::associated(ids, &owner, "Item")?,
                 arguments: vec![],
             }
         } else if name == "filter_map" {
@@ -237,18 +251,18 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         };
         let result = match name {
             "count" => Ty::Builtin(BuiltinType::USize),
-            "find" => contracts::enum_type("Option", vec![item.clone()]),
+            "find" => contracts::enum_type(ids, "Option", vec![item.clone()])?,
             "any" | "all" => contracts::boolean(),
             "for_each" => contracts::unit(),
             _ => adapter_type(
-                module,
+                ids,
                 adapter,
                 if matches!(name, "zip" | "filter_map") {
                     vec![item.clone(), output.clone()]
                 } else {
                     vec![item.clone()]
                 },
-            ),
+            )?,
         };
         let mut method = contracts::method(name, vec![receiver.clone()], result);
         if paired || name == "filter_map" {
@@ -258,9 +272,9 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             method.bounds.push(GenericBound {
                 ty: parameter.clone(),
                 constraints: vec![Constraint::Trait(if name == "chain" {
-                    contracts::applied_item(RegistrationTrait::Iterable, item.clone())
+                    contracts::applied_item(ids, RegistrationTrait::Iterable, item.clone())?
                 } else {
-                    key::applied(RegistrationTrait::Iterable, vec![])
+                    key::applied(ids, RegistrationTrait::Iterable, vec![])?
                 })],
             });
         }
@@ -273,7 +287,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
                 Ty::Function {
                     params: vec![item.clone()],
                     result: Box::new(match name {
-                        "filter_map" => contracts::enum_type("Option", vec![output]),
+                        "filter_map" => contracts::enum_type(ids, "Option", vec![output])?,
                         "for_each" => contracts::unit(),
                         _ => contracts::boolean(),
                     }),
@@ -287,8 +301,8 @@ pub(super) fn declare(module: &mut ModuleDecl) {
                 mutable: false,
             });
         }
-        iterable_defaults::apply(module, &item, &mut method);
-        module.documentation.insert(ModuleDecl::method_id(&owner, name), match name {
+        iterable_defaults::apply(ids, module, &item, &mut method)?;
+        module.documentation.insert(identities::method(ids, &owner, name)?, match name {
             "filter_map" => "Lazily return the callback's Some values in source order, without fusing the source.",
             "skip" => "Discard only the initial count items; aliases share the remaining skip state.",
             "enumerate" => "Lazily pair each item with its checked usize position, starting at zero.",
@@ -311,37 +325,45 @@ pub(super) fn declare(module: &mut ModuleDecl) {
     // An erased Iterator has a concrete boxed representation but no concrete
     // source table. Publish its identity Iterable table so generic member
     // witnesses use the same default entries without erasing other receivers.
-    let implementation = module.implementation_id(module.implementations.len());
+    let implementation = identities::implementation(ids, module.implementations.len())?;
     let parameter = GenericParam {
         owner: implementation,
         position: 0,
     };
     let item = parameter.as_type();
     let receiver = Ty::Trait(contracts::applied_item(
+        ids,
         RegistrationTrait::Iterator,
         item.clone(),
-    ));
-    let mut iterable = contracts::applied_item(RegistrationTrait::Iterable, item);
-    iterable
-        .associated_types
-        .insert(associated_type_id(&owner, "Iter"), receiver.clone());
+    )?);
+    let mut iterable = contracts::applied_item(ids, RegistrationTrait::Iterable, item)?;
+    iterable.associated_types.insert(
+        identities::associated(ids, &owner, "Iter")?,
+        receiver.clone(),
+    );
     let contract = module
         .traits
         .iter()
         .find(|t| t.name == "Iterable")
         .unwrap()
         .clone();
-    let binding = module.definition(
+    let binding = identities::definition(
+        ids,
         DefinitionKind::Function,
         "$foundation_iterator_identity_iter",
-    );
-    module
-        .implement_trait(
-            &contract,
-            iterable,
-            receiver,
-            vec![parameter],
-            &[("iter", binding)],
-        )
-        .expect("erased identity Iterable");
+    )?;
+    module.implement_trait(
+        &contract,
+        ImplDecl {
+            generic_params: vec![parameter],
+            bounds: vec![],
+            trait_type: Some(iterable),
+            for_type: receiver,
+            methods: vec![],
+        },
+        &[("iter", binding)],
+        ids,
+    )?;
+
+    Ok(())
 }

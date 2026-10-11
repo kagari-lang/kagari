@@ -1,5 +1,6 @@
 //! Concrete Vec operations borrow call roots; callback algorithms retain SDK handles.
 use crate::bindings::{Entry, option};
+use kagari_common::identity::{metadata::DefinitionMetadata, table::DefinitionId};
 use kagari_runtime::{
     error::RuntimeError,
     native::{
@@ -11,28 +12,23 @@ use kagari_runtime::{
         primitive::NativePrimitive,
         scalar::NativeScalar,
         typed::NativeContext,
+        types::Type,
         value_handle::ScriptValue,
     },
     value::Value,
 };
-use kagari_types::{declaration::NativeDeclaration, scalar::BuiltinType, ty::Ty};
+use kagari_types::declaration::NativeDeclaration;
 
 type Vector = ScriptVec<ScriptValue>;
 
 pub(super) fn binding(
     name: &str,
-    declaration: &NativeDeclaration,
+    declaration: &DefinitionMetadata<NativeDeclaration<DefinitionId>>,
 ) -> NativeResult<Option<NativeBinding>> {
     Ok(Some(match name {
         "$foundation_list_len" => scoped(vec![Codec::Sequence], length),
         "$foundation_list_is_empty" => scoped(vec![Codec::Sequence], is_empty),
-        "$foundation_list_get" => scoped(
-            vec![
-                Codec::Sequence,
-                Codec::Scalar(Ty::Builtin(BuiltinType::USize)),
-            ],
-            get,
-        ),
+        "$foundation_list_get" => scoped(vec![Codec::Sequence, Codec::Exact(Type::usize())], get),
         "$foundation_list_index" => NativeBinding::primitive(NativePrimitive::VecIndex),
         "$foundation_list_push" => scoped(vec![Codec::MutableSequence, Codec::Value], push),
         "$foundation_list_push_fluent" => {
@@ -72,7 +68,7 @@ pub(super) fn binding(
             },
         ),
         "$foundation_list_dedup" => {
-            let [requirement] = declaration.callable_requirements.as_slice() else {
+            let [requirement] = declaration.records().callable_requirements.as_slice() else {
                 return Err(RuntimeError::metadata_conflict("Vec dedup requirement"));
             };
             let selected = SelectedCall::from_declaration(declaration, requirement)?;

@@ -1,16 +1,23 @@
 //! Foundational conversion, parsing and aggregation contracts. Algorithms are
 //! supplied by ordinary implementations, independently of declaration ownership.
-use crate::catalog::contracts;
-use crate::catalog::{key, key::RegistrationTrait};
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::associated_type_id;
+use crate::catalog::{
+    contracts, identities,
+    key::{self, RegistrationTrait},
+};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
-    declaration::{conversion::ConversionAdapter, module::ModuleDecl},
+    declaration::{
+        conversion::ConversionAdapter,
+        module::{DeclarationError, ModuleDecl},
+    },
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, Ty},
 };
 
-pub(super) fn declare(module: &mut ModuleDecl) {
+pub(super) fn declare(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     for (kind, name, parameters, error) in [
         (RegistrationTrait::Into, "into", &["Target"][..], None),
         (
@@ -27,9 +34,9 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         ),
         (RegistrationTrait::FromStr, "from_str", &[][..], Some("Err")),
     ] {
-        let mut declaration = contracts::contract(kind, parameters);
-        let owner = key::identity(kind);
-        let this = contracts::receiver(kind);
+        let mut declaration = contracts::contract(ids, kind, parameters)?;
+        let owner = key::identity(ids, kind)?;
+        let this = contracts::receiver(ids, kind)?;
         let input = if kind == RegistrationTrait::FromStr {
             Ty::Builtin(BuiltinType::String)
         } else {
@@ -44,26 +51,28 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         let result = if let Some(name) = error {
             declaration
                 .associated_types
-                .push(contracts::associated(&owner, name, vec![]));
+                .push(contracts::associated(ids, &owner, name, vec![])?);
             contracts::enum_type(
+                ids,
                 "Result",
                 vec![
                     result,
                     Ty::Projection {
                         receiver: Box::new(this.clone()),
                         interface: Box::new(key::applied(
+                            ids,
                             kind,
                             declaration
                                 .generic_params
                                 .iter()
                                 .map(GenericParam::as_type)
                                 .collect(),
-                        )),
-                        member: associated_type_id(&owner, name),
+                        )?),
+                        member: identities::associated(ids, &owner, name)?,
                         arguments: vec![],
                     },
                 ],
-            )
+            )?
         } else {
             result
         };
@@ -78,35 +87,44 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         }
         declaration.conversion_adapter = match kind {
             RegistrationTrait::Into | RegistrationTrait::TryInto => {
-                let forward = key::identity(if kind == RegistrationTrait::Into {
-                    RegistrationTrait::From
-                } else {
-                    RegistrationTrait::TryFrom
-                });
+                let forward = key::identity(
+                    ids,
+                    if kind == RegistrationTrait::Into {
+                        RegistrationTrait::From
+                    } else {
+                        RegistrationTrait::TryFrom
+                    },
+                )?;
                 Some(ConversionAdapter::Reverse {
-                    method: ModuleDecl::method_id(
+                    method: identities::method(
+                        ids,
                         &forward,
                         if kind == RegistrationTrait::Into {
                             "from"
                         } else {
                             "try_from"
                         },
-                    ),
-                    error: (kind == RegistrationTrait::TryInto).then(|| {
-                        (
-                            associated_type_id(&owner, "Error"),
-                            associated_type_id(&forward, "Error"),
-                        )
-                    }),
+                    )?,
+                    error: if kind == RegistrationTrait::TryInto {
+                        Some((
+                            identities::associated(ids, &owner, "Error")?,
+                            identities::associated(ids, &forward, "Error")?,
+                        ))
+                    } else {
+                        None
+                    },
                     origin: forward,
-                    result: (kind == RegistrationTrait::TryInto)
-                        .then(|| module.definition(DefinitionKind::Enum, "Result")),
+                    result: if kind == RegistrationTrait::TryInto {
+                        Some(identities::definition(ids, DefinitionKind::Enum, "Result")?)
+                    } else {
+                        None
+                    },
                 })
             }
             RegistrationTrait::TryFrom => Some(ConversionAdapter::Forward {
-                method: ModuleDecl::method_id(&owner, "try_from"),
-                error: associated_type_id(&owner, "Error"),
-                result: module.definition(DefinitionKind::Enum, "Result"),
+                method: identities::method(ids, &owner, "try_from")?,
+                error: identities::associated(ids, &owner, "Error")?,
+                result: identities::definition(ids, DefinitionKind::Enum, "Result")?,
             }),
             _ => None,
         };
@@ -121,20 +139,25 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         (RegistrationTrait::Sum, "sum"),
         (RegistrationTrait::Product, "product"),
     ] {
-        let mut declaration = contracts::contract(kind, &["T"]);
-        let owner = key::identity(kind);
+        let mut declaration = contracts::contract(ids, kind, &["T"])?;
+        let owner = key::identity(ids, kind)?;
         let source = GenericParam {
-            owner: ModuleDecl::method_id(&owner, name),
+            owner: identities::method(ids, &owner, name)?,
             position: 0,
         };
-        let mut method = contracts::method(name, vec![source.as_type()], contracts::receiver(kind));
+        let mut method = contracts::method(
+            name,
+            vec![source.as_type()],
+            contracts::receiver(ids, kind)?,
+        );
         method.params[0].name = "source".into();
         method.bounds.push(GenericBound {
             ty: source.as_type(),
             constraints: vec![Constraint::Trait(contracts::applied_item(
+                ids,
                 RegistrationTrait::Iterable,
                 declaration.generic_params[0].as_type(),
-            ))],
+            )?)],
         });
         method.generic_params.push(source);
         declaration.methods.push(method);
@@ -143,4 +166,6 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             .insert(owner, format!("Language-owned {} contract.", kind.name()));
         module.traits.push(declaration);
     }
+
+    Ok(())
 }

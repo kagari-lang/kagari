@@ -1,6 +1,6 @@
 //! Immutable language contracts are available independently of optional modules.
-use crate::{catalog, identity, namespaces};
-use kagari_common::identity::DefinitionKind;
+use crate::{catalog, identity};
+use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_runtime::{
     error::RuntimeError,
     native::{
@@ -11,10 +11,12 @@ use kagari_runtime::{
 };
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::{TypeDefKind, module::ModuleDecl},
+    declaration::{
+        TypeDefKind,
+        module::{DeclarationError, ModuleDecl},
+    },
     language,
     language::Protocol,
-    ty::Ty,
 };
 use std::{cell::OnceCell, collections::BTreeMap, sync::Arc};
 
@@ -24,7 +26,7 @@ thread_local! {
 
 #[derive(Debug, Clone)]
 pub struct StandardDeclarations {
-    declarations: Vec<Arc<ModuleDecl>>,
+    declarations: Result<Vec<Arc<DefinitionMetadata<ModuleDecl>>>, DeclarationError>,
     providers: OnceCell<NativeResult<DeclarationCatalog>>,
 }
 
@@ -38,14 +40,17 @@ impl Default for StandardDeclarations {
 }
 
 impl StandardDeclarations {
-    pub fn declarations(&self) -> &[Arc<ModuleDecl>] {
-        &self.declarations
+    /// Borrow the retained scoped inputs, reporting any foundation construction error.
+    pub fn declarations(&self) -> NativeResult<&[Arc<DefinitionMetadata<ModuleDecl>>]> {
+        self.declarations
+            .as_deref()
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))
     }
 
     pub fn catalog(&self) -> NativeResult<DeclarationCatalog> {
         self.providers
             .get_or_init(|| {
-                DeclarationCatalog::from_declarations(self.declarations.iter().map(Arc::as_ref))
+                DeclarationCatalog::from_declarations(self.declarations()?.iter().map(Arc::as_ref))
             })
             .clone()
     }
@@ -112,35 +117,22 @@ impl StandardDeclarations {
         self.protocol(Protocol::Iterable)
     }
 
-    pub fn vec(&self, item: Type) -> Type {
-        self.catalog()
-            .expect("checked standard providers")
-            .type_reference(
-                &ModuleDecl::new(namespaces::type_owner("Vec"))
-                    .definition(DefinitionKind::AssociatedType, "Vec"),
-            )
-            .expect("registered Vec")
+    pub fn vec(&self, item: Type) -> NativeResult<Type> {
+        self.catalog()?
+            .type_reference(&identity::type_id("Vec", DefinitionKind::AssociatedType))?
             .apply([item])
-            .expect("Vec element arity")
     }
 
-    pub fn collection_cursor(&self, item: Type) -> Type {
-        Type::from_semantic(Ty::Iter(Box::new(item.abi().clone())))
+    pub fn collection_cursor(&self, item: Type) -> NativeResult<Type> {
+        Type::iterator(item)
     }
 
-    pub fn hash_map(&self, key: Type, value: Type) -> Type {
-        Type::from_semantic(Ty::Map {
-            key: Box::new(key.abi().clone()),
-            value: Box::new(value.abi().clone()),
-            access: CollectionAccess::Mutable,
-        })
+    pub fn hash_map(&self, key: Type, value: Type) -> NativeResult<Type> {
+        Type::map(key, value, CollectionAccess::Mutable)
     }
 
-    pub fn hash_set(&self, item: Type) -> Type {
-        Type::from_semantic(Ty::Set(
-            Box::new(item.abi().clone()),
-            CollectionAccess::Mutable,
-        ))
+    pub fn hash_set(&self, item: Type) -> NativeResult<Type> {
+        Type::set(item, CollectionAccess::Mutable)
     }
 
     /// Retrieve a library enum's ordinary authoring handle.
@@ -151,21 +143,23 @@ impl StandardDeclarations {
                     let standard = Self::default();
                     let catalog = standard.catalog()?;
                     standard
-                        .declarations
+                        .declarations()?
                         .iter()
                         .flat_map(|module| {
                             module
+                                .records()
                                 .types
                                 .iter()
                                 .filter(|ty| ty.kind == TypeDefKind::Enum)
                                 .map(move |ty| (module, ty))
                         })
-                        .map(|(module, ty)| {
+                        .map(|(_, ty)| {
                             Ok((
                                 ty.name.clone(),
-                                catalog.type_reference(
-                                    &module.definition(ty.kind.definition_kind(), &ty.name),
-                                )?,
+                                catalog.type_reference(&identity::type_id(
+                                    &ty.name,
+                                    ty.kind.definition_kind(),
+                                ))?,
                             ))
                         })
                         .collect::<NativeResult<_>>()
@@ -179,11 +173,11 @@ impl StandardDeclarations {
         })
     }
 
-    pub fn option(&self, item: Type) -> Type {
-        Type::from_semantic(identity::enum_type("Option", vec![item.abi().clone()]))
+    pub fn option(&self, item: Type) -> NativeResult<Type> {
+        Self::enumeration("Option")?.apply([item])
     }
 
-    pub fn ordering(&self) -> Type {
-        Type::from_semantic(identity::enum_type("Ordering", vec![]))
+    pub fn ordering(&self) -> NativeResult<Type> {
+        Self::enumeration("Ordering")?.apply([])
     }
 }

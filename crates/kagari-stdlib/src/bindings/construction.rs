@@ -1,5 +1,5 @@
 //! Synchronous base conversions, parsing and iterable construction.
-use crate::{bindings::enums, namespaces};
+use crate::{bindings::enums, identity};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::DefinitionKind;
 use kagari_contract::numeric::NumericOperation;
@@ -10,9 +10,7 @@ use kagari_runtime::{
     numeric,
     value::Value,
 };
-use kagari_types::{
-    declaration::module::ModuleDecl, integer::IntegerOp, scalar::BuiltinType, ty::Ty,
-};
+use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
 use std::{
     num::{IntErrorKind, ParseIntError},
     slice,
@@ -191,8 +189,7 @@ fn vec_argument(cx: &CallContext<'_>) -> NativeResult<Option<HeapObjectId>> {
     let Ty::NativeObject(nominal) = argument.ty() else {
         return Ok(None);
     };
-    let declaration = ModuleDecl::new(namespaces::type_owner("Vec"))
-        .definition(DefinitionKind::AssociatedType, "Vec");
+    let declaration = identity::type_id("Vec", DefinitionKind::AssociatedType);
     if argument.definitions().lookup(&declaration) != Some(nominal.declaration) {
         return Ok(None);
     }

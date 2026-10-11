@@ -6,7 +6,6 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
-        storage::{NativePayload, NativeStorage},
         types::Type,
     },
     value::Value,
@@ -87,48 +86,6 @@ fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations
 }
 
 #[test]
-fn declaration_storage_binding_preserves_local_contract() {
-    let language = StandardDeclarations::default();
-    let catalog = language.catalog().unwrap();
-    let future = catalog.future_type().unwrap();
-    let declaration = language
-        .declarations()
-        .iter()
-        .find(|declaration| declaration.identity == future.id().module)
-        .unwrap()
-        .as_ref()
-        .clone();
-    let builder =
-        || ModuleBuilder::from_declaration(declaration.clone(), &catalog, Default::default());
-    assert!(
-        builder().finish().is_err(),
-        "declarations alone cannot install payloads"
-    );
-    let mut module = builder();
-    assert!(
-        module
-            .bind_storage(&future, NativeStorage::payload::<EmptyPayload>())
-            .is_err()
-    );
-    module
-        .bind_storage(&future, NativeStorage::future())
-        .unwrap();
-    assert!(
-        module
-            .bind_storage(&future, NativeStorage::future())
-            .is_err()
-    );
-    module.finish().unwrap();
-    let mut foreign = ModuleBuilder::new("example::foreign_storage", &catalog);
-    assert!(
-        foreign
-            .bind_storage(&future, NativeStorage::future())
-            .is_err()
-    );
-    foreign.finish().unwrap();
-}
-
-#[test]
 fn trait_groups_bind_declared_members_and_associated_outputs() {
     let language = StandardDeclarations::default();
     let mut module = ModuleBuilder::new(
@@ -168,15 +125,4 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
         .text
         .contains("type Output = usize")
     );
-}
-
-#[derive(Debug)]
-struct EmptyPayload;
-
-impl NativePayload for EmptyPayload {
-    fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
-
-    fn units(&self) -> usize {
-        0
-    }
 }

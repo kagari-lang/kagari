@@ -1,7 +1,6 @@
 //! Rust-authoritative mandatory library declarations and registration identities.
 use crate::namespaces;
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
-use kagari_types::ty::{NominalTy, Ty};
 
 /// Build an explicit foundation registration identity. This creates no declaration
 /// and grants no language semantics; consumers must resolve its checked record.
@@ -16,27 +15,15 @@ pub fn trait_id(name: &str) -> DefinitionPath {
     }
 }
 
-/// Apply an explicit registration identity; this does not supply a trait contract.
-pub fn applied(name: &str, arguments: Vec<Ty>) -> NominalTy {
-    NominalTy {
-        declaration: trait_id(name),
-        arguments,
-        associated_types: Default::default(),
+/// Build an exact external query for a canonical bundled type declaration.
+/// Callers still resolve its registered contract in an explicit scope.
+pub fn type_id(name: &str, kind: DefinitionKind) -> DefinitionPath {
+    DefinitionPath {
+        module: namespaces::type_owner(name),
+        path: vec![DefinitionPathSegment {
+            kind,
+            name: name.into(),
+            occurrence: 0,
+        }],
     }
-}
-
-/// Apply a core library enum identity. Consumers still validate its declaration.
-pub fn enum_type(name: &str, arguments: Vec<Ty>) -> Ty {
-    Ty::Enum(NominalTy {
-        declaration: DefinitionPath {
-            module: namespaces::type_owner(name),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Enum,
-                name: name.into(),
-                occurrence: 0,
-            }],
-        },
-        arguments,
-        associated_types: Default::default(),
-    })
 }

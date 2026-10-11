@@ -1,20 +1,25 @@
 //! Inherent String methods belong to the language declaration owner.
-use crate::catalog::contracts;
-use crate::catalog::{key, key::RegistrationTrait};
-use kagari_common::identity::DefinitionKind;
+use crate::catalog::{
+    contracts, identities,
+    key::{self, RegistrationTrait},
+};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
         Param,
-        module::{ImplDecl, ModuleDecl},
+        module::{DeclarationError, ImplDecl, ModuleDecl},
     },
     scalar::BuiltinType,
     ty::Ty,
 };
 
-pub(super) fn declare(module: &mut ModuleDecl) {
+pub(super) fn declare(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     let string = Ty::Builtin(BuiltinType::String);
-    let owner = module.implementation_id(module.implementations.len());
+    let owner = identities::implementation(ids, module.implementations.len())?;
     let mut methods = vec![];
     for (name, parameters, result, documentation) in [
         (
@@ -50,7 +55,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         (
             "find",
             vec![("pattern", string.clone())],
-            contracts::option(contracts::usize_type()),
+            contracts::option(ids, contracts::usize_type())?,
             "Return the first matching byte offset, or None. An empty pattern matches at zero.",
         ),
         (
@@ -89,7 +94,11 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         (
             "split",
             vec![("separator", string.clone())],
-            Ty::Trait(key::applied(RegistrationTrait::List, vec![string.clone()])),
+            Ty::Trait(key::applied(
+                ids,
+                RegistrationTrait::List,
+                vec![string.clone()],
+            )?),
             "Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.",
         ),
     ] {
@@ -101,18 +110,17 @@ pub(super) fn declare(module: &mut ModuleDecl) {
                 mutable: false,
             });
         }
-        method.implementation = CallableImplementation::Native(module.definition(
+        method.implementation = CallableImplementation::Native(identities::definition(
+            ids,
             DefinitionKind::Function,
             &format!("$foundation_string_{name}"),
-        ));
-        let id = ModuleDecl::method_id(&owner, name);
-        module
-            .documentation
-            .insert(id.clone(), documentation.into());
+        )?);
+        let id = identities::method(ids, &owner, name)?;
+        module.documentation.insert(id, documentation.into());
         if name == "split" {
             module
                 .concrete_results
-                .insert(id, contracts::vec_type(string.clone()));
+                .insert(id, contracts::vec_type(ids, string.clone())?);
         }
         methods.push(method);
     }
@@ -123,4 +131,6 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         for_type: string,
         methods,
     });
+
+    Ok(())
 }

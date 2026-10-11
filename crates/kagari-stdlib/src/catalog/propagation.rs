@@ -1,102 +1,117 @@
 //! Ordinary library declarations and implementations behind propagation syntax.
 use crate::catalog::{
-    contracts,
+    contracts, identities,
     key::{self, RegistrationTrait},
 };
-use kagari_common::identity::{DefinitionKind, associated_type_id};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
-    declaration::{TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement},
+    declaration::{
+        TraitDef,
+        module::{DeclarationError, ImplDecl, ModuleDecl},
+        requirement::NativeCallableRequirement,
+    },
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
 };
 
-fn projection(name: &str) -> Ty {
-    let owner = key::identity(RegistrationTrait::Try);
-    Ty::Projection {
-        receiver: Box::new(Ty::SelfType(owner.clone())),
-        interface: Box::new(key::applied(RegistrationTrait::Try, vec![])),
-        member: associated_type_id(&owner, name),
+fn projection(ids: &DefinitionContext, name: &str) -> Result<Ty<DefinitionId>, DeclarationError> {
+    let owner = key::identity(ids, RegistrationTrait::Try)?;
+    Ok(Ty::Projection {
+        receiver: Box::new(Ty::SelfType(owner)),
+        interface: Box::new(key::applied(ids, RegistrationTrait::Try, vec![])?),
+        member: identities::associated(ids, &owner, name)?,
         arguments: vec![],
-    }
+    })
 }
 
-pub(super) fn traits() -> Vec<TraitDef> {
-    let mut residual = contracts::contract(RegistrationTrait::FromResidual, &["R"]);
+pub(super) fn traits(
+    ids: &DefinitionContext,
+) -> Result<Vec<TraitDef<DefinitionId>>, DeclarationError> {
+    let mut residual = contracts::contract(ids, RegistrationTrait::FromResidual, &["R"])?;
     let mut from_residual = contracts::method(
         "from_residual",
         vec![residual.generic_params[0].as_type()],
-        contracts::receiver(RegistrationTrait::FromResidual),
+        contracts::receiver(ids, RegistrationTrait::FromResidual)?,
     );
     from_residual.params[0].name = "residual".into();
     residual.methods.push(from_residual);
-    let mut carrier = contracts::contract(RegistrationTrait::Try, &[]);
-    let owner = key::identity(RegistrationTrait::Try);
+    let mut carrier = contracts::contract(ids, RegistrationTrait::Try, &[])?;
+    let owner = key::identity(ids, RegistrationTrait::Try)?;
     carrier.associated_types.extend([
-        contracts::associated(&owner, "Output", vec![]),
-        contracts::associated(&owner, "Residual", vec![]),
+        contracts::associated(ids, &owner, "Output", vec![])?,
+        contracts::associated(ids, &owner, "Residual", vec![])?,
     ]);
     carrier.supertraits.push(key::applied(
+        ids,
         RegistrationTrait::FromResidual,
-        vec![projection("Residual")],
-    ));
+        vec![projection(ids, "Residual")?],
+    )?);
     let mut from_output = contracts::method(
         "from_output",
-        vec![projection("Output")],
-        contracts::receiver(RegistrationTrait::Try),
+        vec![projection(ids, "Output")?],
+        contracts::receiver(ids, RegistrationTrait::Try)?,
     );
     from_output.params[0].name = "output".into();
     carrier.methods.extend([
         from_output,
         contracts::method(
             "branch",
-            vec![contracts::receiver(RegistrationTrait::Try)],
+            vec![contracts::receiver(ids, RegistrationTrait::Try)?],
             contracts::enum_type(
+                ids,
                 "ControlFlow",
-                vec![projection("Residual"), projection("Output")],
-            ),
+                vec![projection(ids, "Residual")?, projection(ids, "Output")?],
+            )?,
         ),
     ]);
-    vec![residual, carrier]
+    Ok(vec![residual, carrier])
 }
 
-fn generic_parameters(module: &ModuleDecl, count: usize) -> Vec<GenericParam> {
-    let owner = module.implementation_id(module.implementations.len());
-    (0..count)
-        .map(|position| GenericParam {
-            owner: owner.clone(),
-            position,
-        })
-        .collect()
+fn generic_parameters(
+    ids: &DefinitionContext,
+    module: &ModuleDecl,
+    count: usize,
+) -> Result<Vec<GenericParam<DefinitionId>>, DeclarationError> {
+    let owner = identities::implementation(ids, module.implementations.len())?;
+    Ok((0..count)
+        .map(|position| GenericParam { owner, position })
+        .collect())
 }
 
-pub(super) fn implementations(module: &mut ModuleDecl) {
+pub(super) fn implementations(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     for name in ["Option", "Result", "ControlFlow"] {
-        let parameters = generic_parameters(module, if name == "Option" { 1 } else { 2 });
+        let parameters = generic_parameters(ids, module, if name == "Option" { 1 } else { 2 })?;
         let arguments: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
         let output = arguments[if name == "ControlFlow" { 1 } else { 0 }].clone();
-        let infallible = contracts::enum_type("Infallible", vec![]);
+        let infallible = contracts::enum_type(ids, "Infallible", vec![])?;
         let residual = match name {
-            "Option" => contracts::enum_type(name, vec![infallible]),
-            "Result" => contracts::enum_type(name, vec![infallible, arguments[1].clone()]),
-            _ => contracts::enum_type(name, vec![arguments[0].clone(), infallible]),
+            "Option" => contracts::enum_type(ids, name, vec![infallible])?,
+            "Result" => contracts::enum_type(ids, name, vec![infallible, arguments[1].clone()])?,
+            _ => contracts::enum_type(ids, name, vec![arguments[0].clone(), infallible])?,
         };
-        let mut interface = key::applied(RegistrationTrait::Try, vec![]);
-        interface
-            .associated_types
-            .insert(associated_type_id(&interface.declaration, "Output"), output);
+        let mut interface = key::applied(ids, RegistrationTrait::Try, vec![])?;
         interface.associated_types.insert(
-            associated_type_id(&interface.declaration, "Residual"),
+            identities::associated(ids, &interface.declaration, "Output")?,
+            output,
+        );
+        interface.associated_types.insert(
+            identities::associated(ids, &interface.declaration, "Residual")?,
             residual,
         );
         implement(
+            ids,
             module,
             RegistrationTrait::Try,
             interface,
-            contracts::enum_type(name, arguments),
+            contracts::enum_type(ids, name, arguments)?,
             parameters,
             name,
-        );
+        )?;
 
         let parameters = generic_parameters(
+            ids,
             module,
             if name == "Result" {
                 3
@@ -105,60 +120,66 @@ pub(super) fn implementations(module: &mut ModuleDecl) {
             } else {
                 2
             },
-        );
+        )?;
         let arguments: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
-        let infallible = contracts::enum_type("Infallible", vec![]);
+        let infallible = contracts::enum_type(ids, "Infallible", vec![])?;
         let source = match name {
-            "Option" => contracts::enum_type(name, vec![infallible]),
-            "Result" => contracts::enum_type(name, vec![infallible, arguments[2].clone()]),
-            _ => contracts::enum_type(name, vec![arguments[0].clone(), infallible]),
+            "Option" => contracts::enum_type(ids, name, vec![infallible])?,
+            "Result" => contracts::enum_type(ids, name, vec![infallible, arguments[2].clone()])?,
+            _ => contracts::enum_type(ids, name, vec![arguments[0].clone(), infallible])?,
         };
-        let interface = key::applied(RegistrationTrait::FromResidual, vec![source]);
+        let interface = key::applied(ids, RegistrationTrait::FromResidual, vec![source])?;
         let receiver = contracts::enum_type(
+            ids,
             name,
             arguments[..if name == "Option" { 1 } else { 2 }].to_vec(),
-        );
+        )?;
         implement(
+            ids,
             module,
             RegistrationTrait::FromResidual,
             interface,
             receiver,
             parameters,
             name,
-        );
+        )?;
         if name == "Result" {
-            let interface = key::applied(RegistrationTrait::From, vec![arguments[2].clone()]);
+            let interface = key::applied(ids, RegistrationTrait::From, vec![arguments[2].clone()])?;
             let implementation = module.implementations.last_mut().unwrap();
             let bound = GenericBound {
                 ty: arguments[1].clone(),
                 constraints: vec![Constraint::Trait(interface.clone())],
             };
             implementation.bounds.push(bound.clone());
-            let member = ModuleDecl::method_id(
-                &module.implementation_id(module.implementations.len() - 1),
+            let member = identities::method(
+                ids,
+                &identities::implementation(ids, module.implementations.len() - 1)?,
                 "from_residual",
-            );
+            )?;
             module.callable_requirements.insert(
                 member,
                 vec![NativeCallableRequirement {
                     receiver: arguments[1].clone(),
-                    member: ModuleDecl::method_id(&interface.declaration, "from"),
+                    member: identities::method(ids, &interface.declaration, "from")?,
                     interface,
                     arguments: vec![],
                 }],
             );
         }
     }
+
+    Ok(())
 }
 
 fn implement(
+    ids: &DefinitionContext,
     module: &mut ModuleDecl,
     kind: RegistrationTrait,
-    interface: NominalTy,
-    receiver: Ty,
-    parameters: Vec<GenericParam>,
+    interface: NominalTy<DefinitionId>,
+    receiver: Ty<DefinitionId>,
+    parameters: Vec<GenericParam<DefinitionId>>,
     name: &str,
-) {
+) -> Result<(), DeclarationError> {
     let contract = module
         .traits
         .iter()
@@ -169,16 +190,28 @@ fn implement(
         .methods
         .iter()
         .map(|method| {
-            (
+            Ok((
                 method.name.as_str(),
-                module.definition(
+                identities::definition(
+                    ids,
                     DefinitionKind::Function,
                     &format!("$foundation_propagation_{name}_{}", method.name),
-                ),
-            )
+                )?,
+            ))
         })
-        .collect();
-    module
-        .implement_trait(&contract, interface, receiver, parameters, &bindings)
-        .expect("propagation implementation");
+        .collect::<Result<_, DeclarationError>>()?;
+    module.implement_trait(
+        &contract,
+        ImplDecl {
+            generic_params: parameters,
+            bounds: vec![],
+            trait_type: Some(interface),
+            for_type: receiver,
+            methods: vec![],
+        },
+        &bindings,
+        ids,
+    )?;
+
+    Ok(())
 }

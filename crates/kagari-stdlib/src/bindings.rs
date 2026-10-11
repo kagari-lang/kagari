@@ -10,8 +10,11 @@ mod propagation;
 mod strings;
 mod tasks;
 mod vectors;
-use crate::{catalog, declarations::StandardDeclarations, namespaces};
-use kagari_common::identity::DefinitionKind;
+use crate::{catalog, declarations::StandardDeclarations, identity, namespaces};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, metadata::DefinitionMetadata},
+};
 use kagari_contract::operations::IterOp;
 use kagari_runtime::{
     error::RuntimeError,
@@ -55,18 +58,23 @@ fn build() -> NativeResult<Vec<NativeModule>> {
         .as_ref()
         .map_err(Clone::clone)?;
     catalog::declarations()
+        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
         .into_iter()
         .map(|declaration| build_module(declaration, &language))
         .collect()
 }
 
 fn build_module(
-    declaration: ModuleDecl,
+    declaration: DefinitionMetadata<ModuleDecl>,
     language: &StandardDeclarations,
 ) -> NativeResult<NativeModule> {
     let catalog = language.catalog()?;
     let mut bindings = BTreeMap::new();
-    for function in declaration.native_declarations() {
+    for function in declaration
+        .records()
+        .native_declarations(declaration.definitions())
+        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+    {
         let CallableImplementation::Native(id) = &function.function.implementation else {
             return Err(RuntimeError::metadata_conflict(
                 "invalid foundation binding declaration",
@@ -75,22 +83,32 @@ fn build_module(
         if bindings.contains_key(id) {
             continue;
         }
-        let name = id
-            .path
+        let identity = declaration
+            .definitions()
+            .resolve(*id)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let name = identity
             .last()
             .ok_or_else(|| RuntimeError::metadata_conflict("foundation binding identity"))?
-            .name
-            .as_str();
+            .name;
         if let Some(binding) = strings::binding(name, &catalog)? {
-            bindings.insert(id.clone(), binding);
+            bindings.insert(*id, binding);
             continue;
         }
-        if let Some(binding) = vectors::binding(name, &function)? {
-            bindings.insert(id.clone(), binding);
+        if let Some(binding) = vectors::binding(
+            name,
+            &DefinitionMetadata::checked(
+                declaration.definitions().clone(),
+                function.clone(),
+                &CancellationToken::default(),
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?,
+        )? {
+            bindings.insert(*id, binding);
             continue;
         }
         if let Some(binding) = iterable::binding(name) {
-            bindings.insert(id.clone(), binding);
+            bindings.insert(*id, binding);
             continue;
         }
         let entry: Entry = match name {
@@ -169,7 +187,7 @@ fn build_module(
             })?,
         };
         bindings.insert(
-            id.clone(),
+            *id,
             NativeBinding::new(
                 vec![Codec::Value; function.function.params.len()],
                 Codec::Value,
@@ -177,14 +195,13 @@ fn build_module(
             ),
         );
     }
-    let iterator_module = declaration.identity == namespaces::module("core", "iter");
-    let vector_module = declaration.identity == namespaces::type_owner("Vec");
-    let future_module = declaration.identity == namespaces::module("core", "future");
-    let task_module = declaration.identity == namespaces::module("core", "task");
-    let mut builder = ModuleBuilder::from_declaration(declaration, &catalog, bindings);
+    let iterator_module = declaration.records().identity == namespaces::module("core", "iter");
+    let vector_module = declaration.records().identity == namespaces::type_owner("Vec");
+    let future_module = declaration.records().identity == namespaces::module("core", "future");
+    let task_module = declaration.records().identity == namespaces::module("core", "task");
+    let mut builder = ModuleBuilder::from_declaration(declaration, &catalog, bindings)?;
     if vector_module {
-        let id = ModuleDecl::new(namespaces::type_owner("Vec"))
-            .definition(DefinitionKind::AssociatedType, "Vec");
+        let id = identity::type_id("Vec", DefinitionKind::AssociatedType);
         builder.bind_storage(&catalog.type_reference(&id)?, NativeStorage::sequence(0))?;
     }
     if future_module {
@@ -205,8 +222,7 @@ fn build_module(
             "ZipIterator",
             "ChainIterator",
         ] {
-            let id = ModuleDecl::new(namespaces::type_owner(name))
-                .definition(DefinitionKind::AssociatedType, name);
+            let id = identity::type_id(name, DefinitionKind::AssociatedType);
             builder.bind_storage(&catalog.type_reference(&id)?, iterable::storage())?;
         }
     }

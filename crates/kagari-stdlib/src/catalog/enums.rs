@@ -1,11 +1,18 @@
 //! Library enum declarations use the ordinary nominal authoring model.
-use kagari_common::identity::DefinitionKind;
+use crate::catalog::identities;
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
-    declaration::{TypeDef, TypeDefKind, VariantDef, module::ModuleDecl},
+    declaration::{
+        TypeDef, TypeDefKind, VariantDef,
+        module::{DeclarationError, ModuleDecl},
+    },
     ty::GenericParam,
 };
 
-pub(super) fn declare(module: &mut ModuleDecl) {
+pub(super) fn declare(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
     for (name, parameters, variants, export) in [
         (
             "Option",
@@ -61,14 +68,11 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         ),
         ("Infallible", &[][..], &[][..], false),
     ] {
-        let owner = module.definition(DefinitionKind::Enum, name);
+        let owner = identities::definition(ids, DefinitionKind::Enum, name)?;
         let generic_params: Vec<_> = parameters
             .iter()
             .enumerate()
-            .map(|(position, _)| GenericParam {
-                owner: owner.clone(),
-                position,
-            })
+            .map(|(position, _)| GenericParam { owner, position })
             .collect();
         module.types.push(TypeDef {
             name: name.into(),
@@ -94,4 +98,6 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             .documentation
             .insert(owner, format!("Core library {name} enum."));
     }
+
+    Ok(())
 }

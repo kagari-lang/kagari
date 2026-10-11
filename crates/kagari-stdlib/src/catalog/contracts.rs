@@ -1,20 +1,27 @@
-//! Complete syntax/value contracts, explicitly expressed in Kagari's type model.
-use crate::catalog::{assembly_identity, roles};
-use crate::catalog::{key, key::RegistrationTrait};
-use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, associated_type_id,
-    mapping::{DefinitionMapper, DefinitionRecord},
+//! Complete syntax/value contracts, explicitly expressed in Kagari's scoped type model.
+use crate::catalog::{
+    identities,
+    key::{self, RegistrationTrait},
+    roles,
 };
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    declaration::{AssociatedTypeDef, FnDecl, Param, TraitDef, module::ModuleDecl},
+    declaration::{
+        AssociatedTypeDef, FnDecl, Param, TraitDef,
+        module::{DeclarationError, ModuleDecl},
+    },
     scalar::BuiltinType,
     ty::{Constraint, GenericParam, NominalTy, Ty},
 };
 
-pub(super) fn contract(kind: RegistrationTrait, parameters: &[&str]) -> TraitDef {
-    let owner = key::identity(kind);
-    TraitDef {
+pub(super) fn contract(
+    ids: &DefinitionContext,
+    kind: RegistrationTrait,
+    parameters: &[&str],
+) -> Result<TraitDef<DefinitionId>, DeclarationError> {
+    let owner = key::identity(ids, kind)?;
+    Ok(TraitDef {
         conversion_adapter: None,
         storage_access: None,
         name: kind.name().into(),
@@ -22,36 +29,41 @@ pub(super) fn contract(kind: RegistrationTrait, parameters: &[&str]) -> TraitDef
         generic_params: parameters
             .iter()
             .enumerate()
-            .map(|(position, _)| GenericParam {
-                owner: owner.clone(),
-                position,
-            })
+            .map(|(position, _)| GenericParam { owner, position })
             .collect(),
         bounds: vec![],
         associated_consts: vec![],
         associated_types: vec![],
         methods: vec![],
-    }
+    })
 }
 
-pub(super) fn receiver(kind: RegistrationTrait) -> Ty {
-    Ty::SelfType(key::identity(kind))
+pub(super) fn receiver(
+    ids: &DefinitionContext,
+    kind: RegistrationTrait,
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    Ok(Ty::SelfType(key::identity(ids, kind)?))
 }
 
 pub(super) fn associated(
-    owner: &DefinitionPath,
+    ids: &DefinitionContext,
+    owner: &DefinitionId,
     name: &str,
-    bounds: Vec<Constraint>,
-) -> AssociatedTypeDef {
-    AssociatedTypeDef {
-        declaration: associated_type_id(owner, name),
+    bounds: Vec<Constraint<DefinitionId>>,
+) -> Result<AssociatedTypeDef<DefinitionId>, DeclarationError> {
+    Ok(AssociatedTypeDef {
+        declaration: identities::associated(ids, owner, name)?,
         generic_params: vec![],
         parameter_bounds: vec![],
         bounds,
-    }
+    })
 }
 
-pub(super) fn method(name: &str, params: Vec<Ty>, result: Ty) -> FnDecl {
+pub(super) fn method(
+    name: &str,
+    params: Vec<Ty<DefinitionId>>,
+    result: Ty<DefinitionId>,
+) -> FnDecl<DefinitionId> {
     FnDecl {
         name: name.into(),
         method_policy: MethodPolicy::default(),
@@ -75,74 +87,81 @@ pub(super) fn method(name: &str, params: Vec<Ty>, result: Ty) -> FnDecl {
     }
 }
 
-pub(super) fn enum_type(name: &str, arguments: Vec<Ty>) -> Ty {
-    Ty::Enum(NominalTy {
-        declaration: ModuleDecl::new(assembly_identity()).definition(DefinitionKind::Enum, name),
+pub(super) fn enum_type(
+    ids: &DefinitionContext,
+    name: &str,
+    arguments: Vec<Ty<DefinitionId>>,
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    Ok(Ty::Enum(NominalTy {
+        declaration: identities::definition(ids, DefinitionKind::Enum, name)?,
         arguments,
         associated_types: Default::default(),
-    })
+    }))
 }
 
-pub(super) fn option(item: Ty) -> Ty {
-    enum_type("Option", vec![item])
+pub(super) fn option(
+    ids: &DefinitionContext,
+    item: Ty<DefinitionId>,
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    enum_type(ids, "Option", vec![item])
 }
 
-pub(super) fn unit() -> Ty {
+pub(super) fn unit() -> Ty<DefinitionId> {
     Ty::Builtin(BuiltinType::Unit)
 }
 
-pub(super) fn usize_type() -> Ty {
+pub(super) fn usize_type() -> Ty<DefinitionId> {
     Ty::Builtin(BuiltinType::USize)
 }
 
-pub(super) fn boolean() -> Ty {
+pub(super) fn boolean() -> Ty<DefinitionId> {
     Ty::Builtin(BuiltinType::Bool)
 }
 
-pub(super) fn applied_item(kind: RegistrationTrait, item: Ty) -> NominalTy {
-    let mut applied = key::applied(kind, vec![]);
-    applied
-        .associated_types
-        .insert(associated_type_id(&applied.declaration, "Item"), item);
-    applied
+pub(super) fn applied_item(
+    ids: &DefinitionContext,
+    kind: RegistrationTrait,
+    item: Ty<DefinitionId>,
+) -> Result<NominalTy<DefinitionId>, DeclarationError> {
+    let mut applied = key::applied(ids, kind, vec![])?;
+    applied.associated_types.insert(
+        identities::associated(ids, &applied.declaration, "Item")?,
+        item,
+    );
+    Ok(applied)
 }
 
-pub(super) fn declare(module: &mut ModuleDecl) {
-    module.traits.extend(
-        roles::declarations()
-            .map_identities(&mut DefinitionMapper::new(
-                &mut |id: &DefinitionPath| {
-                    let mut id = id.clone();
-                    id.module = module.identity.clone();
-                    Ok(id)
-                },
-                &Default::default(),
-            ))
-            .expect("foundation assembly identities"),
-    );
-    let mut bounds = contract(RegistrationTrait::RangeBounds, &["T"]);
-    let bound = enum_type("Bound", vec![bounds.generic_params[0].as_type()]);
+pub(super) fn declare(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
+    module.traits.extend(roles::declarations(ids)?);
+    let mut bounds = contract(ids, RegistrationTrait::RangeBounds, &["T"])?;
+    let bound = enum_type(ids, "Bound", vec![bounds.generic_params[0].as_type()])?;
     bounds.methods.extend([
         method(
             "start_bound",
-            vec![receiver(RegistrationTrait::RangeBounds)],
+            vec![receiver(ids, RegistrationTrait::RangeBounds)?],
             bound.clone(),
         ),
         method(
             "end_bound",
-            vec![receiver(RegistrationTrait::RangeBounds)],
+            vec![receiver(ids, RegistrationTrait::RangeBounds)?],
             bound,
         ),
     ]);
     module.traits.push(bounds);
+    Ok(())
 }
 
 /// The concrete growable list type in the assembly; partitioning assigns its owner.
-pub(super) fn vec_type(item: Ty) -> Ty {
-    Ty::NativeObject(NominalTy {
-        declaration: ModuleDecl::new(super::assembly_identity())
-            .definition(DefinitionKind::AssociatedType, "Vec"),
+pub(super) fn vec_type(
+    ids: &DefinitionContext,
+    item: Ty<DefinitionId>,
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    Ok(Ty::NativeObject(NominalTy {
+        declaration: identities::definition(ids, DefinitionKind::AssociatedType, "Vec")?,
         arguments: vec![item],
         associated_types: Default::default(),
-    })
+    }))
 }

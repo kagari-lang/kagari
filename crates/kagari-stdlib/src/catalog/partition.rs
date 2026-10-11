@@ -1,18 +1,29 @@
 //! Publish assembled records under their canonical owners without duplicate declarations.
-use crate::{catalog::assembly_identity, namespaces};
+use crate::{
+    catalog::{assembly_identity, identities},
+    namespaces,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        DefinitionKind, ModuleIdentity,
+        map::DefinitionContext,
         mapping::{DefinitionMapper, DefinitionRecord},
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_types::{
-    declaration::names::{ExportName, NameNamespace},
-    declaration::{FnDecl, module::ModuleDecl},
-    ty::{GenericBound, Ty},
+    declaration::{
+        FnDecl,
+        module::{DeclarationError, ModuleDecl},
+        names::{ExportName, NameNamespace},
+    },
+    ty::{Constraint, GenericBound, Ty},
 };
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    mem,
+};
 
 fn entry<'a>(
     modules: &'a mut BTreeMap<ModuleIdentity, ModuleDecl>,
@@ -74,58 +85,119 @@ fn function_owner(name: &str) -> ModuleIdentity {
     namespaces::module("core", "iter")
 }
 
-fn bounds(bounds: &mut [GenericBound]) {
-    for bound in bounds.iter_mut() {
-        bound.constraints.sort();
-    }
-    bounds.sort_by(|left, right| left.ty.cmp(&right.ty));
+fn bounds(
+    bounds: &mut Vec<GenericBound<DefinitionId>>,
+    definitions: &DefinitionTable,
+) -> Result<(), DeclarationError> {
+    *bounds = GenericBound::normalize(
+        mem::take(bounds),
+        definitions,
+        &CancellationToken::default(),
+    )
+    .map_err(|error| DeclarationError(format!("foundation bounds: {error:?}")))?;
+    Ok(())
 }
 
-fn function(function: &mut FnDecl) {
-    bounds(&mut function.bounds);
+fn function(
+    function: &mut FnDecl<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Result<(), DeclarationError> {
+    bounds(&mut function.bounds, definitions)
 }
 
-pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
+pub(super) fn finish(
+    assembly: ModuleDecl,
+    source: &DefinitionTable,
+) -> Result<(DefinitionContext, Vec<ModuleDecl>), DeclarationError> {
+    let context = DefinitionContext::new().map_err(identities::invalid)?;
     let mut implementations = BTreeMap::new();
     let mut counts = BTreeMap::<ModuleIdentity, u32>::new();
     for (index, implementation) in assembly.implementations.iter().enumerate() {
         let owner = match &implementation.for_type {
             Ty::Enum(nominal) | Ty::NativeObject(nominal)
-                if nominal.declaration.module == assembly.identity =>
+                if source
+                    .resolve(nominal.declaration)
+                    .map_err(identities::invalid)?
+                    .module()
+                    == &assembly.identity =>
             {
-                namespaces::type_owner(&nominal.declaration.path[0].name)
+                namespaces::type_owner(
+                    source
+                        .resolve(nominal.declaration)
+                        .map_err(identities::invalid)?
+                        .segments()
+                        .next()
+                        .expect("nominal root")
+                        .name,
+                )
             }
-            receiver => namespaces::receiver_owner(receiver).expect("foundation receiver owner"),
+            receiver => {
+                namespaces::receiver_owner(receiver, source).expect("foundation receiver owner")
+            }
         };
         let occurrence = counts.entry(owner.clone()).or_default();
         implementations.insert(index as u32, (owner, *occurrence));
         *occurrence += 1;
     }
-    let assembly_id = assembly_identity();
+    let mut references = HashSet::new();
+    let cancel = CancellationToken::default();
+    assembly
+        .visit_definitions(
+            &mut |id| {
+                references.insert(*id);
+                Ok(())
+            },
+            &cancel,
+        )
+        .map_err(identities::invalid)?;
+    let mut identities = HashMap::new();
+    for id in references {
+        let view = source.resolve(id).map_err(identities::invalid)?;
+        if view.module() != &assembly_identity() {
+            return Err(DeclarationError(
+                "foreign foundation assembly identity".into(),
+            ));
+        }
+        let segments = view.segments().collect::<Vec<_>>();
+        let root = segments
+            .first()
+            .ok_or_else(|| DeclarationError("missing foundation declaration segment".into()))?;
+        let (module, occurrence) = match root.kind {
+            DefinitionKind::Trait => (namespaces::trait_owner(root.name), root.occurrence),
+            DefinitionKind::AssociatedType | DefinitionKind::Enum => {
+                (namespaces::type_owner(root.name), root.occurrence)
+            }
+            DefinitionKind::Function => (function_owner(root.name), root.occurrence),
+            DefinitionKind::Impl => implementations
+                .get(&root.occurrence)
+                .cloned()
+                .ok_or_else(|| DeclarationError("unknown foundation implementation".into()))?,
+            _ => return Err(DeclarationError("unsupported foundation identity".into())),
+        };
+        let mut target = context.intern_root(&module).map_err(identities::invalid)?;
+        for (index, segment) in segments.iter().enumerate() {
+            target = context
+                .intern_child(
+                    target,
+                    segment.kind,
+                    segment.name,
+                    if index == 0 {
+                        occurrence
+                    } else {
+                        segment.occurrence
+                    },
+                )
+                .map_err(identities::invalid)?;
+        }
+        identities.insert(id, target);
+    }
     let mapped = assembly
         .map_identities(&mut DefinitionMapper::new(
-            &mut |id: &DefinitionPath| {
-                assert_eq!(id.module, assembly_id);
-                let mut id = id.clone();
-                let root = &mut id.path[0];
-                id.module = match root.kind {
-                    DefinitionKind::Trait => namespaces::trait_owner(&root.name),
-                    DefinitionKind::AssociatedType | DefinitionKind::Enum => {
-                        namespaces::type_owner(&root.name)
-                    }
-                    DefinitionKind::Function => function_owner(&root.name),
-                    DefinitionKind::Impl => {
-                        let (owner, occurrence) = &implementations[&root.occurrence];
-                        root.occurrence = *occurrence;
-                        owner.clone()
-                    }
-                    _ => panic!("unsupported foundation definition"),
-                };
-                Ok(id)
-            },
-            &CancellationToken::default(),
+            &mut |id| Ok(identities[id]),
+            &cancel,
         ))
-        .expect("foundation ownership mapping");
+        .map_err(identities::invalid)?;
+    let mapped_definitions = context.snapshot();
     let mut modules = BTreeMap::new();
     for ty in mapped.types {
         entry(&mut modules, &namespaces::type_owner(&ty.name))
@@ -153,23 +225,53 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
             .push(function);
     }
     for id in mapped.private_functions {
-        entry(&mut modules, &id.module).private_functions.insert(id);
+        entry(
+            &mut modules,
+            mapped_definitions
+                .resolve(id)
+                .map_err(identities::invalid)?
+                .module(),
+        )
+        .private_functions
+        .insert(id);
     }
     for (id, doc) in mapped.documentation {
-        entry(&mut modules, &id.module)
-            .documentation
-            .insert(id, doc);
+        entry(
+            &mut modules,
+            mapped_definitions
+                .resolve(id)
+                .map_err(identities::invalid)?
+                .module(),
+        )
+        .documentation
+        .insert(id, doc);
     }
     for (id, calls) in mapped.callable_requirements {
-        entry(&mut modules, &id.module)
-            .callable_requirements
-            .insert(id, calls);
+        entry(
+            &mut modules,
+            mapped_definitions
+                .resolve(id)
+                .map_err(identities::invalid)?
+                .module(),
+        )
+        .callable_requirements
+        .insert(id, calls);
     }
     for (id, result) in mapped.concrete_results {
-        entry(&mut modules, &id.module)
-            .concrete_results
-            .insert(id, result);
+        entry(
+            &mut modules,
+            mapped_definitions
+                .resolve(id)
+                .map_err(identities::invalid)?
+                .module(),
+        )
+        .concrete_results
+        .insert(id, result);
     }
+    for module in modules.values() {
+        module.collect_definitions(&context)?;
+    }
+    let definitions = context.snapshot();
     // std exposes the same declarations, while canonical definitions remain in core/alloc.
     let owners: Vec<_> = modules
         .values()
@@ -184,14 +286,14 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         for item in &owner.traits {
             facade.exports.insert(
                 ExportName::new(NameNamespace::Type, item.name.clone()),
-                owner.definition(DefinitionKind::Trait, &item.name),
+                owner.definition(DefinitionKind::Trait, &item.name, &definitions)?,
             );
         }
         for ty in &owner.types {
             let kind = ty.kind.definition_kind();
             facade.exports.insert(
                 ExportName::new(NameNamespace::Type, ty.name.clone()),
-                owner.definition(kind, &ty.name),
+                owner.definition(kind, &ty.name, &definitions)?,
             );
         }
     }
@@ -221,7 +323,11 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
     ] {
         prelude.exports.insert(
             ExportName::new(NameNamespace::Type, name),
-            ModuleDecl::new(namespaces::trait_owner(name)).definition(DefinitionKind::Trait, name),
+            ModuleDecl::new(namespaces::trait_owner(name)).definition(
+                DefinitionKind::Trait,
+                name,
+                &definitions,
+            )?,
         );
     }
     for (name, kind) in [
@@ -236,7 +342,7 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
     ] {
         prelude.exports.insert(
             ExportName::new(NameNamespace::Type, name),
-            ModuleDecl::new(namespaces::type_owner(name)).definition(kind, name),
+            ModuleDecl::new(namespaces::type_owner(name)).definition(kind, name, &definitions)?,
         );
     }
     for (owner, variant) in [
@@ -245,56 +351,62 @@ pub(super) fn finish(assembly: ModuleDecl) -> Vec<ModuleDecl> {
         ("Result", "Ok"),
         ("Result", "Err"),
     ] {
-        let mut id =
-            ModuleDecl::new(namespaces::type_owner(owner)).definition(DefinitionKind::Enum, owner);
-        id.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Variant,
-            name: variant.into(),
-            occurrence: 0,
-        });
+        let owner_id = ModuleDecl::new(namespaces::type_owner(owner)).definition(
+            DefinitionKind::Enum,
+            owner,
+            &definitions,
+        )?;
+        let id = ModuleDecl::variant_id(owner_id, variant, &definitions)?;
         prelude
             .exports
             .insert(ExportName::new(NameNamespace::Value, variant), id);
     }
     for module in modules.values_mut() {
-        // Changing owned paths changes canonical constraint ordering too.
+        // Publication changes owner identities; restore canonical semantic ordering.
         for ty in &mut module.types {
-            bounds(&mut ty.bounds);
+            bounds(&mut ty.bounds, &definitions)?;
         }
         for item in &mut module.traits {
-            bounds(&mut item.bounds);
+            bounds(&mut item.bounds, &definitions)?;
             for member in &mut item.associated_types {
-                member.bounds.sort();
+                member.bounds =
+                    Constraint::normalize(mem::take(&mut member.bounds), &definitions, &cancel)
+                        .map_err(|error| {
+                            DeclarationError(format!("foundation associated bounds: {error:?}"))
+                        })?;
             }
             for method in &mut item.methods {
-                function(method);
+                function(method, &definitions)?;
             }
         }
         for item in &mut module.implementations {
-            bounds(&mut item.bounds);
+            bounds(&mut item.bounds, &definitions)?;
             for method in &mut item.methods {
-                function(method);
+                function(method, &definitions)?;
             }
         }
         for item in &mut module.functions {
-            function(item);
+            function(item, &definitions)?;
         }
         let mut dependencies = Vec::new();
         module
             .visit_definitions(
                 &mut |id| {
-                    if id.module != module.identity {
-                        dependencies.push(id.module.clone());
+                    let owner = definitions.resolve(*id)?.module();
+                    if owner != &module.identity {
+                        dependencies.push(owner.clone());
                     }
                     Ok(())
                 },
                 &Default::default(),
             )
-            .unwrap();
+            .map_err(identities::invalid)?;
         module.dependencies.extend(dependencies);
-        module
-            .validate(&namespaces::receiver_owner)
-            .unwrap_or_else(|error| panic!("{}: {error}", module.identity));
+        let definitions = module.collect_definitions(&context)?;
+        module.validate(
+            &|ty| namespaces::receiver_owner(ty, &definitions),
+            &definitions,
+        )?;
     }
-    modules.into_values().collect()
+    Ok((context, modules.into_values().collect()))
 }

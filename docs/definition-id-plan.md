@@ -993,3 +993,75 @@ provider callers, unit fixtures, standard declarations, source collection/HIR,
 specialization, identity-representation generic removal and final documentation cleanup
 are still required. No workspace/backend sweep or performance measurement was run;
 exhaustive validation remains CI scope. This checkpoint does not complete SI02–SI06.
+
+### SI02 scoped standard-library construction and publication
+
+The foundation inventory now builds DefinitionId types, traits, associated outputs,
+functions, defaults, requirements and implementations in an explicit transient
+construction context. Registration identity helpers return errors on table/resource
+failure. The private RegistrationTrait classifier borrows an explicit table; removed
+its identity-representation generic and optional-table adapter. Default/iterator
+projection matching compares scoped associated-member IDs. Removed the separate
+path-based bound-merging implementations in the default-template builders.
+
+Partitioning still assigns the existing canonical core/alloc/std owners and per-owner
+implementation occurrences. It visits the referenced ID set once, registers the target
+ancestor chains in a separate publication context and remaps the complete records,
+including map keys. It does not export source identities to paths. Implicit type,
+variant, trait and implementation member identities are collected before read-only
+publication queries. Associated constraints and generic bounds share the scoped
+canonical normalizer; numeric allocation order does not become constraint order.
+The extracted `Constraint::normalize` also retains cancellation and scope checks.
+
+`catalog::declarations` and `shared` return fallible scoped metadata. StandardDeclarations
+retains those immutable roots and propagates construction errors through its catalog
+and declaration accessors. Native bindings receive the exact scoped declaration;
+selected-call tokens retain its owner snapshot. Public String/Vec/enum lookup helpers
+remain exact external identity queries, while obsolete path-shaped `identity::applied`
+and `identity::enum_type` semantic constructors were removed. Standard typed collection
+constructors use the runtime Type root's shared composition/adoption logic. Canonical
+enum reading compares borrowed identity views while the actual layout remains pinned.
+
+A source-free check exposed an existing documentation classification defect: enum
+names were queried as AssociatedType identities. Path construction had silently made
+those wrong documentation keys; scoped read-only lookup correctly rejected them.
+Documentation now uses `TypeDefKind::definition_kind` for all types and checked member
+queries. It does not intern missing names as a repair. Construction errors include their
+owning inventory/publication step so future failures remain actionable.
+
+Validation and remaining scope:
+
+- `cargo build -p kagari-stdlib --lib --message-format=json` passes in the workspace
+  development profile with default parallelism/target. `cargo clippy -p kagari-stdlib
+  --lib -- -D warnings` passes after focused import, Copy-ID and parameter-grouping
+  repairs. The implementation helper now takes the existing cohesive ImplDecl instead
+  of growing a separate argument list. Machine-applicable Clippy edits were reviewed;
+  final ordinary Clippy, rather than fix-mode exit status, is the acceptance check.
+- `cargo test -p kagari-types --lib declaration::verify::scoped_tests:: --no-fail-fast`
+  passes all four selected tests. This exercises canonical ordering, repeated-bound
+  merging, invalid/cancelled scopes, complete trait parents, Native binders and changed
+  implementations after the shared constraint-normalizer extraction.
+- Moved the existing declaration-storage admission test from runtime `native_builder`
+  into `crates/kagari-stdlib/tests/registration.rs`; its missing payload, wrong payload,
+  duplicate binding and foreign-module assertions remain. Added one distinct foundation
+  publication case: independently constructed catalogs have different scopes but exact
+  type/trait/impl/export/entry contracts after import; the complete actual foundation
+  installs independently into two runtimes and rejects duplicate installation.
+- Both tracked registration tests pass through the previously documented direct-test
+  method, using `cargo build -p kagari-stdlib --lib --message-format=json` and exact
+  emitted runtime/common/stdlib rlibs with `rustc --edition=2024 --test` and
+  `-L dependency=target/debug/deps`. Their first run failed at the wrong enum documentation
+  query; the same selected cases passed after that repair. No assertions were weakened.
+- Normal Cargo integration remains blocked by the carried HIR/MIR migration described
+  in the preceding checkpoint. Do not rerun those unchanged failures just for another
+  transcript. Source/HIR documentation-example analysis, remaining SDK consumers and
+  fixtures, Native internal unit fixtures, reflection/specialization and complete CI
+  feature/backend validation remain pending. The new fallible catalog and typed-input
+  API callers must migrate with those owners; no compatibility bridge is retained.
+
+Production scopes/imports, root ownership, fallible identity registration, complete
+remapping, canonical ordering, publication points and changed Rust file sizes were
+reviewed. Structure passes 1048 Rust files without violations/exceptions; formatting
+and diff checks pass. No full workspace suite, performance measurement, ABI/version
+bump or generated-fixture sweep was run. SI02 still includes source registration and
+remaining call-site integration; SI03–SI06 and final documentation cleanup remain open.

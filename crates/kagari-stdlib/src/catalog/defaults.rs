@@ -1,39 +1,40 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
-use crate::catalog::contracts::{applied_item, method, unit, vec_type};
-use crate::catalog::{enums, key, key::RegistrationTrait};
-use kagari_common::identity::{DefinitionKind, DefinitionPath, associated_type_id};
+use crate::catalog::{
+    contracts::{applied_item, method, unit, vec_type},
+    enums, identities,
+    key::{self, RegistrationTrait},
+};
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
     callable::CallableImplementation,
     collection::CollectionAccess,
     declaration::{
         FnDecl, TypeDef, TypeDefKind,
-        module::{ImplDecl, ModuleDecl},
+        module::{DeclarationError, ImplDecl, ModuleDecl},
         native::{NativeStorageLayout, NativeTypeConstructor},
         requirement::NativeCallableRequirement,
     },
     range::RangeKind,
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
+    ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 
 fn define_type(
+    ids: &DefinitionContext,
     module: &mut ModuleDecl,
     name: &str,
     layout: NativeTypeConstructor,
     parameters: &[&str],
     hash_key: bool,
-) {
-    let owner = module.definition(layout.declaration_kind(), name);
+) -> Result<(), DeclarationError> {
+    let owner = identities::definition(ids, layout.declaration_kind(), name)?;
     let generic_params: Vec<_> = parameters
         .iter()
         .enumerate()
-        .map(|(position, _)| GenericParam {
-            owner: owner.clone(),
-            position,
-        })
+        .map(|(position, _)| GenericParam { owner, position })
         .collect();
     let bounds = if hash_key {
-        hash_bounds(generic_params[0].as_type())
+        hash_bounds(ids, generic_params[0].as_type())?
     } else {
         vec![]
     };
@@ -48,48 +49,56 @@ fn define_type(
     module
         .documentation
         .insert(owner, format!("Language-owned {name} type."));
+
+    Ok(())
 }
 
-pub(super) fn hash_bounds(key: Ty) -> Vec<GenericBound> {
-    vec![GenericBound {
+pub(super) fn hash_bounds(
+    ids: &DefinitionContext,
+    key: Ty<DefinitionId>,
+) -> Result<Vec<GenericBound<DefinitionId>>, DeclarationError> {
+    Ok(vec![GenericBound {
         ty: key,
         constraints: vec![
-            Constraint::Trait(key::applied(RegistrationTrait::Eq, vec![])),
-            Constraint::Trait(key::applied(RegistrationTrait::Hash, vec![])),
+            Constraint::Trait(key::applied(ids, RegistrationTrait::Eq, vec![])?),
+            Constraint::Trait(key::applied(ids, RegistrationTrait::Hash, vec![])?),
             // The selected equality member belongs to PartialEq. Carry its
             // inherited obligation explicitly in the portable callback template.
-            Constraint::Trait(key::applied(RegistrationTrait::PartialEq, vec![])),
+            Constraint::Trait(key::applied(ids, RegistrationTrait::PartialEq, vec![])?),
         ],
-    }]
+    }])
 }
 
-fn parameters(owner: &DefinitionPath, names: &[&str]) -> Vec<GenericParam> {
+fn parameters(owner: &DefinitionId, names: &[&str]) -> Vec<GenericParam<DefinitionId>> {
     names
         .iter()
         .enumerate()
         .map(|(position, _)| GenericParam {
-            owner: owner.clone(),
+            owner: *owner,
             position,
         })
         .collect()
 }
 
-fn binding(module: &ModuleDecl, family: &str, name: &str) -> DefinitionPath {
-    module.definition(
+fn binding(
+    ids: &DefinitionContext,
+    family: &str,
+    name: &str,
+) -> Result<DefinitionId, DeclarationError> {
+    identities::definition(
+        ids,
         DefinitionKind::Function,
         &format!("$foundation_{family}_{name}"),
     )
 }
 
 fn implement(
+    ids: &DefinitionContext,
     module: &mut ModuleDecl,
     kind: RegistrationTrait,
-    generic_params: Vec<GenericParam>,
-    applied: NominalTy,
-    receiver: Ty,
-    bounds: Vec<GenericBound>,
+    implementation: ImplDecl,
     family: &str,
-) {
+) -> Result<(), DeclarationError> {
     let contract = module
         .traits
         .iter()
@@ -106,22 +115,21 @@ fn implement(
                     CallableImplementation::NativeDefault(_)
                 )
         })
-        .map(|method| (method.name.as_str(), binding(module, family, &method.name)))
-        .collect();
-    module
-        .implement_trait(&contract, applied, receiver, generic_params, &bindings)
-        .unwrap_or_else(|error| panic!("{} foundation implementation: {error}", kind.name()));
-    module
-        .implementations
-        .last_mut()
-        .expect("new implementation")
-        .bounds = bounds;
-    declare_key_calls(module, family);
+        .map(|method| Ok((method.name.as_str(), binding(ids, family, &method.name)?)))
+        .collect::<Result<_, DeclarationError>>()?;
+    module.implement_trait(&contract, implementation, &bindings, ids)?;
+    declare_key_calls(ids, module, family)?;
+
+    Ok(())
 }
 
-fn declare_key_calls(module: &mut ModuleDecl, family: &str) {
+fn declare_key_calls(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+    family: &str,
+) -> Result<(), DeclarationError> {
     if !matches!(family, "map" | "set") {
-        return;
+        return Ok(());
     }
     let index = module.implementations.len() - 1;
     let implementation = &module.implementations[index];
@@ -132,16 +140,16 @@ fn declare_key_calls(module: &mut ModuleDecl, family: &str) {
     ]
     .into_iter()
     .map(|(protocol, name)| {
-        let interface = key::applied(protocol, vec![]);
-        NativeCallableRequirement {
+        let interface = key::applied(ids, protocol, vec![])?;
+        Ok(NativeCallableRequirement {
             receiver: key.clone(),
-            member: ModuleDecl::method_id(&interface.declaration, name),
+            member: identities::method(ids, &interface.declaration, name)?,
             interface,
             arguments: vec![],
-        }
+        })
     })
-    .collect();
-    let owner = module.implementation_id(index);
+    .collect::<Result<_, DeclarationError>>()?;
+    let owner = identities::implementation(ids, index)?;
     let methods: Vec<_> = implementation
         .methods
         .iter()
@@ -158,18 +166,30 @@ fn declare_key_calls(module: &mut ModuleDecl, family: &str) {
                     | "remove"
             )
         })
-        .map(|method| ModuleDecl::method_id(&owner, &method.name))
-        .collect();
+        .map(|method| identities::method(ids, &owner, &method.name))
+        .collect::<Result<_, _>>()?;
     for method in methods {
         module
             .callable_requirements
             .insert(method, requirements.clone());
     }
+
+    Ok(())
 }
 
-pub(super) fn declare(module: &mut ModuleDecl) {
-    define_type(module, "String", NativeTypeConstructor::String, &[], false);
-    enums::declare(module);
+pub(super) fn declare(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
+    define_type(
+        ids,
+        module,
+        "String",
+        NativeTypeConstructor::String,
+        &[],
+        false,
+    )?;
+    enums::declare(ids, module)?;
     for kind in [
         RangeKind::Exclusive,
         RangeKind::Inclusive,
@@ -180,15 +200,16 @@ pub(super) fn declare(module: &mut ModuleDecl) {
     ] {
         let names: &[&str] = if kind == RangeKind::Full { &[] } else { &["T"] };
         define_type(
+            ids,
             module,
             kind.name(),
             NativeTypeConstructor::Range(kind),
             names,
             false,
-        );
-        range_implementations(module, kind);
+        )?;
+        range_implementations(ids, module, kind)?;
     }
-    let owner = module.definition(DefinitionKind::AssociatedType, "Vec");
+    let owner = identities::definition(ids, DefinitionKind::AssociatedType, "Vec")?;
     module.types.push(TypeDef {
         name: "Vec".into(),
         kind: TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
@@ -198,20 +219,29 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         variants: vec![],
     });
     define_type(
+        ids,
         module,
         "HashMap",
         NativeTypeConstructor::Map,
         &["K", "V"],
         true,
-    );
-    define_type(module, "HashSet", NativeTypeConstructor::Set, &["T"], true);
+    )?;
     define_type(
+        ids,
+        module,
+        "HashSet",
+        NativeTypeConstructor::Set,
+        &["T"],
+        true,
+    )?;
+    define_type(
+        ids,
         module,
         "CollectionCursor",
         NativeTypeConstructor::Iter,
         &["T"],
         false,
-    );
+    )?;
     for (family, names, protocols) in [
         (
             "array",
@@ -249,7 +279,7 @@ pub(super) fn declare(module: &mut ModuleDecl) {
         ("cursor", &["T"][..], &[RegistrationTrait::Iterator][..]),
     ] {
         for kind in protocols {
-            let owner = module.implementation_id(module.implementations.len());
+            let owner = identities::implementation(ids, module.implementations.len())?;
             let params = parameters(&owner, names);
             let items: Vec<_> = params.iter().map(GenericParam::as_type).collect();
             let item = if family == "map" {
@@ -257,41 +287,59 @@ pub(super) fn declare(module: &mut ModuleDecl) {
             } else {
                 items[0].clone()
             };
-            let receiver = storage(family, &items);
+            let receiver = storage(ids, family, &items)?;
             let mut applied = if kind.iteration() {
-                applied_item(*kind, item.clone())
+                applied_item(ids, *kind, item.clone())?
             } else if *kind == RegistrationTrait::Index {
-                key::applied(*kind, vec![Ty::Builtin(BuiltinType::USize)])
+                key::applied(ids, *kind, vec![Ty::Builtin(BuiltinType::USize)])?
             } else {
-                key::applied(*kind, items.clone())
+                key::applied(ids, *kind, items.clone())?
             };
             if *kind == RegistrationTrait::Index {
                 applied.associated_types.insert(
-                    associated_type_id(&applied.declaration, "Output"),
+                    identities::associated(ids, &applied.declaration, "Output")?,
                     item.clone(),
                 );
             }
             if *kind == RegistrationTrait::Iterable {
                 applied.associated_types.insert(
-                    associated_type_id(&applied.declaration, "Iter"),
+                    identities::associated(ids, &applied.declaration, "Iter")?,
                     Ty::Iter(Box::new(item)),
                 );
             }
             let bounds = if matches!(family, "map" | "set") {
-                hash_bounds(items[0].clone())
+                hash_bounds(ids, items[0].clone())?
             } else {
                 vec![]
             };
-            implement(module, *kind, params, applied, receiver, bounds, family);
+            implement(
+                ids,
+                module,
+                *kind,
+                ImplDecl {
+                    generic_params: params,
+                    bounds,
+                    trait_type: Some(applied),
+                    for_type: receiver,
+                    methods: vec![],
+                },
+                family,
+            )?;
         }
         if family != "cursor" {
-            inherent(module, family, names);
+            inherent(ids, module, family, names)?;
         }
     }
+
+    Ok(())
 }
 
-fn range_implementations(module: &mut ModuleDecl, kind: RangeKind) {
-    let owner = module.implementation_id(module.implementations.len());
+fn range_implementations(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+    kind: RangeKind,
+) -> Result<(), DeclarationError> {
+    let owner = identities::implementation(ids, module.implementations.len())?;
     let params = parameters(&owner, &["T"]);
     let item = params[0].as_type();
     let layout = if kind == RangeKind::Full {
@@ -300,16 +348,24 @@ fn range_implementations(module: &mut ModuleDecl, kind: RangeKind) {
         item.clone()
     };
     implement(
+        ids,
         module,
         RegistrationTrait::RangeBounds,
-        params,
-        key::applied(RegistrationTrait::RangeBounds, vec![item]),
-        Ty::Range(Box::new(layout), kind),
-        vec![],
+        ImplDecl {
+            generic_params: params,
+            bounds: vec![],
+            trait_type: Some(key::applied(
+                ids,
+                RegistrationTrait::RangeBounds,
+                vec![item],
+            )?),
+            for_type: Ty::Range(Box::new(layout), kind),
+            methods: vec![],
+        },
         kind.name(),
-    );
+    )?;
     if !kind.has_start() {
-        return;
+        return Ok(());
     }
     for scalar in [
         BuiltinType::I8,
@@ -324,27 +380,37 @@ fn range_implementations(module: &mut ModuleDecl, kind: RangeKind) {
         BuiltinType::USize,
     ] {
         let item = Ty::Builtin(scalar);
-        let mut applied = applied_item(RegistrationTrait::Iterable, item.clone());
+        let mut applied = applied_item(ids, RegistrationTrait::Iterable, item.clone())?;
         applied.associated_types.insert(
-            associated_type_id(&applied.declaration, "Iter"),
+            identities::associated(ids, &applied.declaration, "Iter")?,
             Ty::Iter(Box::new(item.clone())),
         );
         implement(
+            ids,
             module,
             RegistrationTrait::Iterable,
-            vec![],
-            applied,
-            Ty::Range(Box::new(item), kind),
-            vec![],
+            ImplDecl {
+                generic_params: vec![],
+                bounds: vec![],
+                trait_type: Some(applied),
+                for_type: Ty::Range(Box::new(item), kind),
+                methods: vec![],
+            },
             kind.name(),
-        );
+        )?;
     }
+
+    Ok(())
 }
 
-fn storage(family: &str, items: &[Ty]) -> Ty {
-    match family {
+fn storage(
+    ids: &DefinitionContext,
+    family: &str,
+    items: &[Ty<DefinitionId>],
+) -> Result<Ty<DefinitionId>, DeclarationError> {
+    Ok(match family {
         "array" => Ty::Array(Box::new(items[0].clone())),
-        "list" => vec_type(items[0].clone()),
+        "list" => vec_type(ids, items[0].clone())?,
         "map" => Ty::Map {
             key: Box::new(items[0].clone()),
             value: Box::new(items[1].clone()),
@@ -353,22 +419,27 @@ fn storage(family: &str, items: &[Ty]) -> Ty {
         "set" => Ty::Set(Box::new(items[0].clone()), CollectionAccess::Mutable),
         "cursor" => Ty::Iter(Box::new(items[0].clone())),
         _ => unreachable!("foundation family"),
-    }
+    })
 }
 
-fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
-    let owner = module.implementation_id(module.implementations.len());
+fn inherent(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+    family: &str,
+    names: &[&str],
+) -> Result<(), DeclarationError> {
+    let owner = identities::implementation(ids, module.implementations.len())?;
     let parameters = parameters(&owner, names);
     let items: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
-    let receiver = storage(family, &items);
+    let receiver = storage(ids, family, &items)?;
     let bounds = if matches!(family, "map" | "set") {
-        hash_bounds(items[0].clone())
+        hash_bounds(ids, items[0].clone())?
     } else {
         vec![]
     };
     let mut new = method("new", vec![], receiver.clone());
-    new.implementation = CallableImplementation::Native(binding(module, family, "new"));
-    let mut methods: Vec<FnDecl> = if family == "array" {
+    new.implementation = CallableImplementation::Native(binding(ids, family, "new")?);
+    let mut methods: Vec<FnDecl<DefinitionId>> = if family == "array" {
         [
             method(
                 "len",
@@ -384,10 +455,10 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
         .into_iter()
         .map(|mut method| {
             method.implementation =
-                CallableImplementation::Native(binding(module, family, &method.name));
-            method
+                CallableImplementation::Native(binding(ids, family, &method.name)?);
+            Ok(method)
         })
-        .collect()
+        .collect::<Result<_, DeclarationError>>()?
     } else {
         vec![new]
     };
@@ -398,7 +469,7 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
             receiver.clone(),
         );
         from.params[0].name = "array".into();
-        from.implementation = CallableImplementation::Native(binding(module, family, "from"));
+        from.implementation = CallableImplementation::Native(binding(ids, family, "from")?);
         methods.push(from);
     }
     // Concrete mutators preserve fluent returns; capability methods return unit.
@@ -421,7 +492,7 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
             .find(|contract| contract.name == kind.name())
             .expect("mutable contract")
             .clone();
-        let contract_owner = key::identity(kind);
+        let contract_owner = key::identity(ids, kind)?;
         let mut substitution = TypeSubstitution::for_owner(&contract_owner, &items);
         substitution.bind_receiver(&contract_owner, &receiver);
         for mut method in contract.methods {
@@ -440,10 +511,10 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
             }
             method.return_type = receiver.clone();
             method.implementation = CallableImplementation::Native(binding(
-                module,
+                ids,
                 family,
                 &format!("{}_fluent", method.name),
-            ));
+            )?);
             methods.push(method);
         }
     }
@@ -458,5 +529,7 @@ fn inherent(module: &mut ModuleDecl, family: &str, names: &[&str]) {
         for_type: receiver,
         methods,
     });
-    declare_key_calls(module, family);
+    declare_key_calls(ids, module, family)?;
+
+    Ok(())
 }

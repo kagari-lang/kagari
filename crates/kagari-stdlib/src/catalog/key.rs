@@ -1,13 +1,16 @@
 //! Private keys for the Rust foundation registration inventory. Generic
 //! consumers use declared identities/capabilities, never this enum.
+use crate::catalog::{assembly_identity, identities};
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, reference::DefinitionReference,
-    table::DefinitionTable,
+    DefinitionKind,
+    map::DefinitionContext,
+    table::{DefinitionId, DefinitionTable},
 };
-use {
-    crate::catalog::assembly_identity,
-    kagari_types::ty::{NominalTy, Ty},
+use kagari_types::{
+    declaration::module::DeclarationError,
+    ty::{NominalTy, Ty},
 };
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum RegistrationTrait {
     List,
@@ -53,15 +56,11 @@ pub(super) enum RegistrationTrait {
     Product,
 }
 
-pub(super) fn identity(protocol: RegistrationTrait) -> DefinitionPath {
-    DefinitionPath {
-        module: assembly_identity(),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: protocol.name().into(),
-            occurrence: 0,
-        }],
-    }
+pub(super) fn identity(
+    ids: &DefinitionContext,
+    protocol: RegistrationTrait,
+) -> Result<DefinitionId, DeclarationError> {
+    identities::definition(ids, DefinitionKind::Trait, protocol.name())
 }
 
 impl RegistrationTrait {
@@ -153,15 +152,8 @@ impl RegistrationTrait {
         }
     }
 
-    pub(super) fn from_id(id: &DefinitionPath) -> Option<Self> {
-        Self::from_reference(id, None)
-    }
-
-    pub(super) fn from_reference<I: DefinitionReference>(
-        id: &I,
-        table: Option<&DefinitionTable>,
-    ) -> Option<Self> {
-        let view = id.describe(table).ok()?;
+    pub(super) fn from_id(id: &DefinitionId, table: &DefinitionTable) -> Option<Self> {
+        let view = table.resolve(*id).ok()?;
         if view.module() != &assembly_identity() || view.segments().count() != 1 {
             return None;
         }
@@ -177,10 +169,14 @@ impl RegistrationTrait {
     }
 }
 
-pub(super) fn applied(kind: RegistrationTrait, arguments: Vec<Ty>) -> NominalTy {
-    NominalTy {
-        declaration: identity(kind),
+pub(super) fn applied(
+    ids: &DefinitionContext,
+    kind: RegistrationTrait,
+    arguments: Vec<Ty<DefinitionId>>,
+) -> Result<NominalTy<DefinitionId>, DeclarationError> {
+    Ok(NominalTy {
+        declaration: identity(ids, kind)?,
         arguments,
         associated_types: Default::default(),
-    }
+    })
 }

@@ -1,5 +1,8 @@
 //! Canonical declaration ownership and public package spelling of the bundled library.
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    ModuleIdentity, PackageId,
+    table::{DefinitionId, DefinitionTable},
+};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 pub fn module(package: &str, path: &str) -> ModuleIdentity {
@@ -65,20 +68,25 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
     }
 }
 
-pub fn receiver_owner(ty: &Ty) -> Option<ModuleIdentity> {
+pub fn receiver_owner(
+    ty: &Ty<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Option<ModuleIdentity> {
     Some(match ty {
-        Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
-            nominal.declaration.module.clone()
-        }
+        Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => definitions
+            .resolve(nominal.declaration)
+            .ok()?
+            .module()
+            .clone(),
         Ty::Builtin(BuiltinType::String) => type_owner("String"),
         Ty::Builtin(_) => module("core", "num"),
         Ty::Array(..) => module("core", "array"),
         Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),
         Ty::Iter(_) => module("core", "iter"),
         Ty::Trait(interface)
-            if interface
-                .declaration
-                .path
+            if definitions
+                .resolve(interface.declaration)
+                .ok()?
                 .last()
                 .is_some_and(|member| member.name == "Iterator") =>
         {
