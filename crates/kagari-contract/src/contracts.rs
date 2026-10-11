@@ -5,6 +5,7 @@ use crate::{
     standard::RuntimePrimitive,
 };
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::host_interface::HostFunctionDeclaration;
 
 mod intrinsics;
@@ -85,10 +86,11 @@ pub fn verify_runtime_helper_call(
 /// guard independently checks its consumed storage and result shape.
 pub fn verify_native_call(
     dst: Option<ValueType>,
-    import: &NativeImport,
+    import: &NativeImport<DefinitionId>,
     args: &[ValueType],
+    definitions: &DefinitionTable,
 ) -> Result<(), ContractError> {
-    if !import.structurally_valid() || import.generic.is_some() {
+    if !import.structurally_valid(definitions) || import.generic.is_some() {
         return Err(ContractError::InvalidOperation {
             reason: "invalid provider native import",
         });
@@ -111,11 +113,12 @@ pub fn verify_native_call(
 
 pub fn verify_host_call(
     dst: Option<ValueType>,
-    declaration: &HostFunctionDeclaration,
+    declaration: &HostFunctionDeclaration<DefinitionId>,
     args: &[ValueType],
+    definitions: &DefinitionTable,
 ) -> Result<(), ContractError> {
     declaration
-        .validate()
+        .validate(definitions)
         .map_err(|_| ContractError::InvalidOperation {
             reason: "invalid host declaration",
         })?;

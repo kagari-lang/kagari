@@ -1,4 +1,4 @@
-//! Explicit adoption boundary for the remaining path-based linked proof owner.
+//! Linked proofs borrow scoped native declarations directly from their catalog.
 use crate::{error::RuntimeError, native::catalog::DeclarationCatalog};
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::types::proofs::{ProofCatalog, implementation::Implementation};
@@ -6,23 +6,7 @@ use kagari_types::ty::{Constraint, Ty};
 
 impl DeclarationCatalog {
     pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {
-        // The linked proof owner is still path-based until the remainder of
-        // SI02 migrates it. Project only its explicit inputs at this boundary.
-        let implementations = self
-            .implementations
-            .iter()
-            .map(|(id, record)| Ok((id, self.paths(record)?)))
-            .collect::<Result<Vec<_>, RuntimeError>>()?;
-        let traits = self
-            .traits
-            .iter()
-            .map(|(id, record)| Ok((id, self.paths(record)?)))
-            .collect::<Result<Vec<_>, RuntimeError>>()?;
-        let declarations = self
-            .declarations
-            .values()
-            .map(|record| self.paths(record))
-            .collect::<Result<Vec<_>, _>>()?;
+        let implementations = self.implementations.entries().collect::<Vec<_>>();
         let catalog = ProofCatalog::new(
             implementations
                 .iter()
@@ -33,8 +17,9 @@ impl DeclarationCatalog {
                 .collect(),
             vec![],
             [],
-            traits.iter().map(|(id, contract)| (id.clone(), contract)),
-            declarations.iter(),
+            self.traits.entries(),
+            self.declarations.values(),
+            self.types.context(),
             &CancellationToken::default(),
         )
         .map_err(|_| {
@@ -42,7 +27,7 @@ impl DeclarationCatalog {
                 "native template defaults or selected calls differ from their declared contracts",
             )
         })?;
-        for declaration in declarations.iter() {
+        for declaration in self.declarations.values() {
             if let Some(receiver) = &declaration.concrete_result {
                 let Ty::Trait(interface) = &declaration.function.return_type else {
                     return Err(RuntimeError::metadata_conflict(

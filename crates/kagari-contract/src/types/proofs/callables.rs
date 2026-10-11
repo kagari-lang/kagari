@@ -1,7 +1,6 @@
 //! Recheck a concrete trait-member selection against carried implementation facts.
-use crate::callable::witness::is_generic_member;
 use crate::{
-    callable::witness::SharedMethodWitness,
+    callable::witness::{SharedMethodWitness, is_generic_member},
     effects::EffectSet,
     native_import::{
         callables::{NativeCallableApplication, NativeCallableOrigin},
@@ -14,7 +13,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPathSegment},
+    identity::{DefinitionKind, table::DefinitionId},
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -29,9 +28,9 @@ use kagari_types::{
 impl ProofCatalog<'_> {
     pub fn native_result_matches(
         &self,
-        selected: &NativeResultAdapter,
-        result: &Ty,
-        assumptions: &[GenericBound],
+        selected: &NativeResultAdapter<DefinitionId>,
+        result: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let Some(table) = self
@@ -74,9 +73,9 @@ impl ProofCatalog<'_> {
 
     pub fn shared_method_matches(
         &self,
-        selected: &SharedMethodWitness,
-        parameters: &[GenericParam],
-        assumptions: &[GenericBound],
+        selected: &SharedMethodWitness<DefinitionId>,
+        parameters: &[GenericParam<DefinitionId>],
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let required = &selected.requirement;
@@ -116,15 +115,21 @@ impl ProofCatalog<'_> {
                 return Ok(false);
             }
         }
-        let Some(member) = required.member.path.last() else {
+        let Some(member) = self
+            .definitions
+            .resolve(required.member)
+            .ok()
+            .and_then(|view| view.last())
+        else {
             return Ok(false);
         };
         Ok(table
             .method_in(
-                &member.name,
+                member.name,
                 &selected.implementation.arguments,
                 self.trait_contract(&required.interface.declaration),
                 parameters,
+                &self.definitions,
                 cancel,
             )?
             .is_some_and(|method| {
@@ -133,16 +138,19 @@ impl ProofCatalog<'_> {
             }))
     }
 
-    pub fn callable_requirement_valid(&self, requirement: &NativeCallableRequirement) -> bool {
+    pub fn callable_requirement_valid(
+        &self,
+        requirement: &NativeCallableRequirement<DefinitionId>,
+    ) -> bool {
         self.contracts
             .get(&requirement.interface.declaration)
             .is_some_and(|contract| {
                 contract.generic_params.len() == requirement.interface.arguments.len()
                     && contract.methods.iter().any(|method| {
-                        requirement
-                            .member
-                            .path
-                            .last()
+                        self.definitions
+                            .resolve(requirement.member)
+                            .ok()
+                            .and_then(|view| view.last())
                             .is_some_and(|member| member.name == method.name)
                             && method.generic_params.len() == requirement.arguments.len()
                     })
@@ -151,14 +159,19 @@ impl ProofCatalog<'_> {
 
     pub fn select_callable(
         &self,
-        requirement: &NativeCallableRequirement,
+        requirement: &NativeCallableRequirement<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<Option<NativeCallableApplication>, TypeTransformError> {
-        let mut parent = requirement.member.clone();
-        let Some(member) = parent.path.pop() else {
+    ) -> Result<Option<NativeCallableApplication<DefinitionId>>, TypeTransformError> {
+        let Some(member) = self
+            .definitions
+            .resolve(requirement.member)
+            .ok()
+            .and_then(|view| view.last())
+        else {
             return Ok(None);
         };
-        if parent != requirement.interface.declaration
+        if self.definitions.parent(requirement.member)
+            != Ok(Some(requirement.interface.declaration))
             || member.kind != DefinitionKind::Method
             || member.occurrence != 0
             || !self.callable_requirement_valid(requirement)
@@ -175,6 +188,7 @@ impl ProofCatalog<'_> {
                         table
                             .interface()
                             .and_then(|interface| self.trait_contract(&interface.declaration)),
+                        &self.definitions,
                     )
                     .ok_or(TypeTransformError::InvalidContract)?,
                 &requirement.interface,
@@ -202,11 +216,12 @@ impl ProofCatalog<'_> {
                 return Ok(None);
             }
             let Some(method) = table.method(
-                &member.name,
+                member.name,
                 &arguments,
                 self.contracts
                     .get(&requirement.interface.declaration)
                     .copied(),
+                &self.definitions,
                 cancel,
             )?
             else {
@@ -227,12 +242,6 @@ impl ProofCatalog<'_> {
                 }
             }
             let normalize = |ty| self.normalize(&substitution.apply(ty, cancel)?, cancel);
-            let mut declaration = table.declaration().clone();
-            declaration.path.push(DefinitionPathSegment {
-                kind: DefinitionKind::Method,
-                name: member.name.clone(),
-                occurrence: 0,
-            });
             let signature = Signature {
                 params: method
                     .params
@@ -254,6 +263,10 @@ impl ProofCatalog<'_> {
                 }
                 (resolved.instance, resolved.implementation)
             } else {
+                let declaration = self
+                    .definitions
+                    .lookup_child(*table.declaration(), DefinitionKind::Method, member.name, 0)
+                    .ok_or(TypeTransformError::InvalidContract)?;
                 (
                     ConcreteFunctionIdentity {
                         declaration,

@@ -7,8 +7,9 @@ use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, ModuleIdentity, reference::DefinitionReference,
-        table::DefinitionTable,
+        DefinitionKind, DefinitionPath, ModuleIdentity,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_types::{
@@ -224,13 +225,20 @@ impl<I: DefinitionReference> InterfaceTable<I> {
 /// checking the interface identity and selected method slot.
 pub fn interface_method_types(
     owner: &ModuleIdentity,
-    public_items: &[PublicItem],
-    trait_contracts: &[TraitContract],
-    interface: &NominalTy,
+    public_items: &[PublicItem<DefinitionId>],
+    trait_contracts: &[TraitContract<DefinitionId>],
+    interface: &NominalTy<DefinitionId>,
     slot: usize,
+    definitions: &DefinitionTable,
 ) -> Option<(Vec<ValueType>, ValueType)> {
-    let (params, result) =
-        interface_method_semantics(owner, public_items, trait_contracts, interface, slot)?;
+    let (params, result) = interface_method_semantics(
+        owner,
+        public_items,
+        trait_contracts,
+        interface,
+        slot,
+        definitions,
+    )?;
     Some((
         params.iter().map(semantic_representation).collect(),
         semantic_representation(&result),
@@ -239,15 +247,26 @@ pub fn interface_method_types(
 
 pub fn interface_method_semantics(
     owner: &ModuleIdentity,
-    public_items: &[PublicItem],
-    trait_contracts: &[TraitContract],
-    interface: &NominalTy,
+    public_items: &[PublicItem<DefinitionId>],
+    trait_contracts: &[TraitContract<DefinitionId>],
+    interface: &NominalTy<DefinitionId>,
     slot: usize,
-) -> Option<(Vec<Ty>, Ty)> {
-    if interface.declaration.module != *owner {
+    definitions: &DefinitionTable,
+) -> Option<(Vec<Ty<DefinitionId>>, Ty<DefinitionId>)> {
+    if definitions
+        .resolve(interface.declaration)
+        .map(|view| view.module())
+        != Ok(owner)
+    {
         return None;
     }
-    let contract = trait_contract(owner, public_items, trait_contracts, &interface.declaration)?;
+    let contract = trait_contract_in(
+        Some(definitions),
+        owner,
+        public_items,
+        trait_contracts,
+        &interface.declaration,
+    )?;
     let call = InterfaceCallContract {
         normalizations: vec![],
         receiver: None,
@@ -257,7 +276,7 @@ pub fn interface_method_semantics(
         arguments: vec![],
     };
     let signature = call
-        .signature(contract, &CancellationToken::default())
+        .signature(contract, &CancellationToken::default(), definitions)
         .ok()?;
     if !signature
         .params

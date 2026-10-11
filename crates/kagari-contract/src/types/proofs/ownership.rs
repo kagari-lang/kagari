@@ -2,10 +2,7 @@ use crate::{
     language::primitive as intrinsic,
     types::proofs::{Budget, ProofCatalog, implementation::Implementation},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{ModuleIdentity, mapping::DefinitionMappingError, metadata::scope_record},
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_types::{
     declaration::{conversion::ConversionAdapter, ownership::ReceiverOwners},
     language::Protocol,
@@ -23,12 +20,14 @@ impl ProofCatalog<'_> {
         for host in &self.hosts {
             for implementation in &host.trait_implementations {
                 budget.step(0)?;
-                if let Some(kind) = Protocol::from_id(&implementation.trait_id) {
+                if let Some(kind) =
+                    Protocol::from_reference(&implementation.trait_id, Some(&self.definitions))
+                {
                     if kind.equality_protocol() || !kind.host_implementable() {
                         return Ok(false);
                     }
                     if kind.iteration()
-                        && self.iteration_conflict(kind, &Ty::Host(host.id.clone()), &budget)?
+                        && self.iteration_conflict(kind, &Ty::Host(host.id), &budget)?
                     {
                         return Ok(false);
                     }
@@ -47,7 +46,7 @@ impl ProofCatalog<'_> {
     fn iteration_conflict(
         &self,
         kind: Protocol,
-        receiver: &Ty,
+        receiver: &Ty<DefinitionId>,
         budget: &Budget<'_>,
     ) -> Result<bool, TypeTransformError> {
         let other = if kind == Protocol::Iterator {
@@ -58,7 +57,8 @@ impl ProofCatalog<'_> {
         for table in &self.implementations {
             budget.step(0)?;
             if let Some(applied) = table.interface()
-                && Protocol::from_id(&applied.declaration) == Some(other)
+                && Protocol::from_reference(&applied.declaration, Some(&self.definitions))
+                    == Some(other)
                 && overlapping(table.receiver(), receiver)
             {
                 return Ok(true);
@@ -67,8 +67,9 @@ impl ProofCatalog<'_> {
         for host in &self.hosts {
             for implementation in &host.trait_implementations {
                 budget.step(0)?;
-                if Protocol::from_id(&implementation.trait_id) == Some(other)
-                    && *receiver == Ty::Host(host.id.clone())
+                if Protocol::from_reference(&implementation.trait_id, Some(&self.definitions))
+                    == Some(other)
+                    && *receiver == Ty::Host(host.id)
                 {
                     return Ok(true);
                 }
@@ -92,11 +93,11 @@ impl ProofCatalog<'_> {
         {
             return Ok(match table.receiver() {
                 Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
-                    nominal.declaration.module == table.declaration().module
+                    self.module(nominal.declaration)? == self.module(*table.declaration())?
                 }
                 Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => {
-                    receiver_owner(owners, table.receiver(), budget.cancel)?.as_ref()
-                        == Some(&table.declaration().module)
+                    owners.owner(table.receiver(), &self.definitions).as_ref()
+                        == Some(self.module(*table.declaration())?)
                 }
                 _ => false,
             });
@@ -104,7 +105,7 @@ impl ProofCatalog<'_> {
         let adapter = self
             .trait_contract(&interface.declaration)
             .and_then(|contract| contract.conversion_adapter.as_ref());
-        let kind = Protocol::from_id(&interface.declaration);
+        let kind = Protocol::from_reference(&interface.declaration, Some(&self.definitions));
         if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
             return Ok(false);
         }
@@ -131,12 +132,12 @@ impl ProofCatalog<'_> {
             {
                 return Ok(false);
             }
-            let owner = &table.declaration().module;
-            if interface.declaration.module == *owner {
+            let owner = self.module(*table.declaration())?;
+            if self.module(interface.declaration)? == owner {
                 return Ok(true);
             }
             for ty in iter::once(table.receiver()).chain(&interface.arguments) {
-                if receiver_owner(owners, ty, budget.cancel)?.as_ref() == Some(owner) {
+                if owners.owner(ty, &self.definitions).as_ref() == Some(owner) {
                     return Ok(true);
                 }
             }
@@ -154,12 +155,10 @@ impl ProofCatalog<'_> {
         let (Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal)) =
             table.receiver()
         else {
-            return Ok(
-                receiver_owner(owners, table.receiver(), budget.cancel)?.as_ref()
-                    == Some(&table.declaration().module),
-            );
+            return Ok(owners.owner(table.receiver(), &self.definitions).as_ref()
+                == Some(self.module(*table.declaration())?));
         };
-        if nominal.declaration.module != table.declaration().module {
+        if self.module(nominal.declaration)? != self.module(*table.declaration())? {
             return Ok(false);
         }
         if !kind.equality_protocol() {
@@ -171,7 +170,7 @@ impl ProofCatalog<'_> {
             }
             // All nested checks share the override audit's work/cancellation budget.
             if self.explicit(
-                &intrinsic::applied(required, vec![]),
+                &intrinsic::applied(required, vec![], &self.definitions)?,
                 table.receiver(),
                 table.bounds(),
                 &mut Default::default(),
@@ -186,21 +185,7 @@ impl ProofCatalog<'_> {
     }
 }
 
-// The linked proof records still use authoring identities until SI04. Adopt at
-// this caller boundary; the receiver ownership algorithm only accepts scoped IDs.
-fn receiver_owner(
-    owners: &ReceiverOwners,
-    receiver: &Ty,
-    cancel: &CancellationToken,
-) -> Result<Option<ModuleIdentity>, TypeTransformError> {
-    let receiver = scope_record(receiver, cancel).map_err(|error| match error {
-        DefinitionMappingError::Cancelled => TypeTransformError::Cancelled,
-        _ => TypeTransformError::InvalidContract,
-    })?;
-    Ok(owners.owner(receiver.records(), receiver.definitions()))
-}
-
-fn overlapping(left: &Ty, right: &Ty) -> bool {
+fn overlapping(left: &Ty<DefinitionId>, right: &Ty<DefinitionId>) -> bool {
     if left == right {
         return true;
     }
@@ -225,7 +210,7 @@ fn overlapping(left: &Ty, right: &Ty) -> bool {
     }
 }
 
-fn occurs_in_constructor(parameter: &Ty, ty: &Ty) -> bool {
+fn occurs_in_constructor(parameter: &Ty<DefinitionId>, ty: &Ty<DefinitionId>) -> bool {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         if ty == parameter {

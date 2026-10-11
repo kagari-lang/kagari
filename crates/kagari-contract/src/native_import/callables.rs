@@ -5,7 +5,9 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, associated_type_id, reference::DefinitionReference},
+    identity::{
+        DefinitionKind, DefinitionPath, reference::DefinitionReference, table::DefinitionId,
+    },
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -16,10 +18,11 @@ use kagari_types::{
 use serde::{Deserialize, Serialize};
 
 pub fn normalize_requirement(
-    requirement: &NativeCallableRequirement,
+    requirement: &NativeCallableRequirement<DefinitionId>,
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
-) -> Result<NativeCallableRequirement, TypeTransformError> {
+) -> Result<NativeCallableRequirement<DefinitionId>, TypeTransformError> {
+    let definitions = catalog.definitions();
     let Ty::Trait(mut interface) =
         catalog.normalize(&Ty::Trait(requirement.interface.clone()), cancel)?
     else {
@@ -27,21 +30,30 @@ pub fn normalize_requirement(
     };
     let receiver = catalog.normalize(&requirement.receiver, cancel)?;
     if matches!(receiver, Ty::Trait(_))
-        && Protocol::from_id(&interface.declaration).is_some_and(Protocol::iteration)
+        && Protocol::from_reference(&interface.declaration, Some(definitions))
+            .is_some_and(Protocol::iteration)
     {
         for name in ["Item", "Iter"] {
             if name == "Iter"
-                && Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+                && Protocol::from_reference(&interface.declaration, Some(definitions))
+                    != Some(Protocol::Iterable)
             {
                 continue;
             }
-            let member = associated_type_id(&interface.declaration, name);
+            let member = definitions
+                .lookup_child(
+                    interface.declaration,
+                    DefinitionKind::AssociatedType,
+                    name,
+                    0,
+                )
+                .ok_or(TypeTransformError::InvalidContract)?;
             if !interface.associated_types.contains_key(&member) {
                 let output = catalog.normalize(
                     &Ty::Projection {
                         receiver: Box::new(receiver.clone()),
                         interface: Box::new(interface.clone()),
-                        member: member.clone(),
+                        member,
                         arguments: vec![],
                     },
                     cancel,
@@ -53,7 +65,7 @@ pub fn normalize_requirement(
     Ok(NativeCallableRequirement {
         receiver,
         interface,
-        member: requirement.member.clone(),
+        member: requirement.member,
         arguments: requirement
             .arguments
             .iter()

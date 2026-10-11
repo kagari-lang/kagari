@@ -1,8 +1,8 @@
 use crate::{
     language::primitive as intrinsic,
-    types::proofs::{Budget, ProofCatalog, host_application, satisfies},
+    types::proofs::{Budget, ProofCatalog, host_application, satisfies, validate_references},
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_types::{
     language::Protocol,
     ty::{
@@ -15,7 +15,7 @@ use kagari_types::{
 };
 use std::collections::HashSet;
 
-type ProofKey = (NominalTy, Ty);
+type ProofKey = (NominalTy<DefinitionId>, Ty<DefinitionId>);
 
 #[derive(Default)]
 pub(super) struct Search {
@@ -26,9 +26,9 @@ pub(super) struct Search {
 impl ProofCatalog<'_> {
     pub fn holds(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-        assumptions: &[GenericBound],
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         self.preflight(interface, receiver, assumptions, cancel)?;
@@ -44,11 +44,18 @@ impl ProofCatalog<'_> {
 
     pub fn constraints_hold(
         &self,
-        receiver: &Ty,
-        constraints: &[Constraint],
-        assumptions: &[GenericBound],
+        receiver: &Ty<DefinitionId>,
+        constraints: &[Constraint<DefinitionId>],
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
+        validate_references(receiver, &self.definitions, cancel)?;
+        for bound in assumptions {
+            validate_references(bound, &self.definitions, cancel)?;
+        }
+        for constraint in constraints {
+            validate_references(constraint, &self.definitions, cancel)?;
+        }
         let copier = TypeSubstitution::default();
         copier.apply_bounds(assumptions, cancel)?;
         if constraints.len() > MAX_TYPE_NODES {
@@ -79,8 +86,8 @@ impl ProofCatalog<'_> {
 
     pub fn has_explicit_implementation(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         self.preflight(interface, receiver, &[], cancel)?;
@@ -96,9 +103,9 @@ impl ProofCatalog<'_> {
 
     pub fn implementation_count(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-        assumptions: &[GenericBound],
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<usize, TypeTransformError> {
         self.preflight(interface, receiver, assumptions, cancel)?;
@@ -120,11 +127,16 @@ impl ProofCatalog<'_> {
 
     fn preflight(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-        assumptions: &[GenericBound],
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<(), TypeTransformError> {
+        validate_references(interface, &self.definitions, cancel)?;
+        validate_references(receiver, &self.definitions, cancel)?;
+        for bound in assumptions {
+            validate_references(bound, &self.definitions, cancel)?;
+        }
         let copier = TypeSubstitution::default();
         copier.apply_nominal(interface, cancel)?;
         copier.apply(receiver, cancel)?;
@@ -137,9 +149,9 @@ impl ProofCatalog<'_> {
     // asserting any particular concrete implementation for it.
     fn assumption_satisfies(
         &self,
-        available: &NominalTy,
-        required: &NominalTy,
-        receiver: &Ty,
+        available: &NominalTy<DefinitionId>,
+        required: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
     ) -> bool {
         available.declaration == required.declaration
             && available.arguments == required.arguments
@@ -178,9 +190,9 @@ impl ProofCatalog<'_> {
 
     pub(super) fn prove(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-        assumptions: &[GenericBound],
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
@@ -265,7 +277,7 @@ impl ProofCatalog<'_> {
                                 != &Ty::Projection {
                                     receiver: Box::new(receiver.clone()),
                                     interface: Box::new(interface.clone()),
-                                    member: member.clone(),
+                                    member: *member,
                                     arguments: arguments.to_vec(),
                                 }
                         }))
@@ -285,9 +297,13 @@ impl ProofCatalog<'_> {
             }
         }
         if let Ty::Trait(view) = receiver
-            && inheritance::interface_views(view, receiver, budget.cancel, &|id| {
-                self.contracts.get(id).copied()
-            })?
+            && inheritance::interface_views(
+                view,
+                receiver,
+                budget.cancel,
+                &self.definitions,
+                &|id| self.contracts.get(id).copied(),
+            )?
             .iter()
             .any(|parent| satisfies(parent, interface))
         {
@@ -314,9 +330,9 @@ impl ProofCatalog<'_> {
 
     pub(super) fn explicit(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-        assumptions: &[GenericBound],
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
@@ -336,6 +352,7 @@ impl ProofCatalog<'_> {
                             implementation
                                 .interface()
                                 .and_then(|interface| self.trait_contract(&interface.declaration)),
+                            &self.definitions,
                         )
                         .ok_or(TypeTransformError::InvalidContract)?,
                     interface,
@@ -385,9 +402,9 @@ impl ProofCatalog<'_> {
 
     fn fallback(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-        assumptions: &[GenericBound],
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
@@ -397,10 +414,12 @@ impl ProofCatalog<'_> {
             receiver,
             budget.cancel,
             self.trait_contract(&interface.declaration),
+            &self.definitions,
         )? {
             return self.obligations(&requirements, assumptions, search, budget, depth + 1);
         }
-        let Some(kind) = Protocol::from_id(&interface.declaration) else {
+        let Some(kind) = Protocol::from_reference(&interface.declaration, Some(&self.definitions))
+        else {
             return Ok(false);
         };
         if !interface.arguments.is_empty() || !interface.associated_types.is_empty() {
@@ -411,8 +430,8 @@ impl ProofCatalog<'_> {
 
     pub(super) fn obligations(
         &self,
-        obligations: &[GenericBound],
-        assumptions: &[GenericBound],
+        obligations: &[GenericBound<DefinitionId>],
+        assumptions: &[GenericBound<DefinitionId>],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,

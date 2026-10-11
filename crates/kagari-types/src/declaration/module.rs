@@ -527,11 +527,14 @@ impl ModuleDecl {
                 return Err(fail());
             }
             let mut method_names = HashSet::new();
-            if !native_bounds_valid(
-                &implementation.bounds,
-                &implementation.generic_params,
-                &CancellationToken::default(),
-            ) {
+            if !scope_record(implementation, &cancel).is_ok_and(|scoped| {
+                native_bounds_valid(
+                    &scoped.records().bounds,
+                    &scoped.records().generic_params,
+                    &cancel,
+                    scoped.definitions(),
+                )
+            }) {
                 return Err(fail());
             }
             for method in &implementation.methods {
@@ -547,11 +550,14 @@ impl ModuleDecl {
                             parameter.owner != Self::method_id(&owner, &method.name)
                                 || parameter.position != position
                         })
-                    || !native_bounds_valid(
-                        &method.bounds,
-                        &method.generic_params,
-                        &CancellationToken::default(),
-                    )
+                    || !scope_record(method, &cancel).is_ok_and(|scoped| {
+                        native_bounds_valid(
+                            &scoped.records().bounds,
+                            &scoped.records().generic_params,
+                            &cancel,
+                            scoped.definitions(),
+                        )
+                    })
                 {
                     return Err(fail());
                 }

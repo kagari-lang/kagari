@@ -206,12 +206,14 @@ impl ConversionAdapter {
             && method.params[0].ty == input
             && method.return_type == output
     }
+}
 
+impl<I: DefinitionReference> ConversionAdapter<I> {
     pub fn reverse_requirement(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-    ) -> Option<(NominalTy, Ty)> {
+        interface: &NominalTy<I>,
+        receiver: &Ty<I>,
+    ) -> Option<(NominalTy<I>, Ty<I>)> {
         let Self::Reverse { origin, error, .. } = self else {
             return None;
         };
@@ -235,10 +237,10 @@ impl ConversionAdapter {
 
     pub fn associated_output(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
-        member: &DefinitionPath,
-    ) -> Option<Ty> {
+        interface: &NominalTy<I>,
+        receiver: &Ty<I>,
+        member: &I,
+    ) -> Option<Ty<I>> {
         let Self::Reverse {
             origin,
             error: Some((source, target)),

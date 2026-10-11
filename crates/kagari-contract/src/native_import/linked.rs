@@ -2,7 +2,7 @@ use crate::{
     native_import::{NativeImport, callables::normalize_requirement},
     types::proofs::ProofCatalog,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::NativeDeclaration,
@@ -10,16 +10,16 @@ use kagari_types::{
 };
 
 pub(super) fn matches_declaration(
-    import: &NativeImport,
-    declaration: &NativeDeclaration,
+    import: &NativeImport<DefinitionId>,
+    declaration: &NativeDeclaration<DefinitionId>,
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
     let function = &declaration.function;
     if import.instance.declaration != declaration.declaration
-        || function.implementation != CallableImplementation::Native(import.binding.clone())
+        || function.implementation != CallableImplementation::Native(import.binding)
         || import.instance.arguments.len() != function.generic_params.len()
-        || !import.structurally_valid()
+        || !import.structurally_valid(catalog.definitions())
     {
         return Ok(false);
     }

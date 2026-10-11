@@ -362,18 +362,26 @@ fn bounds_valid_in(
 }
 
 pub fn native_bounds_valid(
-    bounds: &[GenericBound],
-    parameters: &[GenericParam],
+    bounds: &[GenericBound<DefinitionId>],
+    parameters: &[GenericParam<DefinitionId>],
     cancel: &CancellationToken,
+    table: &DefinitionTable,
 ) -> bool {
     let params = parameters
         .iter()
-        .map(|param| (param.owner.clone(), param.position))
+        .map(|param| (param.owner, param.position))
         .collect();
     bounds.len() <= 4096
         && parameters.len() <= 4096
         && bounds.iter().all(|bound| bound.constraints.len() <= 4096)
-        && bounds_valid(bounds, &params, cancel)
+        && bounds_with(
+            bounds,
+            &|ty| type_valid_in(ty, &params, None, cancel, Some(table)),
+            &|left, right| {
+                left.canonical_cmp(right, table, cancel)
+                    .is_ok_and(|order| order.is_lt())
+            },
+        )
 }
 
 fn constraints_valid(

@@ -9,11 +9,15 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference},
+    identity::{
+        DefinitionPath,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::verify::types_in_scope,
+    declaration::verify::types_in_scope_in,
     ty::{
         GenericBound, GenericParam, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -36,13 +40,14 @@ pub struct SharedCall<I = DefinitionPath> {
     pub operations: Vec<OperationWitness<I>>,
 }
 
-impl SharedCall {
+impl SharedCall<DefinitionId> {
     pub fn structurally_valid(
         &self,
-        parameters: &[GenericParam],
+        parameters: &[GenericParam<DefinitionId>],
         cancel: &CancellationToken,
+        definitions: &DefinitionTable,
     ) -> bool {
-        self.instance.declaration.within_path_limit()
+        definitions.resolve(self.instance.declaration).is_ok()
             && self.instance.arguments.len() <= 4096
             && self.instance.arguments.iter().all(Ty::within_wire_limits)
             && !self.arguments.is_empty()
@@ -53,31 +58,33 @@ impl SharedCall {
                 self.implementation,
                 CallableImplementation::Script | CallableImplementation::Native(_)
             )
-            && types_in_scope(
+            && types_in_scope_in(
                 self.arguments
                     .iter()
                     .chain(&self.signature.params)
                     .chain([&self.signature.result]),
                 parameters,
                 cancel,
+                Some(definitions),
             )
             && self
                 .operations
                 .iter()
-                .all(|operation| operation.structurally_valid(parameters))
+                .all(|operation| operation.structurally_valid(parameters, definitions))
     }
 
     pub fn check(
         &self,
-        body: &GenericBody,
-        signature: &Signature,
+        body: &GenericBody<DefinitionId>,
+        signature: &Signature<DefinitionId>,
         catalog: &ProofCatalog<'_>,
-        parameters: &[GenericParam],
-        assumptions: &[GenericBound],
+        parameters: &[GenericParam<DefinitionId>],
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
-        if !self.structurally_valid(parameters, cancel)
-            || !body.valid(&self.instance, cancel)
+        let definitions = catalog.definitions();
+        if !self.structurally_valid(parameters, cancel, definitions)
+            || !body.valid(&self.instance, cancel, definitions)
             || body.parameters.len() != self.arguments.len()
         {
             return Ok(false);
@@ -100,10 +107,15 @@ impl SharedCall {
                 return Ok(false);
             }
         }
-        let required = required_operations(&bounds, &|id| catalog.trait_contract(id), cancel)?
-            .iter()
-            .map(|required| normalize_requirement(required, catalog, cancel))
-            .collect::<Result<Vec<_>, _>>()?;
+        let required = required_operations(
+            &bounds,
+            &|id| catalog.trait_contract(id),
+            cancel,
+            definitions,
+        )?
+        .iter()
+        .map(|required| normalize_requirement(required, catalog, cancel))
+        .collect::<Result<Vec<_>, _>>()?;
         if required.len() != self.operations.len()
             || required.iter().any(|required| {
                 self.operations
@@ -123,7 +135,10 @@ impl SharedCall {
         Ok(true)
     }
 
-    fn substitution<'a>(&'a self, body: &'a GenericBody) -> TypeSubstitution<'a> {
+    fn substitution<'a>(
+        &'a self,
+        body: &'a GenericBody<DefinitionId>,
+    ) -> TypeSubstitution<'a, DefinitionId> {
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in body.parameters.iter().zip(&self.arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);

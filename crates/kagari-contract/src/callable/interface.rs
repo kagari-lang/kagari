@@ -3,18 +3,19 @@ use crate::callable::witness::{OperationWitness, required_operations};
 use crate::{
     native_import::callables::normalize_requirement,
     representation::semantic_representation,
-    types::{PublicItem, TraitContract, proofs::ProofCatalog, trait_contract},
+    types::{PublicItem, TraitContract, proofs::ProofCatalog, trait_contract_in},
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, ModuleIdentity, reference::DefinitionReference},
+    identity::{
+        DefinitionKind, DefinitionPath, ModuleIdentity,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
-    declaration::{
-        TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement,
-        verify::types_in_scope,
-    },
+    declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope_in},
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
@@ -60,17 +61,28 @@ pub struct InterfaceMethodSignature<I = DefinitionPath> {
     pub bounds: Vec<GenericBound<I>>,
 }
 
-impl InterfaceMethodSignature {
-    pub fn types_valid(&self, parameters: &[GenericParam], cancel: &CancellationToken) -> bool {
-        types_in_scope(self.params.iter().chain([&self.result]), parameters, cancel)
+impl InterfaceMethodSignature<DefinitionId> {
+    pub fn types_valid(
+        &self,
+        parameters: &[GenericParam<DefinitionId>],
+        cancel: &CancellationToken,
+        definitions: &DefinitionTable,
+    ) -> bool {
+        types_in_scope_in(
+            self.params.iter().chain([&self.result]),
+            parameters,
+            cancel,
+            Some(definitions),
+        )
     }
 
     pub fn physical_types(
         &self,
-        parameters: &[GenericParam],
+        parameters: &[GenericParam<DefinitionId>],
         cancel: &CancellationToken,
+        definitions: &DefinitionTable,
     ) -> Option<(Vec<ValueType>, ValueType)> {
-        self.types_valid(parameters, cancel).then(|| {
+        self.types_valid(parameters, cancel, definitions).then(|| {
             (
                 self.params.iter().map(semantic_representation).collect(),
                 semantic_representation(&self.result),
@@ -79,20 +91,31 @@ impl InterfaceMethodSignature {
     }
 }
 
-impl InterfaceCallContract {
+impl InterfaceCallContract<DefinitionId> {
     pub fn signature_in(
         &self,
         owner: &ModuleIdentity,
-        items: &[PublicItem],
-        contracts: &[TraitContract],
+        items: &[PublicItem<DefinitionId>],
+        contracts: &[TraitContract<DefinitionId>],
         cancel: &CancellationToken,
-    ) -> Result<InterfaceMethodSignature, TypeTransformError> {
-        if self.interface.declaration.module != *owner {
+        definitions: &DefinitionTable,
+    ) -> Result<InterfaceMethodSignature<DefinitionId>, TypeTransformError> {
+        if definitions
+            .resolve(self.interface.declaration)
+            .map(|view| view.module())
+            != Ok(owner)
+        {
             return Err(TypeTransformError::InvalidContract);
         }
-        let contract = trait_contract(owner, items, contracts, &self.interface.declaration)
-            .ok_or(TypeTransformError::InvalidContract)?;
-        self.signature(contract, cancel)
+        let contract = trait_contract_in(
+            Some(definitions),
+            owner,
+            items,
+            contracts,
+            &self.interface.declaration,
+        )
+        .ok_or(TypeTransformError::InvalidContract)?;
+        self.signature(contract, cancel, definitions)
     }
 
     /// Apply a validated declaration without resolving any implementation. A
@@ -100,10 +123,11 @@ impl InterfaceCallContract {
     /// and required bounds independently of this substitution.
     pub fn signature(
         &self,
-        contract: &TraitDef,
+        contract: &TraitDef<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceMethodSignature, TypeTransformError> {
-        let mut signature = self.declared_signature(contract, cancel)?;
+        definitions: &DefinitionTable,
+    ) -> Result<InterfaceMethodSignature<DefinitionId>, TypeTransformError> {
+        let mut signature = self.declared_signature(contract, cancel, definitions)?;
         if self.normalizations.len() > 4096 {
             return Err(TypeTransformError::LimitExceeded);
         }
@@ -134,17 +158,22 @@ impl InterfaceCallContract {
 
     fn declared_signature(
         &self,
-        contract: &TraitDef,
+        contract: &TraitDef<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceMethodSignature, TypeTransformError> {
+        definitions: &DefinitionTable,
+    ) -> Result<InterfaceMethodSignature<DefinitionId>, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         let invalid = TypeTransformError::InvalidContract;
         let interface = &self.interface;
-        let path = &interface.declaration.path;
-        if path.len() != 1
-            || path[0].kind != DefinitionKind::Trait
-            || path[0].occurrence != 0
-            || path[0].name != contract.name
+        let view = definitions
+            .resolve(interface.declaration)
+            .map_err(|_| invalid)?;
+        if view.segments().count() != 1
+            || !view.last().is_some_and(|part| {
+                part.kind == DefinitionKind::Trait
+                    && part.occurrence == 0
+                    && part.name == contract.name
+            })
             || interface.arguments.len() != contract.generic_params.len()
             || !contract.associated_consts.is_empty()
             || contract
@@ -170,7 +199,7 @@ impl InterfaceCallContract {
             .get(self.method_slot as usize)
             .ok_or(invalid)?;
         let has_receiver = method.params.first().is_some_and(|parameter| {
-            parameter.name == "self" && parameter.ty == Ty::SelfType(interface.declaration.clone())
+            parameter.name == "self" && parameter.ty == Ty::SelfType(interface.declaration)
         });
         if method.generic_params.len() != self.arguments.len()
             || (self.receiver.is_none() && !has_receiver)
@@ -192,8 +221,8 @@ impl InterfaceCallContract {
         let projection_receiver = self
             .receiver
             .clone()
-            .unwrap_or_else(|| Ty::SelfType(interface.declaration.clone()));
-        let apply = |ty: &Ty| {
+            .unwrap_or(Ty::SelfType(interface.declaration));
+        let apply = |ty: &Ty<DefinitionId>| {
             resolve_associated_outputs(
                 &substitution.apply(ty, cancel)?,
                 interface,
@@ -244,25 +273,27 @@ impl InterfaceCallContract {
     /// A type argument is never accepted merely because it has a slot layout.
     pub fn check(
         &self,
-        contract: &TraitDef,
+        contract: &TraitDef<DefinitionId>,
         catalog: &ProofCatalog<'_>,
-        parameters: &[GenericParam],
-        assumptions: &[GenericBound],
+        parameters: &[GenericParam<DefinitionId>],
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
-        let mut signature = self.signature(contract, cancel)?;
+        let definitions = catalog.definitions();
+        let mut signature = self.signature(contract, cancel, definitions)?;
         for fact in &self.normalizations {
             if catalog.normalize(&fact.source, cancel)? != fact.result {
                 return Ok(false);
             }
         }
-        if !types_in_scope(
+        if !types_in_scope_in(
             self.arguments
                 .iter()
                 .chain(signature.params.iter())
                 .chain([&signature.result]),
             parameters,
             cancel,
+            Some(definitions),
         ) {
             return Ok(false);
         }
@@ -287,11 +318,15 @@ impl InterfaceCallContract {
         {
             return Ok(false);
         }
-        let expected =
-            required_operations(&signature.bounds, &|id| catalog.trait_contract(id), cancel)?
-                .iter()
-                .map(|required| normalize_requirement(required, catalog, cancel))
-                .collect::<Result<Vec<_>, _>>()?;
+        let expected = required_operations(
+            &signature.bounds,
+            &|id| catalog.trait_contract(id),
+            cancel,
+            definitions,
+        )?
+        .iter()
+        .map(|required| normalize_requirement(required, catalog, cancel))
+        .collect::<Result<Vec<_>, _>>()?;
         if expected.len() != self.operations.len()
             || expected.iter().any(|required| {
                 self.operations
@@ -307,14 +342,22 @@ impl InterfaceCallContract {
             let required = NativeCallableRequirement {
                 receiver: receiver.clone(),
                 interface: self.interface.clone(),
-                member: ModuleDecl::method_id(
-                    &self.interface.declaration,
-                    &contract.methods[self.method_slot as usize].name,
-                ),
+                member: definitions
+                    .lookup_child(
+                        self.interface.declaration,
+                        DefinitionKind::Method,
+                        &contract.methods[self.method_slot as usize].name,
+                        0,
+                    )
+                    .ok_or(TypeTransformError::InvalidContract)?,
                 arguments: vec![],
             };
-            let available =
-                required_operations(assumptions, &|id| catalog.trait_contract(id), cancel)?;
+            let available = required_operations(
+                assumptions,
+                &|id| catalog.trait_contract(id),
+                cancel,
+                definitions,
+            )?;
             if !available.contains(&required) {
                 return Ok(false);
             }

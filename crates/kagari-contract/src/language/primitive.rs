@@ -2,7 +2,10 @@
 //! Collections and library traits are proved from carried implementation records.
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, associated_type_id},
+    identity::{
+        DefinitionKind,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
     conversion as numeric,
@@ -17,20 +20,27 @@ use kagari_types::{
 };
 use std::collections::BTreeMap;
 
-pub fn applied(kind: Protocol, arguments: Vec<Ty>) -> NominalTy {
-    NominalTy {
-        declaration: language::identity(kind),
+pub fn applied(
+    kind: Protocol,
+    arguments: Vec<Ty<DefinitionId>>,
+    definitions: &DefinitionTable,
+) -> Result<NominalTy<DefinitionId>, TypeTransformError> {
+    Ok(NominalTy {
+        declaration: definitions
+            .lookup(&language::identity(kind))
+            .ok_or(TypeTransformError::InvalidContract)?,
         arguments,
         associated_types: BTreeMap::new(),
-    }
+    })
 }
 
 pub fn requirements(
-    interface: &NominalTy,
-    receiver: &Ty,
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
     cancel: &CancellationToken,
-    contract: Option<&TraitDef>,
-) -> Result<Option<Vec<GenericBound>>, TypeTransformError> {
+    contract: Option<&TraitDef<DefinitionId>>,
+    definitions: &DefinitionTable,
+) -> Result<Option<Vec<GenericBound<DefinitionId>>>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
@@ -43,37 +53,47 @@ pub fn requirements(
             constraints: vec![Constraint::Trait(interface)],
         }]));
     }
-    if Protocol::from_id(&interface.declaration) == Some(Protocol::From)
+    if Protocol::from_reference(&interface.declaration, Some(definitions)) == Some(Protocol::From)
         && interface.associated_types.is_empty()
         && (interface.arguments.as_slice() == [receiver.clone()]
             || matches!((receiver, interface.arguments.as_slice()), (Ty::Builtin(target), [Ty::Builtin(source)]) if numeric::lossless_from(*source, *target)))
     {
         return Ok(Some(vec![]));
     }
-    if let Some(output) = operator_output(interface, receiver) {
+    if let Some(output) = operator_output(interface, receiver, definitions) {
         return Ok(interface
             .associated_types
             .iter()
             .all(|(member, ty)| {
-                *member == associated_type_id(&interface.declaration, "Output") && *ty == output
+                Some(*member)
+                    == definitions.lookup_child(
+                        interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        "Output",
+                        0,
+                    )
+                    && *ty == output
             })
             .then(Vec::new));
     }
-    Ok(identity_iterator(interface, receiver).map(|required| {
-        vec![GenericBound {
-            ty: receiver.clone(),
-            constraints: vec![Constraint::Trait(required)],
-        }]
-    }))
+    Ok(
+        identity_iterator(interface, receiver, definitions).map(|required| {
+            vec![GenericBound {
+                ty: receiver.clone(),
+                constraints: vec![Constraint::Trait(required)],
+            }]
+        }),
+    )
 }
 
 pub fn associated_output(
-    interface: &NominalTy,
-    receiver: &Ty,
-    member: &DefinitionPath,
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
+    member: &DefinitionId,
     cancel: &CancellationToken,
-    contract: Option<&TraitDef>,
-) -> Result<Option<Ty>, TypeTransformError> {
+    contract: Option<&TraitDef<DefinitionId>>,
+    definitions: &DefinitionTable,
+) -> Result<Option<Ty<DefinitionId>>, TypeTransformError> {
     let copier = TypeSubstitution::default();
     copier.apply_nominal(interface, cancel)?;
     copier.apply(receiver, cancel)?;
@@ -84,16 +104,27 @@ pub fn associated_output(
         return Ok(Some(output));
     }
     Ok(
-        if *member == associated_type_id(&interface.declaration, "Output") {
-            operator_output(interface, receiver)
+        if Some(*member)
+            == definitions.lookup_child(
+                interface.declaration,
+                DefinitionKind::AssociatedType,
+                "Output",
+                0,
+            )
+        {
+            operator_output(interface, receiver, definitions)
         } else {
             None
         },
     )
 }
 
-fn operator_output(interface: &NominalTy, receiver: &Ty) -> Option<Ty> {
-    let kind = Protocol::from_id(&interface.declaration)?;
+fn operator_output(
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Option<Ty<DefinitionId>> {
+    let kind = Protocol::from_reference(&interface.declaration, Some(definitions))?;
     if kind == Protocol::Fn
         && let Ty::Function { params, result } = receiver
     {
@@ -138,20 +169,45 @@ fn operator_output(interface: &NominalTy, receiver: &Ty) -> Option<Ty> {
     binary.then(|| receiver.clone())
 }
 
-pub fn identity_iterator(interface: &NominalTy, receiver: &Ty) -> Option<NominalTy> {
-    if Protocol::from_id(&interface.declaration) != Some(Protocol::Iterable)
+pub fn identity_iterator(
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Option<NominalTy<DefinitionId>> {
+    if Protocol::from_reference(&interface.declaration, Some(definitions))
+        != Some(Protocol::Iterable)
         || !interface.arguments.is_empty()
     {
         return None;
     }
-    let mut required = applied(Protocol::Iterator, vec![]);
+    let mut required = applied(Protocol::Iterator, vec![], definitions).ok()?;
     for (member, ty) in &interface.associated_types {
-        if *member == associated_type_id(&interface.declaration, "Item") {
+        if Some(*member)
+            == definitions.lookup_child(
+                interface.declaration,
+                DefinitionKind::AssociatedType,
+                "Item",
+                0,
+            )
+        {
             required.associated_types.insert(
-                associated_type_id(&required.declaration, "Item"),
+                definitions.lookup_child(
+                    required.declaration,
+                    DefinitionKind::AssociatedType,
+                    "Item",
+                    0,
+                )?,
                 ty.clone(),
             );
-        } else if *member != associated_type_id(&interface.declaration, "Iter") || ty != receiver {
+        } else if Some(*member)
+            != definitions.lookup_child(
+                interface.declaration,
+                DefinitionKind::AssociatedType,
+                "Iter",
+                0,
+            )
+            || ty != receiver
+        {
             return None;
         }
     }

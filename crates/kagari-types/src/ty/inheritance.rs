@@ -1,7 +1,7 @@
 //! Applied trait ancestry over portable declaration contracts.
 use crate::{
     declaration::TraitDef,
-    language::{Protocol, identity},
+    language::Protocol,
     ty::{
         Constraint, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
@@ -9,7 +9,11 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, associated_type_id},
+    identity::{
+        DefinitionKind,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use std::collections::HashSet;
 
@@ -20,37 +24,57 @@ const MAX_EDGES: usize = 100_000;
 /// The additional dynamic surface supported by the language's Iterable contract.
 /// Explicit implementation outputs remain the canonical static signature.
 pub fn erased_iterator_view<'a>(
-    interface: &NominalTy,
-    receiver: &Ty,
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
-) -> Result<Option<NominalTy>, TypeTransformError> {
-    if interface.declaration != identity(Protocol::Iterable) {
+    definitions: &DefinitionTable,
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
+) -> Result<Option<NominalTy<DefinitionId>>, TypeTransformError> {
+    if Protocol::from_reference(&interface.declaration, Some(definitions))
+        != Some(Protocol::Iterable)
+    {
         return Ok(None);
     }
     let mut erased = interface.clone();
-    erased
-        .associated_types
-        .remove(&associated_type_id(&interface.declaration, "Iter"));
-    let view = interface_views(&erased, receiver, cancel, lookup)?.remove(0);
+    erased.associated_types.remove(
+        &definitions
+            .lookup_child(
+                interface.declaration,
+                DefinitionKind::AssociatedType,
+                "Iter",
+                0,
+            )
+            .ok_or(TypeTransformError::InvalidContract)?,
+    );
+    let view = interface_views(&erased, receiver, cancel, definitions, lookup)?.remove(0);
     Ok((view != *interface).then_some(view))
 }
 
 /// Concrete dynamic values hide Iterable's iterator behind its declared bound.
 /// Implementation ancestry remains unchanged: a view is not a second impl.
 pub fn interface_views<'a>(
-    interface: &NominalTy,
-    receiver: &Ty,
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
-) -> Result<Vec<NominalTy>, TypeTransformError> {
+    definitions: &DefinitionTable,
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
+) -> Result<Vec<NominalTy<DefinitionId>>, TypeTransformError> {
     let mut closure = trait_closure(interface, receiver, cancel, lookup)?;
     for parent in &mut closure {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        if parent.declaration != identity(Protocol::Iterable) {
+        if Protocol::from_reference(&parent.declaration, Some(definitions))
+            != Some(Protocol::Iterable)
+        {
             continue;
         }
-        let iter = associated_type_id(&parent.declaration, "Iter");
+        let iter = definitions
+            .lookup_child(
+                parent.declaration,
+                DefinitionKind::AssociatedType,
+                "Iter",
+                0,
+            )
+            .ok_or(TypeTransformError::InvalidContract)?;
         if parent.associated_types.contains_key(&iter) {
             continue;
         }
@@ -65,7 +89,10 @@ pub fn interface_views<'a>(
         let [Constraint::Trait(bound)] = output.bounds.as_slice() else {
             continue;
         };
-        if !output.generic_params.is_empty() || bound.declaration != identity(Protocol::Iterator) {
+        if !output.generic_params.is_empty()
+            || Protocol::from_reference(&bound.declaration, Some(definitions))
+                != Some(Protocol::Iterator)
+        {
             continue;
         }
         let mut parameters = TypeSubstitution::default();
@@ -73,12 +100,8 @@ pub fn interface_views<'a>(
             parameters.bind(&parameter.owner, parameter.position, argument);
         }
         let bound = Ty::Trait(parameters.apply_nominal(bound, cancel)?);
-        let bound = resolve_associated_outputs(
-            &bound,
-            parent,
-            &Ty::SelfType(parent.declaration.clone()),
-            cancel,
-        )?;
+        let bound =
+            resolve_associated_outputs(&bound, parent, &Ty::SelfType(parent.declaration), cancel)?;
         // The caller validates the binder scope. Shared bodies preserve their
         // parameters here just as they do in the surrounding interface type.
         parent.associated_types.insert(iter, bound);
@@ -89,18 +112,18 @@ pub fn interface_views<'a>(
 /// Preserve applied arguments and associated bindings while walking supertraits.
 /// Declaration cycles fail even when they change arguments. Diamond paths to the
 /// same application are deduplicated; distinct applications retain their identity.
-pub fn trait_closure<'a>(
-    interface: &NominalTy,
-    receiver: &Ty,
+pub fn trait_closure<'a, I: DefinitionReference + 'a>(
+    interface: &NominalTy<I>,
+    receiver: &Ty<I>,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
-) -> Result<Vec<NominalTy>, TypeTransformError> {
+    lookup: &impl Fn(&I) -> Option<&'a TraitDef<I>>,
+) -> Result<Vec<NominalTy<I>>, TypeTransformError> {
     let empty = TypeSubstitution::default();
     let root = empty.apply_nominal(interface, cancel)?;
     let receiver = empty.apply(receiver, cancel)?;
     let mut result = Vec::new();
     let mut seen = HashSet::new();
-    let mut pending = vec![(root, Vec::<DefinitionPath>::new())];
+    let mut pending = vec![(root, Vec::<I>::new())];
     let mut remaining = MAX_EDGES;
     while let Some((applied, mut path)) = pending.pop() {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;

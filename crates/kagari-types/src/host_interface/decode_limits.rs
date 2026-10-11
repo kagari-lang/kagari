@@ -95,7 +95,7 @@ mod tests {
             HostFunctionDeclaration::new("demo.read", Vec::new(), HostValueType::I32);
         function.id.module.path =
             vec!["part".into(); kagari_common::identity::MAX_IDENTITY_PATH_SEGMENTS + 1];
-        assert_eq!(function.validate(), Err(HostInterfaceError::TooLarge));
+        assert_eq!(function.fingerprint(), Err(HostInterfaceError::TooLarge));
         let interface = HostInterface {
             functions: vec![function],
             ..Default::default()

@@ -1,12 +1,13 @@
 //! Portable member contracts. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
 use crate::host_interface::{
-    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, codec, hash,
-    host_type_identity, validate_host_type_identity, value_type::HostValueType,
+    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, adoption_error,
+    codec, hash, host_type_identity, validate_host_type_identity, value_type::HostValueType,
 };
 use bincode::Options;
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, reference::DefinitionReference,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::scope_record,
+    reference::DefinitionReference,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, iter};
@@ -167,7 +168,12 @@ impl HostMethodDeclaration {
     }
 
     pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        super::validate_signature(&self.params, &self.return_type)?;
+        let scoped = scope_record(self, &Default::default()).map_err(adoption_error)?;
+        super::validate_signature(
+            &scoped.records().params,
+            &scoped.records().return_type,
+            scoped.definitions(),
+        )?;
         let mut abi = self.clone();
         abi.documentation.clear();
         fingerprint(b"kagari-host-method-v1\0", &abi)
@@ -221,7 +227,8 @@ impl HostTypeDeclaration {
             effects: method.effects,
             documentation: method.documentation.clone(),
         };
-        function.validate()?;
+        let scoped = scope_record(&function, &Default::default()).map_err(adoption_error)?;
+        scoped.records().validate(scoped.definitions())?;
         Ok(function)
     }
 
@@ -278,7 +285,12 @@ impl HostTypeDeclaration {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
             // Parameter and result rules are the same as standalone functions.
-            super::validate_signature(&method.params, &method.return_type)?;
+            let scoped = scope_record(method, &Default::default()).map_err(adoption_error)?;
+            super::validate_signature(
+                &scoped.records().params,
+                &scoped.records().return_type,
+                scoped.definitions(),
+            )?;
             if method.params.len() >= u16::MAX as usize
                 || method.params.iter().any(|param| param.name == "self")
             {

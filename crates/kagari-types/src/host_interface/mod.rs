@@ -1,5 +1,13 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
-use kagari_common::identity::{reference::DefinitionReference, table::DefinitionTable};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        mapping::DefinitionMappingError,
+        metadata::scope_record,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable, DefinitionTableError},
+    },
+};
 
 use crate::host_interface::{
     path::{HostPathDeclaration, HostPathSegmentDeclaration},
@@ -167,28 +175,56 @@ impl HostFunctionDeclaration {
         }
     }
 
-    pub fn validate(&self) -> Result<(), HostInterfaceError> {
-        if !self.id.within_path_limit() {
-            return Err(HostInterfaceError::TooLarge);
-        }
+    /// Fixed-width little-endian, declaration-order encoding, domain-separated
+    /// FNV-1a-64. Documentation is carried offline but does not alter the call ABI.
+    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
+        let scoped = scope_record(self, &CancellationToken::default()).map_err(adoption_error)?;
+        scoped.records().validate(scoped.definitions())?;
+        let bytes = codec()
+            .serialize(&(
+                &self.id,
+                &self.symbol,
+                &self.params,
+                &self.return_type,
+                self.effects,
+            ))
+            .map_err(|_| HostInterfaceError::Encoding)?;
+        Ok(hash(
+            b"kagari-host-function-v3\0".iter().copied().chain(bytes),
+        ))
+    }
+}
+
+impl HostFunctionDeclaration<DefinitionId> {
+    pub fn validate(&self, definitions: &DefinitionTable) -> Result<(), HostInterfaceError> {
+        let identity = definitions
+            .resolve(self.id)
+            .map_err(|_| HostInterfaceError::InvalidDeclaration)?;
         if self.symbol.is_empty()
             || self.symbol.split('.').any(str::is_empty)
-            || self.id.path.last().is_none_or(|p| {
+            || identity.last().is_none_or(|p| {
                 !matches!(p.kind, DefinitionKind::Function | DefinitionKind::Method)
                     || p.name.is_empty()
             })
         {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
-        if let Some(owner) = self.method_owner() {
-            validate_host_type_identity(&owner)?;
+        if identity
+            .last()
+            .is_some_and(|part| part.kind == DefinitionKind::Method)
+        {
+            let owner = definitions
+                .parent(self.id)
+                .map_err(|_| HostInterfaceError::InvalidDeclaration)?
+                .ok_or(HostInterfaceError::InvalidDeclaration)?;
+            validate_host_type_identity_in(&owner, Some(definitions))?;
             if self.params.first().is_none_or(|receiver| {
                 receiver.name != "self" || receiver.ty != HostValueType::Opaque(owner)
             }) {
                 return Err(HostInterfaceError::InvalidDeclaration);
             }
         }
-        validate_signature(&self.params, &self.return_type)?;
+        validate_signature(&self.params, &self.return_type, definitions)?;
         if self.effects.may_read_immutable_configuration {
             let mut pending = vec![&self.return_type];
             for parameter in &self.params {
@@ -218,29 +254,24 @@ impl HostFunctionDeclaration {
         }
         Ok(())
     }
+}
 
-    /// Fixed-width little-endian, declaration-order encoding, domain-separated
-    /// FNV-1a-64. Documentation is carried offline but does not alter the call ABI.
-    pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        self.validate()?;
-        let bytes = codec()
-            .serialize(&(
-                &self.id,
-                &self.symbol,
-                &self.params,
-                &self.return_type,
-                self.effects,
-            ))
-            .map_err(|_| HostInterfaceError::Encoding)?;
-        Ok(hash(
-            b"kagari-host-function-v3\0".iter().copied().chain(bytes),
-        ))
+fn adoption_error(error: DefinitionMappingError) -> HostInterfaceError {
+    match error {
+        DefinitionMappingError::LimitExceeded
+        | DefinitionMappingError::Identity(
+            DefinitionTableError::PathLimit
+            | DefinitionTableError::IndexExhausted
+            | DefinitionTableError::TableIdentityExhausted,
+        ) => HostInterfaceError::TooLarge,
+        _ => HostInterfaceError::InvalidDeclaration,
     }
 }
 
 fn validate_signature(
-    params: &[HostParameter],
-    return_type: &HostValueType,
+    params: &[HostParameter<DefinitionId>],
+    return_type: &HostValueType<DefinitionId>,
+    definitions: &DefinitionTable,
 ) -> Result<(), HostInterfaceError> {
     if params.len() > decode_limits::MAX_MEMBERS {
         return Err(HostInterfaceError::TooLarge);
@@ -259,7 +290,7 @@ fn validate_signature(
         }
     }
     for ty in params.iter().map(|p| &p.ty).chain(iter::once(return_type)) {
-        ty.validate()?;
+        ty.validate_in(definitions)?;
     }
     Ok(())
 }
@@ -316,7 +347,9 @@ impl HostInterface {
         }
         let type_ids = self.types.iter().map(|ty| &ty.id).collect::<HashSet<_>>();
         for function in &self.functions {
-            function.validate()?;
+            let scoped =
+                scope_record(function, &CancellationToken::default()).map_err(adoption_error)?;
+            scoped.records().validate(scoped.definitions())?;
             if let Some(owner) = function.method_owner() {
                 let declaration = self
                     .types
@@ -477,3 +510,6 @@ impl<I> Default for HostInterface<I> {
 }
 
 mod mapping;
+
+#[cfg(test)]
+mod scoped_tests;

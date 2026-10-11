@@ -23,10 +23,10 @@ pub struct NativeCallableRequirement<I = DefinitionPath> {
     pub arguments: Vec<Ty<I>>,
 }
 
-impl NativeCallableRequirement {
+impl<I: DefinitionReference> NativeCallableRequirement<I> {
     pub fn apply(
         &self,
-        substitution: &TypeSubstitution<'_>,
+        substitution: &TypeSubstitution<'_, I>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         Ok(Self {

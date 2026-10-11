@@ -2,7 +2,6 @@
 //! This catalog borrows executable contracts; it does not reconstruct source
 //! signatures or infer types. Declaration validity remains the module verifier's
 //! responsibility, while this layer checks dependency-dependent obligations.
-use kagari_types::declaration::verify::DeclarationValidationError;
 
 mod callables;
 mod composition;
@@ -18,13 +17,19 @@ use crate::{layout::EnumLayout, types::proofs::implementation::Implementation};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, mapping::DefinitionMappingError,
-        metadata::scope_record,
+        DefinitionKind, ModuleIdentity,
+        map::DefinitionContext,
+        mapping::{DefinitionMappingError, DefinitionRecord},
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_types::{
-    declaration::{FnDecl, NativeDeclaration, TraitDef, verify::validate_native_declarations},
+    declaration::{
+        FnDecl, NativeDeclaration, TraitDef,
+        verify::{DeclarationValidationError, validate_native_declarations},
+    },
     host_interface::type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
+    language::{self, Protocol, binding},
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty, inheritance,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -42,11 +47,12 @@ const MAX_CHECKS: usize = 100_000;
 const MAX_DEPTH: usize = 64;
 
 pub struct ProofCatalog<'a> {
+    definitions: DefinitionTable,
     implementations: Vec<Implementation<'a>>,
-    hosts: Vec<&'a HostTypeDeclaration>,
-    enumerations: BTreeMap<NominalTy, Vec<&'a Ty>>,
-    contracts: BTreeMap<DefinitionPath, &'a TraitDef>,
-    native_declarations: BTreeMap<DefinitionPath, &'a NativeDeclaration>,
+    hosts: Vec<&'a HostTypeDeclaration<DefinitionId>>,
+    enumerations: BTreeMap<NominalTy<DefinitionId>, Vec<&'a Ty<DefinitionId>>>,
+    contracts: BTreeMap<DefinitionId, &'a TraitDef<DefinitionId>>,
+    native_declarations: BTreeMap<DefinitionId, &'a NativeDeclaration<DefinitionId>>,
 }
 
 struct Budget<'a> {
@@ -75,25 +81,91 @@ impl<'a> Budget<'a> {
 }
 
 impl<'a> ProofCatalog<'a> {
-    pub fn trait_contract(&self, declaration: &DefinitionPath) -> Option<&'a TraitDef> {
+    /// Identity scope retained by this proof operation, separate from its proofs.
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+
+    fn module(&self, id: DefinitionId) -> Result<&ModuleIdentity, TypeTransformError> {
+        self.definitions
+            .resolve(id)
+            .map(|view| view.module())
+            .map_err(|_| TypeTransformError::InvalidContract)
+    }
+
+    fn associated(
+        &self,
+        owner: DefinitionId,
+        name: &str,
+    ) -> Result<DefinitionId, TypeTransformError> {
+        self.definitions
+            .lookup_child(owner, DefinitionKind::AssociatedType, name, 0)
+            .ok_or(TypeTransformError::InvalidContract)
+    }
+
+    pub fn trait_contract(&self, declaration: &DefinitionId) -> Option<&'a TraitDef<DefinitionId>> {
         self.contracts.get(declaration).copied()
     }
 
     pub fn new(
         implementations: Vec<Implementation<'a>>,
-        hosts: Vec<&'a HostTypeDeclaration>,
-        enumerations: impl IntoIterator<Item = &'a EnumLayout>,
-        contracts: impl IntoIterator<Item = (DefinitionPath, &'a TraitDef)>,
-        native_declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
+        hosts: Vec<&'a HostTypeDeclaration<DefinitionId>>,
+        enumerations: impl IntoIterator<Item = &'a EnumLayout<DefinitionId>>,
+        contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitDef<DefinitionId>)>,
+        native_declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
+        context: &DefinitionContext,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        let input_definitions = context.snapshot();
+        // These identities name language contracts; interning does not prove
+        // declaration existence or grant a protocol implementation.
+        for protocol in Protocol::ALL {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            let id = context
+                .intern(&language::identity(protocol))
+                .map_err(|_| TypeTransformError::InvalidContract)?;
+            for name in ["Output", "Item", "Iter"] {
+                context
+                    .intern_child(id, DefinitionKind::AssociatedType, name, 0)
+                    .map_err(|_| TypeTransformError::InvalidContract)?;
+            }
+        }
+        for path in [
+            binding::option_declaration(),
+            binding::ordering_declaration(),
+        ] {
+            context
+                .intern(&path)
+                .map_err(|_| TypeTransformError::InvalidContract)?;
+        }
         let copier = TypeSubstitution::default();
         let mut ids = HashSet::new();
         let mut count = 0;
         for implementation in &implementations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            if !ids.insert(implementation.declaration().clone())
+            input_definitions
+                .resolve(*implementation.declaration())
+                .map_err(|_| TypeTransformError::InvalidContract)?;
+            match implementation {
+                Implementation::Interface(record) => {
+                    validate_references(*record, &input_definitions, cancel)?
+                }
+                Implementation::Native { implementation, .. } => {
+                    validate_references(*implementation, &input_definitions, cancel)?
+                }
+            }
+            for method in implementation.methods() {
+                context
+                    .intern_child(
+                        *implementation.declaration(),
+                        DefinitionKind::Method,
+                        &method.name,
+                        0,
+                    )
+                    .map_err(|_| TypeTransformError::InvalidContract)?;
+            }
+            if !ids.insert(*implementation.declaration())
                 || implementation.is_bridge()
                 || implementation.interface().is_none()
             {
@@ -113,16 +185,16 @@ impl<'a> ProofCatalog<'a> {
         let mut host_ids = HashSet::new();
         let mut unique_hosts = Vec::new();
         for host in hosts {
+            validate_references(host, &input_definitions, cancel)?;
             if !host_ids.insert(&host.id) {
                 continue;
             }
             for (index, implementation) in host.trait_implementations.iter().enumerate() {
-                let mut id = host.id.clone();
-                id.path.push(DefinitionPathSegment {
-                    kind: DefinitionKind::Impl,
-                    name: String::new(),
-                    occurrence: index as u32,
-                });
+                let occurrence =
+                    u32::try_from(index).map_err(|_| TypeTransformError::LimitExceeded)?;
+                let id = context
+                    .intern_child(host.id, DefinitionKind::Impl, "", occurrence)
+                    .map_err(|_| TypeTransformError::InvalidContract)?;
                 if !ids.insert(id) {
                     return Err(TypeTransformError::InvalidContract);
                 }
@@ -136,8 +208,9 @@ impl<'a> ProofCatalog<'a> {
         }
         let mut payloads = BTreeMap::new();
         for layout in enumerations {
+            validate_references(layout, &input_definitions, cancel)?;
             let key = NominalTy {
-                declaration: layout.declaration.clone(),
+                declaration: layout.declaration,
                 arguments: layout.arguments.clone(),
                 associated_types: BTreeMap::new(),
             };
@@ -158,6 +231,15 @@ impl<'a> ProofCatalog<'a> {
         }
         let mut declarations = BTreeMap::new();
         for (id, contract) in contracts {
+            input_definitions
+                .resolve(id)
+                .map_err(|_| TypeTransformError::InvalidContract)?;
+            validate_references(contract, &input_definitions, cancel)?;
+            for method in &contract.methods {
+                context
+                    .intern_child(id, DefinitionKind::Method, &method.name, 0)
+                    .map_err(|_| TypeTransformError::InvalidContract)?;
+            }
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if let Some(old) = declarations.insert(id, contract)
                 && old != contract
@@ -165,34 +247,33 @@ impl<'a> ProofCatalog<'a> {
                 return Err(TypeTransformError::InvalidContract);
             }
         }
+        let definitions = context.snapshot();
         let mut templates = BTreeMap::new();
         for template in native_declarations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if templates.len() >= MAX_NATIVE_DECLARATIONS {
                 return Err(TypeTransformError::LimitExceeded);
             }
-            let scoped = scope_record(template, cancel).map_err(|error| match error {
-                DefinitionMappingError::Cancelled => TypeTransformError::Cancelled,
-                _ => TypeTransformError::InvalidContract,
-            })?;
+            validate_references(template, &input_definitions, cancel)?;
+            let owner = definitions
+                .resolve(template.declaration)
+                .map_err(|_| TypeTransformError::InvalidContract)?;
             validate_native_declarations(
-                slice::from_ref(scoped.records()),
-                &template.declaration.module,
-                scoped.definitions(),
+                slice::from_ref(template),
+                owner.module(),
+                &definitions,
                 cancel,
             )
             .map_err(|error| match error {
                 DeclarationValidationError::Cancelled => TypeTransformError::Cancelled,
                 _ => TypeTransformError::InvalidContract,
             })?;
-            if templates
-                .insert(template.declaration.clone(), template)
-                .is_some()
-            {
+            if templates.insert(template.declaration, template).is_some() {
                 return Err(TypeTransformError::InvalidContract);
             }
         }
         let result = Self {
+            definitions,
             implementations,
             hosts: unique_hosts,
             enumerations: payloads,
@@ -221,22 +302,24 @@ impl<'a> ProofCatalog<'a> {
 
     pub fn ancestry(
         &self,
-        interface: &NominalTy,
-        receiver: &Ty,
+        interface: &NominalTy<DefinitionId>,
+        receiver: &Ty<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<Vec<NominalTy>, TypeTransformError> {
+    ) -> Result<Vec<NominalTy<DefinitionId>>, TypeTransformError> {
+        validate_references(interface, &self.definitions, cancel)?;
+        validate_references(receiver, &self.definitions, cancel)?;
         inheritance::trait_closure(interface, receiver, cancel, &|id| {
             self.contracts.get(id).copied()
         })
     }
 
     /// A protocol slot from a validated carried trait declaration.
-    pub fn method(&self, interface: &DefinitionPath, slot: usize) -> Option<&FnDecl> {
+    pub fn method(&self, interface: &DefinitionId, slot: usize) -> Option<&FnDecl<DefinitionId>> {
         self.contracts.get(interface)?.methods.get(slot)
     }
 
     /// Trait-owned generic parameters, separately from a method's local scope.
-    pub fn parameters(&self, interface: &DefinitionPath) -> Option<&[GenericParam]> {
+    pub fn parameters(&self, interface: &DefinitionId) -> Option<&[GenericParam<DefinitionId>]> {
         self.contracts
             .get(interface)
             .map(|contract| contract.generic_params.as_slice())
@@ -244,10 +327,13 @@ impl<'a> ProofCatalog<'a> {
 
     pub fn expand_bounds(
         &self,
-        bounds: &[GenericBound],
+        bounds: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
-    ) -> Result<Vec<GenericBound>, TypeTransformError> {
+    ) -> Result<Vec<GenericBound<DefinitionId>>, TypeTransformError> {
         let mut expanded = TypeSubstitution::default().apply_bounds(bounds, cancel)?;
+        for bound in &expanded {
+            validate_references(bound, &self.definitions, cancel)?;
+        }
         let budget = Budget::new(cancel);
         for bound in &mut expanded {
             let mut additional = Vec::new();
@@ -271,9 +357,11 @@ impl<'a> ProofCatalog<'a> {
     }
 }
 
-pub fn host_application(implementation: &HostTraitImplementationDeclaration) -> NominalTy {
+pub fn host_application(
+    implementation: &HostTraitImplementationDeclaration<DefinitionId>,
+) -> NominalTy<DefinitionId> {
     NominalTy {
-        declaration: implementation.trait_id.clone(),
+        declaration: implementation.trait_id,
         arguments: implementation
             .trait_arguments
             .iter()
@@ -282,13 +370,26 @@ pub fn host_application(implementation: &HostTraitImplementationDeclaration) -> 
         associated_types: implementation
             .associated_types
             .iter()
-            .map(|output| (output.declaration.clone(), Ty::from_host_type(&output.ty)))
+            .map(|output| (output.declaration, Ty::from_host_type(&output.ty)))
             .collect(),
     }
 }
 
-fn satisfies(available: &NominalTy, required: &NominalTy) -> bool {
+fn satisfies(available: &NominalTy<DefinitionId>, required: &NominalTy<DefinitionId>) -> bool {
     available.satisfies(required)
+}
+
+fn validate_references<T: DefinitionRecord<DefinitionId>>(
+    record: &T,
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<(), TypeTransformError> {
+    record
+        .visit_definitions(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), cancel)
+        .map_err(|error| match error {
+            DefinitionMappingError::Cancelled => TypeTransformError::Cancelled,
+            _ => TypeTransformError::InvalidContract,
+        })
 }
 
 #[cfg(test)]

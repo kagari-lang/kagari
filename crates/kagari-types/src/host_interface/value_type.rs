@@ -2,7 +2,11 @@
 use super::HostInterfaceError;
 use crate::{collection::CollectionAccess, language::binding};
 use bincode::Options;
-use kagari_common::identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath,
+    reference::DefinitionReference,
+    table::{DefinitionId, DefinitionTable},
+};
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer, de,
     de::{Error as DecodeError, SeqAccess, Visitor},
@@ -183,6 +187,51 @@ impl<I: DefinitionReference> HostValueType<I> {
             }
         }
         Ok(nodes)
+    }
+}
+
+impl HostValueType<DefinitionId> {
+    /// Check a scoped host type after bounded wire-shape validation. Every nominal
+    /// leaf must resolve in this table and retain its declared constructor kind.
+    pub(super) fn validate_in(
+        &self,
+        definitions: &DefinitionTable,
+    ) -> Result<(), HostInterfaceError> {
+        for node in self.nodes()? {
+            let invalid = || HostInterfaceError::InvalidDeclaration;
+            match node {
+                Node::Opaque(id) => {
+                    super::validate_host_type_identity_in(&id, Some(definitions))?;
+                }
+                Node::Vec(id) | Node::List(id) => {
+                    let expected = if matches!(node, Node::Vec(_)) {
+                        DefinitionKind::AssociatedType
+                    } else {
+                        DefinitionKind::Trait
+                    };
+                    let view = definitions.resolve(id).map_err(|_| invalid())?;
+                    if view.segments().count() != 1
+                        || !view.last().is_some_and(|part| {
+                            part.kind == expected && !part.name.is_empty() && part.occurrence == 0
+                        })
+                    {
+                        return Err(invalid());
+                    }
+                }
+                Node::Option(id) => {
+                    if definitions.lookup(&binding::option_declaration()) != Some(id) {
+                        return Err(invalid());
+                    }
+                }
+                Node::Result(id)
+                    if definitions.lookup(&binding::result_declaration()) != Some(id) =>
+                {
+                    return Err(invalid());
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 

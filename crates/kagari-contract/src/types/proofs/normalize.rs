@@ -1,8 +1,10 @@
 use crate::{
     language::primitive as intrinsic,
-    types::proofs::{Budget, ProofCatalog, host_application, satisfies, search::Search},
+    types::proofs::{
+        Budget, ProofCatalog, host_application, satisfies, search::Search, validate_references,
+    },
 };
-use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_types::{
     language::Protocol,
     ty::{
@@ -13,16 +15,21 @@ use kagari_types::{
 };
 
 impl ProofCatalog<'_> {
-    pub fn normalize(&self, ty: &Ty, cancel: &CancellationToken) -> Result<Ty, TypeTransformError> {
+    pub fn normalize(
+        &self,
+        ty: &Ty<DefinitionId>,
+        cancel: &CancellationToken,
+    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
+        validate_references(ty, &self.definitions, cancel)?;
         self.normalize_with(ty, &Budget::new(cancel), 0)
     }
 
     pub(super) fn normalize_with(
         &self,
-        ty: &Ty,
+        ty: &Ty<DefinitionId>,
         budget: &Budget<'_>,
         depth: usize,
-    ) -> Result<Ty, TypeTransformError> {
+    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
         budget.step(depth)?;
         normalize_projections(
             ty,
@@ -35,11 +42,14 @@ impl ProofCatalog<'_> {
                         member,
                         budget.cancel,
                         self.trait_contract(&interface.declaration),
+                        &self.definitions,
                     )? {
                         return Ok(Some(output));
                     }
-                    if Protocol::from_id(&interface.declaration) == Some(Protocol::Iterable)
-                        && let Some(required) = intrinsic::identity_iterator(interface, receiver)
+                    if Protocol::from_reference(&interface.declaration, Some(&self.definitions))
+                        == Some(Protocol::Iterable)
+                        && let Some(required) =
+                            intrinsic::identity_iterator(interface, receiver, &self.definitions)
                         && self.prove(
                             &required,
                             receiver,
@@ -49,13 +59,13 @@ impl ProofCatalog<'_> {
                             depth + 1,
                         )?
                     {
-                        if *member == associated_type_id(&interface.declaration, "Iter") {
+                        if *member == self.associated(interface.declaration, "Iter")? {
                             return Ok(Some(receiver.clone()));
                         }
-                        if *member == associated_type_id(&interface.declaration, "Item") {
+                        if *member == self.associated(interface.declaration, "Item")? {
                             return Ok(Some(Ty::Projection {
                                 receiver: Box::new(receiver.clone()),
-                                member: associated_type_id(&required.declaration, "Item"),
+                                member: self.associated(required.declaration, "Item")?,
                                 interface: Box::new(required),
                                 arguments: vec![],
                             }));
@@ -66,6 +76,7 @@ impl ProofCatalog<'_> {
                             view,
                             receiver,
                             budget.cancel,
+                            &self.definitions,
                             &|id| self.contracts.get(id).copied(),
                         )?
                         .into_iter()
@@ -76,21 +87,22 @@ impl ProofCatalog<'_> {
                 let mut selected = None;
                 for implementation in &self.implementations {
                     budget.step(depth)?;
-                    if let Some(output) =
-                        projection_output(
-                            implementation
-                                .pattern(implementation.interface().and_then(|interface| {
+                    if let Some(output) = projection_output(
+                        implementation
+                            .pattern(
+                                implementation.interface().and_then(|interface| {
                                     self.trait_contract(&interface.declaration)
-                                }))
-                                .ok_or(TypeTransformError::InvalidContract)?,
-                            implementation.families(),
-                            interface,
-                            receiver,
-                            member,
-                            arguments,
-                            budget.cancel,
-                        )?
-                    {
+                                }),
+                                &self.definitions,
+                            )
+                            .ok_or(TypeTransformError::InvalidContract)?,
+                        implementation.families(),
+                        interface,
+                        receiver,
+                        member,
+                        arguments,
+                        budget.cancel,
+                    )? {
                         if selected.is_some() {
                             return Ok(None);
                         }

@@ -195,15 +195,15 @@ fn match_pairs<'a, I: DefinitionReference>(
     Ok(Some(bindings))
 }
 
-pub fn projection_output(
-    pattern: ImplementationPattern<'_>,
-    families: &[AssociatedTypeFamily],
-    interface: &NominalTy,
-    receiver: &Ty,
-    member: &DefinitionPath,
-    arguments: &[Ty],
+pub fn projection_output<I: DefinitionReference>(
+    pattern: ImplementationPattern<'_, I>,
+    families: &[AssociatedTypeFamily<I>],
+    interface: &NominalTy<I>,
+    receiver: &Ty<I>,
+    member: &I,
+    arguments: &[Ty<I>],
     cancel: &CancellationToken,
-) -> Result<Option<Ty>, TypeTransformError> {
+) -> Result<Option<Ty<I>>, TypeTransformError> {
     let Some(mut substitution) = match_pattern(pattern, interface, receiver, cancel)? else {
         return Ok(None);
     };

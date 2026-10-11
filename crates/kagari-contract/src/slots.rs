@@ -5,10 +5,14 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference},
+    identity::{
+        DefinitionKind, DefinitionPath,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
-    declaration::{requirement::NativeCallableRequirement, verify::concrete_type_valid},
+    declaration::{requirement::NativeCallableRequirement, verify::types_in_scope_in},
     language::adapter::adapter_contract,
     ty::Ty,
 };
@@ -33,11 +37,12 @@ pub struct SemanticSlots<I = DefinitionPath> {
     pub registers: BTreeMap<usize, Ty<I>>,
 }
 
-impl SemanticSlots {
+impl SemanticSlots<DefinitionId> {
     pub fn types_valid(
         &self,
-        identity: Option<&ConcreteFunctionIdentity>,
+        identity: Option<&ConcreteFunctionIdentity<DefinitionId>>,
         cancel: &CancellationToken,
+        definitions: &DefinitionTable,
     ) -> bool {
         let types = self
             .params
@@ -47,12 +52,12 @@ impl SemanticSlots {
             .chain(self.result.iter());
         match &self.generic {
             Some(body) => {
-                identity.is_some_and(|identity| body.valid(identity, cancel))
-                    && body.types_valid(types, cancel)
+                identity.is_some_and(|identity| body.valid(identity, cancel, definitions))
+                    && body.types_valid(types, cancel, definitions)
             }
-            None => types
-                .into_iter()
-                .all(|ty| ty.within_wire_limits() && concrete_type_valid(ty, cancel)),
+            None => types.into_iter().all(|ty| {
+                ty.within_wire_limits() && types_in_scope_in([ty], &[], cancel, Some(definitions))
+            }),
         }
     }
 
@@ -65,7 +70,7 @@ impl SemanticSlots {
         registers: impl IntoIterator<Item = ValueType>,
         result: ValueType,
     ) -> bool {
-        let valid = |representation: ValueType, semantic: Option<&Ty>| {
+        let valid = |representation: ValueType, semantic: Option<&Ty<DefinitionId>>| {
             let generic_semantic =
                 semantic.is_some_and(|ty| semantic_representation(ty) == ValueType::Generic);
             if representation == ValueType::Generic || generic_semantic {
@@ -90,24 +95,37 @@ impl SemanticSlots {
     }
 
     /// Local shape checks precede dependency-dependent protocol eligibility.
-    pub fn protocol_adapter_valid(&self, identity: Option<&ConcreteFunctionIdentity>) -> bool {
+    pub fn protocol_adapter_valid(
+        &self,
+        identity: Option<&ConcreteFunctionIdentity<DefinitionId>>,
+        definitions: &DefinitionTable,
+    ) -> bool {
         let Some(required) = &self.protocol_adapter else {
             return true;
         };
         let Some(identity) = identity else {
             return false;
         };
-        let Some((kind, signature)) = adapter_contract(required) else {
+        let Some((kind, signature)) = adapter_contract(required, definitions) else {
             return false;
         };
-        required.member.within_path_limit()
+        definitions.resolve(required.member).is_ok()
             && required.receiver.within_wire_limits()
-            && concrete_type_valid(&required.receiver, &Default::default())
-            && identity.arguments == adapter_arguments(required)
-            && identity.declaration.path.len() == 1
-            && identity.declaration.path[0].kind == DefinitionKind::Function
-            && identity.declaration.path[0].name == format!("$derived_{}", kind.name())
-            && identity.declaration.path[0].occurrence == 0
+            && types_in_scope_in(
+                [&required.receiver],
+                &[],
+                &Default::default(),
+                Some(definitions),
+            )
+            && identity.arguments == adapter_arguments(required, definitions)
+            && definitions.resolve(identity.declaration).is_ok_and(|view| {
+                view.segments().count() == 1
+                    && view.last().is_some_and(|part| {
+                        part.kind == DefinitionKind::Function
+                            && part.name == format!("$derived_{}", kind.name())
+                            && part.occurrence == 0
+                    })
+            })
             && self.params.len() == signature.params.len()
             && signature
                 .params

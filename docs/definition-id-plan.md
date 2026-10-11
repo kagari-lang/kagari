@@ -441,3 +441,74 @@ No build failure is carried. Existing source-free/reload evidence is unchanged;
 SI04-SI06 must reselect those contracts when their records and codecs migrate.
 Full workspace/backend/feature validation remains CI-owned. No performance result
 is claimed; remaining path callers now perform temporary input adoption.
+
+### SI02 scoped proof and call-contract checkpoint
+
+`ProofCatalog` now borrows fixed-ID implementation, trait, enum and Native
+declaration records. The caller supplies its construction context; the catalog
+validates every incoming reference against the input snapshot and retains its own
+snapshot. It interns implicit language identities and declared member identities
+in that writer before freezing the snapshot. This establishes identity only:
+declaration authority, applicability, bounds, default templates, selected calls and
+receiver ownership still use the existing bounded, cancellable proof algorithms.
+Native catalog proof construction now borrows installed ID records directly,
+removing its whole-catalog path projections. Default selection resolves the actual
+registered template without requiring an implementation-owned member for inherited
+defaults.
+
+This coupled boundary also migrates generic bodies, interface/shared calls,
+witnesses, semantic slots, native imports and primitive/protocol contracts to
+fixed-ID checking with mandatory table access. Those parts of SI04 were pulled
+forward because leaving their contract algorithms path-based would require a
+second proof engine or repeated whole-record conversion. Comparison-only
+substitution/matching helpers temporarily retain the existing identity parameter;
+SI06 removes it with the semantic models. This is within the planned migration,
+not a new compatibility layer.
+
+Host function signature validation now operates on IDs and explicitly checks the
+retained table, method parent, nominal kind and canonical Option/Result identity.
+Existing bounded shape, borrowing and effect validation remains. Host authoring
+and fingerprint/codec entrypoints temporarily adopt their input before that single
+validator; malformed identity errors remain distinct from size exhaustion.
+ModuleDecl's two bounds-validation callers also adopt their input temporarily.
+Remove ModuleDecl/builder adoption with the remainder of SI02 and Host wire/input
+adoption with SI05; do not keep these as permanent path semantic APIs.
+
+Focused local validation passed 14 distinct types tests: three scoped declaration
+validation cases, three Host decode/path-limit cases, seven substitution cases and
+the scoped Host signature test covering foreign tables, forged constructor kinds
+and malformed authored identities. The path-limit case was rerun after correcting
+adoption error classification. The new Host test initially expected malformed
+paths to survive adoption; reference validation correctly rejected them earlier,
+and the assertion now checks that boundary. Types/contract library checking and
+`cargo clippy -p kagari-types -p kagari-contract --lib -- -D warnings` passed.
+Structure checking passed with 1038 Rust files and no violations or exceptions;
+formatting and diff checks passed. No performance claim is made.
+
+Integration is deliberately incomplete at this checkpoint:
+
+- `cargo check -p kagari-runtime --lib` fails in kagari-bytecode with 77 errors from
+  old path callers of the fixed-ID contract APIs. Representative diagnostics are
+  the missing `SemanticSlots::protocol_adapter_valid` method for path records in
+  `access.rs:77`, path types passed to scoped normalization in
+  `trait_bounds/associated.rs:86`, and the scoped import/table signature required
+  by `verify_native_call` in `verifier.rs:952`. SI04 owns executable-record and
+  verifier caller migration; SI05 owns the associated decode/adoption boundary.
+  Runtime changes beyond that dependency failure have not compiled.
+- `cargo check -p kagari-hir --lib` fails with two errors in
+  `aggregates/protocols.rs`: the path-based adapter request lacks the mandatory
+  table and its result consumer expects a path signature. SI03 owns the HIR
+  context and record migration. Do not convert the scoped result back to paths.
+- Contract proof/default tests and runtime/source-free/reload tests selected for
+  this changed boundary remain pending because their test builds depend on these
+  unmigrated callers. Earlier successful runs do not validate this checkpoint's
+  changed APIs. MIR/compiler/backend integration is also pending; the complete
+  feature/backend matrix remains CI-owned.
+
+Continue through those caller owners and finish builder/ModuleDecl scope adoption;
+SI02 is not complete. During specialization/codec migration, audit derived bound
+ordering: the temporary generic substitution helper uses identity ordering, while
+scoped declaration validation preserves canonical path order through the table.
+Canonical wire output must not depend on allocation order; retain the existing
+reordered-allocation coverage and fix the owning ordering operation rather than
+weakening validation. No structural exceptions or new progress queues were added.

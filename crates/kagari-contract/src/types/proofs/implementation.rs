@@ -1,12 +1,15 @@
 //! Checked implementation sources share pattern matching without invented tables.
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+};
 
 use {
     crate::types::InterfaceTable,
     kagari_types::{
         callable::CallableImplementation,
         declaration::{
-            AssociatedTypeFamily, FnDecl, TraitDef, module::ImplDecl, verify::types_in_scope,
+            AssociatedTypeFamily, FnDecl, TraitDef, module::ImplDecl, verify::types_in_scope_in,
         },
         language::Protocol,
         ty::{
@@ -20,49 +23,56 @@ use {
 /// Source-independent facts from a verified interface or validated registration.
 /// The caller owns declaration/method validation; proof checks applicability.
 pub enum Implementation<'a> {
-    Interface(&'a InterfaceTable),
+    Interface(&'a InterfaceTable<DefinitionId>),
     Native {
-        declaration: &'a DefinitionPath,
-        implementation: &'a ImplDecl,
+        declaration: &'a DefinitionId,
+        implementation: &'a ImplDecl<DefinitionId>,
     },
 }
 
-impl<'a> From<&'a InterfaceTable> for Implementation<'a> {
-    fn from(table: &'a InterfaceTable) -> Self {
+impl<'a> From<&'a InterfaceTable<DefinitionId>> for Implementation<'a> {
+    fn from(table: &'a InterfaceTable<DefinitionId>) -> Self {
         Self::Interface(table)
     }
 }
 
 impl<'a> Implementation<'a> {
-    pub(super) fn declaration(&self) -> &DefinitionPath {
+    pub(super) fn methods(&self) -> &[FnDecl<DefinitionId>] {
+        match self {
+            Self::Interface(table) => &table.methods,
+            Self::Native { implementation, .. } => &implementation.methods,
+        }
+    }
+
+    pub(super) fn declaration(&self) -> &DefinitionId {
         match self {
             Self::Interface(table) => &table.declaration,
             Self::Native { declaration, .. } => declaration,
         }
     }
 
-    pub(super) fn parameters(&self) -> &'a [GenericParam] {
+    pub(super) fn parameters(&self) -> &'a [GenericParam<DefinitionId>] {
         match self {
             Self::Interface(table) => &table.generic_params,
             Self::Native { implementation, .. } => &implementation.generic_params,
         }
     }
 
-    pub(super) fn bounds(&self) -> &'a [GenericBound] {
+    pub(super) fn bounds(&self) -> &'a [GenericBound<DefinitionId>] {
         match self {
             Self::Interface(table) => &table.bounds,
             Self::Native { implementation, .. } => &implementation.bounds,
         }
     }
 
-    pub(super) fn receiver(&self) -> &'a Ty {
+    pub(super) fn receiver(&self) -> &'a Ty<DefinitionId> {
         match self {
             Self::Interface(table) => &table.for_type,
             Self::Native { implementation, .. } => &implementation.for_type,
         }
     }
 
-    pub(super) fn interface(&self) -> Option<&'a NominalTy> {
+    pub(super) fn interface(&self) -> Option<&'a NominalTy<DefinitionId>> {
         match self {
             Self::Interface(table) => match &table.trait_type {
                 Ty::Trait(interface) => Some(interface),
@@ -72,9 +82,13 @@ impl<'a> Implementation<'a> {
         }
     }
 
-    pub(super) fn pattern(&self, contract: Option<&TraitDef>) -> Option<ImplementationPattern<'a>> {
+    pub(super) fn pattern(
+        &self,
+        contract: Option<&TraitDef<DefinitionId>>,
+        definitions: &DefinitionTable,
+    ) -> Option<ImplementationPattern<'a, DefinitionId>> {
         Some(ImplementationPattern {
-            protocol: Protocol::from_id(&self.interface()?.declaration),
+            protocol: Protocol::from_reference(&self.interface()?.declaration, Some(definitions)),
             storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: self.parameters(),
             receiver: self.receiver(),
@@ -82,7 +96,7 @@ impl<'a> Implementation<'a> {
         })
     }
 
-    pub(super) fn families(&self) -> &'a [AssociatedTypeFamily] {
+    pub(super) fn families(&self) -> &'a [AssociatedTypeFamily<DefinitionId>] {
         match self {
             Self::Interface(table) => &table.associated_type_families,
             Self::Native { .. } => &[],
@@ -96,31 +110,33 @@ impl<'a> Implementation<'a> {
     pub(super) fn method(
         &self,
         name: &str,
-        arguments: &[Ty],
-        contract: Option<&TraitDef>,
+        arguments: &[Ty<DefinitionId>],
+        contract: Option<&TraitDef<DefinitionId>>,
+        definitions: &DefinitionTable,
         cancel: &CancellationToken,
-    ) -> Result<Option<FnDecl>, TypeTransformError> {
-        self.method_in(name, arguments, contract, &[], cancel)
+    ) -> Result<Option<FnDecl<DefinitionId>>, TypeTransformError> {
+        self.method_in(name, arguments, contract, &[], definitions, cancel)
     }
 
     pub(super) fn method_in(
         &self,
         name: &str,
-        arguments: &[Ty],
-        contract: Option<&TraitDef>,
-        parameters: &[GenericParam],
+        arguments: &[Ty<DefinitionId>],
+        contract: Option<&TraitDef<DefinitionId>>,
+        parameters: &[GenericParam<DefinitionId>],
+        definitions: &DefinitionTable,
         cancel: &CancellationToken,
-    ) -> Result<Option<FnDecl>, TypeTransformError> {
+    ) -> Result<Option<FnDecl<DefinitionId>>, TypeTransformError> {
         if let Self::Interface(table) = self {
             return Ok(table
-                .instantiate_in(arguments, parameters)
+                .instantiate_scoped(arguments, parameters, Some(definitions))
                 .and_then(|table| table.methods.into_iter().find(|method| method.name == name)));
         }
         let Self::Native { implementation, .. } = self else {
             unreachable!()
         };
         if arguments.len() != self.parameters().len()
-            || !types_in_scope(arguments, parameters, cancel)
+            || !types_in_scope_in(arguments, parameters, cancel, Some(definitions))
         {
             return Err(TypeTransformError::InvalidContract);
         }
@@ -164,7 +180,7 @@ impl<'a> Implementation<'a> {
         } else {
             &bindings
         };
-        let apply = |ty: &Ty| {
+        let apply = |ty: &Ty<DefinitionId>| {
             let ty = bindings.apply(ty, cancel)?;
             if inherited {
                 resolve_associated_outputs(&ty, &applied, &receiver, cancel)

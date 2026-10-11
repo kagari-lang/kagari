@@ -3,7 +3,7 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::reference::DefinitionReference;
 use kagari_types::{host_interface::value_type::HostValueType, scalar::BuiltinType, ty::Ty};
 
-pub fn host_representation(ty: &HostValueType) -> ValueType {
+pub fn host_representation<I>(ty: &HostValueType<I>) -> ValueType {
     match ty {
         HostValueType::Unit => ValueType::Unit,
         HostValueType::Bool => ValueType::Bool,

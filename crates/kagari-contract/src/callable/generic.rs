@@ -3,10 +3,14 @@ use crate::types::ConcreteFunctionIdentity;
 use kagari_common::identity::DefinitionPath;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, reference::DefinitionReference},
+    identity::{
+        DefinitionKind,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
-    declaration::verify::{native_bounds_valid, types_in_scope},
+    declaration::verify::{native_bounds_valid, types_in_scope_in},
     ty::{GenericBound, GenericParam, Ty},
 };
 use serde::{Deserialize, Serialize};
@@ -23,30 +27,42 @@ pub struct GenericBody<I = DefinitionPath> {
     pub bounds: Vec<GenericBound<I>>,
 }
 
-impl GenericBody {
-    pub fn valid(&self, identity: &ConcreteFunctionIdentity, cancel: &CancellationToken) -> bool {
+impl GenericBody<DefinitionId> {
+    pub fn valid(
+        &self,
+        identity: &ConcreteFunctionIdentity<DefinitionId>,
+        cancel: &CancellationToken,
+        definitions: &DefinitionTable,
+    ) -> bool {
         !self.parameters.is_empty()
             && self
                 .parameters
                 .iter()
                 .enumerate()
                 .all(|(position, parameter)| {
-                    parameter.owner.module == identity.declaration.module
-                        && identity.declaration.path.starts_with(&parameter.owner.path)
-                        && parameter.owner.path.last().is_some_and(|part| {
-                            matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
-                        })
+                    definitions.contains(parameter.owner, identity.declaration) == Ok(true)
+                        && definitions
+                            .resolve(parameter.owner)
+                            .ok()
+                            .and_then(|view| view.last())
+                            .is_some_and(|part| {
+                                matches!(
+                                    part.kind,
+                                    DefinitionKind::Function | DefinitionKind::Method
+                                )
+                            })
                         && parameter.position == position
                 })
-            && native_bounds_valid(&self.bounds, &self.parameters, cancel)
+            && native_bounds_valid(&self.bounds, &self.parameters, cancel, definitions)
     }
 
     pub fn types_valid<'a>(
         &self,
-        types: impl IntoIterator<Item = &'a Ty>,
+        types: impl IntoIterator<Item = &'a Ty<DefinitionId>>,
         cancel: &CancellationToken,
+        definitions: &DefinitionTable,
     ) -> bool {
-        types_in_scope(types, &self.parameters, cancel)
+        types_in_scope_in(types, &self.parameters, cancel, Some(definitions))
     }
 }
 

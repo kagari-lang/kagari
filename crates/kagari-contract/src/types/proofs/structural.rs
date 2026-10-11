@@ -1,3 +1,4 @@
+use kagari_common::identity::table::DefinitionId;
 use {
     crate::{
         language::primitive as intrinsic,
@@ -15,8 +16,8 @@ impl ProofCatalog<'_> {
     pub(super) fn structural(
         &self,
         kind: Protocol,
-        receiver: &Ty,
-        assumptions: &[GenericBound],
+        receiver: &Ty<DefinitionId>,
+        assumptions: &[GenericBound<DefinitionId>],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
@@ -37,14 +38,14 @@ impl ProofCatalog<'_> {
                 .iter()
                 .filter(|bound| bound.ty == *receiver)
                 .flat_map(|bound| &bound.constraints)
-                .any(|bound| *bound == Constraint::Trait(intrinsic::applied(Protocol::Eq, vec![])))
+                .any(|bound| matches!(bound, Constraint::Trait(interface) if Protocol::from_reference(&interface.declaration, Some(&self.definitions)) == Some(Protocol::Eq) && interface.arguments.is_empty() && interface.associated_types.is_empty()))
         {
             return Ok(true);
         }
         if matches!(receiver, Ty::Struct(_) | Ty::NativeObject(_) | Ty::Enum(_))
             && matches!(kind, Protocol::Eq | Protocol::Hash)
             && self.explicit(
-                &intrinsic::applied(Protocol::PartialEq, vec![]),
+                &intrinsic::applied(Protocol::PartialEq, vec![], &self.definitions)?,
                 receiver,
                 assumptions,
                 search,
@@ -56,7 +57,7 @@ impl ProofCatalog<'_> {
             // Hash defaults cannot silently disagree with that implementation.
             return Ok(false);
         }
-        let members: Vec<&Ty> = match receiver {
+        let members: Vec<&Ty<DefinitionId>> = match receiver {
             Ty::Builtin(ty) => {
                 return Ok(!matches!(kind, Protocol::Eq | Protocol::Hash)
                     || !matches!(ty, BuiltinType::F32 | BuiltinType::F64));
@@ -82,7 +83,7 @@ impl ProofCatalog<'_> {
             }
             _ => return Ok(false),
         };
-        let interface = intrinsic::applied(kind, vec![]);
+        let interface = intrinsic::applied(kind, vec![], &self.definitions)?;
         let key = (interface.clone(), receiver.clone());
         if !search.defaults.insert(key.clone()) {
             return Ok(true);
@@ -101,9 +102,9 @@ impl ProofCatalog<'_> {
 
     pub(super) fn standard_constraint(
         &self,
-        actual: &Ty,
+        actual: &Ty<DefinitionId>,
         required: StandardTypeConstraint,
-        assumptions: &[GenericBound],
+        assumptions: &[GenericBound<DefinitionId>],
         search: &mut Search,
         budget: &Budget<'_>,
         depth: usize,
@@ -111,14 +112,14 @@ impl ProofCatalog<'_> {
         budget.step(depth)?;
         match required {
             StandardTypeConstraint::HashKey => Ok(self.prove(
-                &intrinsic::applied(Protocol::Eq, vec![]),
+                &intrinsic::applied(Protocol::Eq, vec![], &self.definitions)?,
                 actual,
                 assumptions,
                 search,
                 budget,
                 depth,
             )? && self.prove(
-                &intrinsic::applied(Protocol::Hash, vec![]),
+                &intrinsic::applied(Protocol::Hash, vec![], &self.definitions)?,
                 actual,
                 assumptions,
                 search,
@@ -126,7 +127,7 @@ impl ProofCatalog<'_> {
                 depth,
             )?),
             StandardTypeConstraint::Comparable => self.prove(
-                &intrinsic::applied(Protocol::PartialEq, vec![]),
+                &intrinsic::applied(Protocol::PartialEq, vec![], &self.definitions)?,
                 actual,
                 assumptions,
                 search,

@@ -9,13 +9,14 @@ use kagari_common::{
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
         reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_types::{
     callable::Signature,
     declaration::{
         NativeDeclaration,
-        verify::{native_bounds_valid, types_in_scope},
+        verify::{native_bounds_valid, types_in_scope_in},
     },
     host_interface::HostFunctionDeclaration,
     ty::{GenericBound, Ty, substitution::TypeTransformError},
@@ -61,8 +62,8 @@ pub struct NativeImport<I = DefinitionPath> {
     pub host: Option<HostFunctionDeclaration<I>>,
 }
 
-impl NativeImport {
-    pub fn from_host(declaration: &HostFunctionDeclaration) -> Self {
+impl<I: DefinitionReference> NativeImport<I> {
+    pub fn from_host(declaration: &HostFunctionDeclaration<I>) -> Self {
         Self {
             result_adapter: None,
             generic: None,
@@ -84,13 +85,22 @@ impl NativeImport {
             host: Some(declaration.clone()),
         }
     }
+}
 
-    pub fn structurally_valid(&self) -> bool {
+impl NativeImport<DefinitionId> {
+    pub fn structurally_valid(&self, definitions: &DefinitionTable) -> bool {
         let parameters = self
             .generic
             .as_ref()
             .map_or(&[][..], |body| body.parameters.as_slice());
-        let valid = |ty: &Ty| types_in_scope([ty], parameters, &CancellationToken::default());
+        let valid = |ty: &Ty<DefinitionId>| {
+            types_in_scope_in(
+                [ty],
+                parameters,
+                &CancellationToken::default(),
+                Some(definitions),
+            )
+        };
         self.generic.as_ref().is_none_or(|body| {
             !body.parameters.is_empty()
                 && body
@@ -98,21 +108,27 @@ impl NativeImport {
                     .iter()
                     .enumerate()
                     .all(|(position, parameter)| {
-                        parameter.position == position && parameter.owner.within_path_limit()
+                        parameter.position == position
+                            && definitions.resolve(parameter.owner).is_ok()
                     })
                 && body.bounds == self.requirements
-                && native_bounds_valid(&body.bounds, &body.parameters, &Default::default())
+                && native_bounds_valid(
+                    &body.bounds,
+                    &body.parameters,
+                    &Default::default(),
+                    definitions,
+                )
         }) && self.host.as_ref().is_none_or(|declaration| {
-            declaration.validate().is_ok() && *self == Self::from_host(declaration)
-        }) && self.binding.within_path_limit()
-            && !self.binding.module.package.0.is_empty()
-            && !self.binding.module.path.is_empty()
-            && !self.binding.module.path.iter().any(String::is_empty)
-            && self.binding.path.last().is_some_and(|part| {
-                !part.name.is_empty()
-                    && matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
-            })
-            && self.instance.declaration.within_path_limit()
+            declaration.validate(definitions).is_ok() && *self == Self::from_host(declaration)
+        }) && definitions.resolve(self.binding).is_ok_and(|view| {
+            !view.module().package.0.is_empty()
+                && !view.module().path.is_empty()
+                && !view.module().path.iter().any(String::is_empty)
+                && view.last().is_some_and(|part| {
+                    !part.name.is_empty()
+                        && matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
+                })
+        }) && definitions.resolve(self.instance.declaration).is_ok()
             && self.instance.arguments.len() <= 4096
             && self.signature.params.len() <= 4096
             && self.requirements.len() <= 4096
@@ -120,19 +136,21 @@ impl NativeImport {
             && self
                 .result_adapter
                 .as_ref()
-                .is_none_or(|adapter| adapter.structurally_valid(parameters))
+                .is_none_or(|adapter| adapter.structurally_valid(parameters, definitions))
             && self
                 .callables
                 .iter()
-                .all(|call| call.structurally_valid(parameters))
+                .all(|call| call.structurally_valid(parameters, definitions))
             && self.instance.arguments.iter().all(valid)
             && self.signature.params.iter().all(valid)
             && valid(&self.signature.result)
     }
+}
 
+impl NativeImport<DefinitionId> {
     pub fn matches_declaration(
         &self,
-        declaration: &NativeDeclaration,
+        declaration: &NativeDeclaration<DefinitionId>,
         catalog: &ProofCatalog<'_>,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {

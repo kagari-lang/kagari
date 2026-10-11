@@ -1,5 +1,8 @@
 //! Validate generated protocol functions against carried declarations and bounds.
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionId},
+};
 use {
     crate::{
         effects::EffectSet,
@@ -20,10 +23,10 @@ use {
 impl ProofCatalog<'_> {
     pub fn implicit_callable_signature(
         &self,
-        required: &NativeCallableRequirement,
+        required: &NativeCallableRequirement<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<Option<Signature>, TypeTransformError> {
-        let Some((_, expected)) = adapter_contract(required) else {
+    ) -> Result<Option<Signature<DefinitionId>>, TypeTransformError> {
+        let Some((_, expected)) = adapter_contract(required, &self.definitions) else {
             return Ok(None);
         };
         if !self.callable_requirement_valid(required)
@@ -36,10 +39,10 @@ impl ProofCatalog<'_> {
             return Ok(None);
         };
         let Some(method) = contract.methods.iter().find(|method| {
-            required
-                .member
-                .path
-                .last()
+            self.definitions
+                .resolve(required.member)
+                .ok()
+                .and_then(|view| view.last())
                 .is_some_and(|member| member.name == method.name)
         }) else {
             return Ok(None);
@@ -77,25 +80,29 @@ impl ProofCatalog<'_> {
 
     pub fn callable_matches(
         &self,
-        required: &NativeCallableRequirement,
-        selected: &NativeCallableApplication,
+        required: &NativeCallableRequirement<DefinitionId>,
+        selected: &NativeCallableApplication<DefinitionId>,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         if selected.origin == NativeCallableOrigin::Implementation {
             return Ok(self.select_callable(required, cancel)?.as_ref() == Some(selected));
         }
-        let Some((kind, _)) = adapter_contract(required) else {
+        let Some((kind, _)) = adapter_contract(required, &self.definitions) else {
             return Ok(false);
         };
         let declaration = &selected.instance.declaration;
         Ok(selected.requirement == *required
             && selected.implementation == CallableImplementation::Script
             && selected.effects == EffectSet::native_call()
-            && selected.instance.arguments == adapter_arguments(required)
-            && declaration.path.len() == 1
-            && declaration.path[0].kind == DefinitionKind::Function
-            && declaration.path[0].occurrence == 0
-            && declaration.path[0].name == format!("$derived_{}", kind.name())
+            && selected.instance.arguments == adapter_arguments(required, &self.definitions)
+            && self.definitions.resolve(*declaration).is_ok_and(|view| {
+                view.segments().count() == 1
+                    && view.last().is_some_and(|part| {
+                        part.kind == DefinitionKind::Function
+                            && part.occurrence == 0
+                            && part.name == format!("$derived_{}", kind.name())
+                    })
+            })
             && self.implicit_callable_signature(required, cancel)?.as_ref()
                 == Some(&selected.signature))
     }

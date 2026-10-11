@@ -9,10 +9,7 @@ use {
     kagari_types::{
         callable::{CallableImplementation, Signature},
         declaration::{
-            TraitDef,
-            module::ModuleDecl,
-            requirement::NativeCallableRequirement,
-            verify::{concrete_type_valid, types_in_scope},
+            TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope_in,
         },
         ty::{
             Constraint, GenericBound, GenericParam, Ty, inheritance,
@@ -23,7 +20,11 @@ use {
 
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, DefinitionPath, reference::DefinitionReference},
+    identity::{
+        DefinitionKind, DefinitionPath,
+        reference::DefinitionReference,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -53,48 +54,61 @@ pub struct SharedMethodWitness<I = DefinitionPath> {
     pub implementation: ConcreteFunctionIdentity<I>,
 }
 
-impl OperationWitness {
-    pub fn structurally_valid(&self, parameters: &[GenericParam]) -> bool {
+impl OperationWitness<DefinitionId> {
+    pub fn structurally_valid(
+        &self,
+        parameters: &[GenericParam<DefinitionId>],
+        definitions: &DefinitionTable,
+    ) -> bool {
         match self {
             Self::SharedMethod(selected) => {
-                selected.implementation.declaration.within_path_limit()
+                definitions
+                    .resolve(selected.implementation.declaration)
+                    .is_ok()
                     && selected.implementation.arguments.len() <= 4096
-                    && selected.requirement.member.within_path_limit()
+                    && definitions.resolve(selected.requirement.member).is_ok()
                     && selected.requirement.arguments.is_empty()
-                    && types_in_scope(
+                    && types_in_scope_in(
                         selected.implementation.arguments.iter().chain([
                             &selected.requirement.receiver,
                             &Ty::Trait(selected.requirement.interface.clone()),
                         ]),
                         parameters,
                         &Default::default(),
+                        Some(definitions),
                     )
             }
             Self::Forward(required) => {
                 !parameters.is_empty()
-                    && required.member.within_path_limit()
+                    && definitions.resolve(required.member).is_ok()
                     && required.arguments.len() <= 4096
-                    && types_in_scope(
+                    && types_in_scope_in(
                         required
                             .arguments
                             .iter()
                             .chain([&required.receiver, &Ty::Trait(required.interface.clone())]),
                         parameters,
                         &Default::default(),
+                        Some(definitions),
                     )
             }
             Self::Selected(call) => {
-                let valid = |ty: &Ty| {
+                let valid = |ty: &Ty<DefinitionId>| {
                     ty.within_wire_limits()
-                        && concrete_type_valid(ty, &CancellationToken::default())
+                        && types_in_scope_in(
+                            [ty],
+                            &[],
+                            &CancellationToken::default(),
+                            Some(definitions),
+                        )
                 };
                 call.effects == EffectSet::native_call()
                     && (call.origin != NativeCallableOrigin::ProtocolAdapter
                         || call.implementation == CallableImplementation::Script)
-                    && call.instance.declaration.within_path_limit()
+                    && definitions.resolve(call.instance.declaration).is_ok()
                     && call.instance.arguments.len() <= 4096
                     && call.instance.arguments.iter().all(valid)
-                    && call.requirement.member.within_path_limit()
+                    && definitions.resolve(call.requirement.member).is_ok()
                     && call.requirement.arguments.len() <= 4096
                     && call.requirement.arguments.iter().all(valid)
                     && valid(&call.requirement.receiver)
@@ -104,7 +118,9 @@ impl OperationWitness {
                     && valid(&call.signature.result)
                     && match &call.implementation {
                         CallableImplementation::Script => true,
-                        CallableImplementation::Native(binding) => binding.within_path_limit(),
+                        CallableImplementation::Native(binding) => {
+                            definitions.resolve(*binding).is_ok()
+                        }
                         CallableImplementation::Required
                         | CallableImplementation::NativeDefault(_) => false,
                     }
@@ -115,11 +131,12 @@ impl OperationWitness {
     pub fn valid(
         &self,
         catalog: &ProofCatalog<'_>,
-        parameters: &[GenericParam],
-        assumptions: &[GenericBound],
+        parameters: &[GenericParam<DefinitionId>],
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
-        if !self.structurally_valid(parameters) {
+        let definitions = catalog.definitions();
+        if !self.structurally_valid(parameters, definitions) {
             return Ok(false);
         }
         match self {
@@ -133,6 +150,7 @@ impl OperationWitness {
                 assumptions,
                 &|id| catalog.trait_contract(id),
                 cancel,
+                definitions,
             )?
             .iter()
             .any(|available| {
@@ -165,10 +183,11 @@ impl<I: DefinitionReference> OperationWitness<I> {
 /// Enumerate the member operations guaranteed by these bounds, including
 /// inherited traits. This is declaration work, never executable-body inspection.
 pub fn required_operations<'a>(
-    bounds: &[GenericBound],
-    lookup: &impl Fn(&DefinitionPath) -> Option<&'a TraitDef>,
+    bounds: &[GenericBound<DefinitionId>],
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
     cancel: &CancellationToken,
-) -> Result<Vec<NativeCallableRequirement>, TypeTransformError> {
+    definitions: &DefinitionTable,
+) -> Result<Vec<NativeCallableRequirement<DefinitionId>>, TypeTransformError> {
     // A bound also promises its immediate associated-type contracts. In
     // particular Iterable supplies the selected next for its Iter projection.
     let mut expanded = bounds.to_vec();
@@ -191,7 +210,7 @@ pub fn required_operations<'a>(
                     if !member.generic_params.is_empty() || member.bounds.is_empty() {
                         continue;
                     }
-                    let apply = |ty: &Ty| {
+                    let apply = |ty: &Ty<DefinitionId>| {
                         resolve_associated_outputs(
                             &substitution.apply(ty, cancel)?,
                             &interface,
@@ -200,9 +219,9 @@ pub fn required_operations<'a>(
                         )
                     };
                     let receiver = apply(&Ty::Projection {
-                        receiver: Box::new(Ty::SelfType(interface.declaration.clone())),
+                        receiver: Box::new(Ty::SelfType(interface.declaration)),
                         interface: Box::new(interface.clone()),
-                        member: member.declaration.clone(),
+                        member: member.declaration,
                         arguments: vec![],
                     })?;
                     let constraints = member
@@ -246,7 +265,14 @@ pub fn required_operations<'a>(
                     let operation = NativeCallableRequirement {
                         receiver: bound.ty.clone(),
                         interface: interface.clone(),
-                        member: ModuleDecl::method_id(&interface.declaration, &method.name),
+                        member: definitions
+                            .lookup_child(
+                                interface.declaration,
+                                DefinitionKind::Method,
+                                &method.name,
+                                0,
+                            )
+                            .ok_or(TypeTransformError::InvalidContract)?,
                         arguments: vec![],
                     };
                     if !operations.contains(&operation) {
@@ -263,7 +289,7 @@ pub fn required_operations<'a>(
 }
 
 pub fn is_generic_member(
-    requirement: &NativeCallableRequirement,
+    requirement: &NativeCallableRequirement<DefinitionId>,
     catalog: &ProofCatalog<'_>,
 ) -> bool {
     requirement.arguments.is_empty()
@@ -272,10 +298,12 @@ pub fn is_generic_member(
             .is_some_and(|contract| {
                 contract.methods.iter().any(|method| {
                     !method.generic_params.is_empty()
-                        && requirement.member
-                            == ModuleDecl::method_id(
-                                &requirement.interface.declaration,
+                        && Some(requirement.member)
+                            == catalog.definitions().lookup_child(
+                                requirement.interface.declaration,
+                                DefinitionKind::Method,
                                 &method.name,
+                                0,
                             )
                 })
             })
@@ -284,23 +312,25 @@ pub fn is_generic_member(
 /// Instantiate a member declaration with a raw constrained receiver, rather
 /// than the boxed interface receiver used by ordinary interface dispatch.
 pub fn requirement_signature(
-    requirement: &NativeCallableRequirement,
-    contract: &TraitDef,
+    requirement: &NativeCallableRequirement<DefinitionId>,
+    contract: &TraitDef<DefinitionId>,
     cancel: &CancellationToken,
-) -> Result<Signature, TypeTransformError> {
+    definitions: &DefinitionTable,
+) -> Result<Signature<DefinitionId>, TypeTransformError> {
     let slot = contract
         .methods
         .iter()
         .position(|method| {
-            let mut member = requirement.interface.declaration.clone();
-            let Some(segment) = requirement.member.path.last() else {
-                return false;
-            };
-            member.path.push(segment.clone());
-            member == requirement.member
-                && segment.name == method.name
-                && segment.kind == DefinitionKind::Method
-                && segment.occurrence == 0
+            definitions.parent(requirement.member) == Ok(Some(requirement.interface.declaration))
+                && definitions
+                    .resolve(requirement.member)
+                    .ok()
+                    .and_then(|view| view.last())
+                    .is_some_and(|segment| {
+                        segment.name == method.name
+                            && segment.kind == DefinitionKind::Method
+                            && segment.occurrence == 0
+                    })
         })
         .ok_or(TypeTransformError::InvalidContract)?;
     let call = InterfaceCallContract {
@@ -311,7 +341,7 @@ pub fn requirement_signature(
         method_slot: slot as u32,
         arguments: requirement.arguments.clone(),
     };
-    let signature = call.signature(contract, cancel)?;
+    let signature = call.signature(contract, cancel, definitions)?;
     Ok(Signature {
         params: signature.params,
         result: signature.result,
@@ -319,17 +349,18 @@ pub fn requirement_signature(
 }
 
 pub fn requirement_signature_in_scope(
-    requirement: &NativeCallableRequirement,
+    requirement: &NativeCallableRequirement<DefinitionId>,
     catalog: &ProofCatalog<'_>,
-    parameters: &[GenericParam],
-    assumptions: &[GenericBound],
+    parameters: &[GenericParam<DefinitionId>],
+    assumptions: &[GenericBound<DefinitionId>],
     cancel: &CancellationToken,
-) -> Result<Option<Signature>, TypeTransformError> {
+) -> Result<Option<Signature<DefinitionId>>, TypeTransformError> {
+    let definitions = catalog.definitions();
     let Some(contract) = catalog.trait_contract(&requirement.interface.declaration) else {
         return Ok(None);
     };
-    let signature = requirement_signature(requirement, contract, cancel)?;
-    if !types_in_scope(
+    let signature = requirement_signature(requirement, contract, cancel, definitions)?;
+    if !types_in_scope_in(
         signature
             .params
             .iter()
@@ -337,6 +368,7 @@ pub fn requirement_signature_in_scope(
             .chain(&requirement.arguments),
         parameters,
         cancel,
+        Some(definitions),
     ) || !catalog.holds(
         &requirement.interface,
         &requirement.receiver,
@@ -349,10 +381,10 @@ pub fn requirement_signature_in_scope(
         .methods
         .iter()
         .find(|method| {
-            requirement
-                .member
-                .path
-                .last()
+            definitions
+                .resolve(requirement.member)
+                .ok()
+                .and_then(|view| view.last())
                 .is_some_and(|member| member.name == method.name)
         })
         .ok_or(TypeTransformError::InvalidContract)?;

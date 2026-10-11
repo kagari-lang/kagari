@@ -2,14 +2,35 @@
 use crate::{
     callable::Signature,
     conversion::lossless_from,
-    declaration::{module::ModuleDecl, requirement::NativeCallableRequirement},
+    declaration::requirement::NativeCallableRequirement,
     language::{Protocol, binding},
     scalar::BuiltinType,
-    ty::Ty,
+    ty::{NominalTy, Ty},
 };
-use kagari_common::identity::{DefinitionKind, associated_type_id};
-pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protocol, Signature)> {
-    let kind = Protocol::from_id(&required.interface.declaration)?;
+use kagari_common::identity::{
+    DefinitionKind,
+    table::{DefinitionId, DefinitionTable},
+};
+pub fn adapter_contract(
+    required: &NativeCallableRequirement<DefinitionId>,
+    definitions: &DefinitionTable,
+) -> Option<(Protocol, Signature<DefinitionId>)> {
+    let member_id = |name| {
+        definitions.lookup_child(
+            required.interface.declaration,
+            DefinitionKind::AssociatedType,
+            name,
+            0,
+        )
+    };
+    let enum_type = |id, arguments| {
+        Ty::Enum(NominalTy {
+            declaration: id,
+            arguments,
+            associated_types: Default::default(),
+        })
+    };
+    let kind = Protocol::from_reference(&required.interface.declaration, Some(definitions))?;
     if kind == Protocol::From {
         let [input] = required.interface.arguments.as_slice() else {
             return None;
@@ -18,7 +39,13 @@ pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protoco
             || matches!((input, &required.receiver), (Ty::Builtin(source), Ty::Builtin(target))
                 if lossless_from(*source, *target));
         return (eligible
-            && required.member == ModuleDecl::method_id(&required.interface.declaration, "from")
+            && Some(required.member)
+                == definitions.lookup_child(
+                    required.interface.declaration,
+                    DefinitionKind::Method,
+                    "from",
+                    0,
+                )
             && required.arguments.is_empty()
             && required.interface.associated_types.is_empty())
         .then(|| {
@@ -40,14 +67,21 @@ pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protoco
         } else {
             Ty::Tuple(params.clone())
         };
-        return (required.member == ModuleDecl::method_id(&required.interface.declaration, "call")
+        return (Some(required.member)
+            == definitions.lookup_child(
+                required.interface.declaration,
+                DefinitionKind::Method,
+                "call",
+                0,
+            )
             && required.arguments.is_empty()
             && required.interface.arguments == [packed.clone()]
             && required.interface.associated_types.len() == 1
-            && required.interface.associated_types.get(&associated_type_id(
-                &required.interface.declaration,
-                "Output",
-            )) == Some(result.as_ref()))
+            && required
+                .interface
+                .associated_types
+                .get(&member_id("Output")?)
+                == Some(result.as_ref()))
         .then(|| {
             (
                 kind,
@@ -64,19 +98,22 @@ pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protoco
             required
                 .interface
                 .associated_types
-                .get(&associated_type_id(&required.interface.declaration, "Iter"))
+                .get(&member_id("Iter")?)
                 .cloned()
                 .unwrap_or_else(|| required.receiver.clone()),
             1,
         ),
         Protocol::Iterator if matches!(required.receiver, Ty::Trait(_)) => (
             "next",
-            binding::option(
-                required
-                    .interface
-                    .associated_types
-                    .get(&associated_type_id(&required.interface.declaration, "Item"))?
-                    .clone(),
+            enum_type(
+                definitions.lookup(&binding::option_declaration())?,
+                vec![
+                    required
+                        .interface
+                        .associated_types
+                        .get(&member_id("Item")?)?
+                        .clone(),
+                ],
             ),
             1,
         ),
@@ -84,13 +121,29 @@ pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protoco
         Protocol::Hash => ("hash", Ty::Builtin(BuiltinType::I64), 1),
         Protocol::Debug => ("debug", Ty::Builtin(BuiltinType::String), 1),
         Protocol::Display => ("display", Ty::Builtin(BuiltinType::String), 1),
-        Protocol::Ord => ("cmp", binding::ordering(), 2),
-        Protocol::PartialOrd => ("partial_cmp", binding::option(binding::ordering()), 2),
+        Protocol::Ord => (
+            "cmp",
+            enum_type(
+                definitions.lookup(&binding::ordering_declaration())?,
+                vec![],
+            ),
+            2,
+        ),
+        Protocol::PartialOrd => (
+            "partial_cmp",
+            enum_type(
+                definitions.lookup(&binding::option_declaration())?,
+                vec![enum_type(
+                    definitions.lookup(&binding::ordering_declaration())?,
+                    vec![],
+                )],
+            ),
+            2,
+        ),
         _ => return None,
     };
-    let mut owner = required.member.clone();
-    let method = owner.path.pop()?;
-    if owner != required.interface.declaration
+    let method = definitions.resolve(required.member).ok()?.last()?;
+    if definitions.parent(required.member).ok()? != Some(required.interface.declaration)
         || method.kind != DefinitionKind::Method
         || method.name != member
         || method.occurrence != 0
@@ -102,8 +155,8 @@ pub fn adapter_contract(required: &NativeCallableRequirement) -> Option<(Protoco
                 .associated_types
                 .iter()
                 .any(|(member, ty)| {
-                    *member != associated_type_id(&required.interface.declaration, "Item")
-                        && (*member != associated_type_id(&required.interface.declaration, "Iter")
+                    Some(*member) != member_id("Item")
+                        && (Some(*member) != member_id("Iter")
                             || (!matches!(required.receiver, Ty::Trait(_))
                                 && *ty != required.receiver))
                 })

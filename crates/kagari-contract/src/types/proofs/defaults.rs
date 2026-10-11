@@ -1,5 +1,5 @@
 //! Check default applications against actual registered templates and trait facts.
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 
 use crate::types::{
     ConcreteFunctionIdentity,
@@ -7,7 +7,7 @@ use crate::types::{
 };
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication, Signature},
-    declaration::verify::types_in_scope,
+    declaration::verify::types_in_scope_in,
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -16,9 +16,9 @@ use kagari_types::{
 use std::collections::BTreeMap;
 
 pub struct ResolvedNativeDefault {
-    pub instance: ConcreteFunctionIdentity,
-    pub implementation: CallableImplementation,
-    pub signature: Signature,
+    pub instance: ConcreteFunctionIdentity<DefinitionId>,
+    pub implementation: CallableImplementation<DefinitionId>,
+    pub signature: Signature<DefinitionId>,
 }
 
 impl ProofCatalog<'_> {
@@ -68,7 +68,7 @@ impl ProofCatalog<'_> {
                 let mut assumptions = contract.bounds.clone();
                 assumptions.extend(method.bounds.clone());
                 let mut interface = NominalTy {
-                    declaration: (*owner).clone(),
+                    declaration: (*owner),
                     arguments: contract
                         .generic_params
                         .iter()
@@ -83,21 +83,21 @@ impl ProofCatalog<'_> {
                         continue;
                     }
                     let projection = Ty::Projection {
-                        receiver: Box::new(Ty::SelfType((*owner).clone())),
+                        receiver: Box::new(Ty::SelfType(*owner)),
                         interface: Box::new(base.clone()),
-                        member: output.declaration.clone(),
+                        member: output.declaration,
                         arguments: vec![],
                     };
                     interface
                         .associated_types
-                        .insert(output.declaration.clone(), projection.clone());
+                        .insert(output.declaration, projection.clone());
                     assumptions.push(GenericBound {
                         ty: projection,
                         constraints: output.bounds.clone(),
                     });
                 }
                 assumptions.push(GenericBound {
-                    ty: Ty::SelfType((*owner).clone()),
+                    ty: Ty::SelfType(*owner),
                     constraints: vec![Constraint::Trait(interface)],
                 });
                 for bound in substitution.apply_bounds(&template.function.bounds, cancel)? {
@@ -121,7 +121,7 @@ impl ProofCatalog<'_> {
     /// used to infer the receiver or another type argument.
     pub fn resolve_native_default(
         &self,
-        application: &NativeDefaultApplication,
+        application: &NativeDefaultApplication<DefinitionId>,
         cancel: &CancellationToken,
     ) -> Result<Option<ResolvedNativeDefault>, TypeTransformError> {
         self.resolve_native_default_in(application, &[], &[], cancel)
@@ -129,9 +129,9 @@ impl ProofCatalog<'_> {
 
     pub fn resolve_native_default_in(
         &self,
-        application: &NativeDefaultApplication,
-        parameters: &[GenericParam],
-        assumptions: &[GenericBound],
+        application: &NativeDefaultApplication<DefinitionId>,
+        parameters: &[GenericParam<DefinitionId>],
+        assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<Option<ResolvedNativeDefault>, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -151,7 +151,7 @@ impl ProofCatalog<'_> {
             .iter()
             .map(|argument| self.normalize(argument, cancel))
             .collect::<Result<Vec<_>, _>>()?;
-        if !types_in_scope(&arguments, parameters, cancel) {
+        if !types_in_scope_in(&arguments, parameters, cancel, Some(&self.definitions)) {
             return Ok(None);
         }
         let mut substitution = TypeSubstitution::default();
@@ -175,7 +175,7 @@ impl ProofCatalog<'_> {
         };
         Ok(Some(ResolvedNativeDefault {
             instance: ConcreteFunctionIdentity {
-                declaration: application.declaration.clone(),
+                declaration: application.declaration,
                 arguments,
             },
             implementation: template.function.implementation.clone(),
