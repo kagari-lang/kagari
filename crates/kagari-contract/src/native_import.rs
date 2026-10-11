@@ -8,7 +8,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -21,7 +20,6 @@ use kagari_types::{
     host_interface::HostFunctionDeclaration,
     ty::{GenericBound, Ty, substitution::TypeTransformError},
 };
-use serde::{Deserialize, Serialize};
 
 pub mod callables;
 mod linked;
@@ -41,37 +39,31 @@ pub fn binding_id(module: &ModuleIdentity, name: &str) -> DefinitionPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct NativeImport<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeImport {
     /// Convert a validated Rust body result using this preselected interface table.
-    pub result_adapter: Option<NativeResultAdapter<I>>,
+    pub result_adapter: Option<NativeResultAdapter>,
     /// A shared native entry retains method binders in its template application.
-    pub generic: Option<GenericBody<I>>,
-    pub instance: ConcreteFunctionIdentity<I>,
-    pub binding: I,
-    pub signature: Signature<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub requirements: Vec<GenericBound<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub callables: Vec<OperationWitness<I>>,
+    pub generic: Option<GenericBody>,
+    pub instance: ConcreteFunctionIdentity,
+    pub binding: DefinitionId,
+    pub signature: Signature<DefinitionId>,
+    pub requirements: Vec<GenericBound<DefinitionId>>,
+    pub callables: Vec<OperationWitness>,
     /// Existing host borrow/schema/authority facts belong to the host adapter.
-    pub host: Option<HostFunctionDeclaration<I>>,
+    pub host: Option<HostFunctionDeclaration<DefinitionId>>,
 }
 
-impl<I: DefinitionReference> NativeImport<I> {
-    pub fn from_host(declaration: &HostFunctionDeclaration<I>) -> Self {
+impl NativeImport {
+    pub fn from_host(declaration: &HostFunctionDeclaration<DefinitionId>) -> Self {
         Self {
             result_adapter: None,
             generic: None,
             instance: ConcreteFunctionIdentity {
-                declaration: declaration.id.clone(),
+                declaration: declaration.id,
                 arguments: vec![],
             },
-            binding: declaration.id.clone(),
+            binding: declaration.id,
             signature: Signature {
                 params: declaration
                     .params
@@ -87,7 +79,7 @@ impl<I: DefinitionReference> NativeImport<I> {
     }
 }
 
-impl NativeImport<DefinitionId> {
+impl NativeImport {
     pub fn structurally_valid(&self, definitions: &DefinitionTable) -> bool {
         let parameters = self
             .generic
@@ -142,7 +134,7 @@ impl NativeImport<DefinitionId> {
     }
 }
 
-impl NativeImport<DefinitionId> {
+impl NativeImport {
     pub fn matches_declaration(
         &self,
         declaration: &NativeDeclaration<DefinitionId>,

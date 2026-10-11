@@ -10,7 +10,7 @@ use kagari_types::{
 };
 
 pub(super) fn matches_declaration(
-    import: &NativeImport<DefinitionId>,
+    import: &NativeImport,
     declaration: &NativeDeclaration<DefinitionId>,
     catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,

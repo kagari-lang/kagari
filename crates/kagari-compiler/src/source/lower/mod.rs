@@ -4,7 +4,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         map::DefinitionContext, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
-        table::DefinitionId,
     },
 };
 use kagari_contract::{
@@ -81,7 +80,7 @@ impl From<DefinitionMappingError> for MirLoweringError {
 pub fn module_contract(
     module: &CheckedAnalysis,
     cancel: &CancellationToken,
-) -> Result<DefinitionMetadata<ModuleContract<DefinitionId>>, DefinitionMappingError> {
+) -> Result<DefinitionMetadata<ModuleContract>, DefinitionMappingError> {
     cancel
         .check()
         .map_err(|_| DefinitionMappingError::Cancelled)?;
@@ -114,7 +113,7 @@ pub fn lower_to_mir(
 pub(crate) fn lower_to_mir_with_requests<'a>(
     module: &'a AnalyzedModule,
     options: &'a MirLoweringOptions,
-    requests: &[ConcreteFunctionIdentity<DefinitionId>],
+    requests: &[ConcreteFunctionIdentity],
     modules: &'a [AnalyzedModule],
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,

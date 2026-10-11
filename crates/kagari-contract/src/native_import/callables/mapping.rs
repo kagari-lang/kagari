@@ -3,39 +3,40 @@ use crate::native_import::callables::NativeCallableApplication;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel},
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for NativeCallableApplication<I> {
-    type Rebind<J: DefinitionReference> = NativeCallableApplication<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for NativeCallableApplication {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeCallableApplication {
             origin: self.origin.clone(),
-            requirement: self.requirement.map_identities(mapper)?,
-            instance: self.instance.map_identities(mapper)?,
-            implementation: self.implementation.map_identities(mapper)?,
-            signature: self.signature.map_identities(mapper)?,
+            requirement: self.requirement.remap_definitions(mapper)?,
+            instance: self.instance.remap_definitions(mapper)?,
+            implementation: self.implementation.remap_definitions(mapper)?,
+            signature: self.signature.remap_definitions(mapper)?,
             effects: self.effects,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for NativeCallableApplication {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.requirement.visit_definitions(visit, cancel)?;
-        self.instance.visit_definitions(visit, cancel)?;
-        self.implementation.visit_definitions(visit, cancel)?;
-        self.signature.visit_definitions(visit, cancel)?;
+        self.requirement.visit_definition_ids(visit, cancel)?;
+        self.instance.visit_definition_ids(visit, cancel)?;
+        self.implementation.visit_definition_ids(visit, cancel)?;
+        self.signature.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

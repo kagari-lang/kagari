@@ -9,11 +9,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionPath,
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -23,24 +19,17 @@ use kagari_types::{
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct SharedCall<I = DefinitionPath> {
-    pub instance: ConcreteFunctionIdentity<I>,
-    pub implementation: CallableImplementation<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
-    pub signature: Signature<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub operations: Vec<OperationWitness<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SharedCall {
+    pub instance: ConcreteFunctionIdentity,
+    pub implementation: CallableImplementation<DefinitionId>,
+    pub arguments: Vec<Ty<DefinitionId>>,
+    pub signature: Signature<DefinitionId>,
+    pub operations: Vec<OperationWitness>,
 }
 
-impl SharedCall<DefinitionId> {
+impl SharedCall {
     pub fn structurally_valid(
         &self,
         parameters: &[GenericParam<DefinitionId>],
@@ -75,7 +64,7 @@ impl SharedCall<DefinitionId> {
 
     pub fn check(
         &self,
-        body: &GenericBody<DefinitionId>,
+        body: &GenericBody,
         signature: &Signature<DefinitionId>,
         catalog: &ProofCatalog<'_>,
         parameters: &[GenericParam<DefinitionId>],
@@ -135,7 +124,7 @@ impl SharedCall<DefinitionId> {
         Ok(true)
     }
 
-    fn substitution<'a>(&'a self, body: &'a GenericBody<DefinitionId>) -> TypeSubstitution<'a> {
+    fn substitution<'a>(&'a self, body: &'a GenericBody) -> TypeSubstitution<'a> {
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in body.parameters.iter().zip(&self.arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);

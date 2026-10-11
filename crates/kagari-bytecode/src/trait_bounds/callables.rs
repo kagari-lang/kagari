@@ -1,6 +1,6 @@
 //! Selected native callbacks must have a matching concrete executable target.
 use crate::module::BytecodeModule;
-use kagari_common::identity::table::{DefinitionId, DefinitionTable};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::{
     callable::witness::OperationWitness,
     native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
@@ -9,7 +9,7 @@ use kagari_contract::{
 use kagari_types::callable::CallableImplementation;
 
 pub(super) fn witness_valid(
-    operation: &OperationWitness<DefinitionId>,
+    operation: &OperationWitness,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
 ) -> bool {
@@ -46,7 +46,7 @@ pub(super) fn witness_valid(
 }
 
 pub(super) fn target_valid(
-    call: &NativeCallableApplication<DefinitionId>,
+    call: &NativeCallableApplication,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
 ) -> bool {

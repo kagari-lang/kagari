@@ -571,7 +571,7 @@ impl ArtifactFingerprint {
     /// Hash public ABI facts through their codec-owned records and reference table.
     /// Scope validation does not grant ABI verification or reload compatibility.
     pub fn of_public_item(
-        item: &PublicItem<DefinitionId>,
+        item: &PublicItem,
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError> {
         let cancel = CancellationToken::default();
@@ -917,7 +917,7 @@ impl VerificationMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionLayoutMetadata {
-    pub semantic: SemanticSlots<DefinitionId>,
+    pub semantic: SemanticSlots,
     pub function: FunctionRef,
     pub params: Vec<ValueType>,
     pub return_type: ValueType,

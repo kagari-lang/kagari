@@ -23,15 +23,15 @@ use {
 /// Source-independent facts from a verified interface or validated registration.
 /// The caller owns declaration/method validation; proof checks applicability.
 pub enum Implementation<'a> {
-    Interface(&'a InterfaceTable<DefinitionId>),
+    Interface(&'a InterfaceTable),
     Native {
         declaration: &'a DefinitionId,
         implementation: &'a ImplDecl<DefinitionId>,
     },
 }
 
-impl<'a> From<&'a InterfaceTable<DefinitionId>> for Implementation<'a> {
-    fn from(table: &'a InterfaceTable<DefinitionId>) -> Self {
+impl<'a> From<&'a InterfaceTable> for Implementation<'a> {
+    fn from(table: &'a InterfaceTable) -> Self {
         Self::Interface(table)
     }
 }

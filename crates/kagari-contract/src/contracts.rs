@@ -87,7 +87,7 @@ pub fn verify_runtime_helper_call(
 /// guard independently checks its consumed storage and result shape.
 pub fn verify_native_call(
     dst: Option<ValueType>,
-    import: &NativeImport<DefinitionId>,
+    import: &NativeImport,
     args: &[ValueType],
     definitions: &DefinitionTable,
 ) -> Result<(), ContractError> {

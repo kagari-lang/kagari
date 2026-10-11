@@ -9,8 +9,7 @@ use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, ModuleIdentity,
-        reference::DefinitionReference,
+        DefinitionKind, ModuleIdentity,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -21,47 +20,35 @@ use kagari_types::{
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
     },
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct InterfaceCallContract<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceCallContract {
     /// Associated projections resolved by the compiler for this application.
     /// Linked verification checks every fact against the supplying declarations.
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub normalizations: Vec<TypeNormalization<I>>,
+    pub normalizations: Vec<TypeNormalization>,
     /// None dispatches a boxed interface; Some invokes the caller's checked
     /// constraint operation on an unboxed value of this type.
-    pub receiver: Option<Ty<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub operations: Vec<OperationWitness<I>>,
-    pub interface: NominalTy<I>,
+    pub receiver: Option<Ty<DefinitionId>>,
+    pub operations: Vec<OperationWitness>,
+    pub interface: NominalTy<DefinitionId>,
     pub method_slot: u32,
     /// Arguments for this method only. The interface owns its trait arguments.
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
+    pub arguments: Vec<Ty<DefinitionId>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct TypeNormalization<I = DefinitionPath> {
-    pub source: Ty<I>,
-    pub result: Ty<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeNormalization {
+    pub source: Ty<DefinitionId>,
+    pub result: Ty<DefinitionId>,
 }
 
-pub struct InterfaceMethodSignature<I = DefinitionPath> {
-    pub params: Vec<Ty<I>>,
-    pub result: Ty<I>,
-    pub bounds: Vec<GenericBound<I>>,
+pub struct InterfaceMethodSignature {
+    pub params: Vec<Ty<DefinitionId>>,
+    pub result: Ty<DefinitionId>,
+    pub bounds: Vec<GenericBound<DefinitionId>>,
 }
 
-impl InterfaceMethodSignature<DefinitionId> {
+impl InterfaceMethodSignature {
     pub fn types_valid(
         &self,
         parameters: &[GenericParam<DefinitionId>],
@@ -91,15 +78,15 @@ impl InterfaceMethodSignature<DefinitionId> {
     }
 }
 
-impl InterfaceCallContract<DefinitionId> {
+impl InterfaceCallContract {
     pub fn signature_in(
         &self,
         owner: &ModuleIdentity,
-        items: &[PublicItem<DefinitionId>],
-        contracts: &[TraitContract<DefinitionId>],
+        items: &[PublicItem],
+        contracts: &[TraitContract],
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
-    ) -> Result<InterfaceMethodSignature<DefinitionId>, TypeTransformError> {
+    ) -> Result<InterfaceMethodSignature, TypeTransformError> {
         if definitions
             .resolve(self.interface.declaration)
             .map(|view| view.module())
@@ -126,7 +113,7 @@ impl InterfaceCallContract<DefinitionId> {
         contract: &TraitDef<DefinitionId>,
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
-    ) -> Result<InterfaceMethodSignature<DefinitionId>, TypeTransformError> {
+    ) -> Result<InterfaceMethodSignature, TypeTransformError> {
         let mut signature = self.declared_signature(contract, cancel, definitions)?;
         if self.normalizations.len() > 4096 {
             return Err(TypeTransformError::LimitExceeded);
@@ -161,7 +148,7 @@ impl InterfaceCallContract<DefinitionId> {
         contract: &TraitDef<DefinitionId>,
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
-    ) -> Result<InterfaceMethodSignature<DefinitionId>, TypeTransformError> {
+    ) -> Result<InterfaceMethodSignature, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         let invalid = TypeTransformError::InvalidContract;
         let interface = &self.interface;

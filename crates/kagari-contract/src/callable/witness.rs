@@ -19,40 +19,30 @@ use {
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath,
-        reference::DefinitionReference,
+        DefinitionKind,
         table::{DefinitionId, DefinitionTable},
     },
 };
-use serde::{Deserialize, Serialize};
 
 /// A concrete selection is checked against the supplying program. Forwarding
 /// retains the caller's existing selection and its generation; it never resolves
 /// a trait again at execution time.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub enum OperationWitness<I = DefinitionPath> {
-    Selected(Box<NativeCallableApplication<I>>),
-    SharedMethod(Box<SharedMethodWitness<I>>),
-    Forward(Box<NativeCallableRequirement<I>>),
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum OperationWitness {
+    Selected(Box<NativeCallableApplication>),
+    SharedMethod(Box<SharedMethodWitness>),
+    Forward(Box<NativeCallableRequirement<DefinitionId>>),
 }
 
 /// Select the implementation table once; method-local arguments are supplied by
 /// each checked call into that table's shared entry.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct SharedMethodWitness<I = DefinitionPath> {
-    pub requirement: NativeCallableRequirement<I>,
-    pub implementation: ConcreteFunctionIdentity<I>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SharedMethodWitness {
+    pub requirement: NativeCallableRequirement<DefinitionId>,
+    pub implementation: ConcreteFunctionIdentity,
 }
 
-impl OperationWitness<DefinitionId> {
+impl OperationWitness {
     pub fn structurally_valid(
         &self,
         parameters: &[GenericParam<DefinitionId>],
@@ -163,8 +153,8 @@ impl OperationWitness<DefinitionId> {
     }
 }
 
-impl<I: DefinitionReference> OperationWitness<I> {
-    pub fn requirement(&self) -> &NativeCallableRequirement<I> {
+impl OperationWitness {
+    pub fn requirement(&self) -> &NativeCallableRequirement<DefinitionId> {
         match self {
             Self::Selected(selected) => &selected.requirement,
             Self::SharedMethod(selected) => &selected.requirement,

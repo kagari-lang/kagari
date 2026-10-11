@@ -18,7 +18,8 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity,
-        mapping::{DefinitionMappingError, DefinitionRecord},
+        mapping::DefinitionMappingError,
+        scoped::DefinitionReferences,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -114,7 +115,7 @@ impl<'a> ProofCatalog<'a> {
     pub fn new(
         implementations: Vec<Implementation<'a>>,
         hosts: Vec<&'a HostTypeDeclaration<DefinitionId>>,
-        enumerations: impl IntoIterator<Item = &'a EnumLayout<DefinitionId>>,
+        enumerations: impl IntoIterator<Item = &'a EnumLayout>,
         contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitDef<DefinitionId>)>,
         native_declarations: impl IntoIterator<Item = &'a NativeDeclaration<DefinitionId>>,
         definitions: &DefinitionTable,
@@ -361,13 +362,13 @@ fn satisfies(available: &NominalTy<DefinitionId>, required: &NominalTy<Definitio
     available.satisfies(required)
 }
 
-fn validate_references<T: DefinitionRecord<DefinitionId>>(
+fn validate_references<T: DefinitionReferences>(
     record: &T,
     definitions: &DefinitionTable,
     cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError> {
     record
-        .visit_definitions(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), cancel)
+        .visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), cancel)
         .map_err(|error| match error {
             DefinitionMappingError::Cancelled => TypeTransformError::Cancelled,
             _ => TypeTransformError::InvalidContract,

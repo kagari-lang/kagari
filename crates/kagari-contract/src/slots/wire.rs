@@ -35,7 +35,7 @@ impl SemanticSlotsRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &SemanticSlots<DefinitionId>,
+        value: &SemanticSlots,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -70,7 +70,7 @@ impl SemanticSlotsRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<SemanticSlots<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<SemanticSlots, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SemanticSlots {
             generic: self

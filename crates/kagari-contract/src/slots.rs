@@ -6,8 +6,7 @@ use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath,
-        reference::DefinitionReference,
+        DefinitionKind,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -19,28 +18,21 @@ use kagari_types::{
 use std::collections::BTreeMap;
 
 /// Semantic contracts supplement the physical frame layout.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct SemanticSlots<I = DefinitionPath> {
-    pub generic: Option<GenericBody<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SemanticSlots {
+    pub generic: Option<GenericBody>,
     /// Applied checked language protocol implemented by this generated function.
-    pub protocol_adapter: Option<NativeCallableRequirement<I>>,
-    #[serde(deserialize_with = "kagari_types::decode_limits::map")]
-    pub params: BTreeMap<usize, Ty<I>>,
-    pub result: Option<Ty<I>>,
-    #[serde(deserialize_with = "kagari_types::decode_limits::map")]
-    pub locals: BTreeMap<usize, Ty<I>>,
-    #[serde(deserialize_with = "kagari_types::decode_limits::map")]
-    pub registers: BTreeMap<usize, Ty<I>>,
+    pub protocol_adapter: Option<NativeCallableRequirement<DefinitionId>>,
+    pub params: BTreeMap<usize, Ty<DefinitionId>>,
+    pub result: Option<Ty<DefinitionId>>,
+    pub locals: BTreeMap<usize, Ty<DefinitionId>>,
+    pub registers: BTreeMap<usize, Ty<DefinitionId>>,
 }
 
-impl SemanticSlots<DefinitionId> {
+impl SemanticSlots {
     pub fn types_valid(
         &self,
-        identity: Option<&ConcreteFunctionIdentity<DefinitionId>>,
+        identity: Option<&ConcreteFunctionIdentity>,
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {
@@ -97,7 +89,7 @@ impl SemanticSlots<DefinitionId> {
     /// Local shape checks precede dependency-dependent protocol eligibility.
     pub fn protocol_adapter_valid(
         &self,
-        identity: Option<&ConcreteFunctionIdentity<DefinitionId>>,
+        identity: Option<&ConcreteFunctionIdentity>,
         definitions: &DefinitionTable,
     ) -> bool {
         let Some(required) = &self.protocol_adapter else {
@@ -128,19 +120,6 @@ impl SemanticSlots<DefinitionId> {
                 .enumerate()
                 .all(|(index, ty)| self.params.get(&index) == Some(ty))
             && self.result.as_ref() == Some(&signature.result)
-    }
-}
-
-impl<I> Default for SemanticSlots<I> {
-    fn default() -> Self {
-        Self {
-            generic: Default::default(),
-            protocol_adapter: Default::default(),
-            params: Default::default(),
-            result: Default::default(),
-            locals: Default::default(),
-            registers: Default::default(),
-        }
     }
 }
 

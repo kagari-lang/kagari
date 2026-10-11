@@ -28,8 +28,8 @@ struct AppliedLayout<L> {
 
 #[derive(Debug, Default)]
 pub(super) struct LayoutCache {
-    structures: LayoutApplications<StructId, StructLayout<DefinitionId>>,
-    enumerations: LayoutApplications<EnumId, EnumLayout<DefinitionId>>,
+    structures: LayoutApplications<StructId, StructLayout>,
+    enumerations: LayoutApplications<EnumId, EnumLayout>,
 }
 
 /// Created lazily on the program-root record; members own only their applications.
@@ -330,7 +330,7 @@ impl StructLayoutRef {
         self.scope.as_ref().map(|scope| scope.bindings())
     }
 
-    pub(crate) fn template(&self) -> &StructLayout<DefinitionId> {
+    pub(crate) fn template(&self) -> &StructLayout {
         &self.module.bytecode.structures[self.id.index()]
     }
 

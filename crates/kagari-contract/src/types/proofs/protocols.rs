@@ -81,7 +81,7 @@ impl ProofCatalog<'_> {
     pub fn callable_matches(
         &self,
         required: &NativeCallableRequirement<DefinitionId>,
-        selected: &NativeCallableApplication<DefinitionId>,
+        selected: &NativeCallableApplication,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         if selected.origin == NativeCallableOrigin::Implementation {

@@ -5,9 +5,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionKind, DefinitionPath, reference::DefinitionReference, table::DefinitionId,
-    },
+    identity::{DefinitionKind, table::DefinitionId},
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -81,17 +79,13 @@ pub enum NativeCallableOrigin {
     ProtocolAdapter,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct NativeCallableApplication<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NativeCallableApplication {
     pub origin: NativeCallableOrigin,
-    pub requirement: NativeCallableRequirement<I>,
-    pub instance: ConcreteFunctionIdentity<I>,
-    pub implementation: CallableImplementation<I>,
-    pub signature: Signature<I>,
+    pub requirement: NativeCallableRequirement<DefinitionId>,
+    pub instance: ConcreteFunctionIdentity,
+    pub implementation: CallableImplementation<DefinitionId>,
+    pub signature: Signature<DefinitionId>,
     /// A common conservative callback boundary, checked independently of claims.
     pub effects: EffectSet,
 }

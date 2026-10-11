@@ -4,7 +4,6 @@ use crate::source::{
 };
 use kagari_common::identity::{
     ModuleIdentity, mapping::DefinitionMappingError, scoped::DefinitionReferences,
-    table::DefinitionId,
 };
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_hir::{
@@ -61,8 +60,7 @@ pub fn lower_program_to_mir(
         .find(|module| *module.lowered.source.module_identity() == root)
         .expect("checked root module")
         .aggregates;
-    let mut requests: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity<DefinitionId>>> =
-        HashMap::new();
+    let mut requests: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>> = HashMap::new();
     let mut seen = HashSet::new();
     loop {
         options.cancel.check().map_err(|_| ProgramError {
@@ -366,9 +364,7 @@ pub fn lower_program_to_mir(
     }
 }
 
-fn callable_demands(
-    module: &MirModule,
-) -> impl Iterator<Item = ConcreteFunctionIdentity<DefinitionId>> + '_ {
+fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {
     let script = module
         .functions
         .iter()

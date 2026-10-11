@@ -67,7 +67,7 @@ impl InstancePlanner<'_> {
         declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<NativeImport<DefinitionId>, MirLoweringError> {
+    ) -> Result<NativeImport, MirLoweringError> {
         let declared = self.registered_native_declaration(declaration).ok_or(
             MirLoweringError::MissingBinding("registered native template"),
         )?;

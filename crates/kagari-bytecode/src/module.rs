@@ -29,20 +29,20 @@ use serde::{Deserialize, Serialize};
 pub struct BytecodeModule {
     pub dependencies: Vec<ModuleRef>,
     pub host_interface: HostInterface<DefinitionId>,
-    pub native_imports: Vec<NativeImport<DefinitionId>>,
+    pub native_imports: Vec<NativeImport>,
     pub native_declarations: Vec<NativeDeclaration<DefinitionId>>,
     pub identity: ModuleIdentity,
     pub source_name: String,
     pub module_slots: BytecodeModuleSlotBuffer,
     pub constants: ConstantPool,
     pub types: BytecodeTypeTable,
-    pub structures: Vec<StructLayout<DefinitionId>>,
-    pub enumerations: Vec<EnumLayout<DefinitionId>>,
+    pub structures: Vec<StructLayout>,
+    pub enumerations: Vec<EnumLayout>,
     pub interface_tables: Vec<InterfaceTableRecord>,
     pub paths: PathTable,
     pub function_table: FunctionTable,
     pub public_items: PublicItemTable,
-    pub trait_contracts: Vec<TraitContract<DefinitionId>>,
+    pub trait_contracts: Vec<TraitContract>,
     pub functions: BytecodeFunctionBuffer,
 }
 
@@ -66,7 +66,7 @@ pub struct PathRecord {
 #[derive(Debug, Clone, Default)]
 pub struct BytecodeFunction {
     pub id: FunctionRef,
-    pub identity: Option<ConcreteFunctionIdentity<DefinitionId>>,
+    pub identity: Option<ConcreteFunctionIdentity>,
     pub name: String,
     pub parameter_count: u16,
     pub register_count: u16,
@@ -78,7 +78,7 @@ pub struct BytecodeFunction {
 #[derive(Debug, Clone, Default)]
 pub struct FunctionMetadata {
     /// Explicit logical charges in emission order; one entry per executable point.
-    pub semantic: SemanticSlots<DefinitionId>,
+    pub semantic: SemanticSlots,
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
     pub locals: TypeLayoutBuffer,
@@ -92,7 +92,7 @@ pub struct FunctionMetadata {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionRecord {
     pub id: FunctionRef,
-    pub identity: Option<ConcreteFunctionIdentity<DefinitionId>>,
+    pub identity: Option<ConcreteFunctionIdentity>,
     pub name: String,
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
@@ -143,7 +143,7 @@ pub struct InterfaceTableRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceParentRecord {
     pub interface: NominalTy<DefinitionId>,
-    pub implementation: ConcreteFunctionIdentity<DefinitionId>,
+    pub implementation: ConcreteFunctionIdentity,
     pub view: bool,
 }
 
@@ -157,7 +157,7 @@ pub struct InterfaceViewRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceResultAdapter {
     pub method: DefinitionId,
-    pub implementation: ConcreteFunctionIdentity<DefinitionId>,
+    pub implementation: ConcreteFunctionIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,9 +271,9 @@ pub type PathTable = Vec<PathRecord>;
 
 pub type FunctionTable = Vec<FunctionRecord>;
 
-pub type PublicItemRecord = PublicItem<DefinitionId>;
+pub type PublicItemRecord = PublicItem;
 
-pub type PublicItemTable = Vec<PublicItem<DefinitionId>>;
+pub type PublicItemTable = Vec<PublicItem>;
 
 pub type TypeLayoutBuffer = Vec<ValueType>;
 

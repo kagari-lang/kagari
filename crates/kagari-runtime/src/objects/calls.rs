@@ -31,7 +31,7 @@ use kagari_types::{
 
 pub(super) fn interface_binding(
     implementation: &LoadedModule,
-    application: &ConcreteFunctionIdentity<DefinitionId>,
+    application: &ConcreteFunctionIdentity,
     environment: Option<TypeEnvironment>,
 ) -> Result<InterfaceResultBinding, RuntimeError> {
     let invalid = || RuntimeError::module_validation("invalid selected interface binding");
@@ -143,7 +143,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         environment: Option<TypeEnvironment>,
-        witnesses: &[OperationWitness<DefinitionId>],
+        witnesses: &[OperationWitness],
     ) -> Result<OperationBindings, RuntimeError> {
         if witnesses.is_empty() {
             return Ok(OperationBindings::default());
@@ -304,7 +304,7 @@ impl Runtime {
     fn bind_shared_method(
         &self,
         scope: &OperationScope<'_>,
-        selected: &SharedMethodWitness<DefinitionId>,
+        selected: &SharedMethodWitness,
     ) -> Result<OperationId, RuntimeError> {
         let binding = interface_binding(
             scope.owner,

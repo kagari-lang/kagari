@@ -182,13 +182,13 @@ fn lower_linked_module(
 #[derive(Debug, Default)]
 struct BytecodeLoweringContext<'a> {
     program: Option<&'a VerifiedMirProgram>,
-    structures: &'a [StructLayout<DefinitionId>],
-    enumerations: &'a [EnumLayout<DefinitionId>],
+    structures: &'a [StructLayout],
+    enumerations: &'a [EnumLayout],
     identity: Option<&'a ModuleIdentity>,
     ir: Option<&'a VerifiedMirModule>,
-    interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity<DefinitionId>>>,
+    interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>>,
     host_interface: HostInterface<DefinitionId>,
-    native_imports: Vec<NativeImport<DefinitionId>>,
+    native_imports: Vec<NativeImport>,
     paths: Vec<PathRecord>,
     constants: Vec<ConstantOperand>,
     constant_ids: HashMap<ConstantOperand, ConstantId>,
@@ -259,7 +259,7 @@ impl BytecodeLoweringContext<'_> {
         (module, InterfaceTableRef::new(table))
     }
 
-    fn native_import(&mut self, contract: &NativeImport<DefinitionId>) -> NativeImportId {
+    fn native_import(&mut self, contract: &NativeImport) -> NativeImportId {
         if let Some(host) = &contract.host
             && !self
                 .host_interface

@@ -14,7 +14,6 @@ use crate::{
     native::{binding::NativeResult, interfaces::binding::InterfaceMember},
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{callable::interface::InterfaceCallContract, ids::FunctionRef};
 use kagari_types::ty::Ty;
 use std::slice;
@@ -25,7 +24,7 @@ pub(super) struct ApplicationKey(ModuleKey, FunctionRef, usize);
 pub(super) struct ApplicationEvidence {
     pub(super) key: ApplicationKey,
     owner: LoadedModule,
-    contract: InterfaceCallContract<DefinitionId>,
+    contract: InterfaceCallContract,
 }
 
 #[derive(Debug)]

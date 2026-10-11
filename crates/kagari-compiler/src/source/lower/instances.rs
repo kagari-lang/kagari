@@ -82,7 +82,7 @@ impl InstanceKey {
         options: &MirLoweringOptions,
         definitions: &DefinitionTable,
         span: Span,
-    ) -> Result<ConcreteFunctionIdentity<DefinitionId>, MirLoweringError> {
+    ) -> Result<ConcreteFunctionIdentity, MirLoweringError> {
         let mut remaining = options.max_type_nodes;
         let arguments = self
             .arguments
@@ -134,8 +134,8 @@ pub(super) struct InstancePlanner<'a> {
     pub layout_roots: Vec<(TypeId, Span)>,
     pub host_types: BTreeSet<DefinitionId>,
     pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
-    pub native_targets: Vec<NativeImport<DefinitionId>>,
-    pub interface_instances: Vec<ConcreteFunctionIdentity<DefinitionId>>,
+    pub native_targets: Vec<NativeImport>,
+    pub interface_instances: Vec<ConcreteFunctionIdentity>,
     keys: HashMap<InstanceKey, InstanceId>,
     generic_count: usize,
     interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,

@@ -7,8 +7,7 @@ use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath, ModuleIdentity,
-        reference::DefinitionReference,
+        DefinitionKind, ModuleIdentity,
         table::{DefinitionId, DefinitionTable, DefinitionTableError},
     },
 };
@@ -19,7 +18,6 @@ use kagari_types::{
     },
     ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
-use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
 pub mod applications;
@@ -32,35 +30,24 @@ pub mod verify;
 #[doc(hidden)]
 pub mod wire;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct ModuleContract<I = DefinitionPath> {
-    #[serde(deserialize_with = "crate::decode_limits::table")]
-    pub native_declarations: Vec<NativeDeclaration<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::table")]
-    pub public_items: Vec<PublicItem<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub trait_contracts: Vec<TraitContract<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ModuleContract {
+    pub native_declarations: Vec<NativeDeclaration<DefinitionId>>,
+    pub public_items: Vec<PublicItem>,
+    pub trait_contracts: Vec<TraitContract>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub enum PublicItem<I = DefinitionPath> {
-    Function(FnDecl<I>),
-    Const(ConstDef<I>),
-    Type(TypeDef<I>),
-    Trait(TraitDef<I>),
-    InterfaceTable(Box<InterfaceTable<I>>),
-    InherentTable(Box<InherentTable<I>>),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PublicItem {
+    Function(FnDecl<DefinitionId>),
+    Const(ConstDef<DefinitionId>),
+    Type(TypeDef<DefinitionId>),
+    Trait(TraitDef<DefinitionId>),
+    InterfaceTable(Box<InterfaceTable>),
+    InherentTable(Box<InherentTable>),
 }
 
-impl<I> PublicItem<I> {
+impl PublicItem {
     pub fn name(&self) -> &str {
         match self {
             Self::Function(item) => &item.name,
@@ -84,7 +71,7 @@ impl<I> PublicItem<I> {
     }
 }
 
-impl PublicItem<DefinitionId> {
+impl PublicItem {
     pub fn fingerprint_name(
         &self,
         definitions: &DefinitionTable,
@@ -112,30 +99,21 @@ impl PublicItem<DefinitionId> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct InterfaceTable<I = DefinitionPath> {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_type_families: Vec<AssociatedTypeFamily<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub associated_consts: Vec<ConstDef<I>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceTable {
+    pub associated_type_families: Vec<AssociatedTypeFamily<DefinitionId>>,
+    pub associated_consts: Vec<ConstDef<DefinitionId>>,
     pub host_bridge: bool,
-    pub declaration: I,
+    pub declaration: DefinitionId,
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBound<I>>,
-    pub trait_type: Ty<I>,
-    pub for_type: Ty<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub methods: Vec<FnDecl<I>>,
+    pub generic_params: Vec<GenericParam<DefinitionId>>,
+    pub bounds: Vec<GenericBound<DefinitionId>>,
+    pub trait_type: Ty<DefinitionId>,
+    pub for_type: Ty<DefinitionId>,
+    pub methods: Vec<FnDecl<DefinitionId>>,
 }
 
-impl InterfaceTable<DefinitionId> {
+impl InterfaceTable {
     /// Substitute a selected impl's concrete arguments into its call contract.
     /// Method-owned generics remain scoped templates until their application is
     /// selected. Associated output projections retain their substituted receivers
@@ -226,8 +204,8 @@ impl InterfaceTable<DefinitionId> {
 /// checking the interface identity and selected method slot.
 pub fn interface_method_types(
     owner: &ModuleIdentity,
-    public_items: &[PublicItem<DefinitionId>],
-    trait_contracts: &[TraitContract<DefinitionId>],
+    public_items: &[PublicItem],
+    trait_contracts: &[TraitContract],
     interface: &NominalTy<DefinitionId>,
     slot: usize,
     definitions: &DefinitionTable,
@@ -248,8 +226,8 @@ pub fn interface_method_types(
 
 pub fn interface_method_semantics(
     owner: &ModuleIdentity,
-    public_items: &[PublicItem<DefinitionId>],
-    trait_contracts: &[TraitContract<DefinitionId>],
+    public_items: &[PublicItem],
+    trait_contracts: &[TraitContract],
     interface: &NominalTy<DefinitionId>,
     slot: usize,
     definitions: &DefinitionTable,
@@ -291,34 +269,25 @@ pub fn interface_method_semantics(
 }
 
 /// Executable contract for a private trait absent from the public ABI.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct TraitContract<I = DefinitionPath> {
-    pub declaration: I,
-    pub abi: TraitDef<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitContract {
+    pub declaration: DefinitionId,
+    pub abi: TraitDef<DefinitionId>,
 }
 
 /// Concrete executable identity; diagnostic function names are not binding keys.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct ConcreteFunctionIdentity<I = DefinitionPath> {
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConcreteFunctionIdentity {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<Ty<DefinitionId>>,
 }
 
 /// Resolve a trait only within its defining executable module. Standard traits
 /// follow the same carried-contract path; a well-known ID is not a declaration.
 pub fn trait_contract<'a>(
     owner: &ModuleIdentity,
-    public_items: &'a [PublicItem<DefinitionId>],
-    private: &'a [TraitContract<DefinitionId>],
+    public_items: &'a [PublicItem],
+    private: &'a [TraitContract],
     id: &DefinitionId,
     definitions: &DefinitionTable,
 ) -> Option<&'a TraitDef<DefinitionId>> {
@@ -346,7 +315,7 @@ pub fn trait_contract<'a>(
 /// Find a declared nominal type by its exact owning identity.
 pub fn type_contract<'a>(
     owner: &ModuleIdentity,
-    items: &'a [PublicItem<DefinitionId>],
+    items: &'a [PublicItem],
     id: &DefinitionId,
     definitions: &DefinitionTable,
 ) -> Option<&'a TypeDef<DefinitionId>> {
@@ -363,16 +332,6 @@ pub fn type_contract<'a>(
         }
         _ => None,
     })
-}
-
-impl<I> Default for ModuleContract<I> {
-    fn default() -> Self {
-        Self {
-            native_declarations: Default::default(),
-            public_items: Default::default(),
-            trait_contracts: Default::default(),
-        }
-    }
 }
 
 mod mapping;

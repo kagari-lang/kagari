@@ -16,8 +16,8 @@ use kagari_types::{
 };
 
 pub(crate) struct SharedEntry<'a> {
-    pub identity: &'a ConcreteFunctionIdentity<DefinitionId>,
-    pub body: &'a GenericBody<DefinitionId>,
+    pub identity: &'a ConcreteFunctionIdentity,
+    pub body: &'a GenericBody,
     pub signature: Signature<DefinitionId>,
     pub implementation: CallableImplementation<DefinitionId>,
 }

@@ -28,26 +28,26 @@ use std::{borrow::Cow, iter};
 pub struct MirModule {
     /// Concrete native entry contracts invoked without a script body, including
     /// interface slots and dependencies selected by another native entry.
-    pub native_targets: Vec<NativeImport<DefinitionId>>,
+    pub native_targets: Vec<NativeImport>,
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
-    pub interface_instances: Vec<ConcreteFunctionIdentity<DefinitionId>>,
+    pub interface_instances: Vec<ConcreteFunctionIdentity>,
     pub host_types: Vec<HostTypeDeclaration<DefinitionId>>,
     pub dependencies: Vec<ModuleIdentity>,
-    pub structures: Vec<StructLayout<DefinitionId>>,
-    pub enumerations: Vec<EnumLayout<DefinitionId>>,
+    pub structures: Vec<StructLayout>,
+    pub enumerations: Vec<EnumLayout>,
     pub identity: ModuleIdentity,
     pub source_name: String,
     pub module_slots: ModuleSlotBuffer,
-    pub abi: ModuleContract<DefinitionId>,
+    pub abi: ModuleContract,
     pub functions: FunctionBuffer,
 }
 
 #[derive(Debug, Clone)]
 pub struct MirFunction {
-    pub semantic: SemanticSlots<DefinitionId>,
+    pub semantic: SemanticSlots,
     pub id: InstanceId,
-    pub instance: ConcreteFunctionIdentity<DefinitionId>,
+    pub instance: ConcreteFunctionIdentity,
     pub name: String,
     pub params: ParameterBuffer,
     pub return_type: ValueType,
@@ -93,9 +93,7 @@ impl MirFunction {
 }
 
 impl MirModule {
-    pub fn selected_callables(
-        &self,
-    ) -> impl Iterator<Item = &NativeCallableApplication<DefinitionId>> {
+    pub fn selected_callables(&self) -> impl Iterator<Item = &NativeCallableApplication> {
         self.native_applications()
             .flat_map(|import| &import.callables)
             .filter_map(|operation| match operation {
@@ -126,7 +124,7 @@ impl MirModule {
             )
     }
 
-    pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport<DefinitionId>> {
+    pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {
         self.native_targets.iter().chain(
             self.functions
                 .iter()
@@ -144,10 +142,7 @@ impl MirModule {
 }
 
 impl MirModule {
-    pub fn structure(
-        &self,
-        instance: &NominalTy<DefinitionId>,
-    ) -> Option<Cow<'_, StructLayout<DefinitionId>>> {
+    pub fn structure(&self, instance: &NominalTy<DefinitionId>) -> Option<Cow<'_, StructLayout>> {
         self.structures
             .iter()
             .find(|layout| {

@@ -2778,3 +2778,47 @@ library-test fixture failures remain open; the old canonical test fixtures also
 still reference removed executable projections and must migrate with their owning
 SI06 test cleanup. No unchanged failing library-test target was rerun or counted as
 passing. Full backend/feature acceptance remains CI work; the goal is not complete.
+
+
+### SI06 fixed shared contract models
+
+All identity-bearing kagari-contract models now hold DefinitionId directly,
+including callable applications/witnesses, interface normalization and signatures,
+layouts, Native imports/result adapters, public items, trait/module contracts and
+semantic slots. Their identity representation parameters and direct semantic
+Serde implementations are removed. Existing private/shared wire records still own
+serialization; canonical encoding, fingerprints and validation do not change.
+
+Each contract implements fixed reference visitation and ID-to-ID remapping,
+preserving every field, cancellation and collection limit. ProofCatalog reference
+validation consumes DefinitionReferences directly. Physical representation and
+string-iteration helpers accept scoped semantic types. Compiler, MIR, bytecode and
+runtime consumers use the fixed contract types; no compatibility aliases remain.
+Shared kagari-types fields still use their scoped instantiations pending the next
+owner migration. Searches find no DefinitionReference, DefinitionRecord, Rebind,
+map_identities or visit_definitions in kagari-contract production source.
+
+Focused local evidence:
+
+- Compiler, runtime, VM and Cranelift library checks pass. Scoped Clippy/fix for
+  contract, MIR, bytecode, compiler and runtime libraries repairs stale imports;
+  the final contract library/public_abi_wire Clippy check passes with warnings
+  denied. These are directly affected library targets, not package-wide sweeps.
+- `cargo test -p kagari-contract --test public_abi_wire --message-format=short
+  --no-fail-fast`: both ABI canonicalization/source-free cases pass.
+- `cargo test -p kagari-runtime --test offline_host --message-format=short
+  --no-fail-fast`: all eight cases pass, preserving source-free adoption, host
+  contracts, failed-publication atomicity and reload binding checks.
+
+- Reused temporary source-free and source probes pass against rebuilt libraries:
+  MIR/bytecode scope retention, canonical Native correspondence, mismatched Native
+  input, foreign/later references, explicit adoption, cancellation, closure
+  snapshots, source release and enum Hash identity/ordering remain covered.
+
+Manual review checks semantic fields against their previous mapping and wire
+owners, fixed signatures, imports and visibility. Structure checks 1086 Rust files
+with zero violations/exceptions; formatting and diff checks pass. Shared type/declaration/Host
+parameters and obsolete common rebinding/projection APIs remain SI06 work, as do
+the recorded compiler/runtime/contract and canonical library-test fixture repairs.
+No unchanged failing library-test target is counted as passing. Full feature and
+backend acceptance remains CI work; the goal is not complete.

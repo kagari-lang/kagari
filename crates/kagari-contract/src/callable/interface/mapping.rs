@@ -5,91 +5,90 @@ use crate::callable::interface::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceCallContract<I> {
-    type Rebind<J: DefinitionReference> = InterfaceCallContract<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for InterfaceCallContract {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceCallContract {
             normalizations: map_sequence(&self.normalizations, |fact| {
                 Ok(TypeNormalization {
-                    source: fact.source.map_identities(mapper)?,
-                    result: fact.result.map_identities(mapper)?,
+                    source: fact.source.remap_definitions(mapper)?,
+                    result: fact.result.remap_definitions(mapper)?,
                 })
             })?,
             receiver: self
                 .receiver
                 .as_ref()
-                .map(|value| (value).map_identities(mapper))
+                .map(|value| (value).remap_definitions(mapper))
                 .transpose()?,
-            operations: map_sequence(&self.operations, |value| (value).map_identities(mapper))?,
-            interface: self.interface.map_identities(mapper)?,
+            operations: map_sequence(&self.operations, |value| (value).remap_definitions(mapper))?,
+            interface: self.interface.remap_definitions(mapper)?,
             method_slot: self.method_slot,
-            arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
+            arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for InterfaceCallContract {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for fact in &self.normalizations {
-            fact.source.visit_definitions(visit, cancel)?;
-            fact.result.visit_definitions(visit, cancel)?;
+            fact.source.visit_definition_ids(visit, cancel)?;
+            fact.result.visit_definition_ids(visit, cancel)?;
         }
         if let Some(value0) = self.receiver.as_ref() {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.operations {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
-        self.interface.visit_definitions(visit, cancel)?;
+        self.interface.visit_definition_ids(visit, cancel)?;
         for value0 in &self.arguments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for InterfaceMethodSignature<I> {
-    type Rebind<J: DefinitionReference> = InterfaceMethodSignature<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for InterfaceMethodSignature {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceMethodSignature {
-            params: map_sequence(&self.params, |value| (value).map_identities(mapper))?,
-            result: self.result.map_identities(mapper)?,
-            bounds: map_sequence(&self.bounds, |value| (value).map_identities(mapper))?,
+            params: map_sequence(&self.params, |value| (value).remap_definitions(mapper))?,
+            result: self.result.remap_definitions(mapper)?,
+            bounds: map_sequence(&self.bounds, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for InterfaceMethodSignature {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         for value0 in &self.params {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
-        self.result.visit_definitions(visit, cancel)?;
+        self.result.visit_definition_ids(visit, cancel)?;
         for value0 in &self.bounds {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

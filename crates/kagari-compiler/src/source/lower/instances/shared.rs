@@ -30,7 +30,7 @@ impl InstancePlanner<'_> {
         interface: &NominalType,
         receiver: &TypeId,
         arguments: &[TypeId],
-    ) -> Result<Vec<TypeNormalization<DefinitionId>>, MirLoweringError> {
+    ) -> Result<Vec<TypeNormalization>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("interface signature normalization");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
         if signature.generic_params.len() != interface.arguments.len() + arguments.len() {
@@ -59,7 +59,7 @@ impl InstancePlanner<'_> {
             if source != result
                 && !facts
                     .iter()
-                    .any(|fact: &TypeNormalization<DefinitionId>| fact.source == source)
+                    .any(|fact: &TypeNormalization| fact.source == source)
             {
                 facts.push(TypeNormalization { source, result });
             }
@@ -77,7 +77,7 @@ impl InstancePlanner<'_> {
         receiver: &TypeId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("generic method operation environment");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
         let trait_ = self
@@ -131,7 +131,7 @@ impl InstancePlanner<'_> {
         bounds: &GenericBounds,
         substitution: &TypeSubstitution,
         span: Span,
-    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("generic bound operation environment");
         let mut requirements = vec![];
         for (receiver, constraints) in bounds {
@@ -377,7 +377,7 @@ impl Instance {
         &self,
         typed: &TypedFunction,
         definitions: &DefinitionTable,
-    ) -> Option<GenericBody<DefinitionId>> {
+    ) -> Option<GenericBody> {
         let parameters: Vec<_> = self
             .key
             .arguments

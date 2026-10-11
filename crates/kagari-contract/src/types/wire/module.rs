@@ -6,10 +6,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_types::{
@@ -33,7 +30,7 @@ impl ModuleContractRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &ModuleContract<DefinitionId>,
+        value: &ModuleContract,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -63,7 +60,7 @@ impl ModuleContractRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<ModuleContract<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<ModuleContract, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(ModuleContract {
             native_declarations: self
@@ -96,7 +93,7 @@ impl TraitContractRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &TraitContract<DefinitionId>,
+        value: &TraitContract,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -113,7 +110,7 @@ impl TraitContractRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<TraitContract<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<TraitContract, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(TraitContract {
             declaration: decoding.resolve(self.declaration)?,
@@ -134,7 +131,7 @@ impl ConcreteFunctionIdentityRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &ConcreteFunctionIdentity<DefinitionId>,
+        value: &ConcreteFunctionIdentity,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -157,7 +154,7 @@ impl ConcreteFunctionIdentityRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<ConcreteFunctionIdentity<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<ConcreteFunctionIdentity, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(ConcreteFunctionIdentity {
             declaration: decoding.resolve(self.declaration)?,

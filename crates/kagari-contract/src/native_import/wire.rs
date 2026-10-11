@@ -13,10 +13,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_types::{
@@ -49,7 +46,7 @@ impl NativeImportRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &NativeImport<DefinitionId>,
+        value: &NativeImport,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -96,7 +93,7 @@ impl NativeImportRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<NativeImport<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<NativeImport, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeImport {
             result_adapter: self
@@ -143,7 +140,7 @@ impl NativeCallableApplicationRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &NativeCallableApplication<DefinitionId>,
+        value: &NativeCallableApplication,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -172,7 +169,7 @@ impl NativeCallableApplicationRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<NativeCallableApplication<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<NativeCallableApplication, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeCallableApplication {
             origin: self.origin,
@@ -196,7 +193,7 @@ impl NativeResultAdapterRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &NativeResultAdapter<DefinitionId>,
+        value: &NativeResultAdapter,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -217,7 +214,7 @@ impl NativeResultAdapterRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<NativeResultAdapter<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<NativeResultAdapter, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeResultAdapter {
             receiver: self.receiver.decode(decoding, cancel)?,

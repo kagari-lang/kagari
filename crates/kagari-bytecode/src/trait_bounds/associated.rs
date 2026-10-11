@@ -129,7 +129,7 @@ fn projection_bounds_valid(
 }
 
 pub(super) fn associated_bounds_match(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     interface: &NominalTy<DefinitionId>,
     record: &TraitDef<DefinitionId>,
     catalog: &ProofCatalog<'_>,

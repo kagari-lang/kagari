@@ -1,9 +1,6 @@
 use crate::{numeric::NumericOperation, representation::semantic_representation};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{
-    reference::DefinitionReference,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::{
     declaration::verify::{concrete_type_valid, types_in_scope},
     language::binding,
@@ -128,7 +125,7 @@ pub enum StringIterKind {
 }
 
 impl StringIterKind {
-    pub fn source_type<I: DefinitionReference>(self) -> Ty<I> {
+    pub fn source_type(self) -> Ty<DefinitionId> {
         let string = Ty::Builtin(BuiltinType::String);
         Ty::Tuple(match self {
             Self::Split => vec![string.clone(), string],
@@ -137,7 +134,7 @@ impl StringIterKind {
         })
     }
 
-    pub fn item_type<I: DefinitionReference>(self) -> Ty<I> {
+    pub fn item_type(self) -> Ty<DefinitionId> {
         match self {
             Self::Bytes => Ty::Builtin(BuiltinType::U8),
             Self::CharIndices => Ty::Tuple(vec![
@@ -148,7 +145,7 @@ impl StringIterKind {
         }
     }
 
-    pub fn valid_source<I: DefinitionReference>(self, ty: &Ty<I>) -> bool {
+    pub fn valid_source(self, ty: &Ty<DefinitionId>) -> bool {
         *ty == self.source_type()
     }
 }

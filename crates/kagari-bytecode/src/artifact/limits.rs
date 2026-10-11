@@ -746,10 +746,7 @@ pub(super) fn artifact_count_limit(
     None
 }
 
-fn add_operations(
-    operations: &[OperationWitness<DefinitionId>],
-    add: &mut impl FnMut(usize) -> bool,
-) -> bool {
+fn add_operations(operations: &[OperationWitness], add: &mut impl FnMut(usize) -> bool) -> bool {
     add(operations.len())
         && operations.iter().all(|operation| {
             add_callable_requirement(operation.requirement(), add)

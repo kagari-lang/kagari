@@ -15,7 +15,6 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::callable::shared::SharedCall;
 
 impl ExecutionStack<'_> {
@@ -59,7 +58,7 @@ impl Runtime {
         caller_environment: Option<TypeEnvironment>,
         owner: &LoadedModule,
         target: CallableTarget,
-        contract: &SharedCall<DefinitionId>,
+        contract: &SharedCall,
     ) -> Result<TypeEnvironment, RuntimeError> {
         self.validate_loaded_module(caller)?;
         self.validate_loaded_module(owner)?;

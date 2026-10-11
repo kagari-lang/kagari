@@ -25,8 +25,8 @@ use kagari_types::{
 /// may remain after failure, but callers must not publish unverified records.
 pub fn collect(
     module: &ModuleIdentity,
-    items: &[PublicItem<DefinitionId>],
-    contracts: &[TraitContract<DefinitionId>],
+    items: &[PublicItem],
+    contracts: &[TraitContract],
     hosts: &[HostTypeDeclaration<DefinitionId>],
     context: &DefinitionContext,
     cancel: &CancellationToken,

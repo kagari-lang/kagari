@@ -6,7 +6,6 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::ModuleRef,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use std::{
     collections::{HashMap, hash_map::DefaultHasher},
@@ -134,7 +133,7 @@ impl ProgramLayouts {
 
     pub(super) fn applied_structure(
         &self,
-        layout: &StructLayout<DefinitionId>,
+        layout: &StructLayout,
         modules: &[Arc<BytecodeModule>],
     ) -> Option<LayoutIdentity> {
         self.structures.applied(layout, |id| {
@@ -144,7 +143,7 @@ impl ProgramLayouts {
 
     pub(super) fn applied_enumeration(
         &self,
-        layout: &EnumLayout<DefinitionId>,
+        layout: &EnumLayout,
         modules: &[Arc<BytecodeModule>],
     ) -> Option<LayoutIdentity> {
         self.enumerations.applied(layout, |id| {

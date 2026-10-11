@@ -7,10 +7,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_types::{
@@ -45,7 +42,7 @@ impl PublicItemRecord {
     /// Encode scoped ABI facts using the canonical table prepared by the owner.
     /// Returns invalid-reference, bounded type-shape and cancellation errors.
     pub fn encode(
-        value: &PublicItem<DefinitionId>,
+        value: &PublicItem,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -79,7 +76,7 @@ impl PublicItemRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<PublicItem<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<PublicItem, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self.record {
             Record::Function(value) => PublicItem::Function(value.decode(decoding, cancel)?),
@@ -120,7 +117,7 @@ impl InterfaceTableRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &InterfaceTable<DefinitionId>,
+        value: &InterfaceTable,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -165,7 +162,7 @@ impl InterfaceTableRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceTable<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InterfaceTable, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceTable {
             associated_type_families: self
@@ -220,7 +217,7 @@ impl InherentTableRecord {
     /// Encode using the enclosing artifact's canonical identity table.
     /// Returns reference, cancellation or bounded type-shape errors.
     pub fn encode(
-        value: &InherentTable<DefinitionId>,
+        value: &InherentTable,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -253,7 +250,7 @@ impl InherentTableRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InherentTable<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InherentTable, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InherentTable {
             declaration: decoding.resolve(self.declaration)?,

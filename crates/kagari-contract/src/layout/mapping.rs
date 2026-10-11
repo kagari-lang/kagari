@@ -3,131 +3,130 @@ use crate::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayo
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for EnumLayout<I> {
-    type Rebind<J: DefinitionReference> = EnumLayout<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for EnumLayout {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(EnumLayout {
             declaration: mapper.reference(&self.declaration)?,
-            arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
-            variants: map_sequence(&self.variants, |value| (value).map_identities(mapper))?,
+            arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
+            variants: map_sequence(&self.variants, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for EnumLayout {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.variants {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for EnumVariantLayout<I> {
-    type Rebind<J: DefinitionReference> = EnumVariantLayout<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for EnumVariantLayout {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(EnumVariantLayout {
             reports_failure: self.reports_failure,
             declaration: mapper.reference(&self.declaration)?,
-            payload: map_sequence(&self.payload, |value| (value).map_identities(mapper))?,
+            payload: map_sequence(&self.payload, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for EnumVariantLayout {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.payload {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for StructLayout<I> {
-    type Rebind<J: DefinitionReference> = StructLayout<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for StructLayout {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(StructLayout {
             declaration: mapper.reference(&self.declaration)?,
-            arguments: map_sequence(&self.arguments, |value| (value).map_identities(mapper))?,
-            fields: map_sequence(&self.fields, |value| (value).map_identities(mapper))?,
+            arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
+            fields: map_sequence(&self.fields, |value| (value).remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for StructLayout {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for value0 in &self.arguments {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.fields {
-            (value0).visit_definitions(visit, cancel)?;
+            (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for StructFieldLayout<I> {
-    type Rebind<J: DefinitionReference> = StructFieldLayout<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for StructFieldLayout {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(StructFieldLayout {
             visibility: self.visibility,
             declaration: mapper.reference(&self.declaration)?,
             name: self.name.clone(),
-            ty: self.ty.map_identities(mapper)?,
+            ty: self.ty.remap_definitions(mapper)?,
             mutable: self.mutable,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for StructFieldLayout {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
-        self.ty.visit_definitions(visit, cancel)?;
+        self.ty.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

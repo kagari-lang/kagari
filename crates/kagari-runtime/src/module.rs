@@ -444,7 +444,7 @@ pub struct EnumVariantRef {
     module: LoadedModule,
     id: EnumId,
     variant: u32,
-    applied: Option<Arc<EnumLayout<DefinitionId>>>,
+    applied: Option<Arc<EnumLayout>>,
     canonical: Option<LayoutIdentity>,
     scope: Option<Arc<LayoutScope>>,
 }
@@ -454,13 +454,13 @@ impl EnumVariantRef {
         self.module.registry_owner
     }
 
-    pub fn layout(&self) -> &EnumLayout<DefinitionId> {
+    pub fn layout(&self) -> &EnumLayout {
         self.applied
             .as_deref()
             .unwrap_or(&self.module.bytecode.enumerations[self.id.index()])
     }
 
-    pub fn variant(&self) -> &EnumVariantLayout<DefinitionId> {
+    pub fn variant(&self) -> &EnumVariantLayout {
         &self.layout().variants[self.variant as usize]
     }
 
@@ -483,7 +483,7 @@ impl PartialEq for EnumVariantRef {
 pub struct StructLayoutRef {
     module: LoadedModule,
     id: StructId,
-    applied: Option<Arc<StructLayout<DefinitionId>>>,
+    applied: Option<Arc<StructLayout>>,
     canonical: Option<LayoutIdentity>,
     scope: Option<Arc<LayoutScope>>,
 }
@@ -514,7 +514,7 @@ impl StructLayoutRef {
             }
     }
 
-    pub fn layout(&self) -> &StructLayout<DefinitionId> {
+    pub fn layout(&self) -> &StructLayout {
         self.applied
             .as_deref()
             .unwrap_or(&self.module.bytecode.structures[self.id.index()])

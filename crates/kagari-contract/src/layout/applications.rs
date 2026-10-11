@@ -41,7 +41,7 @@ fn accepts(
             && parameters(owner, template).is_some_and(|parameters| !parameters.is_empty()))
 }
 
-impl StructLayout<DefinitionId> {
+impl StructLayout {
     pub fn accepts(&self, arguments: &[Ty<DefinitionId>]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
     }
@@ -67,7 +67,7 @@ impl StructLayout<DefinitionId> {
     }
 }
 
-impl EnumLayout<DefinitionId> {
+impl EnumLayout {
     pub fn accepts(&self, arguments: &[Ty<DefinitionId>]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
     }
@@ -95,7 +95,7 @@ impl EnumLayout<DefinitionId> {
     }
 }
 
-impl StructLayout<DefinitionId> {
+impl StructLayout {
     pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
         parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
             types_in_scope(
@@ -110,7 +110,7 @@ impl StructLayout<DefinitionId> {
     }
 }
 
-impl EnumLayout<DefinitionId> {
+impl EnumLayout {
     pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
         parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
             types_in_scope(

@@ -16,7 +16,6 @@ use crate::{
     native::application::NativeApplication,
 };
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::callable::{shared::SharedCall, witness::OperationWitness};
 use std::sync::Arc;
 
@@ -34,13 +33,9 @@ impl<T> Published<T> {
     }
 }
 
-type WitnessIndex = DescriptorIndex<
-    Option<EnvironmentId>,
-    Arc<[OperationWitness<DefinitionId>]>,
-    Published<OperationBindings>,
->;
-type SharedIndex =
-    DescriptorIndex<SharedScope, Arc<SharedCall<DefinitionId>>, Published<TypeEnvironment>>;
+type WitnessIndex =
+    DescriptorIndex<Option<EnvironmentId>, Arc<[OperationWitness]>, Published<OperationBindings>>;
+type SharedIndex = DescriptorIndex<SharedScope, Arc<SharedCall>, Published<TypeEnvironment>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct SharedScope {
@@ -183,7 +178,7 @@ impl ModuleStore {
         &self,
         owner: &LoadedModule,
         environment: Option<EnvironmentId>,
-        witnesses: &[OperationWitness<DefinitionId>],
+        witnesses: &[OperationWitness],
     ) -> Option<OperationBindings> {
         let records = self.inner.try_borrow().ok()?;
         let entry = records
@@ -198,7 +193,7 @@ impl ModuleStore {
         &self,
         owner: &LoadedModule,
         scope: &SharedScope,
-        contract: &SharedCall<DefinitionId>,
+        contract: &SharedCall,
     ) -> Option<TypeEnvironment> {
         let records = self.inner.try_borrow().ok()?;
         let entry = records
@@ -276,7 +271,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         environment: Option<EnvironmentId>,
-        witnesses: &[OperationWitness<DefinitionId>],
+        witnesses: &[OperationWitness],
         prepared: OperationBindings,
     ) -> Result<(), RuntimeError> {
         self.publish_descriptor(owner, prepared, |descriptors, value| {
@@ -290,7 +285,7 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         scope: SharedScope,
-        contract: &SharedCall<DefinitionId>,
+        contract: &SharedCall,
         prepared: TypeEnvironment,
     ) -> Result<(), RuntimeError> {
         self.publish_descriptor(owner, prepared, |descriptors, value| {

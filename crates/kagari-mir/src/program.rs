@@ -17,10 +17,8 @@ use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionPath, ModuleIdentity,
-        map::DefinitionContext,
-        metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTable},
+        DefinitionPath, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+        table::DefinitionTable,
     },
 };
 use kagari_contract::{
@@ -62,7 +60,7 @@ pub struct ProgramError {
 pub struct VerifiedMirProgram {
     root: ModuleIdentity,
     modules: Vec<VerifiedMirModule>,
-    bindings: HashMap<ConcreteFunctionIdentity<DefinitionId>, ProgramFunctionRef>,
+    bindings: HashMap<ConcreteFunctionIdentity, ProgramFunctionRef>,
     definitions: DefinitionTable,
 }
 
@@ -79,10 +77,7 @@ impl VerifiedMirProgram {
         &self.modules
     }
 
-    pub fn function(
-        &self,
-        instance: &ConcreteFunctionIdentity<DefinitionId>,
-    ) -> Option<ProgramFunctionRef> {
+    pub fn function(&self, instance: &ConcreteFunctionIdentity) -> Option<ProgramFunctionRef> {
         self.bindings.get(instance).copied()
     }
 

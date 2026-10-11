@@ -30,7 +30,7 @@ use std::{
 };
 
 pub fn validate(
-    items: &[PublicItem<DefinitionId>],
+    items: &[PublicItem],
     module: &ModuleIdentity,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
@@ -239,8 +239,8 @@ pub fn validate(
 }
 
 pub fn validate_trait_contracts(
-    contracts: &[TraitContract<DefinitionId>],
-    items: &[PublicItem<DefinitionId>],
+    contracts: &[TraitContract],
+    items: &[PublicItem],
     module: &ModuleIdentity,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
@@ -302,10 +302,7 @@ pub fn validate_trait_contracts(
 
 /// Engine defaults are declared once on their canonical protocol. They need no
 /// per-implementation ABI entry, especially when their bounds do not hold here.
-fn required_methods_present(
-    table: &InterfaceTable<DefinitionId>,
-    interface: &TraitDef<DefinitionId>,
-) -> bool {
+fn required_methods_present(table: &InterfaceTable, interface: &TraitDef<DefinitionId>) -> bool {
     interface.methods.iter().all(|method| {
         table
             .methods
@@ -315,7 +312,7 @@ fn required_methods_present(
 }
 
 pub fn interface_contract_matches(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     interface: &TraitDef<DefinitionId>,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
@@ -357,7 +354,7 @@ pub fn interface_contract_matches(
 }
 
 pub fn interface_constants_match(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     interface: &TraitDef<DefinitionId>,
     definitions: &DefinitionTable,
 ) -> bool {
@@ -388,7 +385,7 @@ pub fn interface_constants_match(
 }
 
 fn families_valid(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     outer: &Parameters,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
@@ -426,7 +423,7 @@ fn families_valid(
 }
 
 pub fn interface_families_match(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     interface: &TraitDef<DefinitionId>,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
@@ -485,7 +482,7 @@ fn same_method_contract(
     declared: &FnDecl<DefinitionId>,
     implemented: &FnDecl<DefinitionId>,
     instance: &NominalTy<DefinitionId>,
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> bool {
@@ -535,7 +532,7 @@ fn same_method_contract(
 }
 
 pub fn interface_methods_match(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     interface: &TraitDef<DefinitionId>,
     normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
     cancel: &CancellationToken,
@@ -567,7 +564,7 @@ fn method_contract_matches(
     declared: &FnDecl<DefinitionId>,
     implemented: &FnDecl<DefinitionId>,
     instance: &NominalTy<DefinitionId>,
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     normalize: &impl Fn(&Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError>,
     defer_projection: bool,
     cancel: &CancellationToken,

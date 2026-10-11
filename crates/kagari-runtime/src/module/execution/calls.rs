@@ -5,7 +5,6 @@ use kagari_bytecode::{
     module::{BytecodeModule, CallableTarget},
     program::ModuleRef,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::callable::{interface::InterfaceCallContract, witness::OperationWitness};
 use kagari_types::ty::Ty;
 
@@ -95,7 +94,7 @@ impl ExecutionModule {
 
 /// The verifier already proved each witness. This classifies lexical environment
 /// dependence only; it never selects another implementation or infers a type.
-fn closed_interface_contract(contract: &InterfaceCallContract<DefinitionId>) -> bool {
+fn closed_interface_contract(contract: &InterfaceCallContract) -> bool {
     contract.receiver.is_none()
         && Ty::Trait(contract.interface.clone()).is_concrete()
         && contract.arguments.iter().all(Ty::is_concrete)

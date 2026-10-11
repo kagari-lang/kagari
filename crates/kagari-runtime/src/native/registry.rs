@@ -73,7 +73,7 @@ impl BindingRegistration {
 }
 
 pub(crate) fn link_host(
-    import: &NativeImport<DefinitionId>,
+    import: &NativeImport,
     binding: HostFunctionId,
 ) -> Arc<LinkedNativeFunction> {
     let signature = import.signature.clone();
@@ -205,7 +205,7 @@ impl NativeRegistry {
 
     pub(crate) fn link(
         &self,
-        import: &NativeImport<DefinitionId>,
+        import: &NativeImport,
         program: &VerifiedProgram,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
         let entry = self
@@ -309,7 +309,7 @@ impl NativeRegistry {
 }
 
 pub(crate) fn callable_primitive(
-    callable: &NativeCallableApplication<DefinitionId>,
+    callable: &NativeCallableApplication,
     table: &DefinitionTable,
 ) -> Option<RuntimePrimitive> {
     if callable.origin == NativeCallableOrigin::ProtocolAdapter

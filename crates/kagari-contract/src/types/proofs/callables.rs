@@ -28,7 +28,7 @@ use kagari_types::{
 impl ProofCatalog<'_> {
     pub fn native_result_matches(
         &self,
-        selected: &NativeResultAdapter<DefinitionId>,
+        selected: &NativeResultAdapter,
         result: &Ty<DefinitionId>,
         assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
@@ -73,7 +73,7 @@ impl ProofCatalog<'_> {
 
     pub fn shared_method_matches(
         &self,
-        selected: &SharedMethodWitness<DefinitionId>,
+        selected: &SharedMethodWitness,
         parameters: &[GenericParam<DefinitionId>],
         assumptions: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
@@ -161,7 +161,7 @@ impl ProofCatalog<'_> {
         &self,
         requirement: &NativeCallableRequirement<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<Option<NativeCallableApplication<DefinitionId>>, TypeTransformError> {
+    ) -> Result<Option<NativeCallableApplication>, TypeTransformError> {
         let Some(member) = self
             .definitions
             .resolve(requirement.member)

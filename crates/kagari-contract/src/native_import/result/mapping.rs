@@ -3,33 +3,34 @@ use crate::native_import::result::NativeResultAdapter;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel},
-        reference::DefinitionReference,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel},
+        scoped::{DefinitionReferences, RemapDefinitions},
+        table::DefinitionId,
     },
 };
 
-impl<I: DefinitionReference> DefinitionRecord<I> for NativeResultAdapter<I> {
-    type Rebind<J: DefinitionReference> = NativeResultAdapter<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for NativeResultAdapter {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeResultAdapter {
-            receiver: self.receiver.map_identities(mapper)?,
-            implementation: self.implementation.map_identities(mapper)?,
+            receiver: self.receiver.remap_definitions(mapper)?,
+            implementation: self.implementation.remap_definitions(mapper)?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for NativeResultAdapter {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.receiver.visit_definitions(visit, cancel)?;
-        self.implementation.visit_definitions(visit, cancel)?;
+        self.receiver.visit_definition_ids(visit, cancel)?;
+        self.implementation.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

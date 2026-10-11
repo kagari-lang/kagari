@@ -255,11 +255,11 @@ pub enum Terminator {
 
 #[derive(Debug, Clone)]
 pub enum CallTarget {
-    Shared(Box<SharedCall<DefinitionId>>),
+    Shared(Box<SharedCall>),
     SourceFunction(Box<SourceFunctionContract>),
     Function(InstanceId),
-    InterfaceMethod(Box<InterfaceCallContract<DefinitionId>>),
-    Native(Box<NativeImport<DefinitionId>>),
+    InterfaceMethod(Box<InterfaceCallContract>),
+    Native(Box<NativeImport>),
     Value(MirValue),
     Closure {
         value: MirValue,

@@ -13,10 +13,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
 use kagari_types::{
@@ -42,7 +39,7 @@ impl GenericBodyRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &GenericBody<DefinitionId>,
+        value: &GenericBody,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -67,7 +64,7 @@ impl GenericBodyRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<GenericBody<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<GenericBody, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(GenericBody {
             parameters: self
@@ -95,7 +92,7 @@ impl SharedMethodWitnessRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &SharedMethodWitness<DefinitionId>,
+        value: &SharedMethodWitness,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -120,7 +117,7 @@ impl SharedMethodWitnessRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<SharedMethodWitness<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<SharedMethodWitness, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SharedMethodWitness {
             requirement: self.requirement.decode(decoding, cancel)?,
@@ -141,7 +138,7 @@ impl OperationWitnessRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn encode(
-        value: &OperationWitness<DefinitionId>,
+        value: &OperationWitness,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -165,7 +162,7 @@ impl OperationWitnessRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<OperationWitness<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<OperationWitness, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
             Self::Selected(field0) => {
@@ -197,7 +194,7 @@ impl SharedCallRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &SharedCall<DefinitionId>,
+        value: &SharedCall,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -231,7 +228,7 @@ impl SharedCallRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<SharedCall<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<SharedCall, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SharedCall {
             instance: self.instance.decode(decoding, cancel)?,
@@ -269,7 +266,7 @@ impl InterfaceCallContractRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &InterfaceCallContract<DefinitionId>,
+        value: &InterfaceCallContract,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -310,7 +307,7 @@ impl InterfaceCallContractRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<InterfaceCallContract<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<InterfaceCallContract, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceCallContract {
             normalizations: self
@@ -349,7 +346,7 @@ impl TypeNormalizationRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     fn encode(
-        value: &TypeNormalization<DefinitionId>,
+        value: &TypeNormalization,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -366,7 +363,7 @@ impl TypeNormalizationRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<TypeNormalization<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<TypeNormalization, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(TypeNormalization {
             source: self.source.decode(decoding, cancel)?,

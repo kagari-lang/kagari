@@ -1,11 +1,9 @@
 //! Binder scope of a shared executable body, separate from its concrete owner.
 use crate::types::ConcreteFunctionIdentity;
-use kagari_common::identity::DefinitionPath;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -13,24 +11,17 @@ use kagari_types::{
     declaration::verify::{native_bounds_valid, types_in_scope},
     ty::{GenericBound, GenericParam, Ty},
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct GenericBody<I = DefinitionPath> {
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub parameters: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBound<I>>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericBody {
+    pub parameters: Vec<GenericParam<DefinitionId>>,
+    pub bounds: Vec<GenericBound<DefinitionId>>,
 }
 
-impl GenericBody<DefinitionId> {
+impl GenericBody {
     pub fn valid(
         &self,
-        identity: &ConcreteFunctionIdentity<DefinitionId>,
+        identity: &ConcreteFunctionIdentity,
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {

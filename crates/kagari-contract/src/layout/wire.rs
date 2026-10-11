@@ -4,10 +4,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::{
-            DefinitionId,
-            wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
-        },
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_types::{ty::wire::WireType, visibility::Visibility};
@@ -27,7 +24,7 @@ impl EnumLayoutRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &EnumLayout<DefinitionId>,
+        value: &EnumLayout,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -55,7 +52,7 @@ impl EnumLayoutRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<EnumLayout<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<EnumLayout, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(EnumLayout {
             declaration: decoding.resolve(self.declaration)?,
@@ -86,7 +83,7 @@ impl EnumVariantLayoutRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     fn encode(
-        value: &EnumVariantLayout<DefinitionId>,
+        value: &EnumVariantLayout,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -110,7 +107,7 @@ impl EnumVariantLayoutRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<EnumVariantLayout<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<EnumVariantLayout, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(EnumVariantLayout {
             reports_failure: self.reports_failure,
@@ -138,7 +135,7 @@ impl StructLayoutRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
-        value: &StructLayout<DefinitionId>,
+        value: &StructLayout,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -166,7 +163,7 @@ impl StructLayoutRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<StructLayout<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<StructLayout, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(StructLayout {
             declaration: decoding.resolve(self.declaration)?,
@@ -198,7 +195,7 @@ impl StructFieldLayoutRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     fn encode(
-        value: &StructFieldLayout<DefinitionId>,
+        value: &StructFieldLayout,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -218,7 +215,7 @@ impl StructFieldLayoutRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<StructFieldLayout<DefinitionId>, DefinitionMappingError> {
+    ) -> Result<StructFieldLayout, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(StructFieldLayout {
             visibility: self.visibility,

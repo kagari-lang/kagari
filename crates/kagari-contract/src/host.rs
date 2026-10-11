@@ -32,8 +32,8 @@ use std::{
 pub fn trait_bindings_match(
     interface: &HostInterface<DefinitionId>,
     module: &ModuleIdentity,
-    items: &[PublicItem<DefinitionId>],
-    contracts: &[TraitContract<DefinitionId>],
+    items: &[PublicItem],
+    contracts: &[TraitContract],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
@@ -283,9 +283,9 @@ fn matches_host_type(
 }
 
 pub fn references(
-    items: &[PublicItem<DefinitionId>],
-    structures: &[StructLayout<DefinitionId>],
-    enums: &[EnumLayout<DefinitionId>],
+    items: &[PublicItem],
+    structures: &[StructLayout],
+    enums: &[EnumLayout],
     cancel: &CancellationToken,
 ) -> Result<BTreeSet<DefinitionId>, Cancelled> {
     let mut pending = Vec::new();
@@ -351,9 +351,9 @@ pub fn references(
 
 pub fn validate(
     interface: &HostInterface<DefinitionId>,
-    items: &[PublicItem<DefinitionId>],
-    structures: &[StructLayout<DefinitionId>],
-    enums: &[EnumLayout<DefinitionId>],
+    items: &[PublicItem],
+    structures: &[StructLayout],
+    enums: &[EnumLayout],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {
@@ -382,7 +382,7 @@ pub fn validate(
 }
 
 pub fn host_bridge_implementation<'a>(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     interface: &'a HostInterface<DefinitionId>,
 ) -> Option<(
     &'a HostTypeDeclaration<DefinitionId>,

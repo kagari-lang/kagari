@@ -1,9 +1,7 @@
 //! Compile checked host mappings into ordinary verified interface call bridges.
 
 use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
-use kagari_common::identity::{
-    DefinitionKind, mapping::DefinitionMappingError, table::DefinitionId,
-};
+use kagari_common::identity::{DefinitionKind, mapping::DefinitionMappingError};
 use kagari_contract::{
     native_import::NativeImport,
     representation::semantic_representation,
@@ -32,7 +30,7 @@ use kagari_types::{
 pub(super) fn collect(
     planner: &mut InstancePlanner<'_>,
     module: &AnalyzedModule,
-    abi: &mut ModuleContract<DefinitionId>,
+    abi: &mut ModuleContract,
     functions: &mut Vec<MirFunction>,
 ) -> Result<(), MirLoweringError> {
     for (declaration, receiver, interface, span) in planner.host_interfaces.clone() {

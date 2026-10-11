@@ -1,6 +1,5 @@
 //! Reachable concrete layouts and declaration-scoped aggregate templates share the function instantiation budget.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     callable::witness::OperationWitness,
     layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
@@ -21,8 +20,8 @@ use std::{
 };
 
 pub(super) struct Layouts {
-    pub structures: Vec<StructLayout<DefinitionId>>,
-    pub enumerations: Vec<EnumLayout<DefinitionId>>,
+    pub structures: Vec<StructLayout>,
+    pub enumerations: Vec<EnumLayout>,
 }
 
 pub(super) fn collect(

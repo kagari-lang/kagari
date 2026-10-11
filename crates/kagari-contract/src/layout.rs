@@ -4,8 +4,7 @@ use crate::types::PublicItem;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
-        DefinitionKind, DefinitionPath, ModuleIdentity,
-        reference::DefinitionReference,
+        DefinitionKind, ModuleIdentity,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -17,36 +16,25 @@ use kagari_types::{
 use std::collections::{HashMap, HashSet};
 mod applications;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct EnumLayout<I = DefinitionPath> {
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub variants: Vec<EnumVariantLayout<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumLayout {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<Ty<DefinitionId>>,
+    pub variants: Vec<EnumVariantLayout>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct EnumVariantLayout<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumVariantLayout {
     pub reports_failure: bool,
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub payload: Vec<Ty<I>>,
+    pub declaration: DefinitionId,
+    pub payload: Vec<Ty<DefinitionId>>,
 }
 
 /// Compare executable instances to validated public declarations after substitution.
 pub fn struct_abi_matches(
-    layouts: &[StructLayout<DefinitionId>],
+    layouts: &[StructLayout],
     identity: &ModuleIdentity,
-    items: &[PublicItem<DefinitionId>],
+    items: &[PublicItem],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
@@ -86,9 +74,9 @@ pub fn struct_abi_matches(
 }
 
 pub fn enum_abi_matches(
-    layouts: &[EnumLayout<DefinitionId>],
+    layouts: &[EnumLayout],
     identity: &ModuleIdentity,
-    items: &[PublicItem<DefinitionId>],
+    items: &[PublicItem],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<bool, Cancelled> {
@@ -146,7 +134,7 @@ pub fn enum_abi_matches(
 }
 
 fn public_templates<'a>(
-    items: &'a [PublicItem<DefinitionId>],
+    items: &'a [PublicItem],
     kind: TypeDefKind,
     cancel: &CancellationToken,
 ) -> Result<HashMap<&'a str, &'a TypeDef<DefinitionId>>, Cancelled> {
@@ -164,8 +152,8 @@ fn public_templates<'a>(
 }
 
 pub fn validate_enum_layouts(
-    layouts: &[EnumLayout<DefinitionId>],
-    structures: &[StructLayout<DefinitionId>],
+    layouts: &[EnumLayout],
+    structures: &[StructLayout],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {
@@ -317,20 +305,14 @@ pub fn validate_enum_layouts(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct StructLayout<I = DefinitionPath> {
-    pub declaration: I,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<Ty<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub fields: Vec<StructFieldLayout<I>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructLayout {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<Ty<DefinitionId>>,
+    pub fields: Vec<StructFieldLayout>,
 }
 
-impl StructLayout<DefinitionId> {
+impl StructLayout {
     pub fn name<'a>(&self, definitions: &'a DefinitionTable) -> Option<&'a str> {
         definitions
             .resolve(self.declaration)
@@ -340,16 +322,12 @@ impl StructLayout<DefinitionId> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct StructFieldLayout<I = DefinitionPath> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructFieldLayout {
     pub visibility: Visibility,
-    pub declaration: I,
+    pub declaration: DefinitionId,
     pub name: String,
-    pub ty: Ty<I>,
+    pub ty: Ty<DefinitionId>,
     pub mutable: bool,
 }
 
@@ -364,7 +342,7 @@ pub enum LayoutValidationError {
 }
 
 pub fn validate_layouts(
-    layouts: &[StructLayout<DefinitionId>],
+    layouts: &[StructLayout],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), LayoutValidationError> {

@@ -91,7 +91,7 @@ impl TypeBindings {
             })
     }
 
-    pub(crate) fn matches(&self, body: &GenericBody<DefinitionId>) -> bool {
+    pub(crate) fn matches(&self, body: &GenericBody) -> bool {
         let mut offset = 0;
         let mut environment = Some(self);
         while let Some(current) = environment {

@@ -207,7 +207,7 @@ pub enum CallTarget {
     Shared {
         module: ModuleRef,
         target: CallableTarget,
-        contract: Box<SharedCall<DefinitionId>>,
+        contract: Box<SharedCall>,
     },
     ModuleFunction {
         module: ModuleRef,
@@ -216,7 +216,7 @@ pub enum CallTarget {
     Function(FunctionRef),
     InterfaceMethod {
         module: ModuleRef,
-        contract: Box<InterfaceCallContract<DefinitionId>>,
+        contract: Box<InterfaceCallContract>,
     },
     Native(NativeImportId),
     Register(Register),

@@ -16,7 +16,7 @@ use kagari_types::{
 use std::collections::BTreeMap;
 
 pub struct ResolvedNativeDefault {
-    pub instance: ConcreteFunctionIdentity<DefinitionId>,
+    pub instance: ConcreteFunctionIdentity,
     pub implementation: CallableImplementation<DefinitionId>,
     pub signature: Signature<DefinitionId>,
 }

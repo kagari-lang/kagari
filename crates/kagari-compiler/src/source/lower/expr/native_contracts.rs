@@ -31,7 +31,7 @@ impl FunctionLowerer<'_, '_> {
         application: &AppliedCallSignature,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<NativeImport<DefinitionId>, MirLoweringError> {
+    ) -> Result<NativeImport, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked engine native contract");
         let (declaration, function) = match target {
             CallTarget::Function(id) => {
@@ -127,7 +127,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn emit_native_application(
         &mut self,
-        mut import: NativeImport<DefinitionId>,
+        mut import: NativeImport,
         result: &TypeId,
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {

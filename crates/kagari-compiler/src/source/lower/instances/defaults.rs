@@ -22,7 +22,7 @@ impl InstancePlanner<'_> {
         method: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<NativeImport<DefinitionId>, MirLoweringError> {
+    ) -> Result<NativeImport, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked native default application");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
         let Some(MethodDefault::Native(NativeBinding::Default(_))) = &signature.default else {

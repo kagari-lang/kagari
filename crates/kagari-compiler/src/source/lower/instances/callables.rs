@@ -44,9 +44,9 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn native_callables(
         &mut self,
-        import: &mut NativeImport<DefinitionId>,
+        import: &mut NativeImport,
         span: Span,
-    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         import.result_adapter = self.native_result_adapter(import, span)?;
         let Some(declaration) = self
             .registered_native_declaration(&import.instance.declaration)
@@ -80,7 +80,7 @@ impl InstancePlanner<'_> {
         &mut self,
         requirements: Vec<NativeCallableRequirement<DefinitionId>>,
         span: Span,
-    ) -> Result<Vec<OperationWitness<DefinitionId>>, MirLoweringError> {
+    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         let mut operations = vec![];
         for mut required in requirements {
             required = self.normalize_callable_requirement(required)?;
@@ -225,7 +225,7 @@ impl InstancePlanner<'_> {
         &mut self,
         requirements: Vec<NativeCallableRequirement<DefinitionId>>,
         span: Span,
-    ) -> Result<Vec<NativeCallableApplication<DefinitionId>>, MirLoweringError> {
+    ) -> Result<Vec<NativeCallableApplication>, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked callable requirement");
         let mut selected = vec![];
         for mut required in requirements {

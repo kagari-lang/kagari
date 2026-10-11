@@ -1,6 +1,6 @@
 //! Select native concrete-result interface construction while source proofs exist.
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
-use kagari_common::{identity::table::DefinitionId, span::Span};
+use kagari_common::span::Span;
 use kagari_contract::{
     native_import::{NativeImport, result::NativeResultAdapter},
     types::ConcreteFunctionIdentity,
@@ -15,9 +15,9 @@ use kagari_types::ty::{Constraint, Ty, substitution::TypeSubstitution};
 impl InstancePlanner<'_> {
     pub(crate) fn native_result_adapter(
         &mut self,
-        import: &NativeImport<DefinitionId>,
+        import: &NativeImport,
         span: Span,
-    ) -> Result<Option<NativeResultAdapter<DefinitionId>>, MirLoweringError> {
+    ) -> Result<Option<NativeResultAdapter>, MirLoweringError> {
         let Some(declaration) = self.registered_native_declaration(&import.instance.declaration)
         else {
             return Ok(None);

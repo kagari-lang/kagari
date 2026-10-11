@@ -35,7 +35,7 @@ pub(super) struct EntryEvidence {
     pub(super) signature: Arc<ScopedSignature>,
     params: Vec<Ty<DefinitionId>>,
     result: Ty<DefinitionId>,
-    shared: Option<(LoadedModule, SharedCall<DefinitionId>)>,
+    shared: Option<(LoadedModule, SharedCall)>,
 }
 
 impl EntryEvidence {

@@ -15,7 +15,7 @@ use kagari_types::{
 };
 
 pub fn match_implementation<'a>(
-    table: &'a InterfaceTable<DefinitionId>,
+    table: &'a InterfaceTable,
     contract: Option<&TraitDef<DefinitionId>>,
     interface: &'a NominalTy<DefinitionId>,
     receiver: &'a Ty<DefinitionId>,

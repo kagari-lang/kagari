@@ -14,10 +14,7 @@ use crate::{
     verifier::operation::verify_instruction,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{
-    DefinitionKind,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_contract::{
     contracts,
     contracts::ContractError,
@@ -569,7 +566,7 @@ fn verify_interface_tables(
 }
 
 fn host_bridge_method_matches(
-    table: &InterfaceTable<DefinitionId>,
+    table: &InterfaceTable,
     slot: &InterfaceMethodSlot,
     function: &BytecodeFunction,
     module: &BytecodeModule,
@@ -826,7 +823,7 @@ fn field_layout(
     module: &BytecodeModule,
     function: &BytecodeFunction,
     field: &FieldRef,
-) -> Result<StructFieldLayout<DefinitionId>, BytecodeVerificationError> {
+) -> Result<StructFieldLayout, BytecodeVerificationError> {
     module
         .structures
         .get(field.structure.index())

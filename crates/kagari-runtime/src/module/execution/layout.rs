@@ -69,7 +69,7 @@ pub(crate) struct FrameLayout {
 }
 
 impl FrameLayout {
-    pub(super) fn native(import: &NativeImport<DefinitionId>) -> Self {
+    pub(super) fn native(import: &NativeImport) -> Self {
         let mut scalar_count = 0;
         let mut managed_count = 0;
         let locations = iter::once(&import.signature.result)

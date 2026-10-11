@@ -77,8 +77,8 @@ impl<L: Clone + Eq + Hash> IdentityIndex<L> {
 
 #[derive(Debug)]
 pub(super) struct AppliedIdentities {
-    pub(super) structures: IdentityIndex<StructLayout<DefinitionId>>,
-    pub(super) enumerations: IdentityIndex<EnumLayout<DefinitionId>>,
+    pub(super) structures: IdentityIndex<StructLayout>,
+    pub(super) enumerations: IdentityIndex<EnumLayout>,
 }
 
 impl AppliedIdentities {

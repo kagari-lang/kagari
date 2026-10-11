@@ -3,12 +3,9 @@ use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, ModuleIdentity,
-        map::DefinitionContext,
-        mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata,
-        scoped::DefinitionReferences,
-        table::{DefinitionId, wire::PortableDefinitionTable},
+        DefinitionKind, ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata, scoped::DefinitionReferences,
+        table::wire::PortableDefinitionTable,
     },
 };
 use kagari_contract::types::{
@@ -35,7 +32,7 @@ fn codec() -> impl Options {
         .reject_trailing_bytes()
 }
 
-fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem<DefinitionId>> {
+fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
     let root = context
         .intern_root(&ModuleIdentity::single_file("abi.kgr"))
         .unwrap();
@@ -210,7 +207,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem<Definitio
     ]
 }
 
-fn encode(item: &PublicItem<DefinitionId>, context: &DefinitionContext) -> Vec<u8> {
+fn encode(item: &PublicItem, context: &DefinitionContext) -> Vec<u8> {
     let cancel = CancellationToken::default();
     let mut ids = HashSet::new();
     item.visit_definition_ids(

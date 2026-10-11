@@ -6,11 +6,9 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath,
-        mapping::{
-            DefinitionMapper, DefinitionMappingError, DefinitionRecord, check_cancel, map_sequence,
-        },
-        reference::DefinitionReference,
+        DefinitionKind,
+        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel, map_sequence},
+        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -19,7 +17,6 @@ use kagari_types::{
     declaration::{FnDecl, NativeDeclaration},
     ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
-use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
@@ -27,59 +24,52 @@ use std::{
 
 /// Only publicly callable members are exported. Private and parent-visible
 /// methods remain absent, independently of their executable function records.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + Serialize",
-    deserialize = "I: DefinitionReference + Deserialize<'de>"
-))]
-pub struct InherentTable<I = DefinitionPath> {
-    pub declaration: I,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InherentTable {
+    pub declaration: DefinitionId,
     pub name: String,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub generic_params: Vec<GenericParam<I>>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub bounds: Vec<GenericBound<I>>,
-    pub for_type: Ty<I>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub methods: Vec<FnDecl<I>>,
+    pub generic_params: Vec<GenericParam<DefinitionId>>,
+    pub bounds: Vec<GenericBound<DefinitionId>>,
+    pub for_type: Ty<DefinitionId>,
+    pub methods: Vec<FnDecl<DefinitionId>>,
 }
 
-impl<I: DefinitionReference> DefinitionRecord<I> for InherentTable<I> {
-    type Rebind<J: DefinitionReference> = InherentTable<J>;
-
-    fn map_identities<J: DefinitionReference>(
+impl RemapDefinitions for InherentTable {
+    fn remap_definitions(
         &self,
-        mapper: &mut DefinitionMapper<'_, I, J>,
-    ) -> Result<Self::Rebind<J>, DefinitionMappingError> {
+        mapper: &mut DefinitionMapper<'_, DefinitionId, DefinitionId>,
+    ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InherentTable {
             declaration: mapper.reference(&self.declaration)?,
             name: self.name.clone(),
             generic_params: map_sequence(&self.generic_params, |value| {
-                value.map_identities(mapper)
+                value.remap_definitions(mapper)
             })?,
-            bounds: map_sequence(&self.bounds, |value| value.map_identities(mapper))?,
-            for_type: self.for_type.map_identities(mapper)?,
-            methods: map_sequence(&self.methods, |value| value.map_identities(mapper))?,
+            bounds: map_sequence(&self.bounds, |value| value.remap_definitions(mapper))?,
+            for_type: self.for_type.remap_definitions(mapper)?,
+            methods: map_sequence(&self.methods, |value| value.remap_definitions(mapper))?,
         })
     }
+}
 
-    fn visit_definitions(
+impl DefinitionReferences for InherentTable {
+    fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&I) -> Result<(), DefinitionMappingError>,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         visit(&self.declaration)?;
         for parameter in &self.generic_params {
-            parameter.visit_definitions(visit, cancel)?;
+            parameter.visit_definition_ids(visit, cancel)?;
         }
         for bound in &self.bounds {
-            bound.visit_definitions(visit, cancel)?;
+            bound.visit_definition_ids(visit, cancel)?;
         }
-        self.for_type.visit_definitions(visit, cancel)?;
+        self.for_type.visit_definition_ids(visit, cancel)?;
         for method in &self.methods {
-            method.visit_definitions(visit, cancel)?;
+            method.visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }
@@ -88,7 +78,7 @@ impl<I: DefinitionReference> DefinitionRecord<I> for InherentTable<I> {
 /// Native exports share the registered template's signature and binder scopes.
 /// A public member table cannot redefine an installed callable's declaration.
 pub fn native_signatures_match(
-    items: &[PublicItem<DefinitionId>],
+    items: &[PublicItem],
     declarations: &[NativeDeclaration<DefinitionId>],
     definitions: &DefinitionTable,
 ) -> bool {
@@ -173,9 +163,9 @@ pub fn native_signatures_match(
 /// Compare an exported method with its executable body after applying the
 /// impl-owned and method-owned binders in their original order.
 pub fn executable_signature_matches(
-    items: &[PublicItem<DefinitionId>],
-    identity: &ConcreteFunctionIdentity<DefinitionId>,
-    semantic: &SemanticSlots<DefinitionId>,
+    items: &[PublicItem],
+    identity: &ConcreteFunctionIdentity,
+    semantic: &SemanticSlots,
     definitions: &DefinitionTable,
 ) -> bool {
     let Some(member) = definitions

@@ -62,7 +62,7 @@ fn const_abi_value(value: &ScalarValue, definitions: &DefinitionTable) -> String
     }
 }
 
-pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract<DefinitionId> {
+pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
     let hir_module = &module.lowered.module;
     let mut public_items = Vec::new();
     let mut trait_contracts = Vec::new();

@@ -131,7 +131,7 @@ impl Runtime {
 /// Registered storage constructors name their key/value parameters directly.
 /// Preserve these scopes instead of flattening an application to nominal IDs.
 fn constructor_arguments(
-    table: &InherentTable<DefinitionId>,
+    table: &InherentTable,
     arguments: &[TypeArgument],
     declaration_owner: &LoadedModule,
     caller: &LoadedModule,

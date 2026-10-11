@@ -12,8 +12,8 @@ use kagari_types::{
 
 pub fn validate_declarations<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
-    items: &[PublicItem<DefinitionId>],
-    private: &[TraitContract<DefinitionId>],
+    items: &[PublicItem],
+    private: &[TraitContract],
     cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
@@ -61,8 +61,8 @@ where
 
 pub fn validate_layouts<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
-    structures: &[StructLayout<DefinitionId>],
-    enumerations: &[EnumLayout<DefinitionId>],
+    structures: &[StructLayout],
+    enumerations: &[EnumLayout],
     _cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where
@@ -82,7 +82,7 @@ where
 
 pub fn validate_slots<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
-    slots: &SemanticSlots<DefinitionId>,
+    slots: &SemanticSlots,
     _cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError>
 where

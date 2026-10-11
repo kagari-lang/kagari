@@ -22,7 +22,7 @@ pub(crate) struct LinkedResultAdapter {
 
 impl LinkedResultAdapter {
     pub(crate) fn link(
-        import: &NativeImport<DefinitionId>,
+        import: &NativeImport,
         program: &VerifiedProgram,
     ) -> NativeResult<Option<Self>> {
         let Some(adapter) = &import.result_adapter else {

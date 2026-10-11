@@ -1,27 +1,18 @@
 //! A preselected conversion from a native body's concrete result to its interface.
 use crate::types::ConcreteFunctionIdentity;
-use kagari_common::identity::DefinitionPath;
-use kagari_common::identity::{
-    reference::DefinitionReference,
-    table::{DefinitionId, DefinitionTable},
-};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::{
     declaration::verify::types_in_scope,
     ty::{GenericParam, Ty},
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "I: DefinitionReference + serde::Serialize",
-    deserialize = "I: DefinitionReference + serde::Deserialize<'de>"
-))]
-pub struct NativeResultAdapter<I = DefinitionPath> {
-    pub receiver: Ty<I>,
-    pub implementation: ConcreteFunctionIdentity<I>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeResultAdapter {
+    pub receiver: Ty<DefinitionId>,
+    pub implementation: ConcreteFunctionIdentity,
 }
 
-impl NativeResultAdapter<DefinitionId> {
+impl NativeResultAdapter {
     pub fn structurally_valid(
         &self,
         parameters: &[GenericParam<DefinitionId>],
