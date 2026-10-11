@@ -63,7 +63,7 @@ impl ProofCatalog<'_> {
         {
             return Ok(false);
         }
-        for bound in substitution.apply_bounds(table.bounds(), cancel)? {
+        for bound in substitution.apply_bounds(table.bounds(), &self.definitions, cancel)? {
             if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(false);
             }
@@ -110,7 +110,7 @@ impl ProofCatalog<'_> {
         {
             return Ok(false);
         }
-        for bound in substitution.apply_bounds(table.bounds(), cancel)? {
+        for bound in substitution.apply_bounds(table.bounds(), &self.definitions, cancel)? {
             if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(false);
             }
@@ -204,7 +204,7 @@ impl ProofCatalog<'_> {
                 .map(|param| bindings.parameter(&param.owner, param.position).cloned())
                 .collect::<Option<Vec<_>>>()
                 .ok_or(TypeTransformError::InvalidContract)?;
-            let obligations = bindings.apply_bounds(table.bounds(), cancel)?;
+            let obligations = bindings.apply_bounds(table.bounds(), &self.definitions, cancel)?;
             let mut applicable = true;
             for bound in obligations {
                 applicable &= self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)?;
@@ -236,7 +236,7 @@ impl ProofCatalog<'_> {
             for (param, argument) in method.generic_params.iter().zip(&requirement.arguments) {
                 substitution.bind(&param.owner, param.position, argument);
             }
-            for bound in substitution.apply_bounds(&method.bounds, cancel)? {
+            for bound in substitution.apply_bounds(&method.bounds, &self.definitions, cancel)? {
                 if !self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
                     return Ok(None);
                 }

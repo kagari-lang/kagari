@@ -6,10 +6,7 @@ use kagari_common::{cancellation::CancellationToken, identity::table::Definition
 use kagari_types::{
     callable::CallableImplementation,
     declaration::NativeDeclaration,
-    ty::{
-        GenericBound,
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
+    ty::substitution::{TypeSubstitution, TypeTransformError},
 };
 
 pub(super) fn matches_declaration(
@@ -45,11 +42,7 @@ pub(super) fn matches_declaration(
             return Ok(false);
         }
     }
-    let bounds = GenericBound::normalize(
-        substitution.apply_bounds(&function.bounds, cancel)?,
-        catalog.definitions(),
-        cancel,
-    )?;
+    let bounds = substitution.apply_bounds(&function.bounds, catalog.definitions(), cancel)?;
     if bounds != import.requirements {
         return Ok(false);
     }

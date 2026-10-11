@@ -16,7 +16,7 @@ use kagari_types::{
     callable::Signature,
     declaration::{
         NativeDeclaration,
-        verify::{native_bounds_valid, types_in_scope_in},
+        verify::{native_bounds_valid, types_in_scope},
     },
     host_interface::HostFunctionDeclaration,
     ty::{GenericBound, Ty, substitution::TypeTransformError},
@@ -94,12 +94,7 @@ impl NativeImport<DefinitionId> {
             .as_ref()
             .map_or(&[][..], |body| body.parameters.as_slice());
         let valid = |ty: &Ty<DefinitionId>| {
-            types_in_scope_in(
-                [ty],
-                parameters,
-                &CancellationToken::default(),
-                Some(definitions),
-            )
+            types_in_scope([ty], parameters, &CancellationToken::default(), definitions)
         };
         self.generic.as_ref().is_none_or(|body| {
             !body.parameters.is_empty()

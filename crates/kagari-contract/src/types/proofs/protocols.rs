@@ -61,7 +61,7 @@ impl ProofCatalog<'_> {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
         substitution.bind_receiver(&required.interface.declaration, &required.receiver);
-        for bound in substitution.apply_bounds(&method.bounds, cancel)? {
+        for bound in substitution.apply_bounds(&method.bounds, &self.definitions, cancel)? {
             if !self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
                 return Ok(None);
             }

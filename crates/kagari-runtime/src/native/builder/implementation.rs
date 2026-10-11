@@ -85,7 +85,11 @@ impl<'module> ImplementationBuilder<'module> {
             combined.append(&mut signature.generic_params);
             signature.generic_params = combined;
             signature.bounds = substitution
-                .apply_bounds(&signature.bounds, &cancel)
+                .apply_bounds(
+                    &signature.bounds,
+                    &self.module.providers.definitions(),
+                    &cancel,
+                )
                 .map_err(|_| {
                     RuntimeError::metadata_conflict("invalid inherent bounds substitution")
                 })?;

@@ -260,11 +260,9 @@ impl Runtime {
                         else {
                             continue;
                         };
-                        let Some(applied) = template.instantiate_scoped(
-                            &table.arguments,
-                            &[],
-                            Some(owner.definitions()),
-                        ) else {
+                        let Some(applied) =
+                            template.instantiate(&table.arguments, &[], owner.definitions())
+                        else {
                             continue;
                         };
                         let Ty::Trait(interface) = applied.trait_type else {

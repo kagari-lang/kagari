@@ -15,7 +15,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference},
+    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -216,8 +216,14 @@ impl<I: DefinitionReference> Ty<I> {
             }),
         }
     }
+}
 
-    pub fn instantiate(&self, owner: &I, arguments: &[Ty<I>]) -> Option<Self> {
+impl Ty<DefinitionId> {
+    pub fn instantiate(
+        &self,
+        owner: &DefinitionId,
+        arguments: &[Ty<DefinitionId>],
+    ) -> Option<Self> {
         let result = TypeSubstitution::for_owner(owner, arguments)
             .apply(self, &CancellationToken::default())
             .ok()?;

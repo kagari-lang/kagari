@@ -1,13 +1,13 @@
 //! Portable callable implementation identities. Signatures belong to the
 //! declarations lowered from HIR; these identities never reconstruct a signature.
-
-use kagari_common::identity::reference::DefinitionReference;
-
 use crate::ty::{
     Ty,
     substitution::{TypeSubstitution, TypeTransformError},
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionPath};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
+};
 use serde::{Deserialize, Serialize};
 
 /// Declaration policy is independent of the implementation's provider or entry.
@@ -52,10 +52,10 @@ pub struct NativeDefaultApplication<I = DefinitionPath> {
     pub arguments: Vec<Ty<I>>,
 }
 
-impl<I: DefinitionReference> NativeDefaultApplication<I> {
+impl NativeDefaultApplication<DefinitionId> {
     pub fn apply(
         &self,
-        substitution: &TypeSubstitution<'_, I>,
+        substitution: &TypeSubstitution<'_>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -63,7 +63,7 @@ impl<I: DefinitionReference> NativeDefaultApplication<I> {
             return Err(TypeTransformError::LimitExceeded);
         }
         Ok(Self {
-            declaration: self.declaration.clone(),
+            declaration: self.declaration,
             arguments: self
                 .arguments
                 .iter()
@@ -73,10 +73,10 @@ impl<I: DefinitionReference> NativeDefaultApplication<I> {
     }
 }
 
-impl<I: DefinitionReference> CallableImplementation<I> {
+impl CallableImplementation<DefinitionId> {
     pub fn apply(
         &self,
-        substitution: &TypeSubstitution<'_, I>,
+        substitution: &TypeSubstitution<'_>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;

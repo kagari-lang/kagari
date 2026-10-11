@@ -6,7 +6,7 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    declaration::verify::types_in_scope_in,
+    declaration::verify::types_in_scope,
     ty::{GenericParam, Ty},
 };
 use serde::{Deserialize, Serialize};
@@ -29,11 +29,11 @@ impl NativeResultAdapter<DefinitionId> {
     ) -> bool {
         definitions.resolve(self.implementation.declaration).is_ok()
             && self.implementation.arguments.len() <= 4096
-            && types_in_scope_in(
+            && types_in_scope(
                 self.implementation.arguments.iter().chain([&self.receiver]),
                 parameters,
                 &Default::default(),
-                Some(definitions),
+                definitions,
             )
     }
 }

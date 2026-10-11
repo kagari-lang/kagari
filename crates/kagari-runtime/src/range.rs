@@ -70,9 +70,7 @@ impl RangeValue {
         bound: &Ty<DefinitionId>,
         upper: bool,
     ) -> Result<Bound<Value>, RuntimeError> {
-        if !self.matches(range)
-            || !operations::range_bound_valid_in(range, bound, Some(definitions))
-        {
+        if !self.matches(range) || !operations::range_bound_valid(range, bound, definitions) {
             return Err(invalid());
         }
         let value = if upper {

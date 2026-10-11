@@ -1,23 +1,20 @@
 //! Aggregate templates bind only their declaration's own type parameters.
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        reference::DefinitionReference,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::table::{DefinitionId, DefinitionTable},
 };
 
 use crate::layout::{EnumLayout, StructLayout};
 use kagari_types::{
-    declaration::verify::types_in_scope_in,
+    declaration::verify::types_in_scope,
     ty::{GenericParam, Ty, substitution::TypeSubstitution},
 };
 use std::borrow::Cow;
 
-fn parameters<I: DefinitionReference>(
-    owner: &I,
-    arguments: &[Ty<I>],
-) -> Option<Vec<GenericParam<I>>> {
+fn parameters(
+    owner: &DefinitionId,
+    arguments: &[Ty<DefinitionId>],
+) -> Option<Vec<GenericParam<DefinitionId>>> {
     if arguments.iter().all(Ty::is_concrete) {
         return Some(vec![]);
     }
@@ -26,7 +23,7 @@ fn parameters<I: DefinitionReference>(
         .enumerate()
         .map(|(position, ty)| {
             let parameter = GenericParam {
-                owner: owner.clone(),
+                owner: *owner,
                 position,
             };
             (parameter.as_type() == *ty).then_some(parameter)
@@ -34,20 +31,24 @@ fn parameters<I: DefinitionReference>(
         .collect()
 }
 
-fn accepts<I: DefinitionReference>(owner: &I, template: &[Ty<I>], arguments: &[Ty<I>]) -> bool {
+fn accepts(
+    owner: &DefinitionId,
+    template: &[Ty<DefinitionId>],
+    arguments: &[Ty<DefinitionId>],
+) -> bool {
     template == arguments
         || (template.len() == arguments.len()
             && parameters(owner, template).is_some_and(|parameters| !parameters.is_empty()))
 }
 
-impl<I: DefinitionReference> StructLayout<I> {
-    pub fn accepts(&self, arguments: &[Ty<I>]) -> bool {
+impl StructLayout<DefinitionId> {
+    pub fn accepts(&self, arguments: &[Ty<DefinitionId>]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
     }
 
     pub fn apply<'a>(
         &'a self,
-        arguments: &[Ty<I>],
+        arguments: &[Ty<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Option<Cow<'a, Self>> {
         if self.arguments == arguments {
@@ -66,14 +67,14 @@ impl<I: DefinitionReference> StructLayout<I> {
     }
 }
 
-impl<I: DefinitionReference> EnumLayout<I> {
-    pub fn accepts(&self, arguments: &[Ty<I>]) -> bool {
+impl EnumLayout<DefinitionId> {
+    pub fn accepts(&self, arguments: &[Ty<DefinitionId>]) -> bool {
         accepts(&self.declaration, &self.arguments, arguments)
     }
 
     pub fn apply<'a>(
         &'a self,
-        arguments: &[Ty<I>],
+        arguments: &[Ty<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Option<Cow<'a, Self>> {
         if self.arguments == arguments {
@@ -97,13 +98,13 @@ impl<I: DefinitionReference> EnumLayout<I> {
 impl StructLayout<DefinitionId> {
     pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
         parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope_in(
+            types_in_scope(
                 self.arguments
                     .iter()
                     .chain(self.fields.iter().map(|field| &field.ty)),
                 &parameters,
                 cancel,
-                Some(definitions),
+                definitions,
             )
         })
     }
@@ -112,13 +113,13 @@ impl StructLayout<DefinitionId> {
 impl EnumLayout<DefinitionId> {
     pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
         parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope_in(
+            types_in_scope(
                 self.arguments
                     .iter()
                     .chain(self.variants.iter().flat_map(|variant| &variant.payload)),
                 &parameters,
                 cancel,
-                Some(definitions),
+                definitions,
             )
         })
     }

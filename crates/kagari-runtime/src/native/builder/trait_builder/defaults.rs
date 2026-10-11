@@ -1,9 +1,7 @@
 //! Lower declared defaults to ordinary private native templates.
 use crate::{
     error::RuntimeError,
-    native::{
-        binding::NativeResult, builder::trait_builder::TraitBuilder, declarations::normalize_bounds,
-    },
+    native::{binding::NativeResult, builder::trait_builder::TraitBuilder},
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_types::{
@@ -121,9 +119,8 @@ impl TraitBuilder<'_> {
             let mut bounds = assumptions.clone();
             bounds.extend(method.bounds.clone());
             template.bounds = substitution
-                .apply_bounds(&bounds, &cancel)
+                .apply_bounds(&bounds, &self.module.providers.definitions(), &cancel)
                 .map_err(invalid)?;
-            normalize_bounds(&mut template, &self.module.providers.definitions())?;
             for parameter in &mut template.params {
                 if parameter.name == "self" {
                     parameter.name = "__receiver".into();

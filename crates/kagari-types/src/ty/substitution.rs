@@ -2,7 +2,7 @@
 use crate::ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference},
+    identity::table::{DefinitionId, DefinitionTable},
 };
 use std::collections::BTreeMap;
 
@@ -18,24 +18,25 @@ pub enum TypeTransformError {
 
 /// Bindings borrow validated contract records. Substitution replaces exactly one
 /// binder layer: a replacement may itself refer to parameters in the caller.
-pub struct TypeSubstitution<'a, I = DefinitionPath> {
-    parameters: BTreeMap<&'a I, BTreeMap<usize, &'a Ty<I>>>,
-    receivers: BTreeMap<&'a I, &'a Ty<I>>,
+#[derive(Default)]
+pub struct TypeSubstitution<'a> {
+    parameters: BTreeMap<&'a DefinitionId, BTreeMap<usize, &'a Ty<DefinitionId>>>,
+    receivers: BTreeMap<&'a DefinitionId, &'a Ty<DefinitionId>>,
 }
 
-impl<'a, I: DefinitionReference> TypeSubstitution<'a, I> {
-    pub fn bind(&mut self, owner: &'a I, position: usize, value: &'a Ty<I>) {
+impl<'a> TypeSubstitution<'a> {
+    pub fn bind(&mut self, owner: &'a DefinitionId, position: usize, value: &'a Ty<DefinitionId>) {
         self.parameters
             .entry(owner)
             .or_default()
             .insert(position, value);
     }
 
-    pub fn bind_receiver(&mut self, owner: &'a I, value: &'a Ty<I>) {
+    pub fn bind_receiver(&mut self, owner: &'a DefinitionId, value: &'a Ty<DefinitionId>) {
         self.receivers.insert(owner, value);
     }
 
-    pub fn for_owner(owner: &'a I, arguments: &'a [Ty<I>]) -> Self {
+    pub fn for_owner(owner: &'a DefinitionId, arguments: &'a [Ty<DefinitionId>]) -> Self {
         let mut substitution = Self::default();
         for (position, argument) in arguments.iter().enumerate() {
             substitution.bind(owner, position, argument);
@@ -45,17 +46,21 @@ impl<'a, I: DefinitionReference> TypeSubstitution<'a, I> {
 
     pub fn apply(
         &self,
-        ty: &Ty<I>,
+        ty: &Ty<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<Ty<I>, TypeTransformError> {
+    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
         Transform::new(self, None, cancel).run(ty)
     }
 
+    /// Substitute one binder layer and merge bounds in canonical semantic order.
+    /// The table must contain all resulting identities. Foreign or stale references,
+    /// excessive type depth/node counts and cancellation return an error.
     pub fn apply_bounds(
         &self,
-        bounds: &[GenericBound<I>],
+        bounds: &[GenericBound<DefinitionId>],
+        definitions: &DefinitionTable,
         cancel: &CancellationToken,
-    ) -> Result<Vec<GenericBound<I>>, TypeTransformError> {
+    ) -> Result<Vec<GenericBound<DefinitionId>>, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         if bounds.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
@@ -84,34 +89,20 @@ impl<'a, I: DefinitionReference> TypeSubstitution<'a, I> {
                 })
             })
             .collect::<Result<Vec<_>, TypeTransformError>>()?;
-        // Substitution can reorder receivers or make distinct binders equal.
-        // Preserve the canonical bound representation after that transformation.
-        let mut merged = BTreeMap::<Ty<I>, Vec<Constraint<I>>>::new();
-        for bound in applied {
-            merged
-                .entry(bound.ty)
-                .or_default()
-                .extend(bound.constraints);
-        }
-        Ok(merged
-            .into_iter()
-            .map(|(ty, mut constraints)| {
-                constraints.sort();
-                constraints.dedup();
-                GenericBound { ty, constraints }
-            })
-            .collect())
+        // Substitution can reorder receivers or collapse distinct binder subjects.
+        // The scoped normalizer owns canonical ordering and constraint merging.
+        GenericBound::normalize(applied, definitions, cancel)
     }
 
-    pub fn parameter(&self, owner: &I, position: usize) -> Option<&'a Ty<I>> {
+    pub fn parameter(&self, owner: &DefinitionId, position: usize) -> Option<&'a Ty<DefinitionId>> {
         self.parameters.get(owner)?.get(&position).copied()
     }
 
     pub fn apply_nominal(
         &self,
-        ty: &NominalTy<I>,
+        ty: &NominalTy<DefinitionId>,
         cancel: &CancellationToken,
-    ) -> Result<NominalTy<I>, TypeTransformError> {
+    ) -> Result<NominalTy<DefinitionId>, TypeTransformError> {
         let value = Ty::Trait(Transform::new(self, None, cancel).nominal(ty, 1, true)?);
         if !value.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded);
@@ -122,7 +113,7 @@ impl<'a, I: DefinitionReference> TypeSubstitution<'a, I> {
         Ok(value)
     }
 
-    fn replacement(&self, ty: &Ty<I>) -> Option<&'a Ty<I>> {
+    fn replacement(&self, ty: &Ty<DefinitionId>) -> Option<&'a Ty<DefinitionId>> {
         match ty {
             Ty::Parameter { owner, position } => self.parameters.get(owner)?.get(position).copied(),
             Ty::SelfType(owner) => self.receivers.get(owner).copied(),
@@ -131,10 +122,10 @@ impl<'a, I: DefinitionReference> TypeSubstitution<'a, I> {
     }
 }
 
-impl<I: DefinitionReference> GenericParam<I> {
-    pub fn as_type(&self) -> Ty<I> {
+impl GenericParam<DefinitionId> {
+    pub fn as_type(&self) -> Ty<DefinitionId> {
         Ty::Parameter {
-            owner: self.owner.clone(),
+            owner: self.owner,
             position: self.position,
         }
     }
@@ -142,12 +133,12 @@ impl<I: DefinitionReference> GenericParam<I> {
 
 /// Resolve associated outputs on an applied interface after parameter substitution.
 /// Unrelated projections remain symbolic; cyclic or oversized expansions fail.
-pub fn resolve_associated_outputs<I: DefinitionReference>(
-    ty: &Ty<I>,
-    interface: &NominalTy<I>,
-    receiver: &Ty<I>,
+pub fn resolve_associated_outputs(
+    ty: &Ty<DefinitionId>,
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
     cancel: &CancellationToken,
-) -> Result<Ty<I>, TypeTransformError> {
+) -> Result<Ty<DefinitionId>, TypeTransformError> {
     Transform::new(
         &TypeSubstitution::default(),
         Some((interface, receiver)),
@@ -158,49 +149,54 @@ pub fn resolve_associated_outputs<I: DefinitionReference>(
 
 /// Resolve projections using a caller's already validated dependency contracts.
 /// A missing binding stays symbolic; malformed, ambiguous or unbounded proofs fail.
-pub type ProjectionLookup<'a, I = DefinitionPath> =
-    dyn Fn(&NominalTy<I>, &Ty<I>, &I, &[Ty<I>]) -> Result<Option<Ty<I>>, TypeTransformError> + 'a;
+pub type ProjectionLookup<'a> = dyn Fn(
+        &NominalTy<DefinitionId>,
+        &Ty<DefinitionId>,
+        &DefinitionId,
+        &[Ty<DefinitionId>],
+    ) -> Result<Option<Ty<DefinitionId>>, TypeTransformError>
+    + 'a;
 
-pub fn normalize_projections<I: DefinitionReference>(
-    ty: &Ty<I>,
-    lookup: &ProjectionLookup<'_, I>,
+pub fn normalize_projections(
+    ty: &Ty<DefinitionId>,
+    lookup: &ProjectionLookup<'_>,
     cancel: &CancellationToken,
-) -> Result<Ty<I>, TypeTransformError> {
+) -> Result<Ty<DefinitionId>, TypeTransformError> {
     let substitution = TypeSubstitution::default();
     let mut transform = Transform::new(&substitution, None, cancel);
     transform.lookup = Some(lookup);
     transform.run(ty)
 }
 
-type ParameterLookup<'a, I> = dyn Fn(&I, usize) -> Option<&'a Ty<I>> + 'a;
+type ParameterLookup<'a> = dyn Fn(&DefinitionId, usize) -> Option<&'a Ty<DefinitionId>> + 'a;
 
 /// Apply the same bounded, once-only substitution using an explicit contextual
 /// binder lookup. Runtime frames can retain compact owners without rebuilding
 /// owned-path maps for every substitution.
-pub fn substitute_parameters<'a, I: DefinitionReference + 'a>(
-    ty: &Ty<I>,
-    lookup: &ParameterLookup<'a, I>,
+pub fn substitute_parameters<'a>(
+    ty: &Ty<DefinitionId>,
+    lookup: &ParameterLookup<'a>,
     cancel: &CancellationToken,
-) -> Result<Ty<I>, TypeTransformError> {
+) -> Result<Ty<DefinitionId>, TypeTransformError> {
     let substitution = TypeSubstitution::default();
     let mut transform = Transform::new(&substitution, None, cancel);
     transform.parameter_lookup = Some(lookup);
     transform.run(ty)
 }
 
-struct Transform<'a, 'b, I> {
-    substitution: &'a TypeSubstitution<'b, I>,
-    outputs: Option<(&'a NominalTy<I>, &'a Ty<I>)>,
-    lookup: Option<&'a ProjectionLookup<'a, I>>,
-    parameter_lookup: Option<&'a ParameterLookup<'b, I>>,
+struct Transform<'a, 'b> {
+    substitution: &'a TypeSubstitution<'b>,
+    outputs: Option<(&'a NominalTy<DefinitionId>, &'a Ty<DefinitionId>)>,
+    lookup: Option<&'a ProjectionLookup<'a>>,
+    parameter_lookup: Option<&'a ParameterLookup<'b>>,
     cancel: &'a CancellationToken,
     remaining: usize,
 }
 
-impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
+impl<'a, 'b> Transform<'a, 'b> {
     fn new(
-        substitution: &'a TypeSubstitution<'b, I>,
-        outputs: Option<(&'a NominalTy<I>, &'a Ty<I>)>,
+        substitution: &'a TypeSubstitution<'b>,
+        outputs: Option<(&'a NominalTy<DefinitionId>, &'a Ty<DefinitionId>)>,
         cancel: &'a CancellationToken,
     ) -> Self {
         Self {
@@ -224,14 +220,7 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
         Ok(())
     }
 
-    fn id(&self, id: &I) -> Result<I, TypeTransformError> {
-        if !id.within_path_limit() {
-            return Err(TypeTransformError::LimitExceeded);
-        }
-        Ok(id.clone())
-    }
-
-    fn run(&mut self, ty: &Ty<I>) -> Result<Ty<I>, TypeTransformError> {
+    fn run(&mut self, ty: &Ty<DefinitionId>) -> Result<Ty<DefinitionId>, TypeTransformError> {
         let result = self.visit(ty, 1, true)?;
         if !result.within_wire_limits() {
             return Err(TypeTransformError::LimitExceeded);
@@ -241,10 +230,10 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
 
     fn many(
         &mut self,
-        types: &[Ty<I>],
+        types: &[Ty<DefinitionId>],
         depth: usize,
         replace: bool,
-    ) -> Result<Vec<Ty<I>>, TypeTransformError> {
+    ) -> Result<Vec<Ty<DefinitionId>>, TypeTransformError> {
         if types.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
         }
@@ -256,31 +245,31 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
 
     fn nominal(
         &mut self,
-        ty: &NominalTy<I>,
+        ty: &NominalTy<DefinitionId>,
         depth: usize,
         replace: bool,
-    ) -> Result<NominalTy<I>, TypeTransformError> {
+    ) -> Result<NominalTy<DefinitionId>, TypeTransformError> {
         self.step(depth)?;
         if ty.associated_types.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
         }
         Ok(NominalTy {
-            declaration: self.id(&ty.declaration)?,
+            declaration: ty.declaration,
             arguments: self.many(&ty.arguments, depth + 1, replace)?,
             associated_types: ty
                 .associated_types
                 .iter()
-                .map(|(id, ty)| Ok((self.id(id)?, self.visit(ty, depth + 1, replace)?)))
+                .map(|(id, ty)| Ok((*id, self.visit(ty, depth + 1, replace)?)))
                 .collect::<Result<_, _>>()?,
         })
     }
 
     fn visit(
         &mut self,
-        ty: &Ty<I>,
+        ty: &Ty<DefinitionId>,
         depth: usize,
         replace: bool,
-    ) -> Result<Ty<I>, TypeTransformError> {
+    ) -> Result<Ty<DefinitionId>, TypeTransformError> {
         self.step(depth)?;
         if replace {
             let replacement = if let Ty::Parameter { owner, position } = ty
@@ -297,10 +286,10 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
         }
         Ok(match ty {
             Ty::Builtin(kind) => Ty::Builtin(*kind),
-            Ty::Host(id) => Ty::Host(self.id(id)?),
-            Ty::SelfType(id) => Ty::SelfType(self.id(id)?),
+            Ty::Host(id) => Ty::Host(*id),
+            Ty::SelfType(id) => Ty::SelfType(*id),
             Ty::Parameter { owner, position } => Ty::Parameter {
-                owner: self.id(owner)?,
+                owner: *owner,
                 position: *position,
             },
             Ty::Tuple(types) => Ty::Tuple(self.many(types, depth + 1, replace)?),
@@ -362,7 +351,7 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
                 Ty::Projection {
                     receiver: Box::new(receiver),
                     interface: Box::new(interface),
-                    member: self.id(member)?,
+                    member: *member,
                     arguments,
                 }
             }
@@ -370,13 +359,5 @@ impl<'a, 'b, I: DefinitionReference> Transform<'a, 'b, I> {
     }
 }
 
-impl<I> Default for TypeSubstitution<'_, I> {
-    fn default() -> Self {
-        Self {
-            parameters: BTreeMap::new(),
-            receivers: BTreeMap::new(),
-        }
-    }
-}
 #[cfg(test)]
 mod tests;

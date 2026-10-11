@@ -200,11 +200,7 @@ pub(super) fn collect_interface_tables(
                         CallableImplementation::NativeDefault(_)
                     ) {
                         let applied = abi
-                            .instantiate_scoped(
-                                &instance.arguments,
-                                &abi.generic_params,
-                                Some(ir.definitions()),
-                            )
+                            .instantiate(&instance.arguments, &abi.generic_params, ir.definitions())
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
                         let applied = applied
                             .methods
@@ -217,11 +213,7 @@ pub(super) fn collect_interface_tables(
                             unreachable!("applied default");
                         };
                         let mut assumptions = abi
-                            .instantiate_scoped(
-                                &instance.arguments,
-                                &abi.generic_params,
-                                Some(ir.definitions()),
-                            )
+                            .instantiate(&instance.arguments, &abi.generic_params, ir.definitions())
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
                             .bounds;
                         assumptions.extend(applied.bounds.clone());

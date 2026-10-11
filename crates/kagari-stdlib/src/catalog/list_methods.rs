@@ -309,7 +309,7 @@ fn default(
         )?)],
     });
     let mut bounds = substitution
-        .apply_bounds(&template.bounds, &cancel)
+        .apply_bounds(&template.bounds, &ids.snapshot(), &cancel)
         .expect("default bounds");
     let mut iterable = contracts::applied_item(ids, RegistrationTrait::Iterable, types[1].clone())?;
     iterable.associated_types.insert(

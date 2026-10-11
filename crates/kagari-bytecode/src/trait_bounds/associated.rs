@@ -89,7 +89,11 @@ fn projection_bounds_valid(
                     substitution.bind(&parameter.owner, parameter.position, actual);
                 }
                 substitution.bind_receiver(&interface.declaration, receiver);
-                for bound in substitution.apply_bounds(&definition.parameter_bounds, cancel)? {
+                for bound in substitution.apply_bounds(
+                    &definition.parameter_bounds,
+                    catalog.definitions(),
+                    cancel,
+                )? {
                     let actual = catalog.normalize(&bound.ty, cancel)?;
                     if !catalog.constraints_hold(
                         &actual,
@@ -161,7 +165,11 @@ pub(super) fn associated_bounds_match(
                 substitution.bind(&parameter.owner, parameter.position, actual);
             }
             available.extend(family.bounds.clone());
-            available.extend(substitution.apply_bounds(&member.parameter_bounds, cancel)?);
+            available.extend(substitution.apply_bounds(
+                &member.parameter_bounds,
+                catalog.definitions(),
+                cancel,
+            )?);
             available = catalog.expand_bounds(&available, cancel)?;
             if !projection_bounds_valid(&family.value, &available, catalog, closure, cancel)? {
                 return Ok(false);

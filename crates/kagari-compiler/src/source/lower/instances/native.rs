@@ -8,7 +8,6 @@ use kagari_hir::types::{
     TypeId,
     semantic::{lower_type, raise_type},
 };
-use kagari_types::ty::GenericBound;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     ty::{GenericParam, substitution::TypeSubstitution},
@@ -118,10 +117,11 @@ impl InstancePlanner<'_> {
             ))
         };
         let requirements = substitution
-            .apply_bounds(&declared.function.bounds, &self.options.cancel)
-            .and_then(|bounds| {
-                GenericBound::normalize(bounds, &self.definitions(), &self.options.cancel)
-            })
+            .apply_bounds(
+                &declared.function.bounds,
+                &self.definitions(),
+                &self.options.cancel,
+            )
             .map_err(|_| invalid())?;
         let import = NativeImport {
             result_adapter: None,

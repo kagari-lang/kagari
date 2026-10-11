@@ -10,7 +10,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::verify::{native_bounds_valid, types_in_scope_in},
+    declaration::verify::{native_bounds_valid, types_in_scope},
     ty::{GenericBound, GenericParam, Ty},
 };
 use serde::{Deserialize, Serialize};
@@ -62,7 +62,7 @@ impl GenericBody<DefinitionId> {
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {
-        types_in_scope_in(types, &self.parameters, cancel, Some(definitions))
+        types_in_scope(types, &self.parameters, cancel, definitions)
     }
 }
 

@@ -21,7 +21,7 @@ pub fn match_implementation<'a>(
     receiver: &'a Ty<DefinitionId>,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-) -> Result<Option<TypeSubstitution<'a, DefinitionId>>, TypeTransformError> {
+) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let Ty::Trait(implemented) = &table.trait_type else {
         return Err(TypeTransformError::InvalidContract);
     };

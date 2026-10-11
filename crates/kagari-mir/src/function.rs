@@ -155,8 +155,13 @@ impl<I: DefinitionReference> MirModule<I> {
                 }),
         )
     }
+}
 
-    pub fn structure(&self, instance: &NominalTy<I>) -> Option<Cow<'_, StructLayout<I>>> {
+impl MirModule<DefinitionId> {
+    pub fn structure(
+        &self,
+        instance: &NominalTy<DefinitionId>,
+    ) -> Option<Cow<'_, StructLayout<DefinitionId>>> {
         self.structures
             .iter()
             .find(|layout| {

@@ -162,7 +162,7 @@ impl<'a> ProofCatalog<'a> {
                 cancel,
             )?;
             copier.apply(implementation.receiver(), cancel)?;
-            copier.apply_bounds(implementation.bounds(), cancel)?;
+            copier.apply_bounds(implementation.bounds(), definitions, cancel)?;
         }
         let mut host_ids = HashSet::new();
         let mut unique_hosts = Vec::new();
@@ -311,7 +311,8 @@ impl<'a> ProofCatalog<'a> {
         bounds: &[GenericBound<DefinitionId>],
         cancel: &CancellationToken,
     ) -> Result<Vec<GenericBound<DefinitionId>>, TypeTransformError> {
-        let mut expanded = TypeSubstitution::default().apply_bounds(bounds, cancel)?;
+        let mut expanded =
+            TypeSubstitution::default().apply_bounds(bounds, &self.definitions, cancel)?;
         for bound in &expanded {
             validate_references(bound, &self.definitions, cancel)?;
         }

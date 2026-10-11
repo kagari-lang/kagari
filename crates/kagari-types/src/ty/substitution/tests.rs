@@ -1,31 +1,34 @@
 use super::*;
 use crate::scalar::BuiltinType;
-use kagari_common::identity::{
-    DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
-};
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 
-fn owner(name: &str) -> DefinitionPath {
-    DefinitionPath {
-        module: ModuleIdentity::single_file("substitution.kgr"),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: name.into(),
-            occurrence: 0,
-        }],
-    }
+fn owner(context: &DefinitionContext, name: &str) -> DefinitionId {
+    let root = context
+        .intern_root(&ModuleIdentity::single_file("substitution.kgr"))
+        .unwrap();
+    context
+        .intern_child(root, DefinitionKind::Trait, name, 0)
+        .unwrap()
 }
 
-fn parameter(owner: &DefinitionPath, position: usize) -> Ty {
+fn associated(context: &DefinitionContext, owner: DefinitionId, name: &str) -> DefinitionId {
+    context
+        .intern_child(owner, DefinitionKind::AssociatedType, name, 0)
+        .unwrap()
+}
+
+fn parameter(owner: &DefinitionId, position: usize) -> Ty<DefinitionId> {
     Ty::Parameter {
-        owner: owner.clone(),
+        owner: *owner,
         position,
     }
 }
 
 #[test]
 fn substitutes_one_binder_layer_without_capturing_caller_or_family_parameters() {
-    let outer = owner("Outer");
-    let family = associated_type_id(&outer, "Item");
+    let context = DefinitionContext::new().unwrap();
+    let outer = owner(&context, "Outer");
+    let family = associated(&context, outer, "Item");
     let first = parameter(&outer, 0);
     let second = parameter(&outer, 1);
     let local = parameter(&family, 0);
@@ -46,15 +49,13 @@ fn substitutes_one_binder_layer_without_capturing_caller_or_family_parameters() 
 
 #[test]
 fn receiver_substitution_preserves_member_and_interface_binder_identity() {
-    let outer = owner("Outer");
-    let other = owner("Other");
+    let context = DefinitionContext::new().unwrap();
+    let outer = owner(&context, "Outer");
+    let other = owner(&context, "Other");
     let value = Ty::Builtin(BuiltinType::I32);
     let mut substitution = TypeSubstitution::default();
     substitution.bind_receiver(&outer, &value);
-    let input = Ty::Tuple(vec![
-        Ty::SelfType(outer.clone()),
-        Ty::SelfType(other.clone()),
-    ]);
+    let input = Ty::Tuple(vec![Ty::SelfType(outer), Ty::SelfType(other)]);
     assert_eq!(
         substitution
             .apply(&input, &CancellationToken::default())
@@ -65,7 +66,8 @@ fn receiver_substitution_preserves_member_and_interface_binder_identity() {
 
 #[test]
 fn substitution_rejects_oversized_replacement_expansion_and_honors_cancellation() {
-    let outer = owner("Outer");
+    let context = DefinitionContext::new().unwrap();
+    let outer = owner(&context, "Outer");
     let replacement = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); MAX_TYPE_NODES / 2]);
     let mut substitution = TypeSubstitution::default();
     substitution.bind(&outer, 0, &replacement);
@@ -84,7 +86,8 @@ fn substitution_rejects_oversized_replacement_expansion_and_honors_cancellation(
 
 #[test]
 fn substitution_checks_combined_depth_after_inserting_a_replacement() {
-    let outer = owner("Outer");
+    let context = DefinitionContext::new().unwrap();
+    let outer = owner(&context, "Outer");
     let mut replacement = Ty::Builtin(BuiltinType::I32);
     for _ in 0..MAX_TYPE_DEPTH - 1 {
         replacement = Ty::Iter(Box::new(replacement));
@@ -105,19 +108,20 @@ fn substitution_checks_combined_depth_after_inserting_a_replacement() {
     );
 }
 
-fn projection(interface: &NominalTy, member: &DefinitionPath) -> Ty {
+fn projection(interface: &NominalTy<DefinitionId>, member: &DefinitionId) -> Ty<DefinitionId> {
     Ty::Projection {
-        receiver: Box::new(Ty::SelfType(interface.declaration.clone())),
+        receiver: Box::new(Ty::SelfType(interface.declaration)),
         interface: Box::new(interface.clone()),
-        member: member.clone(),
+        member: *member,
         arguments: vec![],
     }
 }
 
 #[test]
 fn associated_outputs_expand_nested_projections_but_preserve_unrelated_owners() {
-    let outer = owner("Outer");
-    let item = associated_type_id(&outer, "Item");
+    let context = DefinitionContext::new().unwrap();
+    let outer = owner(&context, "Outer");
+    let item = associated(&context, outer, "Item");
     let interface = NominalTy {
         declaration: outer,
         arguments: vec![],
@@ -125,11 +129,11 @@ fn associated_outputs_expand_nested_projections_but_preserve_unrelated_owners() 
     };
     let projected = projection(&interface, &item);
     let other = NominalTy {
-        declaration: owner("Other"),
+        declaration: owner(&context, "Other"),
         arguments: vec![],
         associated_types: BTreeMap::new(),
     };
-    let unrelated = projection(&other, &associated_type_id(&other.declaration, "Item"));
+    let unrelated = projection(&other, &associated(&context, other.declaration, "Item"));
     let applied = NominalTy {
         associated_types: [(item, Ty::Builtin(BuiltinType::I32))].into(),
         ..interface
@@ -139,7 +143,7 @@ fn associated_outputs_expand_nested_projections_but_preserve_unrelated_owners() 
         unreachable!()
     };
     **receiver = Ty::Parameter {
-        owner: owner("source"),
+        owner: owner(&context, "source"),
         position: 0,
     };
     let input = Ty::Tuple(vec![projected, unrelated.clone(), other_receiver.clone()]);
@@ -147,7 +151,7 @@ fn associated_outputs_expand_nested_projections_but_preserve_unrelated_owners() 
         resolve_associated_outputs(
             &input,
             &applied,
-            &Ty::SelfType(applied.declaration.clone()),
+            &Ty::SelfType(applied.declaration),
             &CancellationToken::default()
         )
         .unwrap(),
@@ -161,8 +165,9 @@ fn associated_outputs_expand_nested_projections_but_preserve_unrelated_owners() 
 
 #[test]
 fn associated_output_cycles_fail_instead_of_recursing_indefinitely() {
-    let outer = owner("Outer");
-    let item = associated_type_id(&outer, "Item");
+    let context = DefinitionContext::new().unwrap();
+    let outer = owner(&context, "Outer");
+    let item = associated(&context, outer, "Item");
     let mut interface = NominalTy {
         declaration: outer,
         arguments: vec![],
@@ -174,7 +179,7 @@ fn associated_output_cycles_fail_instead_of_recursing_indefinitely() {
         resolve_associated_outputs(
             &projected,
             &interface,
-            &Ty::SelfType(interface.declaration.clone()),
+            &Ty::SelfType(interface.declaration),
             &CancellationToken::default()
         ),
         Err(TypeTransformError::LimitExceeded)
@@ -183,15 +188,17 @@ fn associated_output_cycles_fail_instead_of_recursing_indefinitely() {
 
 #[test]
 fn applied_bounds_merge_equal_receivers_and_keep_canonical_order() {
-    let outer = owner("Outer");
+    let context = DefinitionContext::new().unwrap();
+    let outer = owner(&context, "Outer");
     let target = Ty::Builtin(BuiltinType::I32);
-    let first = Constraint::Trait(NominalTy {
-        declaration: owner("First"),
+    // Allocate the later spelling first so ID order differs from canonical order.
+    let second = Constraint::Trait(NominalTy {
+        declaration: owner(&context, "Second"),
         arguments: vec![],
         associated_types: Default::default(),
     });
-    let second = Constraint::Trait(NominalTy {
-        declaration: owner("Second"),
+    let first = Constraint::Trait(NominalTy {
+        declaration: owner(&context, "First"),
         arguments: vec![],
         associated_types: Default::default(),
     });
@@ -210,6 +217,7 @@ fn applied_bounds_merge_equal_receivers_and_keep_canonical_order() {
                     constraints: vec![first.clone(), second.clone()],
                 },
             ],
+            &context.snapshot(),
             &CancellationToken::default(),
         )
         .unwrap();

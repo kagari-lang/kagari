@@ -11,7 +11,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -50,11 +49,7 @@ pub fn links(
         });
     }
     let table = template
-        .instantiate_scoped(
-            &linked.arguments,
-            &template.generic_params,
-            Some(definitions),
-        )
+        .instantiate(&linked.arguments, &template.generic_params, definitions)
         .ok_or(invalid)?;
     let Ty::Trait(interface) = &table.trait_type else {
         return Err(invalid);
@@ -213,7 +208,7 @@ fn select(
                 continue;
             }
             let applied = template
-                .instantiate_scoped(&arguments, scope, Some(definitions))
+                .instantiate(&arguments, scope, definitions)
                 .ok_or(invalid)?;
             let Ty::Trait(actual) = &applied.trait_type else {
                 return Err(invalid);
@@ -261,10 +256,10 @@ pub(super) fn valid(
     Ok(true)
 }
 
-fn template<'a, I: DefinitionReference>(
-    module: &'a BytecodeModule<I>,
-    linked: &InterfaceTableRecord<I>,
-) -> Option<&'a InterfaceTable<I>> {
+fn template<'a>(
+    module: &'a BytecodeModule<DefinitionId>,
+    linked: &InterfaceTableRecord<DefinitionId>,
+) -> Option<&'a InterfaceTable<DefinitionId>> {
     module.public_items.iter().find_map(|item| match item {
         PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
             Some(table.as_ref())
@@ -274,9 +269,9 @@ fn template<'a, I: DefinitionReference>(
 }
 
 /// Locate the exact preselected table; symbolic applications use its canonical body.
-pub fn native_result_target<I: DefinitionReference>(
-    adapter: &NativeResultAdapter<I>,
-    closure: &[&BytecodeModule<I>],
+pub fn native_result_target(
+    adapter: &NativeResultAdapter<DefinitionId>,
+    closure: &[&BytecodeModule<DefinitionId>],
 ) -> Option<(ModuleRef, usize)> {
     let (owner_index, owner) = closure.iter().enumerate().find(|(_, owner)| {
         owner

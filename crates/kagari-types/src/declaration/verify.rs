@@ -130,7 +130,7 @@ pub fn validate_native_declarations(
                 .is_some_and(|part| part.kind == DefinitionKind::Trait)
         });
         let valid = |ty: &Ty<DefinitionId>| {
-            ty.within_wire_limits() && type_valid_in(ty, &params, self_owner, cancel, Some(table))
+            ty.within_wire_limits() && type_valid(ty, &params, self_owner, cancel, table)
         };
         let before = |left: &Ty<DefinitionId>, right: &Ty<DefinitionId>| {
             left.canonical_cmp(right, table, cancel)
@@ -384,7 +384,7 @@ pub fn native_bounds_valid(
         && bounds.iter().all(|bound| bound.constraints.len() <= 4096)
         && bounds_with(
             bounds,
-            &|ty| type_valid_in(ty, &params, None, cancel, Some(table)),
+            &|ty| type_valid(ty, &params, None, cancel, table),
             &|left, right| {
                 left.canonical_cmp(right, table, cancel)
                     .is_ok_and(|order| order.is_lt())
@@ -482,66 +482,56 @@ pub fn function_valid(
     })
 }
 
-/// Check portable type expressions against an explicitly supplied binder scope.
+/// Check scoped type expressions without materializing owned paths.
 pub fn types_in_scope<'a>(
-    types: impl IntoIterator<Item = &'a Ty>,
-    parameters: &[GenericParam],
-    cancel: &CancellationToken,
-) -> bool {
-    let parameters = parameters
-        .iter()
-        .map(|parameter| (parameter.owner.clone(), parameter.position))
-        .collect();
-    types
-        .into_iter()
-        .all(|ty| ty.within_wire_limits() && type_valid_in(ty, &parameters, None, cancel, None))
-}
-
-pub fn type_valid(
-    ty: &Ty<DefinitionId>,
-    params: &Parameters,
-    self_owner: Option<&DefinitionId>,
+    types: impl IntoIterator<Item = &'a Ty<DefinitionId>>,
+    parameters: &[GenericParam<DefinitionId>],
     cancel: &CancellationToken,
     table: &DefinitionTable,
 ) -> bool {
-    type_valid_in(ty, params, self_owner, cancel, Some(table))
-}
-
-/// Check scoped type expressions without materializing owned paths.
-pub fn types_in_scope_in<'a, I: DefinitionReference + 'a>(
-    types: impl IntoIterator<Item = &'a Ty<I>>,
-    parameters: &[GenericParam<I>],
-    cancel: &CancellationToken,
-    table: Option<&DefinitionTable>,
-) -> bool {
     if parameters
         .iter()
-        .any(|parameter| parameter.owner.describe(table).is_err())
+        .any(|parameter| table.resolve(parameter.owner).is_err())
     {
         return false;
     }
     let parameters = parameters
         .iter()
-        .map(|parameter| (parameter.owner.clone(), parameter.position))
+        .map(|parameter| (parameter.owner, parameter.position))
         .collect();
     types
         .into_iter()
-        .all(|ty| ty.within_wire_limits() && type_valid_in(ty, &parameters, None, cancel, table))
+        .all(|ty| ty.within_wire_limits() && type_valid(ty, &parameters, None, cancel, table))
 }
 
-fn type_valid_in<I: DefinitionReference>(
-    ty: &Ty<I>,
-    params: &HashSet<(I, usize)>,
-    self_owner: Option<&I>,
+pub fn type_valid(
+    ty: &Ty<DefinitionId>,
+    params: &HashSet<(DefinitionId, usize)>,
+    self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
-    table: Option<&DefinitionTable>,
+    table: &DefinitionTable,
 ) -> bool {
-    let associated = |member: &I, parent: &I| match (member.describe(table), parent.describe(table))
-    {
-        (Ok(member), Ok(parent)) => member.associated_member(parent),
-        _ => false,
+    let associated = |member: &DefinitionId, parent: &DefinitionId| {
+        table.resolve(*parent).is_ok()
+            && table
+                .parent(*member)
+                .is_ok_and(|owner| owner == Some(*parent))
+            && table.resolve(*member).is_ok_and(|view| {
+                view.last().is_some_and(|part| {
+                    part.kind == DefinitionKind::AssociatedType && part.occurrence == 0
+                })
+            })
     };
-    let nominal_valid = |id: &I, kind| id.describe(table).is_ok_and(|id| id.nominal(kind));
+    let nominal_valid = |id: &DefinitionId, kind| {
+        table.resolve(*id).is_ok_and(|view| {
+            !view.module().package.0.is_empty()
+                && !view.module().path.is_empty()
+                && !view.module().path.iter().any(String::is_empty)
+                && view
+                    .last()
+                    .is_some_and(|part| part.kind == kind && !part.name.is_empty())
+        })
+    };
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         if cancel.check().is_err() {
@@ -573,18 +563,18 @@ fn type_valid_in<I: DefinitionReference>(
                 pending.extend(&interface.arguments);
             }
             Ty::Parameter { owner, position } => {
-                if owner.describe(table).is_err() || !params.contains(&(owner.clone(), *position)) {
+                if table.resolve(*owner).is_err() || !params.contains(&(*owner, *position)) {
                     return false;
                 }
             }
             Ty::SelfType(owner) => {
-                if owner.describe(table).is_err() || Some(owner) != self_owner {
+                if table.resolve(*owner).is_err() || Some(owner) != self_owner {
                     return false;
                 }
             }
             Ty::Builtin(_) => {}
             Ty::Host(id) => {
-                if validate_host_type_identity_in(id, table).is_err() {
+                if validate_host_type_identity_in(id, Some(table)).is_err() {
                     return false;
                 }
             }
@@ -617,9 +607,8 @@ fn type_valid_in<I: DefinitionReference>(
             | Ty::Trait(nominal) => {
                 pending.extend(&nominal.arguments);
                 if !matches!(
-                    nominal
-                        .declaration
-                        .describe(table)
+                    table
+                        .resolve(nominal.declaration)
                         .ok()
                         .and_then(|view| view.last())
                         .map(|part| part.kind),

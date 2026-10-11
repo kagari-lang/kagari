@@ -326,7 +326,7 @@ pub fn interface_contract_matches(
     let mut matched = HashSet::new();
     interface_constants_match(table, interface, definitions)
         && instance.arguments.len() == interface.generic_params.len()
-        && interface_families_match(table, interface, cancel)
+        && interface_families_match(table, interface, cancel, definitions)
         && instance.associated_types.len()
             == interface
                 .associated_types
@@ -429,6 +429,7 @@ pub fn interface_families_match(
     table: &InterfaceTable<DefinitionId>,
     interface: &TraitDef<DefinitionId>,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
 ) -> bool {
     let Ty::Trait(instance) = &table.trait_type else {
         return false;
@@ -463,7 +464,8 @@ pub fn interface_families_match(
             substitution.bind(&expected.owner, expected.position, actual);
         }
         substitution.bind_receiver(&instance.declaration, &table.for_type);
-        let Ok(expected) = substitution.apply_bounds(&member.parameter_bounds, cancel) else {
+        let Ok(expected) = substitution.apply_bounds(&member.parameter_bounds, definitions, cancel)
+        else {
             return false;
         };
         cancel.check().is_ok()

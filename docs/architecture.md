@@ -71,6 +71,15 @@ against explicitly supplied records. Module declaration validation also receives
 an explicit receiver-ownership lookup; the existing bundled provider supplies
 canonical ownership during the remaining registration migration.
 
+Shared substitution, implementation matching and trait ancestry operate on scoped
+`DefinitionId` records. Pure substitution preserves caller/family binders and
+replaces one binder layer; it does not import identities or grant verification
+evidence. Scope validation and interface instantiation require the retained
+`DefinitionTable`. Bound substitution delegates merging and ordering to the shared
+canonical bound normalizer: if two parameters both become `i32`, their constraints
+merge and sort by exact definition identity, independently of ID allocation order.
+Source lowering, linked proofs and Native builders consume that same result.
+
 HIR depends only on source, syntax, types and common among workspace crates.
 `AnalysisDatabase::default()` has no installed library. Callers supply the complete
 registration closure with `set_native_modules`; `analyze_source` takes the same

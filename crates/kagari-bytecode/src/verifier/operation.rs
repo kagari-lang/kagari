@@ -22,7 +22,7 @@ use kagari_contract::{
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope_in},
+    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
     ty::Ty,
 };
 
@@ -34,7 +34,7 @@ pub(super) fn verify_instruction(
     definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
     if let Some(arguments) = instruction.layout_arguments()
-        && !types_in_scope_in(
+        && !types_in_scope(
             arguments,
             function
                 .metadata
@@ -43,7 +43,7 @@ pub(super) fn verify_instruction(
                 .as_ref()
                 .map_or(&[], |body| body.parameters.as_slice()),
             &Default::default(),
-            Some(definitions),
+            definitions,
         )
     {
         return Err(BytecodeVerificationError::InvalidOperation {
@@ -239,7 +239,7 @@ pub(super) fn verify_instruction(
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "bound destination")?;
             expect_register_ty(function, *value, ValueType::HeapObject, "bound range")?;
-            if !operations::range_bound_valid_in(range, bound, Some(definitions)) {
+            if !operations::range_bound_valid(range, bound, definitions) {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "invalid range bound contract",
@@ -399,7 +399,7 @@ pub(super) fn verify_instruction(
                 ValueType::HeapObject,
                 "interface receiver",
             )?;
-            if !types_in_scope_in(
+            if !types_in_scope(
                 [&Ty::Trait(source.clone()), &Ty::Trait(target.clone())],
                 function
                     .metadata
@@ -408,7 +408,7 @@ pub(super) fn verify_instruction(
                     .as_ref()
                     .map_or(&[], |body| body.parameters.as_slice()),
                 &Default::default(),
-                Some(definitions),
+                definitions,
             ) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -453,7 +453,7 @@ pub(super) fn verify_instruction(
                         {
                             return None;
                         }
-                        table.instantiate_scoped(arguments, scope, Some(definitions))
+                        table.instantiate(arguments, scope, definitions)
                     }
                     _ => None,
                 })

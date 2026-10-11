@@ -184,7 +184,7 @@ impl Runtime {
             })
             .ok_or_else(invalid)?;
         let table = template
-            .instantiate_scoped(&concrete_arguments, &[], Some(implementation.definitions()))
+            .instantiate(&concrete_arguments, &[], implementation.definitions())
             .ok_or_else(invalid)?;
         let environment = if template.generic_params.is_empty() {
             None

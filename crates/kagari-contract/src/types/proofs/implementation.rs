@@ -9,7 +9,7 @@ use {
     kagari_types::{
         callable::CallableImplementation,
         declaration::{
-            AssociatedTypeFamily, FnDecl, TraitDef, module::ImplDecl, verify::types_in_scope_in,
+            AssociatedTypeFamily, FnDecl, TraitDef, module::ImplDecl, verify::types_in_scope,
         },
         language::Protocol,
         ty::{
@@ -86,7 +86,7 @@ impl<'a> Implementation<'a> {
         &self,
         contract: Option<&TraitDef<DefinitionId>>,
         definitions: &DefinitionTable,
-    ) -> Option<ImplementationPattern<'a, DefinitionId>> {
+    ) -> Option<ImplementationPattern<'a>> {
         Some(ImplementationPattern {
             protocol: Protocol::from_reference(&self.interface()?.declaration, Some(definitions)),
             storage_access: contract.and_then(|contract| contract.storage_access),
@@ -129,14 +129,14 @@ impl<'a> Implementation<'a> {
     ) -> Result<Option<FnDecl<DefinitionId>>, TypeTransformError> {
         if let Self::Interface(table) = self {
             return Ok(table
-                .instantiate_scoped(arguments, parameters, Some(definitions))
+                .instantiate(arguments, parameters, definitions)
                 .and_then(|table| table.methods.into_iter().find(|method| method.name == name)));
         }
         let Self::Native { implementation, .. } = self else {
             unreachable!()
         };
         if arguments.len() != self.parameters().len()
-            || !types_in_scope_in(arguments, parameters, cancel, Some(definitions))
+            || !types_in_scope(arguments, parameters, cancel, definitions)
         {
             return Err(TypeTransformError::InvalidContract);
         }
@@ -195,7 +195,7 @@ impl<'a> Implementation<'a> {
             param.ty = apply(&param.ty)?;
         }
         method.return_type = apply(&method.return_type)?;
-        method.bounds = bindings.apply_bounds(&method.bounds, cancel)?;
+        method.bounds = bindings.apply_bounds(&method.bounds, definitions, cancel)?;
         method.implementation = method.implementation.apply(bindings, cancel)?;
         if let CallableImplementation::NativeDefault(application) = &mut method.implementation {
             application.arguments = application

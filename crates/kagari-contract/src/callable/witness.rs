@@ -8,9 +8,7 @@ use {
     },
     kagari_types::{
         callable::{CallableImplementation, Signature},
-        declaration::{
-            TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope_in,
-        },
+        declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope},
         ty::{
             Constraint, GenericBound, GenericParam, Ty, inheritance,
             substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
@@ -68,39 +66,34 @@ impl OperationWitness<DefinitionId> {
                     && selected.implementation.arguments.len() <= 4096
                     && definitions.resolve(selected.requirement.member).is_ok()
                     && selected.requirement.arguments.is_empty()
-                    && types_in_scope_in(
+                    && types_in_scope(
                         selected.implementation.arguments.iter().chain([
                             &selected.requirement.receiver,
                             &Ty::Trait(selected.requirement.interface.clone()),
                         ]),
                         parameters,
                         &Default::default(),
-                        Some(definitions),
+                        definitions,
                     )
             }
             Self::Forward(required) => {
                 !parameters.is_empty()
                     && definitions.resolve(required.member).is_ok()
                     && required.arguments.len() <= 4096
-                    && types_in_scope_in(
+                    && types_in_scope(
                         required
                             .arguments
                             .iter()
                             .chain([&required.receiver, &Ty::Trait(required.interface.clone())]),
                         parameters,
                         &Default::default(),
-                        Some(definitions),
+                        definitions,
                     )
             }
             Self::Selected(call) => {
                 let valid = |ty: &Ty<DefinitionId>| {
                     ty.within_wire_limits()
-                        && types_in_scope_in(
-                            [ty],
-                            &[],
-                            &CancellationToken::default(),
-                            Some(definitions),
-                        )
+                        && types_in_scope([ty], &[], &CancellationToken::default(), definitions)
                 };
                 call.effects == EffectSet::native_call()
                     && (call.origin != NativeCallableOrigin::ProtocolAdapter
@@ -360,7 +353,7 @@ pub fn requirement_signature_in_scope(
         return Ok(None);
     };
     let signature = requirement_signature(requirement, contract, cancel, definitions)?;
-    if !types_in_scope_in(
+    if !types_in_scope(
         signature
             .params
             .iter()
@@ -368,7 +361,7 @@ pub fn requirement_signature_in_scope(
             .chain(&requirement.arguments),
         parameters,
         cancel,
-        Some(definitions),
+        definitions,
     ) || !catalog.holds(
         &requirement.interface,
         &requirement.receiver,
@@ -398,7 +391,7 @@ pub fn requirement_signature_in_scope(
     {
         substitution.bind(&parameter.owner, parameter.position, argument);
     }
-    for bound in substitution.apply_bounds(&method.bounds, cancel)? {
+    for bound in substitution.apply_bounds(&method.bounds, definitions, cancel)? {
         if !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
             return Ok(None);
         }

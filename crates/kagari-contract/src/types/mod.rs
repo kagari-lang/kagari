@@ -15,7 +15,7 @@ use kagari_common::{
 use kagari_types::{
     declaration::{
         AssociatedTypeFamily, ConstDef, FnDecl, NativeDeclaration, Param, TraitDef, TypeDef,
-        verify::types_in_scope_in,
+        verify::types_in_scope,
     },
     ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
@@ -132,36 +132,21 @@ pub struct InterfaceTable<I = DefinitionPath> {
     pub methods: Vec<FnDecl<I>>,
 }
 
-impl<I: DefinitionReference> InterfaceTable<I> {
+impl InterfaceTable<DefinitionId> {
     /// Substitute a selected impl's concrete arguments into its call contract.
     /// Method-owned generics remain scoped templates until their application is
     /// selected. Associated output projections retain their substituted receivers
     /// until the linked proof catalog resolves them. Implementation bounds retain
     /// their concrete substitutions for downstream method applications. The verifier proves template
     /// validity, bounds and method slots.
-    pub fn instantiate(&self, arguments: &[Ty<I>]) -> Option<Self> {
-        self.instantiate_in(arguments, &[])
-    }
-
-    /// Apply a selected implementation inside a checked shared body or table.
-    /// This validates binder scope; linked verification additionally proves
-    /// implementation bounds and the selected executable entries.
-    pub fn instantiate_in(
+    pub fn instantiate(
         &self,
-        arguments: &[Ty<I>],
-        parameters: &[GenericParam<I>],
-    ) -> Option<Self> {
-        self.instantiate_scoped(arguments, parameters, None)
-    }
-
-    pub fn instantiate_scoped(
-        &self,
-        arguments: &[Ty<I>],
-        parameters: &[GenericParam<I>],
-        table: Option<&DefinitionTable>,
+        arguments: &[Ty<DefinitionId>],
+        parameters: &[GenericParam<DefinitionId>],
+        table: &DefinitionTable,
     ) -> Option<Self> {
         if arguments.len() != self.generic_params.len()
-            || !types_in_scope_in(arguments, parameters, &CancellationToken::default(), table)
+            || !types_in_scope(arguments, parameters, &CancellationToken::default(), table)
         {
             return None;
         }
@@ -170,7 +155,7 @@ impl<I: DefinitionReference> InterfaceTable<I> {
         for (parameter, argument) in self.generic_params.iter().zip(arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
-        let apply = |ty: &Ty<I>| substitution.apply(ty, &cancel).ok();
+        let apply = |ty: &Ty<DefinitionId>| substitution.apply(ty, &cancel).ok();
         let methods = self
             .methods
             .iter()
@@ -185,7 +170,9 @@ impl<I: DefinitionReference> InterfaceTable<I> {
                         .filter(|parameter| !self.generic_params.contains(parameter))
                         .cloned()
                         .collect(),
-                    bounds: substitution.apply_bounds(&method.bounds, &cancel).ok()?,
+                    bounds: substitution
+                        .apply_bounds(&method.bounds, table, &cancel)
+                        .ok()?,
                     params: method
                         .params
                         .iter()
@@ -207,19 +194,23 @@ impl<I: DefinitionReference> InterfaceTable<I> {
                 .iter()
                 .map(|family| {
                     Some(AssociatedTypeFamily {
-                        declaration: family.declaration.clone(),
+                        declaration: family.declaration,
                         generic_params: family.generic_params.clone(),
-                        bounds: substitution.apply_bounds(&family.bounds, &cancel).ok()?,
+                        bounds: substitution
+                            .apply_bounds(&family.bounds, table, &cancel)
+                            .ok()?,
                         value: substitution.apply(&family.value, &cancel).ok()?,
                     })
                 })
                 .collect::<Option<_>>()?,
             associated_consts: self.associated_consts.clone(),
             host_bridge: self.host_bridge,
-            declaration: self.declaration.clone(),
+            declaration: self.declaration,
             name: self.name.clone(),
             generic_params: Vec::new(),
-            bounds: substitution.apply_bounds(&self.bounds, &cancel).ok()?,
+            bounds: substitution
+                .apply_bounds(&self.bounds, table, &cancel)
+                .ok()?,
             trait_type: apply(&self.trait_type)?,
             for_type: apply(&self.for_type)?,
             methods,

@@ -5,7 +5,7 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    declaration::verify::{concrete_type_valid, types_in_scope_in},
+    declaration::verify::{concrete_type_valid, types_in_scope},
     language::binding,
     range::RangeKind,
     scalar::BuiltinType,
@@ -95,22 +95,22 @@ pub fn range_operands_valid(
         && end == kind.has_end().then(|| semantic_representation(item))
 }
 
-pub fn range_bound_valid(range: &Ty, bound: &Ty) -> bool {
-    range_bound_valid_in(range, bound, None)
-}
-
-pub fn range_bound_valid_in<I: DefinitionReference>(
-    range: &Ty<I>,
-    bound: &Ty<I>,
-    table: Option<&DefinitionTable>,
+pub fn range_bound_valid(
+    range: &Ty<DefinitionId>,
+    bound: &Ty<DefinitionId>,
+    table: &DefinitionTable,
 ) -> bool {
     let (Ty::Range(item, kind), Ty::Enum(nominal)) = (range, bound) else {
         return false;
     };
     range.within_wire_limits()
         && bound.within_wire_limits()
-        && types_in_scope_in([range, bound], &[], &Default::default(), table)
-        && binding::matches(&nominal.declaration, &binding::bound_declaration(), table)
+        && types_in_scope([range, bound], &[], &Default::default(), table)
+        && binding::matches(
+            &nominal.declaration,
+            &binding::bound_declaration(),
+            Some(table),
+        )
         && nominal.arguments.len() == 1
         && nominal.associated_types.is_empty()
         && (*kind == RangeKind::Full || nominal.arguments[0] == **item)

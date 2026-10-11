@@ -5,7 +5,7 @@ use crate::{
         module::{ImplDecl, ModuleDecl},
         verify::{
             DeclarationValidationError, Parameters, function_valid, trait_valid, types_in_scope,
-            types_in_scope_in, validate_native_declarations,
+            validate_native_declarations,
         },
     },
     host_interface::host_type_identity,
@@ -64,20 +64,13 @@ fn scoped_validation_preserves_kind_member_and_host_identity_rules() {
     ));
     for (ty, accepted) in cases {
         let cancel = Default::default();
-        assert_eq!(types_in_scope([&ty], &[], &cancel), accepted);
         let scoped = scope_record(&ty, &cancel).unwrap();
         assert_eq!(
-            types_in_scope_in([scoped.records()], &[], &cancel, Some(scoped.definitions())),
+            types_in_scope([scoped.records()], &[], &cancel, scoped.definitions()),
             accepted
         );
         let foreign = DefinitionTableBuilder::new().unwrap().freeze();
-        assert!(!types_in_scope_in(
-            [scoped.records()],
-            &[],
-            &cancel,
-            Some(&foreign)
-        ));
-        assert!(!types_in_scope_in([scoped.records()], &[], &cancel, None));
+        assert!(!types_in_scope([scoped.records()], &[], &cancel, &foreign));
     }
 }
 

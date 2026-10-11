@@ -5,7 +5,7 @@ use kagari_common::identity::table::DefinitionId;
 use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::verify::types_in_scope_in,
+    declaration::verify::types_in_scope,
     ty::{
         Ty,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -80,7 +80,7 @@ pub(super) fn valid(
                 .collect();
             let parameters = body.map_or(&[][..], |body| body.parameters.as_slice());
             if slot.arguments.len() != parameters.len()
-                || !types_in_scope_in(&slot.arguments, &scope, cancel, Some(catalog.definitions()))
+                || !types_in_scope(&slot.arguments, &scope, cancel, catalog.definitions())
             {
                 return Ok(false);
             }
@@ -95,10 +95,9 @@ pub(super) fn valid(
             for (parameter, argument) in abi.generic_params.iter().zip(&table.arguments) {
                 applied.bind(&parameter.owner, parameter.position, argument);
             }
-            let normalize =
-                |ty: &Ty<DefinitionId>, substitution: &TypeSubstitution<DefinitionId>| {
-                    catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
-                };
+            let normalize = |ty: &Ty<DefinitionId>, substitution: &TypeSubstitution<'_>| {
+                catalog.normalize(&substitution.apply(ty, cancel)?, cancel)
+            };
             let expected = Signature {
                 params: method
                     .params
@@ -118,10 +117,15 @@ pub(super) fn valid(
             if actual != expected {
                 return Ok(false);
             }
-            let mut assumptions = applied.apply_bounds(&abi.bounds, cancel)?;
-            assumptions.extend(applied.apply_bounds(&method.bounds, cancel)?);
+            let mut assumptions =
+                applied.apply_bounds(&abi.bounds, catalog.definitions(), cancel)?;
+            assumptions.extend(applied.apply_bounds(
+                &method.bounds,
+                catalog.definitions(),
+                cancel,
+            )?);
             if let Some(body) = body {
-                for bound in entry.apply_bounds(&body.bounds, cancel)? {
+                for bound in entry.apply_bounds(&body.bounds, catalog.definitions(), cancel)? {
                     if !catalog.constraints_hold(
                         &bound.ty,
                         &bound.constraints,

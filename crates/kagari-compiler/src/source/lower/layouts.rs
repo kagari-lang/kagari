@@ -14,7 +14,7 @@ use kagari_hir::{
 };
 use kagari_mir::function::MirFunction;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{declaration::verify::types_in_scope_in, ty::GenericParam};
+use kagari_types::{declaration::verify::types_in_scope, ty::GenericParam};
 use std::{
     collections::{HashSet, VecDeque},
     mem, slice,
@@ -150,11 +150,11 @@ pub(super) fn collect(
     while let Some((mut ty, span)) = pending.pop_front() {
         planner.check()?;
         if !ty.is_concrete()
-            && !types_in_scope_in(
+            && !types_in_scope(
                 [&lower_type(&ty)],
                 &scope,
                 &planner.options.cancel,
-                Some(&planner.definitions()),
+                &planner.definitions(),
             )
         {
             return Err(MirLoweringError::diagnostic(

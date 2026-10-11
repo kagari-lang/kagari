@@ -12,7 +12,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::{requirement::NativeCallableRequirement, verify::types_in_scope_in},
+    declaration::{requirement::NativeCallableRequirement, verify::types_in_scope},
     language::adapter::adapter_contract,
     ty::Ty,
 };
@@ -56,7 +56,7 @@ impl SemanticSlots<DefinitionId> {
                     && body.types_valid(types, cancel, definitions)
             }
             None => types.into_iter().all(|ty| {
-                ty.within_wire_limits() && types_in_scope_in([ty], &[], cancel, Some(definitions))
+                ty.within_wire_limits() && types_in_scope([ty], &[], cancel, definitions)
             }),
         }
     }
@@ -111,12 +111,7 @@ impl SemanticSlots<DefinitionId> {
         };
         definitions.resolve(required.member).is_ok()
             && required.receiver.within_wire_limits()
-            && types_in_scope_in(
-                [&required.receiver],
-                &[],
-                &Default::default(),
-                Some(definitions),
-            )
+            && types_in_scope([&required.receiver], &[], &Default::default(), definitions)
             && identity.arguments == adapter_arguments(required, definitions)
             && definitions.resolve(identity.declaration).is_ok_and(|view| {
                 view.segments().count() == 1

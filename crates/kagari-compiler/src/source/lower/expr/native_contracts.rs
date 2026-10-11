@@ -15,7 +15,6 @@ use kagari_hir::{
     },
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
-use kagari_types::ty::GenericBound;
 use kagari_types::{callable::Signature, ty::substitution::TypeSubstitution};
 use std::slice;
 
@@ -89,14 +88,11 @@ impl FunctionLowerer<'_, '_> {
             .map(|registered| registered.function.bounds.clone())
             .unwrap_or_else(|| checked_bounds(&self.planner.definitions(), &function.bounds));
         let requirements = substitution
-            .apply_bounds(&bounds, &self.planner.options.cancel)
-            .and_then(|bounds| {
-                GenericBound::normalize(
-                    bounds,
-                    &self.planner.definitions(),
-                    &self.planner.options.cancel,
-                )
-            })
+            .apply_bounds(
+                &bounds,
+                &self.planner.definitions(),
+                &self.planner.options.cancel,
+            )
             .map_err(|_| invalid())?;
         let params =
             self.planner
@@ -230,14 +226,11 @@ impl FunctionLowerer<'_, '_> {
             .map(|registered| registered.function.bounds.clone())
             .unwrap_or_else(|| checked_bounds(&self.planner.definitions(), &function.bounds));
         let requirements = bindings
-            .apply_bounds(&bounds, &self.planner.options.cancel)
-            .and_then(|bounds| {
-                GenericBound::normalize(
-                    bounds,
-                    &self.planner.definitions(),
-                    &self.planner.options.cancel,
-                )
-            })
+            .apply_bounds(
+                &bounds,
+                &self.planner.definitions(),
+                &self.planner.options.cancel,
+            )
             .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
         self.emit_native_application(
             NativeImport {

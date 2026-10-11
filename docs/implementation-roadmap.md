@@ -23,8 +23,9 @@ These capabilities are foundations to reuse, not migrations to replay.
 SI01 is complete. Source/HIR, source specialization, MIR verification and bytecode
 assembly now use scoped IDs; SI02-SI04 continue through remaining registration,
 backend and test consumers. This migration precedes native collections.
-HIR's representation generics and whole-analysis rebinding are removed; shared
-semantic/executable generics and codec-private wire conversion remain in progress.
+HIR's representation generics and whole-analysis rebinding are removed. Shared
+substitution, matching and trait ancestry now use fixed IDs; shared semantic and
+executable model generics and codec-private wire conversion remain in progress.
 Use DefinitionId throughout semantic processing; keep authoring/display paths and
 file-local references at explicit boundaries. Reuse the current definition context,
 immutable snapshots and cross-context imports while removing identity-representation

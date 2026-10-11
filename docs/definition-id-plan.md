@@ -2191,3 +2191,68 @@ tests resolves the 1200-effective-LOC limit without exemptions. Structure checks
 No workspace/backend matrix or performance measurement ran. Shared semantic and
 executable representation removal, remaining consumers/codecs, selected source-free
 and reload integration and final plan cleanup remain open.
+
+
+### SI06 fixed shared semantic algorithms
+
+TypeSubstitution, ImplementationPattern, projection normalization/lookup, trait
+ancestry and callable/default requirement application now use DefinitionId directly.
+Aggregate layout application, MIR structure selection and bytecode Native result
+target selection follow the same fixed-ID semantic boundary. No alternate path
+algorithm replaces them. Shared serializable model parameters remain until their
+owner-local wire records migrate together; this checkpoint does not claim their
+removal.
+
+Scope checking now has one types_in_scope entrypoint with a mandatory retained
+table. InterfaceTable::instantiate likewise takes both the caller binder scope and
+table; its path-only and optional-table wrappers are removed. Range-bound checking
+uses the same explicit scope. Direct table parent/kind queries preserve nominal,
+associated-member and foreign-prefix rejection without reconstructing paths.
+
+Bound substitution now delegates to GenericBound::normalize, the existing owner of
+canonical semantic ordering. Previously its local BTreeMap sort used numeric ID
+order, requiring callers to normalize again. The source Native import and linked
+Native checker repairs, plus the Native default builder's duplicate normalization,
+are removed. All proof, MIR/bytecode verification, registration and stdlib consumers
+supply their actual retained tables. Transform limits, once-only substitution,
+family binders and cancellation are unchanged; fixed IDs no longer pass through a
+representation-dependent path-limit predicate. Identity construction/retained-table
+validation still owns identity limits and scope admission.
+
+Focused local validation:
+
+- `cargo check -p kagari-compiler -p kagari-runtime --lib --message-format=short`
+  and the corresponding `cargo clippy ... -- -D warnings` pass. These cover the
+  changed shared algorithms and directly affected production consumers.
+- `cargo test -p kagari-types --lib ty::substitution::tests
+  --message-format=short --no-fail-fast` passes seven existing tests for binder
+  substitution, associated outputs/cycles, expansion/depth limits and cancellation.
+  The existing canonical bound merge case now allocates constraint IDs in reverse
+  spelling order, proving the output cannot depend on allocation order.
+- `cargo test -p kagari-types --lib declaration::verify::scoped_tests
+  --message-format=short --no-fail-fast` passes four existing cases for nominal/Host
+  kinds, associated-member ownership, retained/foreign scopes and canonical bounds.
+  Removed path/no-table assertions belonged solely to the deleted entrypoints;
+  semantic rejection assertions remain at the fixed-ID owner.
+- `cargo test -p kagari-compiler --test language_foundation --message-format=short
+  --no-fail-fast` passes four cases, including Native defaults, collection interface
+  iteration and generic associated/static calls through source, MIR and bytecode.
+- Before this checkpoint's edits, `cargo check -p kagari-codegen-cranelift --lib
+  --message-format=short` passed against the preceding committed source/HIR changes.
+  This resolves the uncertainty about that production backend library, not backend
+  execution or its old fixture consumers; no complete backend matrix ran.
+
+The first selected types test build reported 23 old path-fixture/entrypoint errors;
+those fixtures now construct explicit scoped IDs and all selected tests executed.
+Intermediate production caller/type errors and copy-ID lint findings are repaired.
+The previously recorded compiler lib-test fixture failure remains open and was not
+repeated. Shared/executable model and codec migration, remaining fixture/backend/SDK
+adoption, source-free and reload integration and final documentation cleanup remain
+SI02-SI06 obligations.
+
+Manual structural review covers the changed production imports, ownership, direct
+parent queries, deleted wrappers, shared canonicalization and unchanged traversal
+budgets. No production glob, new re-export, compatibility API or structural exception
+was added. Structure checks 1060 Rust files with zero violations or exceptions;
+formatting and diff checks pass. No full workspace suite or performance measurement
+ran; exhaustive feature/backend acceptance remains CI scope.

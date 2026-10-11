@@ -5,7 +5,7 @@ use crate::ty::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionPath, reference::DefinitionReference},
+    identity::{DefinitionPath, reference::DefinitionReference, table::DefinitionId},
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,16 +23,16 @@ pub struct NativeCallableRequirement<I = DefinitionPath> {
     pub arguments: Vec<Ty<I>>,
 }
 
-impl<I: DefinitionReference> NativeCallableRequirement<I> {
+impl NativeCallableRequirement<DefinitionId> {
     pub fn apply(
         &self,
-        substitution: &TypeSubstitution<'_, I>,
+        substitution: &TypeSubstitution<'_>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         Ok(Self {
             receiver: substitution.apply(&self.receiver, cancel)?,
             interface: substitution.apply_nominal(&self.interface, cancel)?,
-            member: self.member.clone(),
+            member: self.member,
             arguments: self
                 .arguments
                 .iter()

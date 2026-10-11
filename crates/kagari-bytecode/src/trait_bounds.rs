@@ -320,10 +320,10 @@ fn linked_bounds_match(
                     PublicItem::InterfaceTable(table)
                         if table.declaration == linked.declaration =>
                     {
-                        table.instantiate_scoped(
+                        table.instantiate(
                             arguments,
                             body.map_or(&[], |body| body.parameters.as_slice()),
-                            Some(definitions),
+                            definitions,
                         )
                     }
                     _ => None,
@@ -488,7 +488,7 @@ fn linked_bounds_match(
                 .filter(|member| member.generic_params.is_empty())
                 .count()
             || !verify::interface_constants_match(table, record, definitions)
-            || !verify::interface_families_match(table, record, &cancel)
+            || !verify::interface_families_match(table, record, &cancel, definitions)
             || !verify::interface_methods_match(
                 table,
                 record,
@@ -514,8 +514,9 @@ fn linked_bounds_match(
             continue;
         }
         let Some(table) = module.public_items.iter().find_map(|item| match item {
-            PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => table
-                .instantiate_scoped(&linked.arguments, &table.generic_params, Some(definitions)),
+            PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+                table.instantiate(&linked.arguments, &table.generic_params, definitions)
+            }
             _ => None,
         }) else {
             return Ok(false);
@@ -599,7 +600,7 @@ fn instruction_contracts_match(
             };
             let Some(table) = target.public_items.iter().find_map(|item| match item {
                 PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                    table.instantiate_scoped(
+                    table.instantiate(
                         arguments,
                         function
                             .metadata
@@ -607,7 +608,7 @@ fn instruction_contracts_match(
                             .generic
                             .as_ref()
                             .map_or(&[][..], |body| body.parameters.as_slice()),
-                        Some(definitions),
+                        definitions,
                     )
                 }
                 _ => None,

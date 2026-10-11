@@ -365,10 +365,10 @@ pub fn verify_program(
                         };
                         table.declaration == request.declaration
                             && table
-                                .instantiate_scoped(
+                                .instantiate(
                                     &request.arguments,
                                     &table.generic_params,
-                                    Some(&definitions),
+                                    &definitions,
                                 )
                                 .is_some()
                     })
@@ -494,14 +494,14 @@ pub fn verify_program(
                             if let PublicItem::InterfaceTable(table) = item
                                 && table.declaration == *implementation
                             {
-                                table.instantiate_scoped(
+                                table.instantiate(
                                     arguments,
                                     function
                                         .semantic
                                         .generic
                                         .as_ref()
                                         .map_or(&[], |body| &body.parameters),
-                                    Some(&definitions),
+                                    &definitions,
                                 )
                             } else {
                                 None

@@ -57,7 +57,7 @@ impl ProofCatalog<'_> {
             validate_references(constraint, &self.definitions, cancel)?;
         }
         let copier = TypeSubstitution::default();
-        copier.apply_bounds(assumptions, cancel)?;
+        copier.apply_bounds(assumptions, &self.definitions, cancel)?;
         if constraints.len() > MAX_TYPE_NODES {
             return Err(TypeTransformError::LimitExceeded);
         }
@@ -140,7 +140,7 @@ impl ProofCatalog<'_> {
         let copier = TypeSubstitution::default();
         copier.apply_nominal(interface, cancel)?;
         copier.apply(receiver, cancel)?;
-        copier.apply_bounds(assumptions, cancel)?;
+        copier.apply_bounds(assumptions, &self.definitions, cancel)?;
         Ok(())
     }
 
@@ -369,8 +369,11 @@ impl ProofCatalog<'_> {
                 }) {
                     continue;
                 }
-                let obligations =
-                    substitution.apply_bounds(implementation.bounds(), budget.cancel)?;
+                let obligations = substitution.apply_bounds(
+                    implementation.bounds(),
+                    &self.definitions,
+                    budget.cancel,
+                )?;
                 if self.obligations(&obligations, assumptions, search, budget, depth + 1)? {
                     count += 1;
                 }

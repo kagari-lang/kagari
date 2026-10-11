@@ -21,7 +21,7 @@ use crate::{
     value::Value,
     value_check,
 };
-use kagari_types::{declaration::verify::types_in_scope_in, ty::Ty};
+use kagari_types::{declaration::verify::types_in_scope, ty::Ty};
 use std::{
     slice,
     sync::{Arc, OnceLock},
@@ -335,9 +335,7 @@ impl Runtime {
                 Some(environment) => environment.resolve(expression)?,
                 None => expression.clone(),
             };
-            if !ty.is_concrete()
-                || !types_in_scope_in([&ty], &[], &Default::default(), Some(&definitions))
-            {
+            if !ty.is_concrete() || !types_in_scope([&ty], &[], &Default::default(), &definitions) {
                 return Err(invalid());
             }
             let origin = if contains_nominal_layout(&ty) {

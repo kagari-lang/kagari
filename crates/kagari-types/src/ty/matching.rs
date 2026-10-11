@@ -1,5 +1,6 @@
 //! Match checked implementation templates against a requested executable contract.
 use crate::{
+    collection::CollectionAccess,
     declaration::AssociatedTypeFamily,
     language::Protocol,
     ty::{
@@ -8,38 +9,32 @@ use crate::{
     },
 };
 
-use {
-    crate::collection::CollectionAccess,
-    kagari_common::{
-        cancellation::CancellationToken,
-        identity::{DefinitionPath, reference::DefinitionReference},
-    },
-};
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 
 /// The actual checked header, independently of its declaration/executable source.
-pub struct ImplementationPattern<'a, I = DefinitionPath> {
-    pub parameters: &'a [GenericParam<I>],
-    pub receiver: &'a Ty<I>,
-    pub interface: &'a NominalTy<I>,
+pub struct ImplementationPattern<'a> {
+    pub parameters: &'a [GenericParam<DefinitionId>],
+    pub receiver: &'a Ty<DefinitionId>,
+    pub interface: &'a NominalTy<DefinitionId>,
     /// Language role resolved by the owner of the interface identity.
     pub protocol: Option<Protocol>,
     pub storage_access: Option<CollectionAccess>,
 }
 
-impl<I> Copy for ImplementationPattern<'_, I> {}
+impl Copy for ImplementationPattern<'_> {}
 
-impl<I> Clone for ImplementationPattern<'_, I> {
+impl Clone for ImplementationPattern<'_> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-pub fn match_pattern<'a, I: DefinitionReference>(
-    pattern: ImplementationPattern<'a, I>,
-    interface: &'a NominalTy<I>,
-    receiver: &'a Ty<I>,
+pub fn match_pattern<'a>(
+    pattern: ImplementationPattern<'a>,
+    interface: &'a NominalTy<DefinitionId>,
+    receiver: &'a Ty<DefinitionId>,
     cancel: &CancellationToken,
-) -> Result<Option<TypeSubstitution<'a, I>>, TypeTransformError> {
+) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let implemented = pattern.interface;
     if pattern.parameters.len() > MAX_TYPE_NODES
         || !pattern.receiver.within_wire_limits()
@@ -87,12 +82,12 @@ pub fn match_pattern<'a, I: DefinitionReference>(
 }
 
 /// Match an inherent receiver without weakening access or resolving new proofs.
-pub fn match_receiver<'a, I: DefinitionReference>(
-    parameters: &'a [GenericParam<I>],
-    template: &'a Ty<I>,
-    actual: &'a Ty<I>,
+pub fn match_receiver<'a>(
+    parameters: &'a [GenericParam<DefinitionId>],
+    template: &'a Ty<DefinitionId>,
+    actual: &'a Ty<DefinitionId>,
     cancel: &CancellationToken,
-) -> Result<Option<TypeSubstitution<'a, I>>, TypeTransformError> {
+) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     if parameters.len() > MAX_TYPE_NODES
         || !template.within_wire_limits()
         || !actual.within_wire_limits()
@@ -108,11 +103,11 @@ pub fn match_receiver<'a, I: DefinitionReference>(
     Ok(Some(bindings))
 }
 
-fn match_pairs<'a, I: DefinitionReference>(
-    parameters: &'a [GenericParam<I>],
-    mut pending: Vec<(&'a Ty<I>, &'a Ty<I>)>,
+fn match_pairs<'a>(
+    parameters: &'a [GenericParam<DefinitionId>],
+    mut pending: Vec<(&'a Ty<DefinitionId>, &'a Ty<DefinitionId>)>,
     cancel: &CancellationToken,
-) -> Result<Option<TypeSubstitution<'a, I>>, TypeTransformError> {
+) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let mut bindings = TypeSubstitution::default();
     let mut remaining = MAX_TYPE_NODES * 2;
     while let Some((template, actual)) = pending.pop() {
@@ -195,15 +190,15 @@ fn match_pairs<'a, I: DefinitionReference>(
     Ok(Some(bindings))
 }
 
-pub fn projection_output<I: DefinitionReference>(
-    pattern: ImplementationPattern<'_, I>,
-    families: &[AssociatedTypeFamily<I>],
-    interface: &NominalTy<I>,
-    receiver: &Ty<I>,
-    member: &I,
-    arguments: &[Ty<I>],
+pub fn projection_output(
+    pattern: ImplementationPattern<'_>,
+    families: &[AssociatedTypeFamily<DefinitionId>],
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
+    member: &DefinitionId,
+    arguments: &[Ty<DefinitionId>],
     cancel: &CancellationToken,
-) -> Result<Option<Ty<I>>, TypeTransformError> {
+) -> Result<Option<Ty<DefinitionId>>, TypeTransformError> {
     let Some(mut substitution) = match_pattern(pattern, interface, receiver, cancel)? else {
         return Ok(None);
     };

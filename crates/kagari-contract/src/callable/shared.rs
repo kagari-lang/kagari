@@ -17,7 +17,7 @@ use kagari_common::{
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::verify::types_in_scope_in,
+    declaration::verify::types_in_scope,
     ty::{
         GenericBound, GenericParam, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -58,14 +58,14 @@ impl SharedCall<DefinitionId> {
                 self.implementation,
                 CallableImplementation::Script | CallableImplementation::Native(_)
             )
-            && types_in_scope_in(
+            && types_in_scope(
                 self.arguments
                     .iter()
                     .chain(&self.signature.params)
                     .chain([&self.signature.result]),
                 parameters,
                 cancel,
-                Some(definitions),
+                definitions,
             )
             && self
                 .operations
@@ -101,7 +101,7 @@ impl SharedCall<DefinitionId> {
         {
             return Ok(false);
         }
-        let bounds = substitution.apply_bounds(&body.bounds, cancel)?;
+        let bounds = substitution.apply_bounds(&body.bounds, catalog.definitions(), cancel)?;
         for bound in &bounds {
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(false);
@@ -135,10 +135,7 @@ impl SharedCall<DefinitionId> {
         Ok(true)
     }
 
-    fn substitution<'a>(
-        &'a self,
-        body: &'a GenericBody<DefinitionId>,
-    ) -> TypeSubstitution<'a, DefinitionId> {
+    fn substitution<'a>(&'a self, body: &'a GenericBody<DefinitionId>) -> TypeSubstitution<'a> {
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in body.parameters.iter().zip(&self.arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);

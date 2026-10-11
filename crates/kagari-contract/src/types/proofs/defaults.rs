@@ -7,7 +7,7 @@ use crate::types::{
 };
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication, Signature},
-    declaration::verify::types_in_scope_in,
+    declaration::verify::types_in_scope,
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -100,7 +100,11 @@ impl ProofCatalog<'_> {
                     ty: Ty::SelfType(*owner),
                     constraints: vec![Constraint::Trait(interface)],
                 });
-                for bound in substitution.apply_bounds(&template.function.bounds, cancel)? {
+                for bound in substitution.apply_bounds(
+                    &template.function.bounds,
+                    &self.definitions,
+                    cancel,
+                )? {
                     budget.step(0)?;
                     if !self.constraints_hold(
                         &bound.ty,
@@ -151,14 +155,16 @@ impl ProofCatalog<'_> {
             .iter()
             .map(|argument| self.normalize(argument, cancel))
             .collect::<Result<Vec<_>, _>>()?;
-        if !types_in_scope_in(&arguments, parameters, cancel, Some(&self.definitions)) {
+        if !types_in_scope(&arguments, parameters, cancel, &self.definitions) {
             return Ok(None);
         }
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in template.function.generic_params.iter().zip(&arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
-        for bound in substitution.apply_bounds(&template.function.bounds, cancel)? {
+        for bound in
+            substitution.apply_bounds(&template.function.bounds, &self.definitions, cancel)?
+        {
             if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(None);
             }

@@ -1,4 +1,4 @@
-//! Applied trait ancestry over portable declaration contracts.
+//! Applied trait ancestry over checked, scoped declaration contracts.
 use crate::{
     declaration::TraitDef,
     language::Protocol,
@@ -11,7 +11,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind,
-        reference::DefinitionReference,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -112,18 +111,18 @@ pub fn interface_views<'a>(
 /// Preserve applied arguments and associated bindings while walking supertraits.
 /// Declaration cycles fail even when they change arguments. Diamond paths to the
 /// same application are deduplicated; distinct applications retain their identity.
-pub fn trait_closure<'a, I: DefinitionReference + 'a>(
-    interface: &NominalTy<I>,
-    receiver: &Ty<I>,
+pub fn trait_closure<'a>(
+    interface: &NominalTy<DefinitionId>,
+    receiver: &Ty<DefinitionId>,
     cancel: &CancellationToken,
-    lookup: &impl Fn(&I) -> Option<&'a TraitDef<I>>,
-) -> Result<Vec<NominalTy<I>>, TypeTransformError> {
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef<DefinitionId>>,
+) -> Result<Vec<NominalTy<DefinitionId>>, TypeTransformError> {
     let empty = TypeSubstitution::default();
     let root = empty.apply_nominal(interface, cancel)?;
     let receiver = empty.apply(receiver, cancel)?;
     let mut result = Vec::new();
     let mut seen = HashSet::new();
-    let mut pending = vec![(root, Vec::<I>::new())];
+    let mut pending = vec![(root, Vec::<DefinitionId>::new())];
     let mut remaining = MAX_EDGES;
     while let Some((applied, mut path)) = pending.pop() {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -152,13 +151,13 @@ pub fn trait_closure<'a, I: DefinitionReference + 'a>(
         }
         let mut receivers = TypeSubstitution::default();
         receivers.bind_receiver(&applied.declaration, &receiver);
-        path.push(applied.declaration.clone());
+        path.push(applied.declaration);
         for parent in contract.supertraits.iter().rev() {
             let parent = Ty::Trait(empty.apply_nominal(parent, cancel)?);
             let parent = resolve_associated_outputs(
                 &parent,
                 &applied,
-                &Ty::SelfType(applied.declaration.clone()),
+                &Ty::SelfType(applied.declaration),
                 cancel,
             )?;
             let parent = receivers.apply(&parent, cancel)?;

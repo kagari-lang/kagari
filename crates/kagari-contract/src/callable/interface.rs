@@ -15,7 +15,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope_in},
+    declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope},
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
@@ -68,11 +68,11 @@ impl InterfaceMethodSignature<DefinitionId> {
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {
-        types_in_scope_in(
+        types_in_scope(
             self.params.iter().chain([&self.result]),
             parameters,
             cancel,
-            Some(definitions),
+            definitions,
         )
     }
 
@@ -242,8 +242,8 @@ impl InterfaceCallContract<DefinitionId> {
         for parameter in method.params.iter().skip(usize::from(has_receiver)) {
             params.push(apply(&parameter.ty)?);
         }
-        let mut bounds = substitution.apply_bounds(&contract.bounds, cancel)?;
-        bounds.extend(substitution.apply_bounds(&method.bounds, cancel)?);
+        let mut bounds = substitution.apply_bounds(&contract.bounds, definitions, cancel)?;
+        bounds.extend(substitution.apply_bounds(&method.bounds, definitions, cancel)?);
         for bound in &mut bounds {
             bound.ty =
                 resolve_associated_outputs(&bound.ty, interface, &projection_receiver, cancel)?;
@@ -286,14 +286,14 @@ impl InterfaceCallContract<DefinitionId> {
                 return Ok(false);
             }
         }
-        if !types_in_scope_in(
+        if !types_in_scope(
             self.arguments
                 .iter()
                 .chain(signature.params.iter())
                 .chain([&signature.result]),
             parameters,
             cancel,
-            Some(definitions),
+            definitions,
         ) {
             return Ok(false);
         }

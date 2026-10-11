@@ -16,7 +16,7 @@ use kagari_contract::{
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope_in},
+    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
     host_interface::{HostInterface, type_declaration::PathAccess},
     ty::Ty,
 };
@@ -61,7 +61,7 @@ pub(super) fn verify(
     };
     if let Some(aggregate) = aggregate
         && (!aggregate.associated_types.is_empty()
-            || !types_in_scope_in(
+            || !types_in_scope(
                 &aggregate.arguments,
                 function
                     .semantic
@@ -69,7 +69,7 @@ pub(super) fn verify(
                     .as_ref()
                     .map_or(&[], |body| body.parameters.as_slice()),
                 context.cancel,
-                Some(context.definitions),
+                context.definitions,
             ))
     {
         return Err(context.error(Error::InvalidStructInitializer));
@@ -436,7 +436,7 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "bound destination")?;
             context.expect(value.ty, ValueType::HeapObject, "bound range")?;
-            if !operations::range_bound_valid_in(range, bound, Some(context.definitions)) {
+            if !operations::range_bound_valid(range, bound, context.definitions) {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "invalid range bound contract",
                 }));
@@ -549,7 +549,7 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             context.expect(value.ty, ValueType::HeapObject, "interface receiver")?;
-            if !types_in_scope_in(
+            if !types_in_scope(
                 [&Ty::Trait(source.clone()), &Ty::Trait(target.clone())],
                 function
                     .semantic
@@ -557,7 +557,7 @@ pub(super) fn verify(
                     .as_ref()
                     .map_or(&[], |body| body.parameters.as_slice()),
                 context.cancel,
-                Some(context.definitions),
+                context.definitions,
             ) {
                 return Err(context.error(Error::InvalidInterfaceTable));
             }
@@ -590,14 +590,14 @@ pub(super) fn verify(
                 return Err(context.error(Error::InvalidInterfaceTable));
             };
             let table = table
-                .instantiate_scoped(
+                .instantiate(
                     arguments,
                     function
                         .semantic
                         .generic
                         .as_ref()
                         .map_or(&[], |body| &body.parameters),
-                    Some(context.definitions),
+                    context.definitions,
                 )
                 .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
             context.expect(
