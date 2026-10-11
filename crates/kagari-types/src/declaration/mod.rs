@@ -8,6 +8,9 @@ pub mod native;
 pub mod ownership;
 pub mod requirement;
 pub mod verify;
+
+#[doc(hidden)]
+pub mod wire;
 use crate::{
     callable::{CallableImplementation, MethodPolicy},
     collection::CollectionAccess,

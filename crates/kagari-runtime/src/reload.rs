@@ -216,7 +216,7 @@ pub fn public_abi_fingerprints_for_module(
         .map(|item| {
             Ok(PublicAbiFingerprint {
                 name: item.fingerprint_name(definitions)?,
-                fingerprint: ArtifactFingerprint::of_record(item, definitions)?,
+                fingerprint: ArtifactFingerprint::of_public_item(item, definitions)?,
             })
         })
         .collect()

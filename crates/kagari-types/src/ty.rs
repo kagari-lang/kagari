@@ -7,7 +7,8 @@ mod mapping;
 pub mod matching;
 mod order;
 pub mod substitution;
-mod wire;
+#[doc(hidden)]
+pub mod wire;
 
 use crate::{
     collection::CollectionAccess, host_interface::value_type::HostValueType, range::RangeKind,

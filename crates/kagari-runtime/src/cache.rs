@@ -44,7 +44,7 @@ impl ReloadDependencySnapshot {
     ) -> Result<Self, DefinitionMappingError> {
         let mut snapshot =
             Self::from_bytecode(&program.modules[program.root.index()], definitions)?;
-        snapshot.module_fingerprint = ArtifactFingerprint::of_record(program, definitions)?;
+        snapshot.module_fingerprint = ArtifactFingerprint::of_program(program, definitions)?;
         snapshot.host_interface_fingerprint =
             ArtifactFingerprint::of_program_hosts(program, definitions)?;
         snapshot.dependency_fingerprints = program.dependency_fingerprints(definitions)?;
@@ -56,7 +56,7 @@ impl ReloadDependencySnapshot {
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError> {
         Ok(Self {
-            module_fingerprint: ArtifactFingerprint::of_record(module, definitions)?,
+            module_fingerprint: ArtifactFingerprint::of_module(module, definitions)?,
             public_abi_fingerprints: public_abi_fingerprints_for_module(module, definitions)?,
             typed_path_fingerprints: path_fingerprints_for_module(module),
             dependency_fingerprints: Vec::new(),

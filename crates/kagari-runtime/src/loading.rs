@@ -398,7 +398,7 @@ impl Runtime {
             .invalidate_for_reload(&ReloadInvalidation {
                 module_name: module.name.clone(),
                 module_identity: module.bytecode.identity.clone(),
-                module_fingerprint: ArtifactFingerprint::of_record(
+                module_fingerprint: ArtifactFingerprint::of_module(
                     module.bytecode.as_ref(),
                     module.definitions(),
                 )

@@ -2495,3 +2495,78 @@ error propagation and the unchanged hash domain. Structure checks 1063 Rust file
 with no violations/exceptions; formatting and diff checks pass. No workspace/backend
 matrix or performance measurement ran. The previously recorded compiler lib-test
 fixture failure and the remaining coupled aggregate/model migration remain open.
+
+### SI05 shared public ABI declaration records and fingerprint consumers
+
+Public ABI hashing no longer instantiates PublicItem or its declarations with file
+references. Opaque PublicItemRecord at kagari-contract composes fixed records for
+functions, constants, data types, traits and interface/inherent tables. kagari-types
+owns their signature, binder, constraint, default-application, conversion-adapter,
+member and associated-output wire records. Type expressions reuse the existing flat
+WireType encoder/builder. The codec-only modules expose the concrete records actually
+needed across crates; internal leaves and fields stay private, with no re-exports.
+
+Reference conversion uses explicit DefinitionEncoding/DefinitionDecoding and checks
+cancellation. Bounded sequence/map readers retain their existing limits. Nominal
+associated-output entries move keys and value records together into file-reference
+order and reject collapsed keys when rebuilding. Nested type nodes retain their
+existing shape/depth/canonical binding checks. Record/enum field and tag ordering is
+preserved; format identifiers are unchanged. Decode returns scoped unverified facts,
+not declaration validation or execution evidence. There is no new semantic algorithm
+or public API for arbitrary identity-representation conversion.
+
+Artifact metadata and runtime reload now call of_public_item. The public generic
+ArtifactFingerprint::of_record API is removed; program/module/artifact consumers
+use fixed-input entrypoints. Their existing rebinding implementation remains private
+until the executable aggregate wire owners migrate. NativeDeclaration and complete
+ModuleContract/MIR/KBC aggregate codecs still require their coupled conversion;
+shared semantic representation parameters and old generic Serde remain SI05/SI06
+work. These declaration records do not claim full artifact decoding migration.
+
+The new public_abi_wire integration target owns this shared codec boundary. It
+round-trips each public-item category, including struct/enum data, nominal output
+bindings, default applications and associated members, through independent file
+scopes and explicit adoption. Reverse allocation of declarations and associated keys
+with different value types must produce identical bytes. It also checks foreign
+referenced inputs, cancellation and rejection of an excessive generic count before
+reading elements. The first run incorrectly expected a reference-free constant to
+reject an empty foreign encoding; the scope assertion now targets a function with
+actual references. Production validation was not relaxed.
+
+Focused local evidence:
+
+- `cargo test -p kagari-contract --test public_abi_wire --message-format=short
+  --no-fail-fast`: both codec boundary cases pass after the fixture correction.
+- `cargo test -p kagari-bytecode --test identity
+  required_host_fingerprint_is_derived_and_independent_of_docs_and_order
+  --message-format=short --no-fail-fast`: the existing artifact/Host case passes,
+  including its updated fixed artifact-fingerprint entrypoint.
+- `cargo clippy -p kagari-types -p kagari-contract -p kagari-bytecode
+  -p kagari-runtime --lib --message-format=short -- -D warnings` passes for the
+  four changed production owners. `cargo clippy -p kagari-contract --test
+  public_abi_wire --message-format=short -- -D warnings` also passes.
+- `cargo test -p kagari-runtime --lib
+  reload_rejects_public_abi_changes_before_publication --message-format=short
+  --no-fail-fast` does not execute tests: the retained library-test target reports
+  178 old fixture compile errors. Representative causes are removed
+  HostPathSegmentRegistration imports, old Host constructors/Native builders and
+  bare BytecodeProgram/KbcArtifact inputs where scoped metadata is now required.
+  SI06 owns these fixture repairs; this is a carried failure, not a passing reload
+  test. Do not repeat that unchanged target until its fixtures are repaired.
+- `cargo build -p kagari-runtime --lib --message-format=short` passes. A temporary
+  public-API probe reproduces the selected reload scenario against those libraries:
+  create one module with a public Script function `main`, no parameters/generics,
+  and builtin I32 result; wrap the program in checked metadata from an explicit
+  context and load it. Change only the public result to String in a second scoped
+  input. of_public_item changes, staging/publishing rejects it with
+  KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH, and loaded count/latest epoch remain
+  unchanged. This is behavioral evidence, not a replacement for repairing the
+  retained library-test owner. No source compiler is used by this probe.
+
+Manual review covers every copied field/tag, ordered vectors, nominal key/value
+pairing, cancellation/error propagation, codec-only visibility, imports and separate
+verification ownership. Structure checks 1069 Rust files with zero violations or
+exceptions; formatting and diff checks pass. No full workspace/backend matrix,
+artifact regeneration or performance measurement ran. The prior compiler lib-test
+fixture failure, newly observed runtime lib-test fixture failure and remaining
+aggregate/model migration are all open; final SI integration is not complete.

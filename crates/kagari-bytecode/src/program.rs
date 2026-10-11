@@ -358,7 +358,7 @@ impl BytecodeProgram {
             .map(|(_, module)| {
                 Ok(DependencyFingerprint {
                     module_id: module.identity.clone(),
-                    fingerprint: ArtifactFingerprint::of_record(module, definitions)?,
+                    fingerprint: ArtifactFingerprint::of_module(module, definitions)?,
                 })
             })
             .collect()

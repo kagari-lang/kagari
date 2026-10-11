@@ -29,6 +29,9 @@ pub mod matching;
 pub mod proofs;
 pub mod verify;
 
+#[doc(hidden)]
+pub mod wire;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "I: DefinitionReference + serde::Serialize",

@@ -841,6 +841,16 @@ at the types owner. KBC owns documentation/path exclusion, declaration ordering 
 domain separation; the shared record owns only serialization and ID conversion.
 The codec API accepts an explicit canonical file table, never a global context.
 
+Public ABI fingerprints use opaque PublicItemRecord values at the contract owner,
+with declaration records at kagari-types. Signatures, constraints, trait members,
+conversion/default applications and interface/inherent tables encode IDs through
+an explicit canonical table. Type expressions reuse the bounded flat WireType
+codec; nominal associated-output keys and values are encoded together in file-key
+order. Decoding resolves directly into scoped semantic facts without ABI validation
+or executable evidence. Artifact and reload owners retain their verification and
+publication checks. The fingerprint API accepts specific program, module, artifact
+or public-item inputs rather than arbitrary representation-rebindable records.
+
 Runtime preparation normalizes independent verified inputs into its own context
 while retaining original immutable version identity and dependency versions.
 Host registration shares that context with the Native catalog. Function and type

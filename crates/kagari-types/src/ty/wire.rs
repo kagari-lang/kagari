@@ -69,13 +69,15 @@ enum Node<I> {
 /// decode validates shape, depth, binding order and reference scope before adoption.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct WireType {
+pub struct WireType {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     nodes: Vec<Node<PortableDefinitionRef>>,
 }
 
 impl WireType {
-    pub(crate) fn encode(
+    /// Encode scoped types using the artifact's canonical file table.
+    /// Returns identity, bounded shape or cancellation errors.
+    pub fn encode(
         ty: &Ty<DefinitionId>,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
@@ -88,7 +90,9 @@ impl WireType {
         })
     }
 
-    pub(crate) fn decode(
+    /// Resolve bounded nodes into the decoded table's scope, without verification.
+    /// Returns identity, bounded shape, canonical binding or cancellation errors.
+    pub fn decode(
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,

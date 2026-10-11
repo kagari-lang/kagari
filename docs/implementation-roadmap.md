@@ -27,7 +27,8 @@ HIR's representation generics and whole-analysis rebinding are removed. Shared
 substitution, matching and trait ancestry now use fixed IDs; shared semantic and
 executable model generics and codec-private wire conversion remain in progress.
 KHI envelopes and Host fingerprints now use private wire records and decode directly
-to scoped IDs; MIR/KBC aggregate wire conversion remains open.
+to scoped IDs. Public ABI fingerprints also use fixed wire declaration records;
+MIR/KBC aggregate wire conversion remains open.
 Runtime/VM entrypoints and adoption use fixed IDs with retained-prefix checks;
 selected cross-runtime, reload and Native interface/GC boundaries pass locally.
 Use DefinitionId throughout semantic processing; keep authoring/display paths and

@@ -34,6 +34,7 @@ use kagari_contract::{
     effects::EffectSet,
     ids::FunctionRef,
     slots::SemanticSlots,
+    types::{PublicItem, wire::PublicItemRecord},
 };
 use kagari_types::host_interface::{HostInterface, HostInterfaceError, wire::HostInterfaceRecord};
 use serde::{Deserialize, Serialize};
@@ -459,7 +460,7 @@ impl KbcArtifact {
     ) -> Result<ArtifactFingerprint, DefinitionMappingError> {
         let mut content = self.clone();
         content.header.content_hash = ArtifactFingerprint::empty();
-        ArtifactFingerprint::of_record(&content, definitions)
+        ArtifactFingerprint::of_artifact(&content, definitions)
     }
 }
 
@@ -552,8 +553,52 @@ impl ArtifactFingerprint {
         Ok(Self::of_serialized(&("kagari-program-hosts-v1", hosts)))
     }
 
-    /// Hash a canonical referenced closure; process scope/index values are never encoded.
-    pub fn of_record<T>(
+    /// Hash public ABI facts through their codec-owned records and reference table.
+    /// Scope validation does not grant ABI verification or reload compatibility.
+    pub fn of_public_item(
+        item: &PublicItem<DefinitionId>,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        let cancel = CancellationToken::default();
+        let mut references = HashSet::new();
+        item.visit_definition_ids(
+            &mut |id| {
+                references.insert(*id);
+                Ok(())
+            },
+            &cancel,
+        )?;
+        let encoding = definitions.encode(references)?;
+        let record = PublicItemRecord::encode(item, &encoding, &cancel)?;
+        Ok(Self::of_serialized(&(record, encoding.table)))
+    }
+
+    /// Hash an executable program's canonical referenced closure.
+    pub fn of_program(
+        program: &BytecodeProgram,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        Self::of_executable_record(program, definitions)
+    }
+
+    /// Hash an executable module's canonical referenced closure.
+    pub fn of_module(
+        module: &BytecodeModule,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        Self::of_executable_record(module, definitions)
+    }
+
+    /// Hash an artifact envelope's canonical referenced closure, including its header.
+    pub fn of_artifact(
+        artifact: &KbcArtifact,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        Self::of_executable_record(artifact, definitions)
+    }
+
+    // SI05 removes semantic rebinding here with the remaining executable wire owners.
+    fn of_executable_record<T>(
         record: &T,
         definitions: &DefinitionTable,
     ) -> Result<Self, DefinitionMappingError>
@@ -812,7 +857,7 @@ impl VerificationMetadata {
             .map(|item| {
                 Ok(PublicAbiFingerprint {
                     name: item.fingerprint_name(definitions)?,
-                    fingerprint: ArtifactFingerprint::of_record(item, definitions)?,
+                    fingerprint: ArtifactFingerprint::of_public_item(item, definitions)?,
                 })
             })
             .collect::<Result<Vec<_>, DefinitionMappingError>>()?;

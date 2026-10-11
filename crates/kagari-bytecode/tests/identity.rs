@@ -358,7 +358,8 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
     );
     artifact.verification.host_interface_fingerprint = ArtifactFingerprint::empty();
     artifact.header.content_hash = ArtifactFingerprint::empty();
-    artifact.header.content_hash = ArtifactFingerprint::of_record(&artifact, &definitions).unwrap();
+    artifact.header.content_hash =
+        ArtifactFingerprint::of_artifact(&artifact, &definitions).unwrap();
     assert!(matches!(
         artifact.validate_for_loader(&Default::default(), &context),
         Err(ArtifactValidationError::HostInterfaceFingerprintMismatch { .. })
