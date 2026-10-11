@@ -1,3 +1,4 @@
+use kagari_common::identity::map::DefinitionContext;
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::declaration::names::NameNamespace;
@@ -12,6 +13,7 @@ use crate::{
 
 #[test]
 fn standard_item_spellings_require_installed_declarations() {
+    let context = DefinitionContext::new().unwrap();
     for name in [
         "core",
         "std::collections",
@@ -30,7 +32,7 @@ fn standard_item_spellings_require_installed_declarations() {
             panic!("name expression statement");
         };
         assert_eq!(resolved.facts().expr_resolution(expression), None, "{name}");
-        let checked = common::check_module(&lowered, resolved.facts(), None);
+        let checked = common::check_module(&context, &lowered, resolved.facts(), None);
         assert!(checked.diagnostics().iter().any(|diagnostic| {
             matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name: missing } if missing == name)
         }), "{name}: {:?}", checked.diagnostics());

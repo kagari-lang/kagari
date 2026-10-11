@@ -1,12 +1,23 @@
 use super::*;
-use crate::{analysis::AnalysisSnapshot, tests::test_analysis};
-use crate::{host::HostDeclarations, lower::lower_module};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::PackageId;
-use kagari_source::diagnostic::DiagnosticKind;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use crate::{
+    analysis::AnalysisSnapshot, host::HostDeclarations, lower::lower_module, tests::test_analysis,
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{PackageId, map::DefinitionContext, metadata::DefinitionMetadata},
+};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{declaration::names::NameNamespace, host_interface::value_type::HostValueType};
+use kagari_types::{
+    declaration::names::NameNamespace,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        value_type::HostValueType,
+    },
+};
 
 fn identity(name: &str) -> ModuleIdentity {
     ModuleIdentity {
@@ -251,10 +262,7 @@ fn reexports_cannot_widen_private_items_or_modules() {
 
 #[test]
 fn wildcard_import_expands_offline_host_module_declarations() {
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        value_type::HostValueType,
-    };
+    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     let root = insert(
         &mut db,
@@ -262,11 +270,12 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         "use demo::*; fn main() -> i32 { echo(42) }",
     );
     let mut analysis = test_analysis();
-    analysis.set_host_declarations(
-        HostDeclarations::new(HostInterface {
-            paths: vec![],
-            types: vec![],
-            functions: vec![HostFunctionDeclaration::new(
+    let declarations = HostInterface {
+        paths: vec![],
+        types: vec![],
+        functions: vec![
+            HostFunctionDeclaration::new(
+                &context,
                 "demo.echo",
                 vec![HostParameter {
                     name: "value".into(),
@@ -274,8 +283,15 @@ fn wildcard_import_expands_offline_host_module_declarations() {
                     passing: HostPassingStyle::Owned,
                 }],
                 HostValueType::I32,
-            )],
-        })
+            )
+            .unwrap(),
+        ],
+    };
+    analysis.set_host_declarations(
+        HostDeclarations::new(
+            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
+                .unwrap(),
+        )
         .unwrap(),
     );
     let snapshot = analysis
@@ -637,21 +653,25 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
 
 #[test]
 fn source_host_and_module_item_ambiguities_are_rejected() {
+    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     insert(&mut db, "api", "pub fn child() -> i32 { 1 }");
     insert(&mut db, "api::child", "");
     let root = insert(&mut db, "root", "use pkg::api; use pkg::api::child;");
     let mut analysis = test_analysis();
+    let declarations = HostInterface {
+        paths: vec![],
+        types: Vec::new(),
+        functions: vec![
+            HostFunctionDeclaration::new(&context, "pkg.api.external", vec![], HostValueType::Unit)
+                .unwrap(),
+        ],
+    };
     analysis.set_host_declarations(
-        HostDeclarations::new(kagari_types::host_interface::HostInterface {
-            paths: vec![],
-            types: Vec::new(),
-            functions: vec![kagari_types::host_interface::HostFunctionDeclaration::new(
-                "pkg.api.external",
-                vec![],
-                HostValueType::Unit,
-            )],
-        })
+        HostDeclarations::new(
+            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
+                .unwrap(),
+        )
         .unwrap(),
     );
     let snapshot = analysis

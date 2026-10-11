@@ -1,7 +1,13 @@
 use super::*;
 use crate::{
-    callable::CallableSignature, declarations::DeclarationId, hir::expr::ExprKind,
-    native::NativeBinding, tests::test_analysis, typeck::FunctionImplementation,
+    analysis::FileAnalysis,
+    callable::CallableSignature,
+    declarations::DeclarationId,
+    hir::expr::ExprKind,
+    host::tests::metadata,
+    native::NativeBinding,
+    tests::{common::import_facts, test_analysis},
+    typeck::FunctionImplementation,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
@@ -9,24 +15,30 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_types::host_interface::{
-    HostParameter, HostPassingStyle, path::HostPathSegmentDeclaration,
-    type_declaration::HostMethodDeclaration,
+    HostParameter, HostPassingStyle,
+    path::{HostPathDeclaration, HostPathSegmentDeclaration},
+    type_declaration::{
+        HostFieldDeclaration, HostMethodDeclaration, HostTypeOwnership, PathAccess,
+    },
 };
 
-fn interface() -> HostInterface {
-    let left = HostTypeDeclaration::new("left.Item");
-    let right = HostTypeDeclaration::new("right.Item");
+fn interface(context: &DefinitionContext) -> HostInterface<DefinitionId> {
+    let left = HostTypeDeclaration::new(context, "left.Item").unwrap();
+    let right = HostTypeDeclaration::new(context, "right.Item").unwrap();
     let make =
-        HostFunctionDeclaration::new("left.make", vec![], HostValueType::Opaque(left.id.clone()));
+        HostFunctionDeclaration::new(context, "left.make", vec![], HostValueType::Opaque(left.id))
+            .unwrap();
     let take = HostFunctionDeclaration::new(
+        context,
         "left.take",
         vec![HostParameter {
             name: "value".into(),
-            ty: HostValueType::Opaque(left.id.clone()),
+            ty: HostValueType::Opaque(left.id),
             passing: HostPassingStyle::SharedBorrow,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     HostInterface {
         paths: vec![],
         types: vec![left, right],
@@ -36,10 +48,12 @@ fn interface() -> HostInterface {
 
 #[test]
 fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
-    let mut declarations = interface();
+    let context = DefinitionContext::new().unwrap();
+    let mut declarations = interface(&context);
     let owner = &mut declarations.types[0];
     let mut method = HostMethodDeclaration::new(
-        &owner.id,
+        &context,
+        owner.id,
         "add",
         vec![HostParameter {
             name: "amount".into(),
@@ -47,9 +61,10 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     method.documentation = "Add to the host counter".into();
-    let identity = method.id.clone();
+    let identity = method.id;
     owner.methods.push(method);
     for argument in ["2", "true", "", "2, 3"] {
         let text = format!("use left as api; fn main() -> i32 {{ api::make().add({argument}) }}");
@@ -58,7 +73,7 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
             .set("mem://method", text.clone(), SourceLayer::Base)
             .unwrap();
         let mut db = test_analysis();
-        let hosts = HostDeclarations::new(declarations.clone()).unwrap();
+        let hosts = HostDeclarations::new(metadata(&context, declarations.clone())).unwrap();
         let method_id = hosts.method(&declarations.types[0].id, "add").unwrap();
         let callable = hosts.callable(method_id).unwrap();
         assert_eq!(
@@ -82,6 +97,8 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
             file.result().diagnostics()
         );
         let target = file.host_function_at(text.find("add(").unwrap()).unwrap();
+        let imported_target = import_facts(target, file.definitions(), &context);
+        let target = imported_target.records();
         assert_eq!(file.host_function_at(text.find(".add(").unwrap()), None);
         assert_eq!(
             file.host_function_at(text.find("make()").unwrap())
@@ -108,8 +125,8 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         assert_eq!(target.documentation, "Add to the host counter");
         let signature = file.call_signature_at(text.find("add(").unwrap()).unwrap();
         assert_eq!(
-            signature.declaration,
-            DeclarationId::Definition(identity.clone())
+            import_facts(&signature.declaration, file.definitions(), &context).into_records(),
+            DeclarationId::Definition(identity)
         );
         assert_eq!(
             signature.parameters,
@@ -118,7 +135,7 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         assert_eq!(signature.result, TypeId::Builtin(BuiltinType::I32));
         assert_eq!(
             target.params[0].ty,
-            HostValueType::Opaque(declarations.types[0].id.clone())
+            HostValueType::Opaque(declarations.types[0].id)
         );
         assert_eq!(
             snapshot.check_program(root, &Default::default()).is_ok(),
@@ -129,6 +146,7 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
 
 #[test]
 fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
+    let context = DefinitionContext::new().unwrap();
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(
@@ -151,7 +169,9 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
         .set("mem://root", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    db.set_host_declarations(HostDeclarations::new(interface()).unwrap());
+    db.set_host_declarations(
+        HostDeclarations::new(metadata(&context, interface(&context))).unwrap(),
+    );
 
     let old = db
         .snapshot(sources.snapshot(), &Default::default())
@@ -163,7 +183,16 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
         file.result().diagnostics()
     );
     old.check_program(root, &Default::default()).unwrap();
-    let id = interface().types[0].id.clone();
+    let id = file
+        .definitions()
+        .lookup(
+            &context
+                .snapshot()
+                .resolve(interface(&context).types[0].id)
+                .unwrap()
+                .to_path(),
+        )
+        .unwrap();
     for spelling in [
         "Object as Item",
         "facade::Object",
@@ -186,10 +215,10 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
             "{spelling}"
         );
     }
-    let mut changed = interface();
+    let mut changed = interface(&context);
     changed.types[0].documentation = "updated".into();
-    changed.functions[0].return_type = HostValueType::Opaque(changed.types[1].id.clone());
-    db.set_host_declarations(HostDeclarations::new(changed).unwrap());
+    changed.functions[0].return_type = HostValueType::Opaque(changed.types[1].id);
+    db.set_host_declarations(HostDeclarations::new(metadata(&context, changed)).unwrap());
     let new = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -216,16 +245,8 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
 
 #[test]
 fn erroneous_host_calls_retain_return_types_and_member_facts() {
-    use {
-        kagari_source::diagnostic::DiagnosticKind,
-        kagari_types::host_interface::{
-            path::HostPathDeclaration,
-            type_declaration::{
-                HostFieldDeclaration, HostMethodDeclaration, HostTypeOwnership, PathAccess,
-            },
-        },
-    };
-    let mut declarations = interface();
+    let context = DefinitionContext::new().unwrap();
+    let mut declarations = interface(&context);
     let parameter = HostParameter {
         name: "amount".into(),
         ty: HostValueType::I32,
@@ -235,22 +256,27 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
     let owner = &mut declarations.types[0];
     owner.ownership = HostTypeOwnership::HostRoot;
     owner.path_access = PathAccess::ReadOnly;
-    owner.methods.push(HostMethodDeclaration::new(
-        &owner.id,
-        "next",
-        vec![parameter],
-        HostValueType::Opaque(owner.id.clone()),
-    ));
-    let mut field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
+    owner.methods.push(
+        HostMethodDeclaration::new(
+            &context,
+            owner.id,
+            "next",
+            vec![parameter],
+            HostValueType::Opaque(owner.id),
+        )
+        .unwrap(),
+    );
+    let mut field =
+        HostFieldDeclaration::new(&context, owner.id, "score", HostValueType::I32).unwrap();
     field.path_access = PathAccess::ReadOnly;
     owner.fields.push(field.clone());
     declarations.paths.push(HostPathDeclaration {
-        root: owner.id.clone(),
-        segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
+        root: owner.id,
+        segments: vec![HostPathSegmentDeclaration::Field(field.id)],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
     });
-    let host_type = TypeId::Host(owner.id.clone());
+    let host_type = TypeId::Host(owner.id);
     for call in [
         "left::make()",
         "left::make(true, 2)",
@@ -264,7 +290,9 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
             .set("mem://recovery", text.clone(), SourceLayer::Base)
             .unwrap();
         let mut db = test_analysis();
-        db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+        db.set_host_declarations(
+            HostDeclarations::new(metadata(&context, declarations.clone())).unwrap(),
+        );
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -297,13 +325,22 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
                     .then(|| facts.typed.type_table.expr_type(id))
                     .flatten()
             });
-        assert_eq!(call_type, Some(host_type.clone()));
         assert_eq!(
-            file.host_field_at(text.find("score").unwrap()),
-            Some(&field)
+            call_type.map(|ty| import_facts(&ty, file.definitions(), &context).into_records()),
+            Some(host_type.clone())
         );
-        assert_eq!(file.host_field_at(text.find(call).unwrap()), None);
-        assert_eq!(file.host_field_at(text.find(".score").unwrap()), None);
+        assert_eq!(
+            imported_field_at(file, text.find("score").unwrap(), &context),
+            Some(field.clone())
+        );
+        assert_eq!(
+            imported_field_at(file, text.find(call).unwrap(), &context),
+            None
+        );
+        assert_eq!(
+            imported_field_at(file, text.find(".score").unwrap(), &context),
+            None
+        );
 
         assert_eq!(
             file.type_at(text.rfind('7').unwrap()),
@@ -315,6 +352,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
 
 #[test]
 fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
+    let context = DefinitionContext::new().unwrap();
     for (source, valid) in [
         (
             "use right::Item; fn bad(value: Item) -> i32 { left::take(value) }",
@@ -336,7 +374,9 @@ fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
             .set("mem://root", text.clone(), SourceLayer::Base)
             .unwrap();
         let mut db = test_analysis();
-        db.set_host_declarations(HostDeclarations::new(interface()).unwrap());
+        db.set_host_declarations(
+            HostDeclarations::new(metadata(&context, interface(&context))).unwrap(),
+        );
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -350,13 +390,31 @@ fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
         if let Some(offset) = text.find("value.") {
             assert_eq!(
                 file.member_receiver_type(offset + "value.".len()),
-                Some(TypeId::Host(interface().types[0].id.clone()))
+                Some(TypeId::Host(
+                    file.definitions()
+                        .lookup(
+                            &context
+                                .snapshot()
+                                .resolve(interface(&context).types[0].id)
+                                .unwrap()
+                                .to_path()
+                        )
+                        .unwrap()
+                ))
             );
         }
         if let Some(offset) = text.find("Item<i32>") {
             assert_eq!(
                 file.host_type_at(offset).unwrap().id,
-                interface().types[0].id
+                file.definitions()
+                    .lookup(
+                        &context
+                            .snapshot()
+                            .resolve(interface(&context).types[0].id)
+                            .unwrap()
+                            .to_path()
+                    )
+                    .unwrap()
             );
         }
         assert_eq!(
@@ -372,21 +430,19 @@ fn host_type_rules_preserve_value_namespaces_and_neighbor_functions() {
 
 #[test]
 fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
-    use kagari_types::host_interface::{
-        path::HostPathDeclaration,
-        type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
-    };
-    let mut declarations = interface();
+    let context = DefinitionContext::new().unwrap();
+    let mut declarations = interface(&context);
     let owner = &mut declarations.types[0];
     owner.ownership = HostTypeOwnership::HostRoot;
     owner.path_access = PathAccess::ReadOnly;
-    let mut field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
+    let mut field =
+        HostFieldDeclaration::new(&context, owner.id, "score", HostValueType::I32).unwrap();
     field.path_access = PathAccess::ReadOnly;
     field.documentation = "Offline score documentation".into();
     owner.fields.push(field.clone());
     let path = HostPathDeclaration {
-        root: owner.id.clone(),
-        segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
+        root: owner.id,
+        segments: vec![HostPathSegmentDeclaration::Field(field.id)],
         access: PathAccess::ReadOnly,
         schema_epoch: 2,
     };
@@ -397,7 +453,9 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .set("mem://field", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+    db.set_host_declarations(
+        HostDeclarations::new(metadata(&context, declarations.clone())).unwrap(),
+    );
 
     let old = db
         .snapshot(sources.snapshot(), &Default::default())
@@ -405,8 +463,8 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     let old_file = old.file(root).unwrap();
     assert!(old_file.result().diagnostics().is_empty());
     assert_eq!(
-        old_file.host_field_at(text.find("score").unwrap()).unwrap(),
-        &field
+        imported_field_at(old_file, text.find("score").unwrap(), &context).unwrap(),
+        field.clone()
     );
     let changed = text.replace("{ 1 }", "{ 10 + 20 }");
     sources
@@ -417,7 +475,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .unwrap();
     let new_file = new.file(root).unwrap();
     assert_eq!(new_file.result().facts().typed.reused_bodies, 1);
-    let path_fact = |file: &crate::analysis::FileAnalysis| {
+    let path_fact = |file: &FileAnalysis| {
         let authoring_facts = file.to_unverified(&Default::default()).unwrap();
         let facts = authoring_facts.records().facts();
         facts
@@ -442,7 +500,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         } else {
             invalid.paths.clear();
         }
-        db.set_host_declarations(HostDeclarations::new(invalid).unwrap());
+        db.set_host_declarations(HostDeclarations::new(metadata(&context, invalid)).unwrap());
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -454,12 +512,12 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
                 .any(|d| matches!(d.kind, DiagnosticKind::InvalidHostPath { .. }))
         );
         assert_eq!(
-            file.host_field_at(changed.find("score").unwrap()).unwrap(),
-            &field
+            imported_field_at(file, changed.find("score").unwrap(), &context).unwrap(),
+            field.clone()
         );
         assert!(snapshot.check_program(root, &Default::default()).is_err());
     }
-    db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
+    db.set_host_declarations(HostDeclarations::new(metadata(&context, declarations)).unwrap());
     let incomplete = "fn bad() { left::make(). } fn good() -> i32 { 7 }";
     sources
         .set("mem://field", incomplete.into(), SourceLayer::Base)
@@ -471,7 +529,11 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     assert!(!file.result().diagnostics().is_empty());
     assert_eq!(
         file.type_at(incomplete.find("left::make()").unwrap()),
-        Some(TypeId::Host(path.root))
+        Some(TypeId::Host(
+            file.definitions()
+                .lookup(&context.snapshot().resolve(path.root).unwrap().to_path())
+                .unwrap()
+        ))
     );
     assert_eq!(
         file.type_at(incomplete.rfind('7').unwrap()),
@@ -481,21 +543,19 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
 
 #[test]
 fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
-    use kagari_types::host_interface::{
-        path::HostPathDeclaration,
-        type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
-    };
-    let mut declarations = interface();
+    let context = DefinitionContext::new().unwrap();
+    let mut declarations = interface(&context);
     let owner = &mut declarations.types[0];
     owner.ownership = HostTypeOwnership::HostRoot;
     owner.path_access = PathAccess::ReadWrite;
-    let mut field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
+    let mut field =
+        HostFieldDeclaration::new(&context, owner.id, "score", HostValueType::I32).unwrap();
     field.writable = true;
     field.path_access = PathAccess::ReadWrite;
     owner.fields.push(field.clone());
     declarations.paths.push(HostPathDeclaration {
-        root: owner.id.clone(),
-        segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
+        root: owner.id,
+        segments: vec![HostPathSegmentDeclaration::Field(field.id)],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
     });
@@ -505,25 +565,32 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .set("mem://write", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+    db.set_host_declarations(
+        HostDeclarations::new(metadata(&context, declarations.clone())).unwrap(),
+    );
 
     let old = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     old.check_program(root, &Default::default()).unwrap();
     assert_eq!(
-        old.file(root)
-            .unwrap()
-            .host_field_at(text.find("score").unwrap()),
-        Some(&field)
+        imported_field_at(
+            old.file(root).unwrap(),
+            text.find("score").unwrap(),
+            &context
+        ),
+        Some(field.clone())
     );
     let write_start = text.find("target.score").unwrap();
     let old_file = old.file(root).unwrap();
-    assert_eq!(old_file.host_field_at(write_start), None);
-    assert_eq!(old_file.host_field_at(write_start + "target".len()), None);
+    assert_eq!(imported_field_at(old_file, write_start, &context), None);
     assert_eq!(
-        old_file.host_field_at(write_start + "target.".len()),
-        Some(&field)
+        imported_field_at(old_file, write_start + "target".len(), &context),
+        None
+    );
+    assert_eq!(
+        imported_field_at(old_file, write_start + "target.".len(), &context),
+        Some(field.clone())
     );
     let authoring_old_table = old
         .file(root)
@@ -553,13 +620,16 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     assert_eq!(old_path.declaration, path.declaration);
     let changed = text.replace("{ 1 }", "{ 10 + 20 }");
     assert_eq!(
-        file.host_field_at(changed.find("score").unwrap()),
-        Some(&field)
+        imported_field_at(file, changed.find("score").unwrap(), &context),
+        Some(field.clone())
     );
-    assert_eq!(file.host_field_at(changed.find("neighbor").unwrap()), None);
+    assert_eq!(
+        imported_field_at(file, changed.find("neighbor").unwrap(), &context),
+        None
+    );
     new.check_program(root, &Default::default()).unwrap();
     declarations.paths[0].access = PathAccess::ReadOnly;
-    db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
+    db.set_host_declarations(HostDeclarations::new(metadata(&context, declarations)).unwrap());
     let readonly = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -574,34 +644,41 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     );
     assert!(readonly.check_program(root, &Default::default()).is_err());
     assert_eq!(
-        readonly
-            .file(root)
-            .unwrap()
-            .host_field_at(changed.find("score").unwrap()),
-        Some(&field)
+        imported_field_at(
+            readonly.file(root).unwrap(),
+            changed.find("score").unwrap(),
+            &context
+        ),
+        Some(field.clone())
     );
     assert_eq!(
-        old.file(root)
-            .unwrap()
-            .host_field_at(text.find("score").unwrap()),
-        Some(&field)
+        imported_field_at(
+            old.file(root).unwrap(),
+            text.find("score").unwrap(),
+            &context
+        ),
+        Some(field.clone())
     );
 }
 
 #[test]
 fn mixed_field_chains_resolve_the_complete_host_suffix() {
-    use kagari_types::host_interface::{
-        path::HostPathDeclaration,
-        type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
-    };
-    let mut declarations = interface();
+    let context = DefinitionContext::new().unwrap();
+    let mut declarations = interface(&context);
     let mut related = HostFieldDeclaration::new(
-        &declarations.types[0].id,
+        &context,
+        declarations.types[0].id,
         "related",
-        HostValueType::Opaque(declarations.types[1].id.clone()),
-    );
-    let mut count =
-        HostFieldDeclaration::new(&declarations.types[1].id, "count", HostValueType::I32);
+        HostValueType::Opaque(declarations.types[1].id),
+    )
+    .unwrap();
+    let mut count = HostFieldDeclaration::new(
+        &context,
+        declarations.types[1].id,
+        "count",
+        HostValueType::I32,
+    )
+    .unwrap();
     for field in [&mut related, &mut count] {
         field.writable = true;
         field.path_access = PathAccess::ReadWrite;
@@ -611,10 +688,10 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     declarations.types[0].fields.push(related.clone());
     declarations.types[1].fields.push(count.clone());
     let path = HostPathDeclaration {
-        root: declarations.types[0].id.clone(),
+        root: declarations.types[0].id,
         segments: vec![
-            HostPathSegmentDeclaration::Field(related.id.clone()),
-            HostPathSegmentDeclaration::Field(count.id.clone()),
+            HostPathSegmentDeclaration::Field(related.id),
+            HostPathSegmentDeclaration::Field(count.id),
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
@@ -628,7 +705,7 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         .set("mem://mixed", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
+    db.set_host_declarations(HostDeclarations::new(metadata(&context, declarations)).unwrap());
     let snapshot = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -656,24 +733,44 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         .collect();
     assert_eq!(reads.len(), 1);
     assert_eq!(writes.len(), 1);
-    assert_eq!(reads[0].declaration, path);
-    assert_eq!(writes[0].declaration, path);
     assert_eq!(
-        file.host_field_at(text.find("value.inner.host").unwrap()),
+        import_facts(&reads[0].declaration, file.definitions(), &context).into_records(),
+        path
+    );
+    assert_eq!(
+        import_facts(&writes[0].declaration, file.definitions(), &context).into_records(),
+        path
+    );
+    assert_eq!(
+        imported_field_at(file, text.find("value.inner.host").unwrap(), &context),
         None
     );
-    assert_eq!(file.host_field_at(text.find(".related").unwrap()), None);
     assert_eq!(
-        file.host_field_at(text.find("related").unwrap()),
-        Some(&related)
+        imported_field_at(file, text.find(".related").unwrap(), &context),
+        None
     );
     assert_eq!(
-        file.host_field_at(text.find("count").unwrap()),
-        Some(&count)
+        imported_field_at(file, text.find("related").unwrap(), &context),
+        Some(related.clone())
+    );
+    assert_eq!(
+        imported_field_at(file, text.find("count").unwrap(), &context),
+        Some(count.clone())
     );
 
     let read_span = facts.lowered.source_map.expr_span(reads[0].root);
     let write_span = facts.lowered.source_map.place_span(writes[0].root);
     assert_eq!(&text[read_span.start..read_span.end], "value.inner.host");
     assert_eq!(&text[write_span.start..write_span.end], "value.inner.host");
+}
+
+/// Compare an offline query with its provider contract in the fixture scope.
+/// Reference validation still uses the query's analysis table before import.
+fn imported_field_at(
+    file: &FileAnalysis,
+    offset: usize,
+    context: &DefinitionContext,
+) -> Option<HostFieldDeclaration<DefinitionId>> {
+    file.host_field_at(offset)
+        .map(|field| import_facts(field, file.definitions(), context).into_records())
 }

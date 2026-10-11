@@ -168,14 +168,28 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
     assert_eq!(
         catalog
             .enumerations()
-            .filter(|item| item.id.module.package.0 == "pkg")
+            .filter(|item| old
+                .definitions()
+                .resolve(item.id)
+                .unwrap()
+                .module()
+                .package
+                .0
+                == "pkg")
             .count(),
         3
     );
     assert_eq!(
         catalog
             .enumerations()
-            .filter(|item| item.id.module.package.0 == "kagari-core")
+            .filter(|item| old
+                .definitions()
+                .resolve(item.id)
+                .unwrap()
+                .module()
+                .package
+                .0
+                == "kagari-core")
             .count(),
         9
     );
@@ -190,7 +204,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .aggregates
         .enumerations()
         .find(|item| {
-            item.id.module
+            *old.definitions().resolve(item.id).unwrap().module()
                 == ModuleIdentity {
                     package: PackageId("pkg".into()),
                     path: vec!["left".into()],
@@ -208,7 +222,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .aggregates
         .enumerations()
         .find(|item| {
-            item.id.module
+            *old.definitions().resolve(item.id).unwrap().module()
                 == ModuleIdentity {
                     package: PackageId("pkg".into()),
                     path: vec!["right".into()],
@@ -228,7 +242,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .aggregates
         .enumerations()
         .find(|item| {
-            item.id.module
+            *old.definitions().resolve(item.id).unwrap().module()
                 == ModuleIdentity {
                     package: PackageId("pkg".into()),
                     path: vec!["unrelated".into()],

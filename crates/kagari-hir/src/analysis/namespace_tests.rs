@@ -1,10 +1,14 @@
 use super::*;
 use crate::{
     hir::expr::ExprKind,
+    host::HostDeclarations,
     imports::{DirectiveResolution, bindings::LookupOutcome},
     resolver::{resolved::ResolvedName, table::NameResolution},
+    tests::native,
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     declaration::names::NameNamespace,
@@ -13,6 +17,7 @@ use kagari_types::{
 };
 
 fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
+    let context = DefinitionContext::new().unwrap();
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(
@@ -33,17 +38,20 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
     let file = sources
         .set("root.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut db = crate::tests::native::database();
+    let mut db = native::database();
+    let declarations = HostInterface {
+        paths: vec![],
+        types: Vec::new(),
+        functions: vec![
+            HostFunctionDeclaration::new(&context, "demo.number", vec![], HostValueType::I32)
+                .unwrap(),
+        ],
+    };
     db.set_host_declarations(
-        crate::host::HostDeclarations::new(HostInterface {
-            paths: vec![],
-            types: Vec::new(),
-            functions: vec![HostFunctionDeclaration::new(
-                "demo.number",
-                vec![],
-                HostValueType::I32,
-            )],
-        })
+        HostDeclarations::new(
+            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
+                .unwrap(),
+        )
         .unwrap(),
     );
     (sources, db, file)

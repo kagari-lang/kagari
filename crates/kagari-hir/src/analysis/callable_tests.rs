@@ -8,6 +8,9 @@ use crate::{
     typeck::{FunctionImplementation, table::CallTarget},
     types::TypeId,
 };
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source::SourceFile,
@@ -26,6 +29,7 @@ use kagari_types::{
 
 #[test]
 fn async_callable_typing_contract() {
+    let context = DefinitionContext::new().unwrap();
     let text = r#"
 async fn identity<T>(value: T) -> T { return value; }
 async fn nested() -> Future<i32> { identity(1) }
@@ -177,14 +181,21 @@ fn plain() -> Future<i32> { (|| identity(1))() }
             analysis.result().diagnostics()
         );
     }
-    let mut host = HostTypeDeclaration::new("host.State");
+    let mut host = HostTypeDeclaration::new(&context, "host.State").unwrap();
     host.ownership = HostTypeOwnership::HostRoot;
     database.set_host_declarations(
-        HostDeclarations::new(HostInterface {
-            paths: vec![],
-            types: vec![host],
-            functions: vec![],
-        })
+        HostDeclarations::new(
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                HostInterface {
+                    paths: vec![],
+                    types: vec![host],
+                    functions: vec![],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .unwrap(),
     );
     for text in [
@@ -251,7 +262,12 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
             };
             let imported = facts.imported_functions.target(id).unwrap();
             assert_eq!(
-                imported.declaration.module,
+                *facts
+                    .declarations
+                    .definitions()
+                    .resolve(imported.declaration)
+                    .unwrap()
+                    .module(),
                 fixture::module().records().identity
             );
             assert!(matches!(
@@ -326,10 +342,14 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
     for name in ["read", "fixed"] {
         let expected =
             FunctionImplementation::Native(NativeBinding::Default(NativeDefaultApplication {
-                declaration: fixture::module().definition(
-                    kagari_common::identity::DefinitionKind::Function,
-                    &format!("default_{name}"),
-                ),
+                declaration: fixture::module()
+                    .records()
+                    .definition(
+                        DefinitionKind::Function,
+                        &format!("default_{name}"),
+                        facts.declarations.definitions(),
+                    )
+                    .unwrap(),
                 arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id.clone())],
             }));
         let method = iterator
@@ -392,12 +412,16 @@ fn main() -> i32 {
         };
         let expected = match name {
             "identity" => FunctionImplementation::Script,
-            "bound" | "echo" => {
-                FunctionImplementation::Native(NativeBinding::Entry(fixture::module().definition(
-                    kagari_common::identity::DefinitionKind::Function,
-                    if name == "bound" { "choose" } else { "echo" },
-                )))
-            }
+            "bound" | "echo" => FunctionImplementation::Native(NativeBinding::Entry(
+                fixture::module()
+                    .records()
+                    .definition(
+                        DefinitionKind::Function,
+                        if name == "bound" { "choose" } else { "echo" },
+                        facts.declarations.definitions(),
+                    )
+                    .unwrap(),
+            )),
             _ => continue,
         };
         let call = facts.typed.type_table.call_resolution(id).unwrap();
@@ -412,7 +436,12 @@ fn main() -> i32 {
                 let imported = facts.imported_functions.target(target).unwrap();
                 assert_ne!(imported.site.location.file, root);
                 assert_eq!(
-                    imported.declaration.module,
+                    *facts
+                        .declarations
+                        .definitions()
+                        .resolve(imported.declaration)
+                        .unwrap()
+                        .module(),
                     fixture::module().records().identity
                 );
                 &imported.signature
@@ -464,12 +493,14 @@ fn main() -> i32 {
 
 #[test]
 fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_calls() {
+    let context = DefinitionContext::new().unwrap();
     let text = "trait Check { fn verify(self, flag:bool)->i32; } struct Item {} impl Check for Item { fn verify(self, flag:bool)->i32 { 1 } } fn script(value:bool, count:i32)->bool { value } fn main() { script(1); demo::echo(false); Item {}.verify(1); }";
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("signature-help.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let host = HostFunctionDeclaration::new(
+        &context,
         "demo.echo",
         vec![HostParameter {
             name: "input".into(),
@@ -477,14 +508,22 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     let mut database = test_analysis();
     database.set_host_declarations(
-        HostDeclarations::new(HostInterface {
-            paths: Vec::new(),
-            types: Vec::new(),
-            functions: vec![host.clone()],
-        })
+        HostDeclarations::new(
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                HostInterface {
+                    paths: Vec::new(),
+                    types: Vec::new(),
+                    functions: vec![host.clone()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .unwrap(),
     );
     let snapshot = database
@@ -506,7 +545,14 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
     let signature = file
         .call_signature_at(text.find("demo::echo").unwrap())
         .unwrap();
-    assert_eq!(signature.declaration, DeclarationId::Definition(host.id));
+    assert_eq!(
+        signature.declaration,
+        DeclarationId::Definition(
+            file.definitions()
+                .lookup(&context.snapshot().resolve(host.id).unwrap().to_path())
+                .unwrap()
+        )
+    );
     assert_eq!(
         signature.parameters,
         [("input".into(), TypeId::Builtin(BuiltinType::I32))]

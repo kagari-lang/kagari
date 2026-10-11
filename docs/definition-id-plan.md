@@ -1756,3 +1756,61 @@ No workspace suite or backend matrix was run. HIR lib-test's previously recorded
 lifecycle, BindingId remapping, SI04 integration and SI05/SI06 representation removal
 and final documentation cleanup remain required. Types Host contract recovery is
 focused boundary evidence, not complete plan acceptance.
+
+### SI03 HIR fixture scopes and lib-test recovery
+
+Recovered the HIR lib-test target after scoped declaration registration and Host
+adoption. Host type/member/path fixtures now construct ID records in explicit
+contexts and seal their metadata after registration. Offline query assertions
+retain the analysis table; cross-context provider comparisons use ordinary checked
+metadata import, including opaque type references and complete member/path records.
+Same-database body reuse still compares IDs and arena facts directly. No whole-record
+path projection or alternate semantic constructor was introduced.
+
+Migrated callable, namespace, prelude and import Host inputs to the same lifecycle.
+An immutable snapshot must be taken after constructors register every referenced
+ID; several nested fixture constructors were hoisted during review to enforce this
+order. Borrowed table views replace direct path-field inspection in member, payload,
+generic, aggregate and Native binding expectations. Exact external identity queries
+remain boundary lookups into the analyzed table rather than semantic path records.
+
+The common source-checking fixture now receives a caller-owned DefinitionContext,
+adopts its Host names into that context and retains it through subsequent queries.
+It invokes the production implementation-member registration stage after signatures
+and publishes the resulting prefix before aggregate checking. Language-role fixtures
+adopt the complete Native provider batch before rendering/lowering, preserving the
+installed provenance checks. Standard aliases and expected nominal/trait/callable
+identities are looked up in the relevant retained table. Original failure, visibility,
+revision, source location, generic ownership and checked-program assertions remain.
+
+Focused local validation (all `cargo test -p kagari-hir --lib`, default profile,
+features, target and parallelism):
+
+- `host::`: 17 passed; `tests::typeck::`: 55 passed. The latter covers the changed
+  shared checker and standard/trait fixtures, including const recovery, mutation,
+  private method bounds, generic binder positions and collection key constraints.
+- `language::items::tests`: 6 passed; `analysis::namespace_tests::`: 5 passed.
+- One filtered invocation selects `analysis::callable_tests::`,
+  `analysis::prelude_tests::explicit_host_declarations_take_precedence_over_the_helper_prelude`,
+  `imports::tests::wildcard_import_expands_offline_host_module_declarations` and
+  `imports::tests::source_host_and_module_item_ambiguities_are_rejected`: 12 passed.
+- The previously blocked
+  `analysis::prelude_tests::standard_variants_and_propagation_rebase_on_body_reuse`
+  executes and passes. The plan's two initial identity filters,
+  `published_cache_scopes_retain_prefixes_and_reject_foreign_queries` and
+  `generic_parameter_identity_is_owner_and_position_based`, both pass.
+- These are 98 selected tests, not the complete HIR suite. Intermediate compilation
+  attempts reduced the carried 141 lib-test errors to 67, 42 and 21 before recovery;
+  those attempts executed no tests. A final `--no-run --message-format=short` build
+  passes after import cleanup, without warnings.
+- Structure checks 1055 Rust files with zero violations or documented exceptions;
+  formatting and diff checks pass. Reviewed changed test-only import scopes,
+  registration/snapshot order and cross-scope reference validation. Production
+  semantic implementations are unchanged at this checkpoint.
+
+No full workspace suite or backend matrix was run. Remaining SI03 obligations
+include the recorded aggregate/default/associated-family boundary selections and
+identity visitor/remapping audit (notably BindingId body references). SI04 compiler
+and MIR integration, downstream Host fixture/example callers, SI05/SI06 representation
+removal and final documentation cleanup remain required. HIR lib-test recovery does
+not establish compiler/runtime integration or overall plan acceptance.

@@ -1,5 +1,6 @@
 use super::*;
 use crate::typeck::scalar::ScalarValue;
+use kagari_common::identity::map::DefinitionContext;
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::IntegerType;
 
@@ -153,13 +154,14 @@ fn const_type_mismatch_is_rejected_before_codegen() {
 
 #[test]
 fn reports_unknown_parameter_type() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo(value: number) {}");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject type");
 
@@ -180,13 +182,14 @@ fn reports_unknown_parameter_type() {
 
 #[test]
 fn reports_unknown_return_type() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> number {}");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject type");
 
@@ -207,13 +210,14 @@ fn reports_unknown_return_type() {
 
 #[test]
 fn reports_invalid_const_initializer_expression() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("const VALUE: i32 = type_of(1);");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject const initializer");
 
@@ -228,6 +232,7 @@ fn reports_invalid_const_initializer_expression() {
 
 #[test]
 fn reports_reflection_write_on_const_value() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 struct Point { var x: i32 }
@@ -242,7 +247,7 @@ fn main() -> Point { set_field(ROOT.inner, "x", 2) }
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject reflection write on const");
 
@@ -256,6 +261,7 @@ fn main() -> Point { set_field(ROOT.inner, "x", 2) }
 
 #[test]
 fn reports_const_dependency_cycle() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 const A: i32 = B;
@@ -267,7 +273,7 @@ const B: i32 = A;
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject cycle");
 
@@ -320,6 +326,7 @@ const POINT: Point = Point { x: 5, y: 6 };
 
 #[test]
 fn plain_function_calls_keep_fresh_return_flow() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 struct Point { var x: i32 }
@@ -335,7 +342,7 @@ fn main(point: Point) -> Point {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect("type checker should accept plain call");
     let function = lowered
@@ -352,6 +359,7 @@ fn main(point: Point) -> Point {
         Some(TypeId::Struct(crate::types::NominalType {
             associated_types: Default::default(),
             declaration: common::definition(
+                &context.snapshot(),
                 &lowered,
                 kagari_common::identity::DefinitionKind::Struct,
                 "Point"
@@ -363,6 +371,7 @@ fn main(point: Point) -> Point {
 
 #[test]
 fn reports_function_call_argument_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 fn add_one(value: i32) -> i32 { value + 1 }
@@ -376,7 +385,7 @@ fn main() -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject argument type");
 
@@ -393,6 +402,7 @@ fn main() -> i32 {
 
 #[test]
 fn reports_function_call_arity_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 fn answer() -> i32 { 42 }
@@ -406,7 +416,7 @@ fn main() -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject arity mismatch");
 
@@ -422,13 +432,14 @@ fn main() -> i32 {
 
 #[test]
 fn records_expression_types_for_resolved_body_expressions() {
+    let context = DefinitionContext::new().unwrap();
     let lowered =
         common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value + 1; next }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
@@ -453,13 +464,14 @@ fn records_expression_types_for_resolved_body_expressions() {
 
 #[test]
 fn reports_return_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> i32 { true }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject return");
 
@@ -475,13 +487,14 @@ fn reports_return_type_mismatch() {
 
 #[test]
 fn reports_break_and_continue_outside_loop() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() { break; continue; }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject control flow");
 
@@ -492,13 +505,14 @@ fn reports_break_and_continue_outside_loop() {
 
 #[test]
 fn reports_invalid_assignment_target() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> i32 { foo = 1; 0 }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject assignment target");
 
@@ -512,13 +526,14 @@ fn reports_invalid_assignment_target() {
 
 #[test]
 fn reports_assignment_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = true; x }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject assignment");
 
@@ -533,13 +548,14 @@ fn reports_assignment_type_mismatch() {
 
 #[test]
 fn reports_condition_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> i32 { if 1 { 1 } else { 2 } }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject condition type");
 
@@ -554,13 +570,14 @@ fn reports_condition_type_mismatch() {
 
 #[test]
 fn reports_binary_operand_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> i32 { 1 + true }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject operands");
 
@@ -577,13 +594,14 @@ fn reports_binary_operand_type_mismatch() {
 
 #[test]
 fn reports_array_element_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> [i32] { [1, true] }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject array elements");
 
@@ -598,6 +616,7 @@ fn reports_array_element_type_mismatch() {
 
 #[test]
 fn reports_invalid_struct_initializers() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 struct Point { var x: i32, var y: bool }
@@ -612,7 +631,7 @@ fn foo() -> Point {
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject struct init");
 
@@ -648,12 +667,13 @@ fn foo() -> Point {
 
 #[test]
 fn allows_assignment_to_var_local_but_not_val_local_or_param() {
+    let context = DefinitionContext::new().unwrap();
     let var_local = common::lower_ok("fn foo() -> i32 { var x: i32 = 1; x = 2; x }");
     let names = resolve_names(&var_local)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&var_local, &names, None)
+    let typed = check_module(&context, &var_local, &names, None)
         .into_checked()
         .expect("type checker should succeed");
     let function = &var_local.module.functions[0];
@@ -669,7 +689,7 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&val_local, &names, None)
+    let diagnostics = check_module(&context, &val_local, &names, None)
         .into_checked()
         .expect_err("val local should reject write");
     assert_eq!(
@@ -684,7 +704,7 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&param_assignment, &names, None)
+    let diagnostics = check_module(&context, &param_assignment, &names, None)
         .into_checked()
         .expect_err("parameter should reject write");
     assert_eq!(
@@ -697,6 +717,7 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
 
 #[test]
 fn allows_assignment_to_var_field_and_index_places() {
+    let context = DefinitionContext::new().unwrap();
     let field_assignment = common::lower_ok(
         r#"
 struct Point { var x: i32 }
@@ -713,7 +734,7 @@ fn main() -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&field_assignment, &names, None)
+    let typed = check_module(&context, &field_assignment, &names, None)
         .into_checked()
         .expect("field assignment should type check");
     let function = &field_assignment.module.functions[0];
@@ -738,7 +759,7 @@ fn main(point: Point) -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&param_field_assignment, &names, None)
+    let typed = check_module(&context, &param_field_assignment, &names, None)
         .into_checked()
         .expect("var field assignment through parameter should type check");
     let function = &param_field_assignment.module.functions[0];
@@ -762,7 +783,7 @@ fn main() -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&index_assignment, &names, None)
+    let typed = check_module(&context, &index_assignment, &names, None)
         .into_checked()
         .expect("index assignment should type check");
     let function = &index_assignment.module.functions[0];
@@ -776,6 +797,7 @@ fn main() -> i32 {
 
 #[test]
 fn rejects_assignment_to_val_field() {
+    let context = DefinitionContext::new().unwrap();
     let field_assignment = common::lower_ok(
         r#"
 struct Point { val x: i32 }
@@ -791,7 +813,7 @@ fn main() -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&field_assignment, &names, None)
+    let diagnostics = check_module(&context, &field_assignment, &names, None)
         .into_checked()
         .expect_err("val field should reject write");
 
@@ -805,13 +827,14 @@ fn main() -> i32 {
 
 #[test]
 fn reports_if_branch_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> i32 { if true { 1 } else { false } }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject if");
 
@@ -826,13 +849,14 @@ fn reports_if_branch_type_mismatch() {
 
 #[test]
 fn reports_match_arm_type_mismatch() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo() -> i32 { match 1 { 1 => 1, _ => false } }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
 
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject match");
 
@@ -847,12 +871,13 @@ fn reports_match_arm_type_mismatch() {
 
 #[test]
 fn records_named_match_pattern_binding_type() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("fn foo(value: i32) -> i32 { match value { bound => bound } }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
@@ -875,6 +900,7 @@ fn records_named_match_pattern_binding_type() {
 
 #[test]
 fn records_const_reference_types() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 const VERSION: i32 = 1;
@@ -886,7 +912,7 @@ fn main() -> i32 { VERSION }
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect("type checker should succeed");
     let function = lowered
@@ -910,6 +936,7 @@ fn main() -> i32 { VERSION }
 
 #[test]
 fn rejects_assignment_to_const() {
+    let context = DefinitionContext::new().unwrap();
     let const_storage = common::lower_ok(
         r#"
 const VERSION: i32 = 1;
@@ -920,7 +947,7 @@ fn main() -> i32 { VERSION = 2; 0 }
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&const_storage, &names, None)
+    let diagnostics = check_module(&context, &const_storage, &names, None)
         .into_checked()
         .expect_err("type checker should reject writes");
 

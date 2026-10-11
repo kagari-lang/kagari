@@ -67,18 +67,12 @@ fn broken_body_preserves_neighbor_and_member_receiver() {
         facts.member_receiver_type(text.find("p. }").unwrap() + 2),
         Some(TypeId::Struct(crate::types::NominalType {
             associated_types: Default::default(),
-            declaration: facts
-                .definitions()
-                .resolve(
-                    *facts
-                        .result()
-                        .facts()
-                        .declarations
-                        .definition(ResolvedName::Struct(StructId::new(0)))
-                        .unwrap()
-                )
-                .unwrap()
-                .to_path(),
+            declaration: *facts
+                .result()
+                .facts()
+                .declarations
+                .definition(ResolvedName::Struct(StructId::new(0)))
+                .unwrap(),
             arguments: Vec::new(),
         }))
     );

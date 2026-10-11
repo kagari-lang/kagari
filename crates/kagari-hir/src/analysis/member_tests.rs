@@ -171,11 +171,17 @@ fn members_keep_module_ownership_and_exact_declaration_locations() {
     let DeclarationId::Definition(id) = &declaration.id else {
         panic!("nominal variant")
     };
-    assert_eq!(id.path.len(), 2);
-    assert_eq!(id.path[0].kind, DefinitionKind::Enum);
-    assert_eq!(id.path[0].name, "State");
-    assert_eq!(id.path[1].kind, DefinitionKind::Variant);
-    assert_eq!(id.path[1].name, "Ready");
+    let segments = a
+        .definitions()
+        .resolve(*id)
+        .unwrap()
+        .segments()
+        .collect::<Vec<_>>();
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0].kind, DefinitionKind::Enum);
+    assert_eq!(segments[0].name, "State");
+    assert_eq!(segments[1].kind, DefinitionKind::Variant);
+    assert_eq!(segments[1].name, "Ready");
 
     let field = facts.lowered.module.structs[0].fields[0].id;
     assert!(b.declarations.field(field).is_none());
@@ -584,7 +590,7 @@ fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
         let field = file.definition_at(member).expect("known element field");
         assert_eq!(field.location.range.start, text.find("value").unwrap());
         assert!(
-            matches!(file.member_receiver_type(member), Some(TypeId::Struct(ty)) if ty.declaration.path.last().unwrap().name == "Item")
+            matches!(file.member_receiver_type(member), Some(TypeId::Struct(ty)) if file.definitions().resolve(ty.declaration).unwrap().last().unwrap().name == "Item")
         );
         assert_eq!(
             file.type_at(text.rfind("42").unwrap()),

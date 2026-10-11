@@ -1,3 +1,4 @@
+use kagari_common::identity::map::DefinitionContext;
 use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{
@@ -14,6 +15,7 @@ struct SemanticCase {
 
 #[test]
 fn semantic_spec_accepts_var_storage_mutation_without_rebinding_val_slots() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 struct Point {
@@ -36,13 +38,14 @@ fn main() -> i32 {
         .into_checked()
         .expect("resolver should succeed");
 
-    check_module(&lowered, &names, None)
+    check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect("spec-valid var field and index mutation should typeck");
 }
 
 #[test]
 fn semantic_spec_rejects_non_var_rebinding_and_val_field_assignment() {
+    let context = DefinitionContext::new().unwrap();
     let cases = [
         SemanticCase {
             spec_section: "docs/spec/syntax.md#binding-and-field-writeability",
@@ -98,7 +101,7 @@ fn main() -> i32 {
             .unwrap()
             .into_checked()
             .expect("resolver should succeed");
-        let diagnostics = check_module(&lowered, &names, None)
+        let diagnostics = check_module(&context, &lowered, &names, None)
             .into_checked()
             .expect_err("type checker should reject source");
 

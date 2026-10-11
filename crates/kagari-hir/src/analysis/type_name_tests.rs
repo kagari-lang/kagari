@@ -101,6 +101,7 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
             for item in &facts.lowered.module.traits {
                 assert!(
                     !facts.typed.type_table.implements(
+                        analysis.definitions(),
                         &crate::types::NominalType {
                             associated_types: Default::default(),
                             declaration: facts

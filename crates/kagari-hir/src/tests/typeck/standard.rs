@@ -1,39 +1,53 @@
 use super::*;
 use crate::{
+    declarations::DeclarationId,
     imports::{NamespaceId, SourceItem},
     language::semantics::ProtocolSemantics,
-    native::NativeBinding,
+    native::{NativeBinding, adoption},
     resolver::resolved::ResolvedName,
     tests::test_analysis,
-    typeck::table::CallTarget,
+    typeck::{
+        FunctionImplementation,
+        table::{CallTarget, ConstraintTarget},
+    },
     types::NominalType,
 };
-use kagari_source::source::SourceFile;
+use kagari_common::identity::{
+    DefinitionKind,
+    map::DefinitionContext,
+    metadata::DefinitionMetadata,
+    table::{DefinitionId, DefinitionTable},
+};
+use kagari_source::{
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_stdlib::{catalog as foundation_catalog, catalog, identity as library};
-use kagari_types::collection::CollectionAccess;
-use kagari_types::declaration::{
-    module::ModuleDecl,
-    names::{ExportName, NameNamespace},
+use kagari_types::{
+    callable::CallableImplementation,
+    collection::CollectionAccess,
+    declaration::{
+        module::ModuleDecl,
+        names::{ExportName, NameNamespace},
+    },
+    language::{Protocol, binding},
+    surface as standard_surface,
 };
 use std::sync::Arc;
 
-fn foundation_vec(item: TypeId) -> TypeId {
-    let module = kagari_types::declaration::module::ModuleDecl::new(
-        kagari_stdlib::namespaces::type_owner("Vec"),
-    );
+fn foundation_vec(definitions: &DefinitionTable, item: TypeId) -> TypeId {
     TypeId::NativeObject(NominalType {
-        declaration: module.definition(
-            kagari_common::identity::DefinitionKind::AssociatedType,
-            "Vec",
-        ),
+        declaration: definitions
+            .lookup(&library::type_id("Vec", DefinitionKind::AssociatedType))
+            .unwrap(),
         arguments: vec![item],
         associated_types: Default::default(),
     })
 }
 
-fn foundation_interface(name: &str) -> NominalType {
+fn foundation_interface(definitions: &DefinitionTable, name: &str) -> NominalType {
     NominalType {
-        declaration: library::trait_id(name),
+        declaration: definitions.lookup(&library::trait_id(name)).unwrap(),
         arguments: vec![],
         associated_types: Default::default(),
     }
@@ -68,7 +82,10 @@ fn main() -> usize {
 
     assert_eq!(
         typed.type_table.expr_type(push_expr),
-        Some(foundation_vec(TypeId::Builtin(BuiltinType::I32)))
+        Some(foundation_vec(
+            analyzed.declarations.definitions(),
+            TypeId::Builtin(BuiltinType::I32)
+        ))
     );
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
@@ -105,13 +122,6 @@ fn main(value: HashMap<String, i32>) -> usize {
 
 #[test]
 fn exposes_installed_standard_declarations_and_checked_signatures() {
-    use crate::{
-        declarations::DeclarationId,
-        typeck::{FunctionImplementation, table::ConstraintTarget},
-    };
-    use kagari_source::source_database::{SourceDatabase, SourceLayer};
-    use kagari_types::{language::Protocol, surface as standard_surface};
-
     assert!(standard_surface::builtin_type("String").is_some());
     assert!(standard_surface::builtin_type("usize").is_some());
     assert!(standard_surface::builtin_type("str").is_none());
@@ -137,9 +147,10 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
             .aggregates
             .enumerations()
             .find(|declaration| {
-                declaration
-                    .id
-                    .path
+                snapshot
+                    .definitions()
+                    .resolve(declaration.id)
+                    .unwrap()
                     .last()
                     .is_some_and(|part| part.name == kind)
             })
@@ -185,12 +196,14 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     assert!(!surface::supports_const_type(&TypeId::Builtin(
         BuiltinType::String
     )));
-    assert!(surface::supports_hash_key(&TypeId::Builtin(
-        BuiltinType::String
-    )));
-    assert!(!surface::supports_hash_key(&TypeId::Builtin(
-        BuiltinType::F64
-    )));
+    assert!(surface::supports_hash_key(
+        snapshot.definitions(),
+        &TypeId::Builtin(BuiltinType::String)
+    ));
+    assert!(!surface::supports_hash_key(
+        snapshot.definitions(),
+        &TypeId::Builtin(BuiltinType::F64)
+    ));
 
     let signature = |binding| {
         declarations
@@ -206,9 +219,10 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .iter()
                     .find(|function| {
                         function.implementation
-                            == FunctionImplementation::Native(NativeBinding::Entry(
-                                snapshot.definitions().lookup(&binding_id(binding)).unwrap(),
-                            ))
+                            == FunctionImplementation::Native(NativeBinding::Entry(binding_id(
+                                snapshot.definitions(),
+                                binding,
+                            )))
                     })
             })
             .expect("checked native function signature")
@@ -216,7 +230,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     let map_get = signature("$foundation_map_get");
     let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
     for kind in [Protocol::Eq, Protocol::Hash] {
-        assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == snapshot.definitions().lookup(&kind.nominal().declaration).unwrap())));
+        assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == kind.nominal(snapshot.definitions()).unwrap().declaration)));
     }
     assert_eq!(map_get.params.len(), 2);
     for binding in [
@@ -226,14 +240,15 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     ] {
         assert_eq!(
             signature(binding).implementation,
-            FunctionImplementation::Native(NativeBinding::Entry(
-                snapshot.definitions().lookup(&binding_id(binding)).unwrap()
-            ))
+            FunctionImplementation::Native(NativeBinding::Entry(binding_id(
+                snapshot.definitions(),
+                binding
+            )))
         );
     }
     let set = facts
         .aggregates
-        .trait_(&foundation_interface("Set").declaration)
+        .trait_(&foundation_interface(snapshot.definitions(), "Set").declaration)
         .unwrap();
     assert_eq!(
         set.methods
@@ -263,16 +278,28 @@ fn constructed() -> Pick<i32> { Pick(7) }
 "#,
     );
     let mut aliases = ModuleDecl::new(kagari_stdlib::namespaces::module("app", "aliases"));
-    let option = kagari_types::language::binding::option_declaration();
-    let some = ModuleDecl::variant_id(&option, "Some");
+    let context = DefinitionContext::new().unwrap();
+    let mut modules = adoption::adopt(
+        &foundation_catalog::shared().unwrap(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    let option = context.lookup(&binding::option_declaration()).unwrap();
+    let some = context
+        .snapshot()
+        .lookup_child(option, DefinitionKind::Variant, "Some", 0)
+        .unwrap();
     aliases
         .exports
         .insert(ExportName::new(NameNamespace::Type, "Pick"), option);
     aliases
         .exports
         .insert(ExportName::new(NameNamespace::Value, "Pick"), some);
-    let mut modules = foundation_catalog::shared().unwrap().to_vec();
-    modules.push(Arc::new(aliases));
+    aliases.collect_definitions(&context).unwrap();
+    modules.push(Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), aliases, &Default::default()).unwrap(),
+    ));
     let analyzed = crate::analyze_source(&source, modules)
         .expect("installed declaration analysis")
         .into_checked()
@@ -282,7 +309,11 @@ fn constructed() -> Pick<i32> { Pick(7) }
     assert_eq!(
         typed.functions[0].return_type,
         TypeId::Enum(crate::types::NominalType {
-            declaration: kagari_types::language::binding::option_declaration(),
+            declaration: analyzed
+                .declarations
+                .definitions()
+                .lookup(&binding::option_declaration())
+                .unwrap(),
             arguments: vec![TypeId::Builtin(BuiltinType::I32)],
             associated_types: Default::default()
         })
@@ -290,7 +321,11 @@ fn constructed() -> Pick<i32> { Pick(7) }
     assert_eq!(
         typed.functions[1].return_type,
         TypeId::Enum(crate::types::NominalType {
-            declaration: kagari_types::language::binding::result_declaration(),
+            declaration: analyzed
+                .declarations
+                .definitions()
+                .lookup(&binding::result_declaration())
+                .unwrap(),
             arguments: vec![
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Builtin(BuiltinType::String),
@@ -374,14 +409,22 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         };
         let imported = analyzed.imported_functions.target(target).unwrap();
         assert_eq!(
-            imported.declaration.module,
+            *analyzed
+                .declarations
+                .definitions()
+                .resolve(imported.declaration)
+                .unwrap()
+                .module(),
             kagari_stdlib::namespaces::type_owner("Vec")
         );
         assert_eq!(imported.signature.name, "new");
         assert_eq!(call.type_arguments, [TypeId::Builtin(BuiltinType::I32)]);
         assert_eq!(
             analyzed.typed.type_table.expr_type(tail),
-            Some(foundation_vec(TypeId::Builtin(BuiltinType::I32)))
+            Some(foundation_vec(
+                analyzed.declarations.definitions(),
+                TypeId::Builtin(BuiltinType::I32)
+            ))
         );
     }
 }
@@ -417,8 +460,16 @@ fn popped(values: Vec<i32>) -> Option<i32> {
             panic!("checked trait method target: {:?}", call.target);
         };
         (
-            interface.declaration.clone(),
-            method.path.last().unwrap().name.clone(),
+            interface.declaration,
+            analyzed
+                .declarations
+                .definitions()
+                .resolve(*method)
+                .unwrap()
+                .last()
+                .unwrap()
+                .name
+                .to_owned(),
         )
     };
 
@@ -427,11 +478,25 @@ fn popped(values: Vec<i32>) -> Option<i32> {
         .block(lowered.module.functions[0].body.unwrap())
         .tail_expr
         .expect("keys tail expr");
-    assert_eq!(binding(keys_tail), (library::trait_id("Map"), "get".into()));
+    assert_eq!(
+        binding(keys_tail),
+        (
+            analyzed
+                .declarations
+                .definitions()
+                .lookup(&library::trait_id("Map"))
+                .unwrap(),
+            "get".into()
+        )
+    );
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
         Some(TypeId::Enum(crate::types::NominalType {
-            declaration: kagari_types::language::binding::option_declaration(),
+            declaration: analyzed
+                .declarations
+                .definitions()
+                .lookup(&binding::option_declaration())
+                .unwrap(),
             arguments: vec![TypeId::Builtin(BuiltinType::I32)],
             associated_types: Default::default()
         }))
@@ -444,7 +509,14 @@ fn popped(values: Vec<i32>) -> Option<i32> {
         .expect("chars tail expr");
     assert_eq!(
         binding(chars_tail),
-        (library::trait_id("List"), "len".into())
+        (
+            analyzed
+                .declarations
+                .definitions()
+                .lookup(&library::trait_id("List"))
+                .unwrap(),
+            "len".into()
+        )
     );
 
     let popped_tail = lowered
@@ -455,7 +527,11 @@ fn popped(values: Vec<i32>) -> Option<i32> {
     assert_eq!(
         typed.type_table.expr_type(popped_tail),
         Some(TypeId::Enum(crate::types::NominalType {
-            declaration: kagari_types::language::binding::option_declaration(),
+            declaration: analyzed
+                .declarations
+                .definitions()
+                .lookup(&binding::option_declaration())
+                .unwrap(),
             arguments: vec![TypeId::Builtin(BuiltinType::I32)],
             associated_types: Default::default()
         }))
@@ -554,6 +630,7 @@ fn bad(values: HashMap<String, i32>) -> bool {
 
 #[test]
 fn checks_standard_numeric_surface() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 fn signed(value: i16) -> i16 { -value }
@@ -565,7 +642,7 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    check_module(&lowered, &names, None)
+    check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect("standard numeric types should check");
 
@@ -574,7 +651,7 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("unsigned negation should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -589,12 +666,13 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 
 #[test]
 fn checks_print_builtin_signature() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(r#"fn main() { print("hello"); }"#);
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    check_module(&lowered, &names, None)
+    check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect("print should accept str");
 
@@ -603,7 +681,7 @@ fn checks_print_builtin_signature() {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject print argument");
 
@@ -618,18 +696,23 @@ fn checks_print_builtin_signature() {
     }));
 }
 
-fn binding_id(name: &str) -> kagari_common::identity::DefinitionPath {
-    catalog::shared()
-        .unwrap()
-        .iter()
-        .flat_map(|module| module.native_declarations())
-        .find_map(|declaration| match declaration.function.implementation {
-            kagari_types::callable::CallableImplementation::Native(id)
-                if id.path.last().is_some_and(|part| part.name == name) =>
-            {
-                Some(id)
+fn binding_id(definitions: &DefinitionTable, name: &str) -> DefinitionId {
+    for module in catalog::shared().unwrap() {
+        for declaration in module
+            .records()
+            .native_declarations(module.definitions())
+            .unwrap()
+        {
+            let CallableImplementation::Native(id) = declaration.function.implementation else {
+                continue;
+            };
+            let view = module.definitions().resolve(id).unwrap();
+            if view.last().is_some_and(|part| part.name == name) {
+                return definitions
+                    .lookup(&view.to_path())
+                    .expect("adopted native binding");
             }
-            _ => None,
-        })
-        .expect("installed native binding")
+        }
+    }
+    panic!("installed native binding {name}")
 }

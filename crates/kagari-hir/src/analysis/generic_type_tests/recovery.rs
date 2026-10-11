@@ -420,7 +420,15 @@ fn generic_templates_construct_and_project_distinct_instances() {
     let enumeration = facts
         .aggregates
         .enumerations()
-        .find(|item| item.id.module == *facts.lowered.source.module_identity())
+        .find(|item| {
+            facts
+                .declarations
+                .definitions()
+                .resolve(item.id)
+                .unwrap()
+                .module()
+                == facts.lowered.source.module_identity()
+        })
         .unwrap();
     assert_eq!(structure.generic_params.len(), 1);
     assert_eq!(enumeration.generic_params.len(), 1);

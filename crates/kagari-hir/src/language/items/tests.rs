@@ -4,7 +4,7 @@ use crate::{
     host::HostDeclarations,
     imports::{ModuleGraph, types::TypeCatalog},
     lower,
-    native::{api, render::declaration_source},
+    native::{adoption, api, render::declaration_source},
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::{
@@ -17,12 +17,12 @@ use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let cancel = CancellationToken::default();
-    let modules = catalog::shared().unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let modules = adoption::adopt(&catalog::shared().unwrap(), &context, &cancel).unwrap();
     let lowered = modules
         .iter()
         .map(|module| {
-            let mut generated =
-                declaration_source(module, &foundation_catalog::shared().unwrap()).unwrap();
+            let mut generated = declaration_source(module, &modules).unwrap();
             let (_, original) =
                 api::import_source(module, &modules, &generated, Default::default(), &cancel)
                     .unwrap();
@@ -57,9 +57,11 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             Arc::new(lowered)
         })
         .collect::<Vec<_>>();
-    let hosts = HostDeclarations::empty().unwrap();
+    let hosts = HostDeclarations::empty()
+        .unwrap()
+        .adopt(&context, &cancel)
+        .unwrap();
     let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &hosts, &cancel).unwrap();
-    let context = DefinitionContext::new().unwrap();
     let declared = lowered
         .into_iter()
         .map(|lowered| {
@@ -113,6 +115,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             &aggregates,
             &module.lowered.registered_traits,
             &mut diagnostics,
+            &cancel,
         );
     }
     diagnostics

@@ -1,4 +1,5 @@
 use super::*;
+use kagari_common::identity::map::DefinitionContext;
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_stdlib::catalog as foundation_catalog;
 
@@ -63,12 +64,13 @@ fn forward<T: Carrier, U: Carrier>(value: T) {{ take::<T, {projection}>(value); 
 
 #[test]
 fn trait_name_is_not_a_self_parameter_in_where_bounds() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("trait Sequence { fn size(self) -> usize where Sequence: Eq; }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()
         .expect("trait names");
-    let typed = check_module(&lowered, &names, None);
+    let typed = check_module(&context, &lowered, &names, None);
     assert!(typed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidBoundTarget { name } if name == "Sequence")));
 }
 
@@ -117,6 +119,7 @@ where T: Display
         TypeId::Trait(crate::types::NominalType {
             associated_types: Default::default(),
             declaration: common::definition(
+                analyzed.declarations.definitions(),
                 &lowered,
                 kagari_common::identity::DefinitionKind::Trait,
                 "Display"
@@ -132,6 +135,7 @@ where T: Display
 
 #[test]
 fn reports_unknown_trait_bounds() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 fn show<T>(value: T) -> T
@@ -145,7 +149,7 @@ where T: Missing
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("type checker should reject unknown bound");
 
@@ -178,11 +182,12 @@ fn use_mapper(value: Mapper) -> (i32, String) {
 
 #[test]
 fn rejects_interface_method_with_another_self_parameter() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         "trait Pair { fn same(self, other: Self) -> bool; } fn use_pair(value: Pair) {}",
     );
     let names = resolve_names(&lowered).unwrap().into_checked().unwrap();
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = check_module(&context, &lowered, &names, None)
         .into_checked()
         .expect_err("a second Self argument cannot be called through an interface value");
     assert!(diagnostics.iter().any(|diagnostic| matches!(
@@ -257,11 +262,12 @@ impl Display for Player {
 
 #[test]
 fn trait_method_generic_binders_match_by_position() {
+    let context = DefinitionContext::new().unwrap();
     let valid = common::lower_ok(
         "trait Convert { fn take<T>(self, value: T) -> T; } struct Holder {} impl Convert for Holder { fn take<U>(self, value: U) -> U { value } }",
     );
     let names = resolve_names(&valid).unwrap().into_checked().unwrap();
-    check_module(&valid, &names, None)
+    check_module(&context, &valid, &names, None)
         .into_checked()
         .expect("equivalent method binders should match");
 
@@ -269,7 +275,7 @@ fn trait_method_generic_binders_match_by_position() {
         "trait Convert { fn take<T>(self, value: T) -> T; } struct Holder {} impl Convert for Holder { fn take<U, V>(self, value: U) -> U { value } }",
     );
     let names = resolve_names(&invalid).unwrap().into_checked().unwrap();
-    let diagnostics = check_module(&invalid, &names, None)
+    let diagnostics = check_module(&context, &invalid, &names, None)
         .into_checked()
         .expect_err("different method binder arity should fail");
     assert!(diagnostics.iter().any(|diagnostic| matches!(
@@ -281,11 +287,12 @@ fn trait_method_generic_binders_match_by_position() {
 
 #[test]
 fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
+    let context = DefinitionContext::new().unwrap();
     let valid = common::lower_ok(
         "trait Marker<T> {} trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } struct Holder {} impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } }",
     );
     let names = resolve_names(&valid).unwrap().into_checked().unwrap();
-    check_module(&valid, &names, None)
+    check_module(&context, &valid, &names, None)
         .into_checked()
         .expect("equivalent applied method bounds should match");
 
@@ -293,7 +300,7 @@ fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
         "trait Marker<T> {} trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } struct Holder {} impl Consumer<i32> for Holder { fn take<V: Marker<bool>>(self, value: V) -> V { value } }",
     );
     let names = resolve_names(&invalid).unwrap().into_checked().unwrap();
-    let diagnostics = check_module(&invalid, &names, None)
+    let diagnostics = check_module(&context, &invalid, &names, None)
         .into_checked()
         .expect_err("different private method bounds should fail");
     assert!(diagnostics.iter().any(|diagnostic| matches!(
@@ -304,11 +311,12 @@ fn private_trait_method_bounds_match_after_trait_and_method_substitution() {
 
 #[test]
 fn applied_trait_interface_type_keeps_trait_and_method_binders_distinct() {
+    let context = DefinitionContext::new().unwrap();
     let valid = common::lower_ok(
         "trait Echo<T> { fn get(self) -> T; } fn use_interface(value: Echo<i32>) {}",
     );
     let names = resolve_names(&valid).unwrap().into_checked().unwrap();
-    check_module(&valid, &names, None)
+    check_module(&context, &valid, &names, None)
         .into_checked()
         .expect("an applied trait interface has concrete inherited arguments");
 
@@ -316,7 +324,7 @@ fn applied_trait_interface_type_keeps_trait_and_method_binders_distinct() {
         "trait Echo<T> { fn get<U>(self, value: U) -> T; } fn use_interface(value: Echo<i32>) -> i32 { value.get(\"key\") }",
     );
     let names = resolve_names(&generic).unwrap().into_checked().unwrap();
-    check_module(&generic, &names, None)
+    check_module(&context, &generic, &names, None)
         .into_checked()
         .expect("T remains i32 while method U is inferred as String");
 }

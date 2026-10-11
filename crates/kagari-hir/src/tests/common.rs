@@ -1,14 +1,20 @@
 use crate::{
+    AnalysisResult, DiagnosticBuffer,
+    aggregates::AggregateCatalog,
+    declarations::Declarations,
     hir::ids::BodySelection,
     lower::{LoweredModule, lower_module},
     resolver::resolved::{DeclarationNames, ResolvedNames},
     typeck::{
+        BodyInputs, TypedModule,
         applications::validate_signatures,
         check::{check_bodies_controlled, check_signatures},
+        definition_registration,
         reuse::BodyReuse,
     },
 };
 use kagari_common::identity::{
+    DefinitionKind,
     map::DefinitionContext,
     mapping::DefinitionRecord,
     metadata::DefinitionMetadata,
@@ -25,26 +31,28 @@ pub fn lower_ok(text: &str) -> LoweredModule {
 }
 
 pub fn definition(
+    definitions: &DefinitionTable,
     lowered: &LoweredModule,
-    kind: kagari_common::identity::DefinitionKind,
+    kind: DefinitionKind,
     name: &str,
-) -> kagari_common::identity::DefinitionPath {
-    kagari_common::identity::DefinitionPath {
-        module: lowered.source.module_identity().clone(),
-        path: vec![kagari_common::identity::DefinitionPathSegment {
-            kind,
-            name: name.into(),
-            occurrence: 0,
-        }],
-    }
+) -> DefinitionId {
+    let root = definitions
+        .lookup_root(lowered.source.module_identity())
+        .unwrap();
+    definitions.lookup_child(root, kind, name, 0).unwrap()
 }
 
+/// Check a source fixture in its caller-owned identity scope. The caller retains
+/// the context for subsequent nominal queries and independent fixture comparison.
 pub fn check_module(
+    context: &DefinitionContext,
     lowered: &LoweredModule,
     names: &ResolvedNames,
     reuse: Option<&BodyReuse<'_>>,
-) -> crate::AnalysisResult<crate::typeck::TypedModule> {
-    let declarations = crate::declarations::Declarations::collect_named(
+) -> AnalysisResult<TypedModule> {
+    let mut names = names.clone();
+    names.hosts = names.hosts.adopt(context, &Default::default()).unwrap();
+    let mut declarations = Declarations::collect_named(
         &lowered.source,
         lowered,
         &DeclarationNames {
@@ -53,13 +61,21 @@ pub fn check_module(
             hosts: names.hosts.clone(),
             imports: names.imports.clone(),
         },
-        &DefinitionContext::new().unwrap(),
+        context,
         &Default::default(),
     )
     .unwrap()
-    .with_bindings(lowered, names, &Default::default());
+    .with_bindings(lowered, &names, &Default::default());
     let mut signatures = check_signatures(lowered, &declarations, &Default::default());
-    let mut aggregates = crate::aggregates::AggregateCatalog::default();
+    let definitions = definition_registration::implementation_members(
+        lowered,
+        &declarations,
+        signatures.facts(),
+        &Default::default(),
+    )
+    .unwrap();
+    declarations.publish_definitions(definitions);
+    let mut aggregates = AggregateCatalog::default();
     aggregates
         .add_module(
             lowered,
@@ -68,7 +84,7 @@ pub fn check_module(
             &Default::default(),
         )
         .unwrap();
-    let mut diagnostics = crate::DiagnosticBuffer::new();
+    let mut diagnostics = DiagnosticBuffer::new();
     validate_signatures(
         lowered,
         &declarations,
@@ -80,9 +96,9 @@ pub fn check_module(
     signatures.diagnostics.extend(diagnostics);
     check_bodies_controlled(
         lowered,
-        names,
+        &names,
         &declarations,
-        crate::typeck::BodyInputs {
+        BodyInputs {
             const_limits: Default::default(),
             selection: BodySelection::All,
             signatures: &signatures,

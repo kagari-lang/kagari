@@ -3,12 +3,16 @@ use crate::{
     builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
     resolver::resolved::ResolvedName, tests::test_analysis, typeck::table::CallTarget,
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::scalar::BuiltinType;
+use kagari_types::{
+    host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
+    scalar::BuiltinType,
+};
 
 const HELPERS: [(&str, BuiltinFunction); 5] = [
     ("print", BuiltinFunction::Print),
@@ -277,23 +281,23 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
 
 #[test]
 fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, value_type::HostValueType,
-    };
+    let context = DefinitionContext::new().unwrap();
     for (name, _) in HELPERS {
         let mut sources = SourceDatabase::default();
         let text = format!("fn main() -> i32 {{ {name}() }}");
         let file = sources.set("host.kgr", text, SourceLayer::Base).unwrap();
         let mut db = test_analysis();
-        let hosts = crate::host::HostDeclarations::new(HostInterface {
+        let declarations = HostInterface {
             paths: vec![],
             types: Vec::new(),
-            functions: vec![HostFunctionDeclaration::new(
-                name,
-                vec![],
-                HostValueType::I32,
-            )],
-        })
+            functions: vec![
+                HostFunctionDeclaration::new(&context, name, vec![], HostValueType::I32).unwrap(),
+            ],
+        };
+        let hosts = crate::host::HostDeclarations::new(
+            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
+                .unwrap(),
+        )
         .unwrap();
         let expected = hosts.resolve(name).unwrap();
         db.set_host_declarations(hosts);
