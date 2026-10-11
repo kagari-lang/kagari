@@ -207,10 +207,19 @@ fn repeated_value_aggregates_keep_value_semantics() {
 fn fixed_arrays_preserve_aliases_and_explicit_constructors_copy_storage() {
     execute(
         r#"
-    use std::collections::{List, HashSet};
+    use std::collections::{List, MutableList, HashSet};
     struct Cell { var value: i32 }
     fn first<T>(values: [T]) -> T { values[0] }
     fn key(counter: Cell) -> i32 { counter.value += 1; 7 }
+    fn write<T: MutableList<i32>>(first: T, second: T) {
+        var current = first;
+        current[{ current = second; 0usize }] = 42;
+    }
+    fn update<T: MutableList<i32>>(first: T, second: T) {
+        var current = first;
+        val rebind = || { current = second; 2 };
+        current[0usize] += rebind();
+    }
     fn main() -> i32 {
         var array = [1, 2, 2];
         val alias = array;
@@ -227,6 +236,12 @@ fn fixed_arrays_preserve_aliases_and_explicit_constructors_copy_storage() {
         val original = destination;
         destination[{ destination = Vec::from([9]); 0usize }] = 42;
         if original[0] != 42 || destination[0] != 9 { return 0; }
+        val generic_original = Vec::from([1]);
+        val generic_replacement = Vec::from([9]);
+        write(generic_original, generic_replacement);
+        if generic_original[0] != 42 || generic_replacement[0] != 9 { return 0; }
+        update(generic_original, generic_replacement);
+        if generic_original[0] != 44 || generic_replacement[0] != 9 { return 0; }
         val empty: [u8] = [];
         val empty_vector: Vec<u8> = Vec::from([]);
         val empty_set: HashSet<u8> = HashSet::from([]);

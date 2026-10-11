@@ -1,14 +1,18 @@
 //! Synchronous base conversions, parsing and iterable construction.
-use crate::bindings::enums;
+use crate::{bindings::enums, namespaces};
 use kagari_bytecode::instruction::BinaryOp;
+use kagari_common::identity::DefinitionKind;
 use kagari_contract::numeric::NumericOperation;
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
+    gc::HeapObjectId,
     native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
     numeric,
     value::Value,
 };
-use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    declaration::module::ModuleDecl, integer::IntegerOp, scalar::BuiltinType, ty::Ty,
+};
 use std::{
     num::{IntErrorKind, ParseIntError},
     slice,
@@ -138,8 +142,8 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
         return Err(invalid());
     };
     let kind = *kind;
-    if matches!(cx.argument_type(0)?, Ty::NativeObject(_)) {
-        return scalar_array_aggregate(cx, kind, product);
+    if vec_argument(cx)?.is_some() {
+        return scalar_vec_aggregate(cx, kind, product);
     }
     let identity = i32::from(product);
     let mut result = match kind {
@@ -180,14 +184,32 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
     Ok(result)
 }
 
+// Only the standard Vec implementation promises callback-free buffer traversal.
+// Other native objects, even those with sequence storage, use their selected iterators.
+fn vec_argument(cx: &CallContext<'_>) -> NativeResult<Option<HeapObjectId>> {
+    let argument = cx.argument_type_argument(0)?;
+    let Ty::NativeObject(nominal) = argument.ty() else {
+        return Ok(None);
+    };
+    let declaration = ModuleDecl::new(namespaces::type_owner("Vec"))
+        .definition(DefinitionKind::AssociatedType, "Vec");
+    if argument.definitions().lookup(&declaration) != Some(nominal.declaration) {
+        return Ok(None);
+    }
+    let Value::GcHandle(id) = cx.argument(0)? else {
+        return Err(invalid());
+    };
+    Ok(Some(id))
+}
+
 fn for_each(
     cx: &mut CallContext<'_>,
     mut visit: impl FnMut(&mut CallContext<'_>, Value) -> NativeResult<()>,
 ) -> NativeResult<()> {
     let source = cx.argument(0)?;
-    // A foundation array has no user callbacks. Read its contiguous storage
+    // The standard Vec has no iteration callbacks. Read its contiguous storage
     // directly without allocating a cursor or Option for each element.
-    if let Value::GcHandle(id) = source {
+    if let Some(id) = vec_argument(cx)? {
         let length = cx.heap().sequence_len(id).ok_or_else(invalid)?;
         for index in 0..length {
             if index % 256 == 0 {
@@ -214,7 +236,7 @@ fn for_each(
 
 // Match the physical element layout once, then reduce borrowed Rust scalars.
 // The scoped borrow prevents structural mutation; this path invokes no callbacks.
-fn scalar_array_aggregate(
+fn scalar_vec_aggregate(
     cx: &CallContext<'_>,
     kind: BuiltinType,
     product: bool,

@@ -15,7 +15,11 @@ use kagari_mir::{
     ids::LocalId,
     instruction::{AggregateFieldRef, CallTarget, Instruction, MirValue, PathRef, ValueBuffer},
 };
-use kagari_types::{language::Protocol, scalar::BuiltinType, ty::NominalTy};
+use kagari_types::{
+    language::Protocol,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
+};
 use std::ops::ControlFlow;
 
 pub(super) struct PreparedPlace {
@@ -118,17 +122,23 @@ impl FunctionLowerer<'_, '_> {
                 let local = self.lookup_binding(self.place_root_resolution(id)?)?;
                 let ty = self.place_type(id)?;
                 let is_cell = matches!(self.place_root_resolution(id)?, ResolvedName::Local(local_id) if self.cell_locals.contains(&local_id));
+                let root_type = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .place_type(id)
+                    .ok_or(MirLoweringError::UnresolvedPlace(id))?;
+                // Identity semantics belong to the instantiated receiver, including
+                // roots declared as generic parameters or associated projections.
                 let root = if projected
                     && matches!(
-                        self.analyzed.typed.type_table.place_type(id),
-                        Some(
-                            TypeId::Trait(_)
-                                | TypeId::NativeObject(_)
-                                | TypeId::Struct(_)
-                                | TypeId::Array(_)
-                                | TypeId::Map { .. }
-                                | TypeId::Set(_, _)
-                        )
+                        self.semantic_type(&root_type)?,
+                        Ty::Trait(_)
+                            | Ty::NativeObject(_)
+                            | Ty::Struct(_)
+                            | Ty::Array(_)
+                            | Ty::Map { .. }
+                            | Ty::Set(_, _)
                     ) {
                     let dst = self.alloc_temp(ty);
                     if is_cell {

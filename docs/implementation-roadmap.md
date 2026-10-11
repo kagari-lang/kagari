@@ -45,6 +45,12 @@ format/structure checks and 10 source-free artifact tests. No carried local
 failures remain. Broader SA18/SA19/SA21 work remains separate; full CI acceptance
 is still open.
 
+The subsequent SA20 review repaired generic assignment root capture and native
+iterator consumption by `sum`, `product` and `Vec::from_iter`. All 22 affected
+array/conversion cases are verified through the focused suites and reruns
+recorded in the execution plan; the earlier workspace acceptance was not repeated.
+Generalizing the `map` API remains deferred.
+
 ### Name resolution (SA8, SA2, SA3, CI pending)
 
 NR01-NR05 are implemented and locally accepted. Type/Value namespaces, canonical

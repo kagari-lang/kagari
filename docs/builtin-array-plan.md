@@ -533,3 +533,52 @@ GitHub CI's complete feature/backend matrix has not been run by this task and
 remains open. JIT-enabled preparation may fall back to the interpreter; these
 results do not establish universal native execution or a performance improvement.
 SA18/SA19/SA21 and type-level lengths remain outside this completed migration.
+
+### BA05 review follow-up: generic places and native iterables
+
+The post-implementation review found two observable errors, repaired within the
+existing BA03/BA04 contracts:
+
+- Place lowering classified identity-bearing roots using their unspecialized HIR
+  type. For `T: MutableList<i32>`, rebinding the root during index/RHS evaluation
+  could therefore redirect the write to the replacement Vec. Root capture now
+  uses the instantiated semantic type before evaluating indexes or the RHS. The
+  existing array alias/constructor test covers generic indexed assignment and
+  compound assignment through a closure-captured root, preserving both the
+  original target and the replacement's contents.
+- Native aggregation and `from_iter` treated every native object/GC handle as
+  contiguous Vec storage. Consequently `sum(map(...))` failed with `expected a
+  nominal sequence object`, and collecting the same iterator failed with
+  `foundation construction contract`. Buffer traversal is now restricted to the
+  canonical standard Vec declaration, resolved in the argument's definition
+  table. Other receivers use the already checked `Iterable.iter` and
+  `Iterator.next` calls, even if their native storage happens to be a sequence.
+  Existing Vec scalar kernels, bounds checks and cancellation polls remain.
+- Conversion coverage now includes lazy native iterator aggregation, product,
+  exhausted cursor identities, exactly-once mapper effects and collection of
+  allocated strings under forced GC. Existing overflow/root-cleanup coverage
+  also exercises concrete Vec and mapped iterator inputs. The shared execution
+  harness checks direct artifacts, serialized artifacts and JIT-enabled
+  preparation/execution; this does not imply every function executes natively.
+
+Validation record:
+
+- The focused alias test failed before the repair (`I32(0)` instead of `I32(42)`)
+  and passes afterward. The initial new string-mapping fixture used unsupported
+  `String + String`; it was corrected to interpolation before runtime validation.
+- `cargo test -p kagari-embed --test array_operations --test conversion_traits`
+  passed all 6 array cases and 15 existing conversion cases, with only that
+  invalid new fixture failing. After correcting it and extending overflow inputs,
+  both changed conversion cases passed their exact focused reruns:
+  `native_construction_consumes_lazy_native_iterators` and
+  `native_numeric_aggregation_checks_declared_width_and_releases_roots`.
+  All 22 affected cases are verified across these runs; no carried test failure
+  remains. The earlier full-workspace acceptance was not repeated for this fix.
+- `cargo clippy -p kagari-compiler -p kagari-stdlib --lib -- -D warnings`,
+  `cargo fmt --all -- --check`, `uv run --locked scripts/check_structure.py`
+  (1,030 files, zero violations/exceptions), and `git diff --check` passed.
+  Manual review found no new re-exports, production globs, deep parent paths,
+  handwritten includes or visibility expansion; CRLF working-tree endings remain.
+
+Generalizing `map` to all iterables and providing method-call syntax remain
+deferred API design work, outside this repair.
