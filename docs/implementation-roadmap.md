@@ -33,8 +33,8 @@ carried build/test failures; their completion does not establish performance gai
 
 ### Builtin fixed-length arrays (SA20)
 
-Selected as the next implementation direction; execution planning is complete and
-implementation has not started. The [BA01-BA05 execution plan](builtin-array-plan.md)
+Execution is active: BA01 representation and consumer inventory are complete;
+BA02-BA04 are the next coupled integration checkpoint. The [BA01-BA05 execution plan](builtin-array-plan.md)
 owns phase order, acceptance and the progress/error ledger. `[T]` will represent
 a builtin array with construction-time fixed length, without length in its type.
 Literals will construct Array; Vec remains a distinct nominal library collection,

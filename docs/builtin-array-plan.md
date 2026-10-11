@@ -1,7 +1,7 @@
 # Builtin fixed-length arrays (SA20)
 
-Status: execution plan prepared; implementation has not started. The user selected
-SA20 as the next implementation direction and requested this plan. The
+Status: BA01 inventory complete; BA02-BA04 integration is next. The user authorized
+execution of SA20. The
 [roadmap](implementation-roadmap.md#builtin-fixed-length-arrays-sa20) owns queue
 placement; this file owns phase order, acceptance and the progress ledger.
 
@@ -262,13 +262,74 @@ claimed performance benefit independently.
 ## Progress and carried failures
 
 - [x] Planning: choose runtime-stored fixed length, define scope and acceptance.
-- [ ] BA01: Record concrete representation and consumer inventory.
+- [x] BA01: Record concrete representation and consumer inventory.
 - [ ] BA02: Split types and checked operations.
 - [ ] BA03: Enforce runtime and host storage contracts.
 - [ ] BA04: Integrate constructors and migrate callers.
 - [ ] BA05: Complete documentation and final acceptance.
 
-Implementation has not started. No implementation build or test results are
-claimed, and no carried implementation failures have been observed. Record future
-commands, diagnostics, responsible phases and local/CI outcomes here rather than
-creating another progress queue.
+### BA01 representation decision and inventory
+
+The starting checkout was clean at `e8f64038`. Inspection confirms that both
+semantic Array and its GC helpers currently grant Vec growth authority. The split
+must therefore reach executable admission and host conversion, not only methods.
+
+- Builtin `Ty::Array(element)` / HIR Array carry only the element. Keep
+  `Value::Array` and the runtime-owned native payload descriptor (no installed Vec
+  factory dependency). The payload retains `StorageType`, its owning generation
+  and `SequenceStorage`; tracing and compact scalar storage remain shared.
+- Vec is `Ty::NativeObject` with its actual registered declaration and
+  `NativeStorageLayout::Sequence { element: 0 }`, represented by `Value::GcHandle`.
+  Remove `NativeTypeConstructor::Array` and `NativeTypeKind::Vec`. Layout permits
+  buffer access only after nominal declaration, object, element and generation
+  validation; it never relabels an Array. Growth and `SequenceEdit` admission must
+  require nominal sequence storage. Fixed-array replacement retains bounds and
+  callback/iteration guards. Read kernels may be shared after family admission.
+- `MakeArray`/`RepeatArray` construct only intrinsic arrays. Index place lowering
+  carries builtin array facts independently of MutableList; Vec/List indexing
+  uses checked installed Index/MutableList implementations. Preserve actual
+  integer index checks and once-only place evaluation. Array core implementations
+  (identity protocols, Index and Iterable), len/is_empty and their bindings belong
+  to explicitly installed core registrations, not Vec or List declarations.
+  Empty installations still type-check literal/type syntax without these methods.
+- Array-interface registration roles remain solely for library List indexing and
+  writable List places. Remove their syntax/literal contextualization authority;
+  do not activate the broader SA18 access-marker removal.
+
+Consumer classification (each row names the existing semantic owner):
+
+| Consumers | Final contract / migration |
+| --- | --- |
+| HIR type syntax, body literal/repeat inference; compiler aggregate lowering | Intrinsic Array, with contextual element inference and repeat-value restrictions. |
+| Type mapping, substitution, identity/hash/wire, physical representations, closed-type and trait proof traversal | Preserve Array recursively; nominal Vec follows existing NativeObject traversal. Update independent MIR/bytecode and primitive checks together. |
+| `catalog/defaults`, `construction_defaults`, `declarations::vec`, namespace ownership and documentation examples | Nominal Vec; retain List/MutableList implementations and FromIterator. Add ordinary associated `from([T])` entries for Vec/HashSet. |
+| `catalog/list_methods` mapped results; `catalog/strings` split results | Nominal Vec or the existing declared List result. Preserve order, callbacks and independent result storage. |
+| `bindings/lists`, `lists/receivers` snapshots; construction aggregate fast path | List algorithms use nominal Vec work buffers and selected interface callbacks. Preserve the existing checked scalar reduction path for admitted compact storage. No registered `to_array` entry currently exists; any array-returning path must allocate fixed storage, never expose a growable buffer. |
+| Rust `Vec<T>`, ScriptVec, standard `vec` authoring helper | Resolve the registered nominal Vec through declaration catalogs; retain roots, reentry snapshots and element contracts. They must reject builtin arrays. |
+| `HostValueType::Array`, host matching, metadata, typed indexed paths | Array becomes element-only. Existing growable schemas need explicit nominal Vec declaration/element identities; readonly list exposure needs the declared List interface rather than readonly intrinsic Array. Retain declared path writeability and runtime borrow checks independently. Do not infer the family from Rust Vec payloads. |
+| Native `Codec::Sequence`, mutable sequence codecs, primitives, context argument helpers, cursor sources, GC edit/lease/capacity helpers | Separate array admission from nominal sequence admission; all resizing and detached edits require the latter. Shared payload layout alone is insufficient. |
+| VM dispatch, reflection, runtime value checks, GC kinds, native requirements and installation | Check the actual Array versus NativeObject family, owner and element contract; preserve generation-pinned identities and dependency validation. |
+| Examples, benchmarks, HIR/native fixtures, artifact producers and source queries | Keep literals for actual fixed arrays; use explicit Vec construction and List annotations for library operations. Regenerate affected development fixtures once after integration; no ABI/version bump or legacy reader. |
+
+Focused selectors confirmed in the checkout:
+
+- HIR: `cargo test -p kagari-hir typeck`,
+  `cargo test -p kagari-hir type_application_tests`,
+  `cargo test -p kagari-hir --test language_contracts`.
+- Executable contracts: focused array/native tests in `kagari-contract`,
+  `kagari-mir` verification and `kagari-bytecode` verification/access. Forged
+  native primitive signatures and layout requirements must reject Array/Vec
+  interchange independently of source checking.
+- Runtime: `cargo test -p kagari-runtime --test native_conversion`,
+  `--test gc_ownership`, `--test typed_path_views`, plus GC array/sequence-edit
+  unit selectors. Retain foreign handles, leases, cancellation and reentry cases.
+- SDK: the four initial integration tests above, `--test list_algorithms`,
+  `--test registration_sources`, `--test iteration_traits` and reload owners.
+- Source-free: `cargo test -p kagari-embed --no-default-features --test artifact_features`;
+  its existing forged native signature and algorithm fixtures are separate from
+  source-enabled round trips. Regenerate their producer artifacts at BA04/BA05.
+
+BA01 is a documentation checkpoint: content/diff checks only; no build or test
+acceptance is claimed. BA02-BA04 remain one coupled checkpoint. No carried
+implementation diagnostics exist yet. Record subsequent failed commands, causes
+and owning phases here; final local acceptance and CI remain outstanding.
