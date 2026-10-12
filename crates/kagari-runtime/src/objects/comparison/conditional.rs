@@ -15,7 +15,7 @@ use kagari_contract::callable::witness::OperationWitness;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     language::Protocol,
-    ty::{Constraint, Ty},
+    ty::{Constraint, GenericBound, Ty},
 };
 use std::{slice, sync::Arc};
 
@@ -35,6 +35,21 @@ impl Runtime {
         if comparison.conditions.is_empty() {
             return Ok(None);
         }
+        self.bind_comparison_conditions(
+            binding,
+            &comparison.conditions,
+            &comparison.operation,
+            scopes,
+        )
+    }
+
+    pub(super) fn bind_comparison_conditions(
+        &self,
+        binding: &InterfaceResultBinding,
+        conditions: &[GenericBound],
+        operation: &OperationWitness,
+        scopes: &[LoadedModule],
+    ) -> Result<Option<ReceiverComparisonBinding>, RuntimeError> {
         let mut evidence = ComparisonEvidence {
             runtime: self,
             fallback: &binding.owner,
@@ -42,7 +57,7 @@ impl Runtime {
             remaining: 100_000,
         };
         let mut unresolved = false;
-        for condition in &comparison.conditions {
+        for condition in conditions {
             let argument = self
                 .type_arguments(
                     &binding.owner,
@@ -91,7 +106,7 @@ impl Runtime {
         // methodless Eq needs a fact, while callable leaves retain their own
         // checked selections. Neither is inherited by ordinary interface calls.
         let mut operations = OperationBindings::default();
-        for witness in comparison.operation.walk() {
+        for witness in operation.walk() {
             let OperationWitness::Forward(required) = witness else {
                 continue;
             };

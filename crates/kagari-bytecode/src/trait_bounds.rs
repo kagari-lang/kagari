@@ -21,7 +21,7 @@ use kagari_common::{
     },
 };
 use kagari_contract::{
-    callable::interface::InterfaceCallContract,
+    callable::{interface::InterfaceCallContract, receiver::ReceiverComparison},
     types as abi,
     types::{
         PublicItem,
@@ -539,6 +539,31 @@ fn linked_bounds_match(
             else {
                 return Ok(false);
             };
+            if let ReceiverComparison::Dispatch {
+                implementations, ..
+            } = comparison
+            {
+                for case in implementations {
+                    let Some(target) = catalog.receiver_dispatch_target(case) else {
+                        return Ok(false);
+                    };
+                    if !closure
+                        .iter()
+                        .flat_map(|module| &module.interface_tables)
+                        .any(|table| {
+                            table.declaration == target.declaration
+                                && table.arguments == target.arguments
+                                && table
+                                    .comparison
+                                    .as_ref()
+                                    .and_then(|comparison| comparison.selection())
+                                    .is_some_and(|selected| selected.conditions.is_empty())
+                        })
+                    {
+                        return Ok(false);
+                    }
+                }
+            }
             if !comparison.valid(
                 &table.for_type,
                 &catalog,

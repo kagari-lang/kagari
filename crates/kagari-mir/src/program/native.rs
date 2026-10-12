@@ -10,7 +10,7 @@ use kagari_common::{
     identity::{DefinitionKind, table::DefinitionTable},
 };
 use kagari_contract::{
-    callable::witness::OperationWitness,
+    callable::{receiver::ReceiverComparison, witness::OperationWitness},
     native_import::callables::NativeCallableOrigin,
     types::{
         ConcreteFunctionIdentity, PublicItem,
@@ -116,6 +116,30 @@ pub(super) fn validate(
         else {
             return Ok(false);
         };
+        if let ReceiverComparison::Dispatch {
+            implementations, ..
+        } = comparison
+        {
+            for case in implementations {
+                let Some(target) = catalog.receiver_dispatch_target(case) else {
+                    return Ok(false);
+                };
+                if !closure
+                    .iter()
+                    .flat_map(|module| &module.interface_instances)
+                    .any(|instance| {
+                        instance.identity() == target
+                            && instance
+                                .comparison
+                                .as_ref()
+                                .and_then(|comparison| comparison.selection())
+                                .is_some_and(|selected| selected.conditions.is_empty())
+                    })
+                {
+                    return Ok(false);
+                }
+            }
+        }
         if !comparison.valid(
             &table.for_type,
             &catalog,

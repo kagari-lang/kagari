@@ -318,11 +318,7 @@ impl Runtime {
                 .collect(),
             environment: environment.clone(),
         };
-        let comparison = self.receiver_comparison_binding(
-            &receiver_table,
-            &template.for_type,
-            &concrete_arguments,
-        )?;
+        let comparison = self.receiver_comparison_binding(&receiver_table, &template.for_type)?;
         Ok(InterfaceValueSnapshot {
             comparison,
             receiver_operations: MetadataCache::new(),

@@ -9,7 +9,10 @@ use crate::{
     program::BytecodeProgram,
 };
 use kagari_common::identity::table::DefinitionTable;
-use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
+use kagari_contract::{
+    callable::{receiver::ReceiverComparison, witness::OperationWitness},
+    types::PublicItem,
+};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{AssociatedTypeDef, FnDecl, requirement::NativeCallableRequirement},
@@ -129,6 +132,17 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         }
     }
     for table in &module.interface_tables {
+        if let Some(ReceiverComparison::Dispatch {
+            implementations, ..
+        }) = &table.comparison
+            && (!add(implementations.len())
+                || !implementations.iter().all(|case| {
+                    add(case.arguments.len()) && case.arguments.iter().all(|path| add(path.len()))
+                }))
+        {
+            return false;
+        }
+
         if let Some(comparison) = table
             .comparison
             .as_ref()

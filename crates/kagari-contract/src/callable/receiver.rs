@@ -1,4 +1,5 @@
 //! Receiver equality retained by checked interface construction.
+use crate::callable::receiver::dispatch::{ReceiverCase, ReceiverTypeStep};
 use crate::{
     callable::witness::OperationWitness,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
@@ -19,26 +20,34 @@ use kagari_types::{
 };
 use std::slice;
 
+pub mod dispatch;
+
 /// Receiver comparison retained independently of an interface's public bounds.
 /// Identity is an authenticated default for the entire receiver template; it is
 /// not inferred from an unavailable operation or an unsatisfied caller bound.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReceiverComparison {
     Identity(Ty),
+    /// Exhaustive checked implementation identities for a symbolic receiver.
+    /// Runtime binds their declared arguments; it never searches a live catalog.
+    Dispatch {
+        receiver: Ty,
+        implementations: Vec<ReceiverCase>,
+    },
     Selected(ReceiverSelection),
 }
 
 impl ReceiverComparison {
     pub fn receiver(&self) -> &Ty {
         match self {
-            Self::Identity(receiver) => receiver,
+            Self::Identity(receiver) | Self::Dispatch { receiver, .. } => receiver,
             Self::Selected(selected) => &selected.operation.requirement().receiver,
         }
     }
 
     pub fn selection(&self) -> Option<&ReceiverSelection> {
         match self {
-            Self::Identity(_) => None,
+            Self::Identity(_) | Self::Dispatch { .. } => None,
             Self::Selected(selected) => Some(selected),
         }
     }
@@ -56,6 +65,13 @@ impl ReceiverComparison {
                 && object_receiver(receiver)
                 && types_in_scope([receiver], parameters, cancel, catalog.definitions())
                 && catalog.receiver_identity_default(receiver, cancel)?),
+            Self::Dispatch {
+                receiver: selected,
+                implementations,
+            } => Ok(selected == receiver
+                && object_receiver(receiver)
+                && types_in_scope([receiver], parameters, cancel, catalog.definitions())
+                && catalog.receiver_dispatch_matches(receiver, implementations, cancel)?),
             Self::Selected(selected) => {
                 selected.valid(receiver, catalog, parameters, assumptions, cancel)
             }
@@ -70,6 +86,40 @@ impl RemapDefinitions for ReceiverComparison {
     ) -> Result<Self, DefinitionMappingError> {
         Ok(match self {
             Self::Identity(receiver) => Self::Identity(receiver.remap_definitions(mapper)?),
+            Self::Dispatch {
+                receiver,
+                implementations,
+            } => Self::Dispatch {
+                receiver: receiver.remap_definitions(mapper)?,
+                implementations: implementations
+                    .iter()
+                    .map(|case| {
+                        Ok::<_, DefinitionMappingError>(ReceiverCase {
+                            implementation: mapper.reference(&case.implementation)?,
+                            arguments: case
+                                .arguments
+                                .iter()
+                                .map(|path| {
+                                    path.iter()
+                                        .map(|step| {
+                                            Ok(match step {
+                                                ReceiverTypeStep::Child(index) => {
+                                                    ReceiverTypeStep::Child(*index)
+                                                }
+                                                ReceiverTypeStep::Associated(member) => {
+                                                    ReceiverTypeStep::Associated(
+                                                        mapper.reference(member)?,
+                                                    )
+                                                }
+                                            })
+                                        })
+                                        .collect::<Result<_, DefinitionMappingError>>()
+                                })
+                                .collect::<Result<_, _>>()?,
+                        })
+                    })
+                    .collect::<Result<_, _>>()?,
+            },
             Self::Selected(selected) => Self::Selected(selected.remap_definitions(mapper)?),
         })
     }
@@ -83,6 +133,23 @@ impl DefinitionReferences for ReceiverComparison {
     ) -> Result<(), DefinitionMappingError> {
         match self {
             Self::Identity(receiver) => receiver.visit_definition_ids(visit, cancel),
+            Self::Dispatch {
+                receiver,
+                implementations,
+            } => {
+                receiver.visit_definition_ids(visit, cancel)?;
+                for case in implementations {
+                    check_cancel(cancel)?;
+                    visit(&case.implementation)?;
+                    for step in case.arguments.iter().flatten() {
+                        check_cancel(cancel)?;
+                        if let ReceiverTypeStep::Associated(member) = step {
+                            visit(member)?;
+                        }
+                    }
+                }
+                Ok(())
+            }
             Self::Selected(selected) => selected.visit_definition_ids(visit, cancel),
         }
     }

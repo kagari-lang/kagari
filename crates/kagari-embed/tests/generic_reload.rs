@@ -464,6 +464,33 @@ fn shared_collection_comparison_preserves_generic_identity_default() {
     });
 }
 
+#[test]
+fn shared_collection_comparison_checks_specialized_receiver_arguments() {
+    let source = generic_bag_collection_source().replace(
+        "impl<T> PartialEq for Bag<T>",
+        "impl PartialEq for Bag<(Local, Item)>",
+    ).replace(
+        "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
+        "val a = factory.one(Item { value: 1 });\n        val b = factory.one(Item { value: 2 });\n        if !(a == a) { val zero = 0; 1 / zero; }\n        a == b",
+    );
+    assert_shared_collection_comparison_reloading(&source, false, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+    let generic = generic_bag_collection_source()
+        .replace(
+            "impl<T> PartialEq for Bag<T>",
+            "impl<T: Eq> PartialEq for Bag<(T, i32)>",
+        )
+        .replace("List<(Local, T)>", "List<T>")
+        .replace("Vec::from([(Local {}, value)])", "Vec::from([value])")
+        .replace("struct Item", "impl Eq for Item {}\nstruct Item")
+        .replace("Item { value: 1 }", "(Item { value: 1 }, 1)")
+        .replace("Item { value: 2 }", "(Item { value: 2 }, 1)");
+    assert_shared_collection_comparison_reloading(&generic, true, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+}
+
 fn generic_bag_collection_source() -> String {
     let source = mixed_generation_collection_source().replace(
         "Vec::from([(Local {}, value)])",

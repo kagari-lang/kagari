@@ -9,21 +9,18 @@ use crate::{
     value::Value,
     value_semantics,
 };
-use kagari_contract::callable::{
-    receiver::{ReceiverComparison, object_receiver},
-    witness::OperationWitness,
-};
+use kagari_contract::callable::receiver::{ReceiverComparison, object_receiver};
 use kagari_types::ty::Ty;
 use std::slice;
 
 mod conditional;
+mod dispatch;
 
 impl Runtime {
     pub(super) fn receiver_comparison_binding(
         &self,
         binding: &InterfaceResultBinding,
         expression: &Ty,
-        arguments: &[Ty],
     ) -> Result<Option<ReceiverComparisonBinding>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("receiver comparison application");
         let receiver = self
@@ -50,7 +47,14 @@ impl Runtime {
             .and_then(|comparison| comparison.selection())
             .is_some_and(|comparison| {
                 comparison.conditions.is_empty()
-                    && matches!(comparison.operation, OperationWitness::SharedMethod(_))
+                    && TypeView::new(
+                        &comparison.operation.requirement().receiver,
+                        &binding.owner,
+                        binding.environment.as_ref().map(|env| env.types.as_ref()),
+                    )
+                    .identity()
+                    .as_ref()
+                        == Some(identity.as_ref())
             })
         {
             // The checked selection is valid for this template's binders. Its
@@ -58,12 +62,11 @@ impl Runtime {
             // no closed application or new implementation selection is needed.
             return Ok(Some(ReceiverComparisonBinding::Selected(binding.clone())));
         }
-        let declaration = binding.owner.bytecode.interface_tables[binding.table].declaration;
         let mut scopes = self
             .construction_scope(&binding.owner, binding.environment.as_ref())?
             .programs()
             .to_vec();
-        let mut pending = vec![receiver];
+        let mut pending = vec![receiver.clone()];
         while let Some(argument) = pending.pop() {
             if let Some(owner) = argument.supplying_owner()
                 && !scopes
@@ -79,51 +82,13 @@ impl Runtime {
                 pending.push(argument.parameter(self, &binding.owner, index)?);
             }
         }
-        if let Some(binding) = self.bind_conditional_comparison(binding, &scopes)? {
-            return Ok(Some(binding));
+        if let Some(ReceiverComparison::Dispatch {
+            implementations, ..
+        }) = &binding.owner.bytecode.interface_tables[binding.table].comparison
+        {
+            return self.bind_receiver_dispatch(binding, &receiver, implementations, &scopes);
         }
-        // Only exact, prechecked applications of this implementation are eligible.
-        // Structural Ty equality alone loses the generation supplying a nominal
-        // element. An old shared body may be constructing a new caller's Vec<T>.
-        for scope in scopes {
-            let module = scope.definition(declaration)?.module();
-            let owner = scope
-                .members()
-                .find(|owner| &owner.bytecode.identity == module)
-                .ok_or_else(invalid)?;
-            for (index, table) in owner.bytecode.interface_tables.iter().enumerate() {
-                if table.declaration != declaration || table.arguments != arguments {
-                    continue;
-                }
-                let Some(comparison) = table
-                    .comparison
-                    .as_ref()
-                    .and_then(|comparison| comparison.selection())
-                else {
-                    continue;
-                };
-                if !comparison.conditions.is_empty() {
-                    // Guarded selections cannot execute until their actual
-                    // argument eligibility is supplied. Absence proves nothing.
-                    continue;
-                }
-                let required = comparison.operation.requirement();
-                let selected =
-                    self.resolve_type_arguments(&owner, slice::from_ref(&required.receiver))?;
-                if selected[0].identity(&owner).as_ref() != Some(&identity) {
-                    continue;
-                }
-                return Ok(Some(ReceiverComparisonBinding::Selected(
-                    InterfaceResultBinding {
-                        owner,
-                        table: index,
-                        arguments: arguments.to_vec(),
-                        environment: binding.environment.clone(),
-                    },
-                )));
-            }
-        }
-        Ok(None)
+        self.bind_conditional_comparison(binding, &scopes)
     }
 
     pub(crate) fn compare_interface_values(

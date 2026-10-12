@@ -4,8 +4,9 @@ use kagari_common::{identity::DefinitionKind, span::Span};
 use kagari_contract::{
     callable::{
         receiver::{
-            ReceiverComparison, ReceiverEligibility, ReceiverSelection, object_receiver,
-            object_receiver_may_overlap,
+            ReceiverComparison, ReceiverEligibility, ReceiverSelection,
+            dispatch::{ReceiverCase, receiver_argument_paths},
+            object_receiver, object_receiver_may_overlap,
         },
         witness::{OperationWitness, SharedMethodWitness},
     },
@@ -23,7 +24,7 @@ use kagari_hir::{
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     language::Protocol,
-    ty::{Constraint, GenericBound, Ty, substitution::TypeSubstitution},
+    ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 
 impl InstancePlanner<'_> {
@@ -69,23 +70,7 @@ impl InstancePlanner<'_> {
         let candidate = self.receiver_conditions(&required)?;
         let conditions = if conditional {
             let Some(conditions) = candidate.as_ref() else {
-                // Constructor overlap is deliberately conservative: an explicit
-                // Bag<i32> header rules out an unconditional Bag<T> default.
-                for implementation in self.catalog.implementations() {
-                    self.check()?;
-                    if Protocol::from_definition(
-                        &implementation.trait_type.declaration,
-                        &definitions,
-                    ) == Some(Protocol::PartialEq)
-                        && object_receiver_may_overlap(
-                            &self.encode_type(&implementation.for_type),
-                            &required.receiver,
-                        )
-                    {
-                        return Ok(None);
-                    }
-                }
-                return Ok(Some(ReceiverComparison::Identity(required.receiver)));
+                return Ok(Some(self.receiver_dispatch(&required, span)?));
             };
             conditions.clone()
         } else {
@@ -107,6 +92,79 @@ impl InstancePlanner<'_> {
             conditions,
             eligibility,
         })))
+    }
+
+    fn receiver_dispatch(
+        &mut self,
+        required: &NativeCallableRequirement,
+        span: Span,
+    ) -> Result<ReceiverComparison, MirLoweringError> {
+        let definitions = self.definitions();
+        let implementations = self
+            .catalog
+            .implementations()
+            .filter(|implementation| {
+                Protocol::from_definition(&implementation.trait_type.declaration, &definitions)
+                    == Some(Protocol::PartialEq)
+                    && object_receiver_may_overlap(
+                        &self.encode_type(&implementation.for_type),
+                        &required.receiver,
+                    )
+            })
+            .map(|implementation| {
+                (
+                    implementation.id,
+                    implementation
+                        .generic_params
+                        .iter()
+                        .cloned()
+                        .map(TypeId::Generic)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        if implementations.is_empty() {
+            return Ok(ReceiverComparison::Identity(required.receiver.clone()));
+        }
+        if implementations.len() > 4096 {
+            return Err(MirLoweringError::MissingBinding("receiver dispatch limit"));
+        }
+        for (declaration, arguments) in &implementations {
+            self.check()?;
+            self.record_interface(declaration, arguments, span)?;
+        }
+        Ok(ReceiverComparison::Dispatch {
+            receiver: required.receiver.clone(),
+            implementations: implementations
+                .into_iter()
+                .map(|(id, _)| {
+                    let contract = self.catalog.implementation_signature(&id).ok_or(
+                        MirLoweringError::MissingBinding("receiver dispatch implementation"),
+                    )?;
+                    let parameters = contract
+                        .generic_params
+                        .iter()
+                        .map(|parameter| GenericParam {
+                            owner: parameter.owner,
+                            position: parameter.position,
+                        })
+                        .collect::<Vec<_>>();
+                    let arguments = receiver_argument_paths(
+                        &self.encode_type(&contract.for_type),
+                        &parameters,
+                        &self.options.cancel,
+                    )
+                    .map_err(|_| MirLoweringError::MissingBinding("receiver dispatch recipe"))?
+                    .ok_or(MirLoweringError::MissingBinding(
+                        "receiver dispatch parameter",
+                    ))?;
+                    Ok(ReceiverCase {
+                        implementation: id,
+                        arguments,
+                    })
+                })
+                .collect::<Result<_, MirLoweringError>>()?,
+        })
     }
 
     fn receiver_operation(

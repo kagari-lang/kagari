@@ -9,7 +9,10 @@ use kagari_bytecode::{
     program::{identity, verify_program},
 };
 use kagari_common::identity::map::DefinitionContext;
-use kagari_contract::callable::{receiver::ReceiverComparison, witness::OperationWitness};
+use kagari_contract::callable::{
+    receiver::{ReceiverComparison, dispatch::ReceiverTypeStep},
+    witness::OperationWitness,
+};
 use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     error::EmbeddingError,
@@ -535,6 +538,120 @@ fn main() -> i32 {
 }
 
 #[test]
+fn receiver_dispatch_records_are_checked_without_source() {
+    let engine = KagariEngine::default();
+    let source = r#"
+trait View {}
+struct Bag<T> { val value: T }
+impl<T> View for Bag<T> {}
+impl<U> PartialEq for Bag<(U, i32)> { fn eq(self, other: Self) -> bool { true } }
+impl PartialEq for Bag<bool> { fn eq(self, other: Self) -> bool { false } }
+trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
+impl Boxer for i32 {}
+fn main() -> View { val boxer: Boxer = 0; boxer.one((true, 1)) }
+"#;
+    // Concrete disjoint heads are accepted. A generic head remains conservatively
+    // overlapping with another head for this constructor, so test its recipe alone.
+    for generic in [false, true] {
+        let source = if generic {
+            source.replace(
+                "impl PartialEq for Bag<bool> { fn eq(self, other: Self) -> bool { false } }",
+                "",
+            ).replace(
+                "impl<U> PartialEq for Bag<(U, i32)>",
+                "trait Reader { type First; type Second; }\nimpl<U> PartialEq for Bag<Reader<First = i32, Second = U>>",
+            )
+        } else {
+            source.replace(
+                "impl<U> PartialEq for Bag<(U, i32)>",
+                "impl PartialEq for Bag<i32>",
+            )
+        };
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("dispatch-proof.kgr", source),
+                Default::default(),
+            )
+            .unwrap();
+        let context = DefinitionContext::new().unwrap();
+        // Import referenced associated outputs before other declarations to
+        // reverse their numeric ordering in the destination definition table.
+        // The checked recipe must still select Second by identity.
+        for comparison in artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| &module.interface_tables)
+            .filter_map(|table| table.comparison.as_ref())
+        {
+            if let ReceiverComparison::Dispatch {
+                implementations, ..
+            } = comparison
+            {
+                for step in implementations
+                    .iter()
+                    .flat_map(|case| &case.arguments)
+                    .flatten()
+                {
+                    if let ReceiverTypeStep::Associated(member) = step {
+                        context
+                            .intern(&artifact.definitions().resolve(*member).unwrap().to_path())
+                            .unwrap();
+                    }
+                }
+            }
+        }
+
+        let artifact = artifact
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        for &mutation in if generic {
+            &[0, 2, 3, 4, 5][..]
+        } else {
+            &[0, 1, 2, 5][..]
+        } {
+            let mut program = artifact.program.clone();
+            let comparison = program
+                .modules
+                .iter_mut()
+                .flat_map(|module| &mut module.interface_tables)
+                .filter_map(|table| table.comparison.as_mut())
+                .find(|comparison| matches!(comparison, ReceiverComparison::Dispatch { .. }))
+                .expect("symbolic receiver dispatch");
+            let ReceiverComparison::Dispatch {
+                implementations, ..
+            } = comparison
+            else {
+                unreachable!();
+            };
+            let target = implementations[0].implementation;
+            match mutation {
+                0 => implementations.clear(),
+                1 => {
+                    implementations.pop();
+                }
+                2 => implementations.push(implementations[0].clone()),
+                3 => implementations[0].arguments[0].push(ReceiverTypeStep::Child(4000)),
+                4 => implementations[0].arguments.clear(),
+                _ => {
+                    for module in &mut program.modules {
+                        module
+                            .interface_tables
+                            .retain(|table| table.declaration != target);
+                    }
+                }
+            }
+            assert!(
+                KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+                "forged receiver dispatch generic={generic}, mutation={mutation}"
+            );
+        }
+    }
+}
+
+#[test]
 fn receiver_identity_default_requires_a_uniform_object_template() {
     let engine = KagariEngine::default();
     let source = r#"
@@ -745,7 +862,9 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                     .flat_map(|module| &mut module.interface_tables)
                     .filter_map(|table| match table.comparison.as_mut()? {
                         ReceiverComparison::Selected(comparison) => Some(comparison),
-                        ReceiverComparison::Identity(_) => None,
+                        ReceiverComparison::Identity(_) | ReceiverComparison::Dispatch { .. } => {
+                            None
+                        }
                     })
                     .find(|comparison| !comparison.conditions.is_empty())
                     .expect("conditional comparison guard");
@@ -769,7 +888,8 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                         .flat_map(|module| &mut module.interface_tables)
                         .filter_map(|table| match table.comparison.as_mut()? {
                             ReceiverComparison::Selected(comparison) => Some(comparison),
-                            ReceiverComparison::Identity(_) => None,
+                            ReceiverComparison::Identity(_)
+                            | ReceiverComparison::Dispatch { .. } => None,
                         })
                         .find(|comparison| {
                             comparison

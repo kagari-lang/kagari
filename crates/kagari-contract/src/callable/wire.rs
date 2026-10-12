@@ -3,7 +3,10 @@ use crate::{
     callable::{
         generic::GenericBody,
         interface::{InterfaceCallContract, TypeNormalization},
-        receiver::{InterfaceInstance, ReceiverComparison, ReceiverEligibility, ReceiverSelection},
+        receiver::{
+            InterfaceInstance, ReceiverComparison, ReceiverEligibility, ReceiverSelection,
+            dispatch::{ReceiverCase, ReceiverTypeStep},
+        },
         shared::SharedCall,
         witness::{OperationWitness, SharedMethodWitness},
     },
@@ -13,7 +16,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         mapping::{DefinitionMappingError, check_cancel},
-        table::wire::{DefinitionDecoding, DefinitionEncoding},
+        table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
 use kagari_types::{
@@ -358,7 +361,31 @@ impl TypeNormalizationRecord {
 #[derive(Serialize, Deserialize)]
 pub enum ReceiverComparisonRecord {
     Identity(WireType),
+    Dispatch {
+        receiver: WireType,
+        #[serde(deserialize_with = "crate::decode_limits::nested")]
+        implementations: Vec<ReceiverCaseRecord>,
+    },
     Selected(ReceiverSelectionRecord),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ReceiverCaseRecord {
+    implementation: PortableDefinitionRef,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    arguments: Vec<ReceiverArgumentPathRecord>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ReceiverArgumentPathRecord {
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    path: Vec<ReceiverTypeStepRecord>,
+}
+
+#[derive(Serialize, Deserialize)]
+enum ReceiverTypeStepRecord {
+    Child(usize),
+    Associated(PortableDefinitionRef),
 }
 
 impl ReceiverComparisonRecord {
@@ -371,6 +398,45 @@ impl ReceiverComparisonRecord {
             ReceiverComparison::Identity(receiver) => {
                 Self::Identity(WireType::encode(receiver, encoding, cancel)?)
             }
+            ReceiverComparison::Dispatch {
+                receiver,
+                implementations,
+            } => Self::Dispatch {
+                receiver: WireType::encode(receiver, encoding, cancel)?,
+                implementations: implementations
+                    .iter()
+                    .map(|case| {
+                        check_cancel(cancel)?;
+                        Ok(ReceiverCaseRecord {
+                            implementation: encoding.reference(case.implementation)?,
+                            arguments: case
+                                .arguments
+                                .iter()
+                                .map(|path| {
+                                    Ok(ReceiverArgumentPathRecord {
+                                        path: path
+                                            .iter()
+                                            .map(|step| {
+                                                check_cancel(cancel)?;
+                                                Ok(match step {
+                                                    ReceiverTypeStep::Child(index) => {
+                                                        ReceiverTypeStepRecord::Child(*index)
+                                                    }
+                                                    ReceiverTypeStep::Associated(member) => {
+                                                        ReceiverTypeStepRecord::Associated(
+                                                            encoding.reference(*member)?,
+                                                        )
+                                                    }
+                                                })
+                                            })
+                                            .collect::<Result<_, DefinitionMappingError>>()?,
+                                    })
+                                })
+                                .collect::<Result<_, DefinitionMappingError>>()?,
+                        })
+                    })
+                    .collect::<Result<_, DefinitionMappingError>>()?,
+            },
             ReceiverComparison::Selected(selected) => {
                 Self::Selected(ReceiverSelectionRecord::encode(selected, encoding, cancel)?)
             }
@@ -386,6 +452,44 @@ impl ReceiverComparisonRecord {
             Self::Identity(receiver) => {
                 ReceiverComparison::Identity(receiver.decode(decoding, cancel)?)
             }
+            Self::Dispatch {
+                receiver,
+                implementations,
+            } => ReceiverComparison::Dispatch {
+                receiver: receiver.decode(decoding, cancel)?,
+                implementations: implementations
+                    .into_iter()
+                    .map(|case| {
+                        check_cancel(cancel)?;
+                        Ok(ReceiverCase {
+                            implementation: decoding.resolve(case.implementation)?,
+                            arguments: case
+                                .arguments
+                                .into_iter()
+                                .map(|argument| {
+                                    argument
+                                        .path
+                                        .into_iter()
+                                        .map(|step| {
+                                            check_cancel(cancel)?;
+                                            Ok(match step {
+                                                ReceiverTypeStepRecord::Child(index) => {
+                                                    ReceiverTypeStep::Child(index)
+                                                }
+                                                ReceiverTypeStepRecord::Associated(member) => {
+                                                    ReceiverTypeStep::Associated(
+                                                        decoding.resolve(member)?,
+                                                    )
+                                                }
+                                            })
+                                        })
+                                        .collect::<Result<_, DefinitionMappingError>>()
+                                })
+                                .collect::<Result<_, DefinitionMappingError>>()?,
+                        })
+                    })
+                    .collect::<Result<_, DefinitionMappingError>>()?,
+            },
             Self::Selected(selected) => {
                 ReceiverComparison::Selected(selected.decode(decoding, cancel)?)
             }

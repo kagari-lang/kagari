@@ -8,7 +8,7 @@ GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-13)
 
-Resume from the CI03 generic identity-default checkpoint; the progress ledger below
+Resume from the CI03 specialized receiver-dispatch checkpoint; the progress ledger below
 owns completed changes and their validation evidence. CI01-CI02 are complete and
 CI03 remains active. CI04 has implementation checkpoints but still needs its phase
 acceptance audit; CI05 marker removal and CI06 documentation/final acceptance remain
@@ -33,18 +33,25 @@ compares aliases equal and distinct objects unequal without a closed-view scan.
 This is an internal comparison selection, not a public Object bound or a new trait
 capability.
 
-The next step is to finish the optional-binding coverage audit and retire the
-superseded whole closed-view comparison scan in
-[receiver comparison binding](../crates/kagari-runtime/src/objects/comparison.rs).
-Receiver headers specialized to particular type arguments still need an execution
-audit. The current constructor-overlap proof conservatively refuses an unconditional
-default for such a receiver, even if a particular closed application is ineligible;
-those applications still use selected operation records. Do not infer a default
-from a failed lookup or an unknown condition. The compiler currently emits outcomes
-for demanded candidate implementation bounds, not a blanket protocol dictionary.
-Keep source/contract selection independent from runtime binding to supplying
-programs. CI04's recorded generic-erasure acceptance question and CI05-CI06 still
-remain; no phase completion is claimed by these focused regressions.
+Specialized receiver heads now carry a complete checked list of implementation
+identities and checked parameter extraction paths. Runtime follows those paths,
+compares complete type/provenance identities, then binds the selected implementation's
+conditions and operation in its retained generation. A shape mismatch is distinct
+from missing bound evidence; only an exhaustive unmatched/false result authorizes
+the identity default. The old whole closed-view comparison scan has been removed.
+The compiler emits evidence for demanded applications rather than a blanket protocol
+dictionary; execution never searches a live implementation catalog.
+
+The next implementation step is the remaining marker-owned interface PartialEq/Debug
+and declaration/conversion consumers, followed by CI04's acceptance audit and CI05's
+coherent field/API removal. `storage_access`/`storage_view` remain in the declarations,
+stdlib interface registration, source/contract protocol eligibility, member surfaces
+and installation checks. Replace their semantic grants with ordinary checked protocol
+ownership, not a renamed marker or collection-name dispatch. CI04's recorded generic
+trait-erasure question must be classified against the existing supported boundary;
+do not silently expand this into Any/downcasts or a new generic-erasure subsystem.
+CI03 remains active because those semantic grants are not yet removed; CI04-CI06
+remain open. No complete acceptance is claimed from the focused regressions.
 
 The former negative-boundary failure is resolved:
 
@@ -1969,3 +1976,72 @@ Manual review checked variant handling at every consumer, metadata tracing,
 application validation, definition traversal and bounded decoding. No re-export,
 production glob, deep parent path, compatibility bridge or permission surface was
 introduced. Complete workspace/backend validation remains CI-owned and unrun.
+
+
+CI03 specialized receiver-dispatch checkpoint removes the obsolete whole closed-view
+comparison scan. A reproduction using an old generic factory and an explicit
+PartialEq for Bag<(Local, Item)> initially trapped when a new caller supplied a new
+Item. It now preserves the old explicit implementation for its matching old receiver
+and uses identity when the full scoped receiver does not match that implementation.
+A second case uses PartialEq for Bag<(T, i32)> where T: Eq: the shared factory knows
+only Bag<U>, while an actual tuple supplies the new caller's Item. The checked
+projection recipe retains that Item's generation, verifies Eq separately and invokes
+the old factory's selected method. Artifact round trips, forced GC, root cleanup and
+retirement assertions pass for both applications.
+
+ReceiverComparison::Dispatch carries exact candidate implementation identities plus
+bounded parameter extraction paths derived from their declared receivers.
+Compiler selection demands each candidate's ordinary executable template. The proof
+catalog verifies the list is exhaustive and duplicate-free for the receiver
+constructor and checks every projection path; MIR and bytecode additionally require
+the exact canonical executable applications with unconditional selections in their
+own declared bound scopes. Mapping, definition references, bounded wire decoding and
+artifact record counts include this data. Runtime follows checked paths and compares
+complete TypeIdentity values before binding; it neither unifies source types nor
+searches a live implementation catalog. Candidate and path traversal poll cooperative
+execution cancellation. An unknown bound remains unresolved, while an exhaustive
+set of mismatched or verified-false candidates permits the object's default.
+
+Unconditional operation selections now bind directly after an exact scoped receiver
+check. Conditional selections and dispatch cases reuse the same bound-evidence and
+Forward-operation binder. The previous scan for a whole closed interface table and
+its redundant concrete-arguments parameter are deleted. Positive selected bindings
+retain candidate owners/environments through the existing metadata tracer; identity
+uses the existing original receiver/environment retention. No new runtime cache,
+public object bound, trait privilege or comparison body was introduced.
+
+Source-free tests reject empty/incomplete/duplicate candidate lists, corrupted or
+missing argument paths and missing executable candidate tables. The initial fixture
+combined a generic specialized head with another head for the same constructor, which
+the existing conservative source coherence check rejects as overlapping. The final
+fixture tests two disjoint concrete heads for completeness and a separate generic
+head for parameter recipes; coherence rules are unchanged. Earlier compilation
+repairs used the existing definition mapper reference API, explicit mapping error
+types and Runtime's resource owner for cancellation polling. These errors are resolved.
+
+
+The structural audit tightened projection encoding before this checkpoint: positional
+children use indices, but associated outputs use member DefinitionIds. A numeric
+position in a DefinitionId-sorted associated-output map would change meaning after
+scope import. Remapping and reference collection now include those member IDs, and
+verification follows each checked path to its declared parameter rather than assuming
+map ordering is stable. The source-free generic-head fixture uses
+Bag<Reader<First = i32, Second = U>> and pre-interns Second in the destination context
+before importing the artifact. Its valid recipe survives that reordered definition
+scope; forged paths and missing parameter/target records are rejected. No source
+normalization or new runtime type inference was added.
+
+Focused validation passed nine distinct cases: four generic_reload receiver cases
+(specialized heads, retained generic selections, generic identity defaults and
+ineligible content), plus five collection_interfaces cases (dispatch records,
+uniform identity defaults, existing receiver evidence, concrete content protocols
+and shared generic boxing). The specialized reload case also checks aliases so a
+new generation's false-returning method cannot masquerade as the identity default.
+Only affected failing/changed selections were rerun during repairs. Contract/compiler/
+runtime library Clippy, formatting, diff and structure checks passed; structure
+checked 1113 Rust files with no violations or exceptions. Manual review covered
+exhaustive candidate validation, exact executable target presence, argument recipe
+scope/remapping, unknown versus false guards, supplying generations, metadata
+retention and cancellation. There are no carried errors in this selected scope.
+CI03 still owns marker-based protocol grants; CI04 acceptance and CI05-CI06 remain
+open. Complete workspace/backend validation is CI-owned and unrun.
