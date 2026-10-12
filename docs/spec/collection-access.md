@@ -278,3 +278,25 @@ navigation. The accepted sorting/lazy/object proof covers source and encoded
 artifacts, GC during callbacks, cleanup, reload and independent source-free loading.
 The [performance report](../performance-baseline.md) records scoped measurements;
 coverage for retired algorithms does not imply that those APIs remain installed.
+
+
+## Host storage boundary
+
+The remaining `CollectionAccess` descriptor belongs to the existing concrete
+Map/Set representation and checked Rust host admission. It is absent from ordinary
+trait declarations and is not a second authority for interface operations.
+
+| Retained mechanism | Responsibility and validation |
+| --- | --- |
+| Ty/TypeId Map/Set descriptors and wire encoding | Preserve exact host/storage type identity, including nested invariant arguments. Native declaration adoption records readonly occurrences only after matching the installed signature. |
+| Outer readonly conversion and branch joins | Permit only mutable-to-readonly adaptation of the same concrete Map/Set family. Compiler moves retain the new static view without relabeling another alias. Generic implementation matching requires exact descriptors. |
+| Native Map/Set handles and host paths | Validate declared access, ownership and scoped borrows before reads/writes; an ordinary interface cannot recover writable storage. |
+| Bytecode access-flow and callable verification | Reject forged readonly-to-writable flows and incompatible receiver witnesses independently of source checking. |
+| Stdlib concrete registrations | Declare exact readonly read/iteration/content implementations separately from writable implementations; both use the same library algorithms. |
+
+The [native collections migration](../native-collections-plan.md) owns replacing
+these concrete families with nominal storage. Host registration/borrow unification
+is separately queued. Neither migration should restore a trait access marker or
+change the interface, identity and content contracts above. Runtime module-store
+`check_collection_access` refers to garbage-collection safepoint borrowing, not to
+collection-interface authorization.

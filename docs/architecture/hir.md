@@ -371,3 +371,19 @@ the method signature without claiming body validation; SDK preparation checks al
 generated bodies, including unused defaults. A retained snapshot keeps its proof
 and HIR arena together. Source-free linking validates the portable recipe without
 depending on this HIR table.
+
+
+Ordinary interface relationships are owned by
+[AggregateCatalog](../../crates/kagari-hir/src/aggregates/relationships.rs).
+Inference and member lookup enumerate applicable native/script implementations and
+parent applications under caller bounds. If/match inference intersects candidates
+across all normally completing arms before choosing a unique most-specific result;
+ambiguous intermediate pairs cannot discard a candidate needed by a later arm.
+
+[TypeTable](../../crates/kagari-hir/src/typeck/table.rs) records interface
+construction/upcast decisions and the exact applied interface/setter identity for
+indexed writes. For `values[0] = next`, checking resolves Index's output and the
+installed MutableList setter contract; lowering consumes that checked selection
+without rediscovering members or storage capabilities. Builtin Array element context
+and mutation stay independent. Registered readonly Map/Set occurrences describe
+host/storage types only; trait signatures carry no collection-access field.

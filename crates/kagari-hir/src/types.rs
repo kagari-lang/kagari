@@ -364,7 +364,8 @@ impl TypeId {
         matches!(self, Self::Builtin(BuiltinType::Never))
     }
 
-    /// Access is part of type identity; it never changes the underlying object.
+    /// Concrete host Map/Set access is part of type identity, not object state.
+    /// Ordinary interface types have no access descriptor.
     pub fn collection_access(&self) -> Option<CollectionAccess> {
         match self {
             Self::Set(_, access) | Self::Map { access, .. } => Some(*access),

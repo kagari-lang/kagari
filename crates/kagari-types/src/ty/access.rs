@@ -1,4 +1,4 @@
-//! Collection capability and value-copy checks over semantic types.
+//! Concrete host Map/Set access and value-copy checks over semantic types.
 use crate::ty::{
     NominalTy, Ty,
     substitution::{MAX_TYPE_NODES, TypeSubstitution},
@@ -16,7 +16,8 @@ impl Ty {
         }
     }
 
-    /// Weaken only the outer storage capability; element types remain invariant.
+    /// Weaken only the outer host/storage descriptor; element types remain invariant.
+    /// Ordinary trait relationships are independent of this concrete-family rule.
     pub fn read_only_view(&self) -> Option<Self> {
         Some(match self {
             Self::Set(item, _) => Self::Set(item.clone(), CollectionAccess::ReadOnly),

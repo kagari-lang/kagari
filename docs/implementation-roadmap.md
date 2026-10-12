@@ -118,27 +118,30 @@ work, chosen to reduce replacement of newly implemented models. It does not
 activate implementation, settle open language/API choices or merge these findings
 into one migration. Each activated task retains a finite scope and focused gates.
 
-The [SA18 execution plan](collection-interface-plan.md) defines CI01-CI06 and the
-accepted ordinary-protocol design: explicit stdlib Eq/Hash for Vec/HashSet/HashMap,
-receiver equality through List/Set/Map interfaces, and explicit library content
-comparison functions. Object `==` calls applicable receiver equality or compares
-handles; its availability alone grants no Eq/Hash bounds. Interface conversions
-retain selected operations; identity operators remain separate. The execution plan
-owns remaining implementation and acceptance work, including the current handoff.
-Execution was authorized on 2026-10-12; CI01-CI02 are complete; CI03 is in progress.
-The remaining queued review items are not activated by this authorization.
+Ordinary collection-interface ownership is implemented. Current contracts live in
+[collection semantics](spec/collection-access.md), [value semantics](spec/value-semantics.md)
+and [architecture](architecture.md#library-identities-and-representation-boundaries).
+Trait markers are removed; explicit stdlib content protocols/helpers and retained
+receiver equality are validated by focused source, artifact and reload tests.
+Exhaustive workspace and feature/backend validation remain CI-owned; local focused
+results do not claim those unrun checks. The queued items below are not activated
+by completion of the collection-interface work.
+
+The existing bound-to-interface erasure limitation is recorded as
+[SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses).
+It has no assigned position in this queue and does not expand the collection or
+host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA18](review.md#sa18-collection-operations-should-be-constrained-by-trait-interfaces): ordinary collection interfaces | Assign matching, ordinary protocol selection, concrete stdlib Eq/Hash and content helpers, object identity and installation guarantees to their owners before new registration/adaptation code consumes the model. Remove the storage-access marker only after its guarantees have replacements. |
-| 2 | [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access): registration, field views and borrowed inputs | Use the resulting interface/declaration model for one NativeModule registration path. Integrate checked host types/path views, then scoped borrowed inputs with ordinary or independently owning outputs. Settle field-view replacement/relocation behavior before implementing it. |
-| 3 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
-| 4 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
-| 5 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
-| 6 | [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-): explicit struct-pattern omission | Establish the rest marker and field-completeness checking once, for existing patterns and subsequent declarations. |
-| 7 | [SA17](review.md#sa17-ordinary-valvar-declarations-should-support-destructuring-patterns): pattern-based declarations | Replace simple bindings with the unified pattern model using SA16 rules; establish local visibility, writeability and checked extraction before local functions consume the binding/capture model. |
-| 8 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 9 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 1 | [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access): registration, field views and borrowed inputs | Use the resulting interface/declaration model for one NativeModule registration path. Integrate checked host types/path views, then scoped borrowed inputs with ordinary or independently owning outputs. Settle field-view replacement/relocation behavior before implementing it. |
+| 2 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
+| 3 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
+| 4 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
+| 5 | [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-): explicit struct-pattern omission | Establish the rest marker and field-completeness checking once, for existing patterns and subsequent declarations. |
+| 6 | [SA17](review.md#sa17-ordinary-valvar-declarations-should-support-destructuring-patterns): pattern-based declarations | Replace simple bindings with the unified pattern model using SA16 rules; establish local visibility, writeability and checked extraction before local functions consume the binding/capture model. |
+| 7 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 8 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
 Important ordering constraints and limits:
 
@@ -149,19 +152,18 @@ Important ordering constraints and limits:
   code, not a semantic requirement. These tasks can be implemented independently
   if their owner interfaces remain suitable. Module handles do not replace written
   import segments or physical source identities.
-- SA18 -> SA21 avoids introducing host registration/adaptation against a collection
-  marker scheduled for removal. It is a preferred sequence, not a requirement that
-  every host capability depends on collection changes. Collection readonly views
-  and Rust host borrow capabilities remain distinct contracts.
+- SA21 consumes ordinary trait declarations and checked interface operations.
+  Collection readonly views and Rust host borrow capabilities remain distinct
+  contracts; the removed trait marker must not be recreated by host adaptation.
 - Frontend pattern/local-function work need not wait for the complete host track.
   Host-read destructuring must preserve the current checked access contract; if
   SA21 runs later, adapt that boundary rather than resolve/extract patterns again.
 - [Native collections](native-collections-plan.md) remain a separate NC01-NC06
-  task. NC01 inventory can inform these decisions; scheduling its concrete migration
-  after SA18 reduces repeated collection model changes. Reconcile the shared
+  task. NC01 reuses the implemented content protocols/helpers and ordinary interface
+  contracts while replacing concrete storage. Reconcile the shared
   NativeStorage/access API contract before NC/SA21 changes to it. Do not require
   the full SA21 migration or persistent borrowed returns for NC implementation,
-  or silently absorb SA18/SA21 into NC scope.
+  or silently absorb host registration unification into NC scope.
 - SA21 returns borrowed from inputs, persistent borrow records and explicit release
   remain an optional later extension. They require a separate bounded lifecycle
   decision and are not prerequisites for the initial registration/input migration.

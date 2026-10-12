@@ -729,9 +729,9 @@ Implementation checkpoints use `Plan: collection-interface-plan CI0N` trailers.
 - [x] CI02: Separate installed declaration checks and ordinary implementation
   ownership from the access marker; retain legacy forgery checks until CI05.
 - [x] CI03: Implement concrete stdlib protocols/content helpers and retain identity.
-- [ ] CI04: Migrate ordinary relationships, joins, operations and host admission.
-- [ ] CI05: Remove obsolete fields/APIs, migrate codecs and refresh affected fixtures.
-- [ ] CI06: Complete focused acceptance and durable documentation handoff.
+- [x] CI04: Migrate ordinary relationships, joins, operations and host admission.
+- [x] CI05: Remove obsolete fields/APIs, migrate codecs and refresh affected fixtures.
+- [x] CI06: Complete focused acceptance and durable documentation handoff.
 
 Execution started on 2026-10-12 from 53949725. The initial working tree contained
 this plan and the related roadmap/review/NC planning edits; preserve unrelated
@@ -2149,3 +2149,32 @@ without removing a public role needed by dependent implementation tables. Its
 structural-success assertion remains, and it asserts the precise private installed
 contract error. The discarded source-interface impl experiment is not part of this
 checkpoint; source impl authoring remains within its prior concrete-target scope.
+
+
+## Completion audit (2026-10-13)
+
+CI01-CI06 are complete under the repository's focused-local/CI split. The
+marker-removal checkpoint d5905a77 and the durable handoff provide the final state.
+This plan is removed in the final handoff commit after its contracts and unresolved
+out-of-scope work have their durable owners.
+
+| Requirement | Authoritative evidence inspected |
+| --- | --- |
+| CI01 contract decisions and bounded migration | Explicit protocol/helper matrices, invariant views, host/NC split and revised no-Object identity decision; durable owners are collection-access, value-semantics, traits and architecture. |
+| CI02 installation/coherence | Exact public/private/native/reserved declaration checks in runtime registry; installation_access completed all 5 cases, including repaired private reserved rejection with structural acceptance first. Receiver ownership remains checked in HIR/types/contract. |
+| CI03 content and retained receiver semantics | Stdlib catalog/bindings comparison owners; contract ReceiverComparison and source-free validators; runtime objects/comparison and typed Interface binding. Collection interfaces/access 22 cases, shared reload 9, source-free mutations and forced-GC paths passed. |
+| CI03 effects and ordinary identity | Final interface_identity 3 cases and collection_callbacks 1 case passed: static value rejection, runtime hidden-value traps, once-only operand effects, aliases/parents, callback mutation/traps/depth/cancellation and cleanup. |
+| CI04 ordinary inference/joins/operations | Shared relationship and invariant matching owners; checked interface/setter facts consumed by lowering. All 4 HIR join groups passed after marker removal, including all arm permutations, ambiguity/dominance, associated outputs and conditional bounds. Existing selected Array/operator/host tests retain their evidence; new Iterable/shared regressions passed after adapter encoding repair. |
+| CI04 generic boundary classification | Baseline 53949725 and current apply_interface_coercion both require an actual implementation identity, not only a bound. Vec<T> -> List<T>, generic member calls, parent conversions and shared bodies are covered; bare T: Child -> Child erasure is the existing separate limitation now documented in traits and review SA22. No accepted conversion was removed or represented as passing. |
+| CI05 model/codec retirement | Searches find no storage_access/storage_view/native_trait_access/array_interfaces or obsolete relationship helper in Rust. ABI wire 2 cases and adapter validation 1 case passed. Fixture producer and no-default-features native-binding consumer passed; no compatibility reader or identifier bump. |
+| CI05 remaining descriptors | Inspected all search owners: only concrete host/storage Map/Set admission, exact registrations/matching, host path/handle checks, outer adaptation and verifier flow remain. Runtime module-store collection access is GC safepoint borrowing. Durable classification lives in collection-access; NC/SA21 retain their separate scope. |
+| CI06 handoff/structure | Architecture, HIR guide, artifacts, builtins, traits, collection/value semantics and native declaration docs updated. NC and SA21 references use the implemented model. Resolved SA18 and queue entry removed. Structure checked 1115 files with no violations/exceptions, formatting/diff and scoped Clippy passed; relative file links checked in all changed durable docs. |
+
+The final two checkpoints cover 49 distinct selected test cases; repetitions after
+repairs are not extra cases. Unaffected earlier evidence is retained instead of
+repeating a workspace sweep. Complete workspace Clippy/tests and the exhaustive
+feature/backend matrix remain unrun, CI-owned work; no native-entry or performance
+claim is inferred from ArtifactJit route names. There are no carried local failures,
+missing selected tests, temporary probes, required source changes or undocumented
+in-scope debts. No new model, Object/Any/reflection feature, external-storage migration
+or registration unification was silently included.

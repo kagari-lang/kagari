@@ -387,114 +387,6 @@ coverage at their existing owners. Coordinate with SA16 without expanding into
 slice patterns, tuple rest syntax or unrelated pattern features. This entry records
 the agreed future design only; implementation remains deferred.
 
-## SA18 Collection operations should be constrained by trait interfaces
-
-The requested follow-up direction uses a Kotlin-like interface/object model:
-trait members and checked implementation/inheritance relationships determine
-available operations. A shared object's storage does not acquire a separate
-mutable/immutable state when viewed through another interface. Preserve binding
-and field `val`/`var` assignment rules, which have a different responsibility.
-The current [collection contract](spec/collection-access.md) already separates
-List/MutableList, Map/MutableMap and Set/MutableSet and permits shared aliases.
-The concern is the extra semantic axis and unrelated rules attached to it.
-
-For an installed Vec implementation, the intended interface model is shown
-below. The explicit constructor is implemented by SA20; broader SA18 changes
-remain deferred.
-
-```kagari
-val concrete = Vec::from([1, 2]);
-val writable: MutableList<i32> = concrete;
-val readable: List<i32> = writable;
-writable.push(3);
-readable.len(); // 3: both interfaces retain the same underlying object.
-```
-
-`List<T>` exposes read operations; `MutableList<T>: List<T>` adds write operations.
-Calling `readable.push(...)` or assigning an element through List must fail because
-the static interface lacks the required operation. Interface conversion retains
-the object; it does not copy, freeze or snapshot storage. Other aliases can mutate
-it, and referenced elements retain their own access rules. A readonly API is not a
-purity proof. Native and script implementations should use the same ordinary
-interface checking and dispatch model.
-
-[`TraitBuilder::storage_view`](../crates/kagari-runtime/src/native/builder/trait_builder.rs)
-currently sets [`TraitDef.storage_access`](../crates/kagari-types/src/declaration/mod.rs).
-Inspection found that this field influences more than method availability:
-implementation matching/receiver access weakening, common readonly branch types,
-automatic Eq/Hash/Debug support, interface identity unwrapping, implementation
-ownership and exact installation checks. The
-[installation test](../crates/kagari-runtime/tests/installation_access.rs) constructs
-a methodless marked trait and verifies those installation privileges even without
-native calls. This coupling makes a read/write marker imply unrelated semantics.
-It is not evidence of a current correctness failure or measured bottleneck.
-
-Follow-up owner: shared types/declarations, HIR interface analysis, executable
-contracts and runtime interface/storage boundaries. The target is to remove
-`TraitDef.storage_access` and `TraitBuilder::storage_view` after moving each
-consumer's guarantees to its semantic owner:
-
-| Current responsibility | Intended owner/model |
-| --- | --- |
-| Available read/write operations and parent upcasts | Trait members, explicit implementations and ordinary interface inheritance. |
-| Receiver matching and common branch types | General checked interface/type relationships; preserve valid existing cases and diagnose ambiguity without selecting by a storage tag. |
-| Equality/hash/debug support | Ordinary protocol selection, explicit concrete stdlib Eq/Hash and separate content comparison functions; interface `==` retains receiver equality, while Eq/Hash bounds require evidence. Specified Debug defaults remain independent of read/write access. |
-| Underlying identity through interface wrapping | Interface value representation and object identity semantics, retaining pinned method-table versions. |
-| Native installation and implementation validity | Exact required declaration, entry, layout and witness validation at their existing source-free owners. |
-
-An interface value conceptually retains its underlying value plus a checked method
-witness/table. List and MutableList views of one Vec share the underlying object
-while exposing different declared methods. The witness/table is executable
-metadata, not a second mutability authority. Actual Rust storage still needs its
-registered layout, tracing, ownership and scoped borrow validation; removing the
-trait marker does not remove concrete native storage registration or runtime
-integrity checks. Do not extend identity operations to scalar/tuple/enum values
-merely because they are boxed, or to unrelated interfaces as an incidental change.
-
-Review `CollectionAccess` in internal Array/Map/Set types as part of tracing the
-same model, rather than retaining a parallel access system beneath ordinary
-interfaces. SA20 retains a distinct builtin fixed-length Array and separates it
-from Vec and the List interfaces; it does not require deleting that builtin type.
-Choose representation changes only for affected concrete paths;
-operators such as indexed assignment must still select and validate the required
-write operation. Keep generic arguments invariant and implicit parent conversions
-one-way. General variance, new downcasts and a universal object superclass remain
-separate language decisions.
-
-The accepted target uses ordinary protocol selection. Stdlib explicitly provides
-content PartialEq/Eq/Hash for Vec, HashSet and HashMap under their declared bounds;
-object `==` remains available through List/Set/Map interfaces and follows the
-receiver's applicable equality implementation, otherwise object handles. This
-availability alone does not establish Eq/Hash bounds. Explicit library functions
-compare contents across collection implementations. Interface adaptations retain
-receiver comparison and its supplying generation; identity operators remain
-separate. Third-party collections retain their own
-ordinary object equality/hash policy rather than inheriting one from List/Set/Map.
-The [execution plan's accepted rules](collection-interface-plan.md#accepted-collection-equality-hashing-and-identity)
-own the concrete protocol matrix, helper contracts, IEEE floating-point behavior
-and hash-key stability. Builtin Array and ordinary non-collection object defaults
-remain outside this semantic change.
-
-Kotlin's [collection interfaces](https://kotlinlang.org/docs/collections-overview.html)
-provide the reference for method surfaces, parent relationships and val/var
-independence. Its content rules inform concrete stdlib protocols and explicit
-helpers; interface object equality follows the receiver rather than a universal
-collection content contract. Kagari retains
-invariant arguments, ordinary conditional impls and IEEE float semantics without
-adopting Kotlin/JVM representation or a universal Any model.
-
-When activated, migrate the shared declarations, analysis, checked artifacts and
-runtime consumers coherently and update specifications/model documentation. Reuse
-focused contracts for read/write method and index access, shared alias visibility,
-custom implementations, generic matching, common-interface inference, concrete
-Eq/Hash, explicit content helpers, interface receiver comparison, object identity and
-pinned reload. Adapt marker-specific tests while retaining source-free rejection
-of forged declarations/layouts/witnesses and host borrow/GC cleanup coverage.
-Measure any claimed memory or speed benefit. The active [execution plan](collection-interface-plan.md) owns CI01-CI06
-and execution progress. Execution was authorized on 2026-10-12. The accepted
-semantic change is not yet fully implemented; current-specification updates belong
-to the plan's implementation and handoff checkpoints.
-
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 
 The requested future direction is to register all Rust-side functions and types
@@ -534,7 +426,7 @@ than new `&`/`&mut`, move or lifetime syntax. A wrapper is a checked handle with
 host provenance, access capability and a valid scope, not a freely storable naked
 Rust reference. It still needs semantic support for lifetime/escape restrictions;
 a plain generic struct alone cannot establish these guarantees. Writable access
-through a host wrapper is separate from SA18's collection-interface model and
+through a host wrapper is separate from the [ordinary collection-interface model](spec/collection-access.md) and
 from binding `val`/`var`; shared access does not imply deep object immutability.
 
 The intended distinction is:
@@ -664,3 +556,29 @@ lifetime, reentry, stale-view, suspension, cleanup and pinned-reload contracts.
 Do not weaken tests or retain a second semantic implementation to hide migration
 gaps. This review entry records the future direction and unresolved choices only;
 implementation, specifications and roadmap phase activation remain deferred.
+
+
+## SA22 Generic bounds do not supply interface construction witnesses
+
+The current checker rejects this conversion with KG_TYPE_RETURN_TYPE_MISMATCH:
+
+```text
+trait Child {}
+fn erase<T: Child>(value: T) -> Child { value }
+```
+
+[Interface coercion](../crates/kagari-hir/src/typeck/body/methods.rs) requires a
+selected concrete implementation identity/arguments or an existing interface
+upcast. A bound permits method calls but does not produce that construction record.
+The same boundary predates the collection-interface migration (baseline 53949725).
+Generic receiver shapes with a selected implementation, such as Vec<T> -> List<T>,
+already work, including shared generic methods and retained closures.
+
+Follow-up owner: HIR coercion facts, contract construction witnesses and compiler
+lowering, with runtime consuming checked facts. A future implementation must carry
+the bound's actual implementation and associated outputs through static/shared calls,
+verify it without source, and preserve receiver category, GC roots and supplying
+generations. Validate scalar and object receivers, parent adaptation, cancellation,
+forged/missing witnesses and reload. Do not infer an object upper bound from an
+arbitrary trait or bypass conversion checks. This is a recorded existing limitation,
+not an activated feature, Any/downcast design or part of host registration unification.

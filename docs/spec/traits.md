@@ -43,6 +43,31 @@ The current trait scope excludes:
 - higher-rank bounds
 - higher-kinded type parameters and projection-heavy solving beyond the bounded associated type normalizer
 
+## Current interface conversion boundary
+
+Concrete applied implementations can become interface values, including generic
+receiver shapes such as `Vec<T>` becoming `List<T>`. Existing interface values
+upcast through declared parents. Their arguments remain invariant, and their
+checked associated outputs and receiver generations are preserved. Shared generic
+methods and ordinary trait-bound calls do not require a universal Object type.
+Identity comparison through any ordinary interface follows the runtime receiver
+category, as specified in [value semantics](value-semantics.md#operators-and-defaults).
+
+A bare type parameter's bound does not currently supply an interface-construction
+witness. For example `fn erase<T: Child>(value: T) -> Child { value }` is rejected,
+while invoking a declared Child method through T remains supported. This is an
+existing generic-erasure limitation, independent of collection interfaces and
+ordinary-interface identity. The [follow-up finding](../review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses)
+records its owner and required validation. It does not permit unchecked boxing,
+Any, downcasts or value identity.
+
+Source-authored impl targets remain concrete receiver types; installed native
+implementations may also define protocols on nominal interface values. Their
+signatures, type-owned protocol ownership and executable targets are checked by
+the same declaration/proof owners. The standard library uses this registration
+path for Iterator's Iterable adapter and collection-interface PartialEq/Debug.
+No collection name grants the implementation or its methods.
+
 ## Associated Constants
 
 Traits may declare scalar associated constants, with an optional default:

@@ -123,13 +123,16 @@ adding concrete-type dispatch to the compiler or VM.
 The [equality and hashing contract](value-semantics.md#equality-and-hashing)
 defines defaults, custom Struct/enum implementations and user obligations for
 mutable keys. Default HashMap keys and HashSet elements require the
-compiler-owned `Eq + Hash` contracts; Map/Set interfaces do not:
+checked `Eq + Hash` contracts; Map/Set interfaces do not:
 
 - unit, bool, integers and String use value equality and hashing;
 - Tuple, Option and Result compose the protocols of all members;
 - user enums use explicit implementations, or eligible variant/member defaults;
 - Struct uses explicit implementations, or stable object identity;
-- Array, Map and Set use stable object identity, independently of their contents.
+- Array uses stable object identity, independently of its contents;
+- Vec, HashMap and HashSet use their applicable stdlib content implementations,
+  with eligible identity defaults when content bounds are not satisfied. See
+  [collection protocols and helpers](collection-access.md#content-protocols-and-helpers).
 
 Float, interface, host handle/path and function values are not keys themselves.
 Default enum eligibility checks every variant. A complete custom enum protocol
