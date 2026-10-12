@@ -2,13 +2,87 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    frame::types::arguments::type_parameter,
+    gc::interfaces::InterfaceResultBinding,
     native::context::{ScriptCall, ScriptInvoker},
     value::Value,
     value_semantics,
 };
+use kagari_contract::callable::receiver::object_receiver;
+use kagari_types::ty::Ty;
 use std::slice;
 
 impl Runtime {
+    pub(super) fn receiver_comparison_binding(
+        &self,
+        binding: &InterfaceResultBinding,
+        expression: &Ty,
+        arguments: &[Ty],
+    ) -> Result<Option<InterfaceResultBinding>, RuntimeError> {
+        let invalid = || RuntimeError::module_validation("receiver comparison application");
+        let receiver = self
+            .type_arguments(
+                &binding.owner,
+                binding.environment.as_ref().map(|env| env.types.clone()),
+                slice::from_ref(expression),
+            )?
+            .pop()
+            .ok_or_else(invalid)?;
+        if !object_receiver(receiver.ty()) {
+            return Ok(None);
+        }
+        let identity = receiver.identity(&binding.owner).ok_or_else(invalid)?;
+        let declaration = binding.owner.bytecode.interface_tables[binding.table].declaration;
+        let mut scopes = vec![binding.owner.clone()];
+        let mut pending = vec![receiver];
+        while let Some(argument) = pending.pop() {
+            if let Some(owner) = argument.supplying_owner()
+                && !scopes
+                    .iter()
+                    .any(|scope| scope.program_identity() == owner.program_identity())
+            {
+                scopes.push(owner.clone());
+            }
+            for index in 0.. {
+                if type_parameter(argument.ty(), index).is_none() {
+                    break;
+                }
+                pending.push(argument.parameter(self, &binding.owner, index)?);
+            }
+        }
+        // Only exact, prechecked applications of this implementation are eligible.
+        // Structural Ty equality alone loses the generation supplying a nominal
+        // element. An old shared body may be constructing a new caller's Vec<T>.
+        for scope in scopes {
+            let module = scope.definition(declaration)?.module();
+            let owner = scope
+                .members()
+                .find(|owner| &owner.bytecode.identity == module)
+                .ok_or_else(invalid)?;
+            for (index, table) in owner.bytecode.interface_tables.iter().enumerate() {
+                if table.declaration != declaration || table.arguments != arguments {
+                    continue;
+                }
+                let Some(comparison) = &table.comparison else {
+                    continue;
+                };
+                let required = comparison.operation.requirement();
+                let selected =
+                    self.resolve_type_arguments(&owner, slice::from_ref(&required.receiver))?;
+                if selected[0].identity(&owner).as_ref() != Some(&identity) {
+                    continue;
+                }
+                return Ok(Some(InterfaceResultBinding {
+                    owner,
+                    table: index,
+                    arguments: arguments.to_vec(),
+                    environment: binding.environment.clone(),
+                }));
+            }
+        }
+        Ok(None)
+    }
+
     pub(crate) fn compare_interface_values(
         &self,
         left: Value,

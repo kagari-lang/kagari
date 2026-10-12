@@ -174,6 +174,12 @@ impl TypeArgument {
         self.data.origin.is_some()
     }
 
+    /// Lexical program that supplied this expression, including its checked
+    /// construction applications. Nested parameters can have different suppliers.
+    pub(crate) fn supplying_owner(&self) -> Option<&LoadedModule> {
+        self.data.origin.as_ref().map(|origin| &origin.scope.owner)
+    }
+
     pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
         let table = runtime.definition_context().snapshot();
         if let Some(origin) = &self.data.origin

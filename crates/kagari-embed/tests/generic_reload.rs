@@ -237,6 +237,7 @@ impl Iterable for Bag {
     type Iter = CollectionCursor<i32>;
     fn iter(self) -> CollectionCursor<i32> { Vec::from([self.value]).iter() }
 }
+
 impl Set<i32> for Bag {
     fn len(self) -> usize { 1usize }
     fn is_empty(self) -> bool { false }
@@ -296,5 +297,77 @@ fn probe() -> Probe { Checker {} }
             .retention_counts(old_key)
             .runtime_values,
         0
+    );
+}
+
+#[test]
+fn shared_collection_comparison_retains_the_callers_nominal_generation() {
+    let source = r#"
+use std::collections::List;
+struct Item { val value: i32 }
+impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
+trait Boxer {
+    fn one<T>(self, value: T) -> List<T> { Vec::from([value]) }
+}
+struct Factory {}
+impl Boxer for Factory {}
+trait Probe { fn check(self, factory: Boxer) -> bool; }
+struct Checker {}
+impl Probe for Checker {
+    fn check(self, factory: Boxer) -> bool {
+        factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })
+    }
+}
+fn make() -> Boxer { Factory {} }
+fn probe() -> Probe { Checker {} }
+"#;
+    let engine = KagariEngine::default();
+    let original = prepare(&engine, source);
+    let replacement = prepare(&engine, &source.replace("bool { true }", "bool { false }"));
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = Runtime::new(config);
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    let old = runtime
+        .load_program("shared-comparison-reload", original)
+        .unwrap();
+    let old_key = old.key();
+    let vm = Vm::new(runtime);
+    let factory = vm.execute(&old, "make").unwrap().return_value;
+    let old_probe = vm.execute(&old, "probe").unwrap().return_value;
+    let current = vm
+        .reload_program(&old, "shared-comparison-reload", replacement)
+        .unwrap();
+    drop(old);
+    vm.runtime().collect_garbage().unwrap();
+    let fresh_probe = vm.execute(&current, "probe").unwrap().return_value;
+    let contract = current
+        .bytecode
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Probe")
+        .unwrap();
+    let method =
+        ModuleDecl::method_id(contract.declaration, "check", current.definitions()).unwrap();
+    for (probe, expected) in [(&old_probe, true), (&fresh_probe, false)] {
+        assert_eq!(
+            vm.invoke_interface_method(
+                &probe.value(vm.runtime().gc()).unwrap(),
+                &method,
+                &[factory.value(vm.runtime().gc()).unwrap()],
+            )
+            .unwrap(),
+            Value::Bool(expected),
+        );
+    }
+    drop((factory, old_probe, fresh_probe));
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(old_key)
+            .runtime_values,
+        0,
     );
 }

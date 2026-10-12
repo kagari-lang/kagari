@@ -863,3 +863,47 @@ binder traversal at contract, representation extraction at MIR/bytecode, materia
 at compiler and generation retention at runtime; no new re-exports, production globs,
 compatibility APIs or LOC exceptions were added. This is a buildable CI03 checkpoint,
 not completion of CI03 or the full goal.
+
+CI03 supplying-generation checkpoint: the new decoded-artifact reload case retains
+an old Boxer.one<T> shared body while a new Probe supplies Item from its own
+program generation. Changing Item.eq from true to false exposed a real failure:
+the result remained true because interface construction picked its exact Ty
+application from the old body's program. Receiver comparison preparation now
+uses the reified receiver and nested type-argument origins to consider only retained
+supplying programs, and requires complete nominal-generation identity before
+retaining an already checked application of the same interface implementation.
+It does not use layout compatibility or search trait implementations from a live
+value. The retained comparison binding keeps the selected program alive through
+the existing snapshot metadata edge. The old caller still uses old Item.eq and
+the new caller uses new Item.eq; forced collection and final root/object release
+passed in `shared_collection_comparison_retains_the_callers_nominal_generation`.
+
+The collection_interfaces target passed all 10 cases after this fix, covering
+direct and shared construction, custom implementations, content operations,
+identity and decoded executable corruption checks. A new collection_callbacks
+contract test exercises both concrete Vec equality and list_content_equal, plus
+Vec hashing. It checks committed structural mutation followed by iterator failure,
+short-circuit false without a forced extra read, element traps, recursive equality
+and hashing hitting the configured depth limit, cancellation, root release and
+successful reentry after cancellation under forced GC. It passed against decoded
+artifacts. The initial fixture used a nonexistent Value::Usize variant and expected
+the storage-layer iterator error rather than the exposed cursor error; those test
+errors were corrected without changing runtime behavior. Full native/backend
+coverage remains CI-owned; these callback assertions use the interpreter.
+
+Remaining CI03 work: check newly introduced type applications after reload,
+including primitive arguments without nominal origins, and compositions whose
+nominal components come from different supplying generations. Exact application
+reuse is not evidence that these boundaries are complete; source-free checked
+construction evidence must cover them without choosing a layout-compatible but
+semantically different callback. Finish readonly host descriptor admission and
+ordinary protocol-bound acceptance before closing CI03. CI04 relationship/helper
+inference work and CI05 marker removal remain open.
+
+The preexisting retained-receiver reload regression also passed after the change.
+Runtime library Clippy, structure checks (1097 Rust files, no violations or
+exceptions), formatting, local plan links and diff checks passed. Structural
+review found no new public API, re-export, import glob or duplicated semantic
+implementation. Receiver application preparation remains runtime-owned and uses
+existing checked construction records and type provenance. This checkpoint does
+not complete CI03 or the active goal.

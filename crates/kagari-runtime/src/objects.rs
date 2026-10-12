@@ -321,31 +321,11 @@ impl Runtime {
                 .collect(),
             environment: environment.clone(),
         };
-        // Shared construction reifies an already selected implementation. Reuse an
-        // exact checked application when it carries the concrete receiver operation;
-        // this does not select a trait implementation from the live receiver.
-        let comparison = linked
-            .comparison
-            .as_ref()
-            .map(|_| receiver_table.clone())
-            .or_else(|| {
-                implementation
-                    .bytecode
-                    .interface_tables
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, table)| {
-                        (table.declaration == linked.declaration
-                            && table.arguments == concrete_arguments
-                            && table.comparison.is_some())
-                        .then(|| InterfaceResultBinding {
-                            owner: implementation.clone(),
-                            table: index,
-                            arguments: receiver_table.arguments.clone(),
-                            environment: environment.clone(),
-                        })
-                    })
-            });
+        let comparison = self.receiver_comparison_binding(
+            &receiver_table,
+            &template.for_type,
+            &concrete_arguments,
+        )?;
         Ok(InterfaceValueSnapshot {
             comparison,
             receiver_operations: MetadataCache::new(),
