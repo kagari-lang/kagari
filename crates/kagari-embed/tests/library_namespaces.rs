@@ -36,7 +36,9 @@ fn main() -> i32 {
     match result { Some(value) => value + map.len() as i32 - 1, None => 0 }
 }
 "#), Default::default()).unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();

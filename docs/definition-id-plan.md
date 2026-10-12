@@ -3924,3 +3924,28 @@ callable_traits (4), and library_namespaces/array_operations/string_methods/
 type_inference (one each). SI06 owns these artifact and fixture consumers, remaining
 example/dependent audits and final documentation cleanup. No package-wide tests ran;
 exhaustive validation remains CI scope.
+
+### SI06 numeric, callable and associated-family fixture scopes
+
+Artifact readers retain their metadata tables; callable and associated-family
+forgeries register changed ancestors/members in their authoring context and verify
+the valid baseline before mutation. The numeric Host callback imports the installed
+standard Vec type instead of reconstructing a nominal identity from module text.
+Numeric artifact mutation retains its context through loader verification.
+
+Twelve selected cases pass: array alias/storage behavior; callable witness rejection
+and forwarding through closure captures; portable UTF-8/CRLF error locations; three
+associated-family contracts (imported binders, unused metadata and dynamic-interface
+rejection); namespace re-export identity; numeric failed-shift effects and forged
+cast rejection; immutable String operations; and inference evaluation order. Scoped
+Clippy for all eight affected targets passes. Structure checks 1087 Rust files with
+zero violations/exceptions; formatting and diff checks pass. Review covers exact
+scope provenance, meaningful negative inputs, normal imports and unchanged assertions.
+
+The 34 preceding diagnostics are resolved. The next embed library/test-target Clippy
+attempt reports 110 additional old-API consumer diagnostics: source_modules (50),
+enum_payloads (16), conformance (11), registration_sources (9), operator_traits (8),
+associated_constants (7), native_preparation (4), native_artifacts (3), and never (2).
+SI06 owns their scoped artifact construction, semantic query and registration repairs.
+No package-wide tests were run. Remaining example/dependent audits and final lasting
+documentation transfer/plan retirement remain required; full acceptance stays in CI.

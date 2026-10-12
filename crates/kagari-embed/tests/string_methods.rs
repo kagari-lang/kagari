@@ -15,7 +15,9 @@ fn run(source: &str, expected_error: Option<&str>) {
     let artifact = engine
         .compile_to_artifact(SourceFile::new("strings.kgr", source), Default::default())
         .unwrap();
-    let artifact = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();

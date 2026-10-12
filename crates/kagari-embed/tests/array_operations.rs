@@ -1,3 +1,4 @@
+use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_embed::{context::JitPolicy, engine::EngineConfig};
 use kagari_source::source::SourceFile;
 
@@ -18,7 +19,10 @@ fn execute(source: &str) {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -38,7 +42,7 @@ fn execute(source: &str) {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let result = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,

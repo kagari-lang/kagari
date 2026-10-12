@@ -1,4 +1,6 @@
 mod support;
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -6,14 +8,17 @@ use kagari_embed::{
     program::PreparedProgram,
     runtime::LoadOptions,
 };
-use kagari_source::source::SourceFile;
+use kagari_runtime::{error_trace::MAX_ERROR_FRAMES, value::Value};
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_vm::vm::native::PreparedNativeEntry;
 
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
     let engine = KagariEngine::default();
     let artifact=engine.compile_to_artifact(SourceFile::new("origin.kgr","fn fail()->i32 {\n    42/0\n}\nfn middle()->i32 {fail()}\nfn main()->i32 {middle()}\n"),Default::default()).unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -71,7 +76,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let error = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -105,7 +110,10 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -125,7 +133,7 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -258,14 +266,8 @@ fn main()->Result<i32,String>{recur(160)}
         .unwrap();
     let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
     let trace = report.failure.unwrap().trace;
-    assert_eq!(
-        trace.frames.len(),
-        kagari_runtime::error_trace::MAX_ERROR_FRAMES
-    );
-    assert_eq!(
-        trace.omitted_frames,
-        162 - kagari_runtime::error_trace::MAX_ERROR_FRAMES
-    );
+    assert_eq!(trace.frames.len(), MAX_ERROR_FRAMES);
+    assert_eq!(trace.omitted_frames, 162 - MAX_ERROR_FRAMES);
     assert_eq!(trace.frames[0].function_name, "recur");
 }
 
@@ -373,8 +375,10 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
             Default::default(),
         )
         .unwrap();
-    assert!(artifact.debug.is_none());
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    assert!(artifact.records().debug.is_none());
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -449,7 +453,7 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
             .return_value
             .value(runtime.runtime().gc())
             .expect("retained execution result"),
-        kagari_runtime::value::Value::I32(1000)
+        Value::I32(1000)
     );
 }
 
@@ -469,10 +473,6 @@ fn main()->Result<i32,Problem>{Err(Problem {code:7})}
 
 #[test]
 fn imported_error_frames_keep_their_own_source_locations() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = KagariEngine::default();
     let mut root = None;
     for (name, source) in [
@@ -506,7 +506,9 @@ fn imported_error_frames_keep_their_own_source_locations() {
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =

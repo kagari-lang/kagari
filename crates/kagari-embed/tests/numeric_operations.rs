@@ -1,14 +1,24 @@
-use kagari_common::identity::DefinitionKind;
+use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::{native::conversion::context::ConversionContext, value::Value};
+use kagari_runtime::{
+    host::HostFunction,
+    native::{conversion::context::ConversionContext, types::Type},
+    value::Value,
+};
 use kagari_source::source::SourceFile;
-use kagari_stdlib::namespaces;
-use kagari_types::declaration::module::ModuleDecl;
+use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::{
+    host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
+    scalar::BuiltinType,
+    ty::Ty,
+};
 use std::sync::{Arc, Mutex};
 
 fn execute(source: &str) {
@@ -23,7 +33,10 @@ fn execute(source: &str) {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -43,7 +56,7 @@ fn execute(source: &str) {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let result = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -137,25 +150,39 @@ fn shifts_reject_negative_and_width_counts() {
 
 #[test]
 fn failed_shift_keeps_target_and_completed_rhs_effects() {
-    use kagari_runtime::host::HostFunction;
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+    let definitions = DefinitionContext::new().unwrap();
+    let vector = StandardDeclarations::default().vec(Type::i32()).unwrap();
+    let Ty::NativeObject(vector) = DefinitionMetadata::checked(
+        vector.definitions().unwrap().clone(),
+        vector.abi().clone(),
+        &Default::default(),
+    )
+    .unwrap()
+    .import_into(&definitions, &Default::default())
+    .unwrap()
+    .into_records() else {
+        panic!("Vec declaration");
     };
     let declaration = HostFunctionDeclaration::new(
+        &definitions,
         "demo.memory",
         vec![],
-        HostValueType::Vec(
-            ModuleDecl::new(namespaces::type_owner("Vec"))
-                .definition(DefinitionKind::AssociatedType, "Vec"),
-            Box::new(HostValueType::I32),
-        ),
-    );
+        HostValueType::Vec(vector.declaration, Box::new(HostValueType::I32)),
+    )
+    .unwrap();
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface {
-            functions: vec![declaration.clone()],
-            ..Default::default()
-        })
+        .set_host_interface(
+            DefinitionMetadata::checked(
+                definitions.snapshot(),
+                HostInterface {
+                    functions: vec![declaration.clone()],
+                    ..Default::default()
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .unwrap();
 
     let artifact = engine
@@ -179,11 +206,15 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let memory_slot = Arc::new(Mutex::new(None));
     let captured_memory = memory_slot.clone();
     runtime
-        .register_host_function(HostFunction::new(declaration, move |_, _| {
-            Ok(Value::GcHandle(
-                captured_memory.lock().unwrap().expect("initialized memory"),
-            ))
-        }))
+        .register_host_function(HostFunction::new(
+            DefinitionMetadata::checked(definitions.snapshot(), declaration, &Default::default())
+                .unwrap(),
+            move |_, _| {
+                Ok(Value::GcHandle(
+                    captured_memory.lock().unwrap().expect("initialized memory"),
+                ))
+            },
+        ))
         .unwrap();
     let loaded_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
@@ -278,14 +309,21 @@ fn casts_respect_early_return_and_nested_generics() {
 
 #[test]
 fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
-    use kagari_bytecode::instruction::BytecodeInstruction;
-    use kagari_types::scalar::BuiltinType;
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("conversion.kgr", "fn main() -> u8 { 256u16 as u8 }"),
             Default::default(),
         )
+        .unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records();
+    artifact
+        .clone()
+        .validate_for_loader(&Default::default(), &definitions)
         .unwrap();
     for target in [BuiltinType::Bool, BuiltinType::String] {
         let mut forged = artifact.clone();
@@ -301,7 +339,11 @@ fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
             })
             .unwrap();
         conversion.target = target;
-        assert!(forged.validate_for_loader(&Default::default()).is_err());
+        assert!(
+            forged
+                .validate_for_loader(&Default::default(), &definitions)
+                .is_err()
+        );
     }
 }
 
