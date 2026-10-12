@@ -593,9 +593,13 @@ fn instruction_contracts_match(
             .map(move |instruction| (function, instruction))
     }) {
         if let BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
-            let Some(parents) =
-                interface_views(source, &Ty::Trait(source.clone()), closure, definitions)
-            else {
+            let Ok(parents) = trait_inheritance::interface_upcast_targets(
+                source,
+                &Ty::Trait(source.clone()),
+                &CancellationToken::default(),
+                definitions,
+                &|id| contract(id, closure, definitions),
+            ) else {
                 return false;
             };
             if !parents.contains(target) {

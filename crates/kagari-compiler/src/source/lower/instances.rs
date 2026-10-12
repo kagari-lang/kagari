@@ -26,11 +26,17 @@ use kagari_hir::{
         FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue,
         table::ConstraintTarget,
     },
-    types::{NominalType, TypeId, TypeSubstitution, semantic::lower_type},
+    types::{
+        NominalType, TypeId, TypeSubstitution,
+        semantic::{lower_nominal_type, lower_type},
+    },
 };
 use kagari_mir::{ids::InstanceId, passes::PassOptions};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::language::Protocol;
+use kagari_types::{
+    language::Protocol,
+    ty::{NominalTy, Ty},
+};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     slice,
@@ -80,6 +86,7 @@ pub(super) struct InstanceKey {
 impl InstanceKey {
     pub(super) fn lower(
         &self,
+        catalog: &AggregateCatalog,
         options: &MirLoweringOptions,
         definitions: &DefinitionTable,
         span: Span,
@@ -95,7 +102,7 @@ impl InstanceKey {
                 if !argument.is_concrete() {
                     return Err(unresolved_type(&argument, definitions, span));
                 }
-                Ok(lower_type(&argument))
+                Ok(lower_type(&catalog.canonical_value_type(definitions, &argument)))
             })
             .collect::<Result<_, _>>()?;
         Ok(ConcreteFunctionIdentity {
@@ -145,6 +152,20 @@ pub(super) struct InstancePlanner<'a> {
 }
 
 impl<'a> InstancePlanner<'a> {
+    /// Encode value types after source substitution and implementation selection.
+    pub fn encode_type(&self, ty: &TypeId) -> Ty {
+        lower_type(&self.catalog.canonical_value_type(&self.definitions(), ty))
+    }
+
+    /// Encode an applied declaration without turning its constraints into a value view.
+    pub fn encode_nominal(&self, nominal: &NominalType) -> NominalTy {
+        lower_nominal_type(
+            &self
+                .catalog
+                .canonical_interface_application(&self.definitions(), nominal),
+        )
+    }
+
     pub fn definitions(&self) -> DefinitionTable {
         self.context.snapshot()
     }
@@ -593,7 +614,7 @@ impl<'a> InstancePlanner<'a> {
             self.interface_instances.push(InterfaceInstance {
                 comparison: None,
                 declaration: *declaration,
-                arguments: arguments.iter().map(lower_type).collect(),
+                arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
             });
             self.require_iterator_view(declaration, arguments, span)?;
             if let Some(contract) = self.catalog.implementation_signature(declaration) {

@@ -147,6 +147,14 @@ pub fn links(
                 implementation: selected.implementation,
             });
         }
+        parents.push(InterfaceParentRecord {
+            interface: view.clone(),
+            view: true,
+            implementation: ConcreteFunctionIdentity {
+                declaration: linked.declaration,
+                arguments: linked.arguments.clone(),
+            },
+        });
         Some(InterfaceViewRecord {
             interface: view,
             results,

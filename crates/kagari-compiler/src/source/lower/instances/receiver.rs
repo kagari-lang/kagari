@@ -5,13 +5,7 @@ use kagari_contract::callable::{
     receiver::{ReceiverComparison, object_receiver},
     witness::OperationWitness,
 };
-use kagari_hir::{
-    language::semantics::ProtocolSemantics,
-    types::{
-        TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
-};
+use kagari_hir::{language::semantics::ProtocolSemantics, types::TypeId};
 use kagari_types::{declaration::requirement::NativeCallableRequirement, language::Protocol};
 
 impl InstancePlanner<'_> {
@@ -20,7 +14,7 @@ impl InstancePlanner<'_> {
         receiver: &TypeId,
         span: Span,
     ) -> Result<Option<ReceiverComparison>, MirLoweringError> {
-        let ty = lower_type(receiver);
+        let ty = self.encode_type(receiver);
         // Shared templates are prepared from concrete demands before execution.
         if !object_receiver(&ty) || !ty.is_concrete() {
             return Ok(None);
@@ -34,7 +28,7 @@ impl InstancePlanner<'_> {
             .ok_or(MirLoweringError::MissingBinding("object equality member"))?;
         let required = NativeCallableRequirement {
             receiver: ty,
-            interface: lower_nominal_type(&interface),
+            interface: self.encode_nominal(&interface),
             member,
             arguments: vec![],
         };

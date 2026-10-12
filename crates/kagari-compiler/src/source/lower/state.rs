@@ -17,7 +17,7 @@ use kagari_hir::{
     },
     resolver::resolved::ResolvedName,
     typeck::TypedFunction,
-    types::{TypeId, semantic::lower_type},
+    types::TypeId,
 };
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
@@ -68,9 +68,12 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         let mut function = MirFunction {
             semantic: Default::default(),
             id: instance.id,
-            instance: instance
-                .key
-                .lower(planner.options, &planner.definitions(), span)?,
+            instance: instance.key.lower(
+                planner.catalog,
+                planner.options,
+                &planner.definitions(),
+                span,
+            )?,
             name: if instance.key.arguments.is_empty() {
                 hir_function.name.clone()
             } else {
@@ -163,7 +166,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             let ty = planner
                 .arguments(slice::from_ref(ty), &instance.substitution, span)?
                 .remove(0);
-            Ok::<_, MirLoweringError>(lower_type(&ty))
+            Ok::<_, MirLoweringError>(planner.encode_type(&ty))
         };
         function.semantic.result = Some(concrete(&typed_function.return_type)?);
         let scope = if instance.closure.is_some() {
@@ -176,7 +179,8 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         } else {
             typed_function
         };
-        function.semantic.generic = instance.shared_body(scope, &planner.definitions());
+        function.semantic.generic =
+            instance.shared_body(scope, planner.catalog, &planner.definitions());
         for (index, param) in typed_function.params.iter().enumerate() {
             function.semantic.params.insert(index, concrete(&param.ty)?);
             function.semantic.locals.insert(index, concrete(&param.ty)?);
@@ -207,7 +211,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 self.function.debug.source_span,
             )?
             .remove(0);
-        Ok(lower_type(&concrete))
+        Ok(self.planner.encode_type(&concrete))
     }
 
     pub(crate) fn finish(mut self) -> Result<MirFunction, MirLoweringError> {

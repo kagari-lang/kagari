@@ -6,7 +6,6 @@ use kagari_hir::{
         ids::ExprId,
     },
     typeck::table::ResolvedHostPath,
-    types::semantic::lower_type,
 };
 use kagari_mir::instruction::{Instruction, MirValue, PathRef, StructFieldInit};
 use smallvec::SmallVec;
@@ -74,7 +73,7 @@ impl FunctionLowerer<'_, '_> {
                 self.function.debug.source_span,
             )?
             .remove(0);
-        let ty = lower_type(&ty);
+        let ty = self.planner.encode_type(&ty);
         let mut values = values.into_iter();
         let first = start.and_then(|_| values.next());
         let last = end.and_then(|_| values.next());

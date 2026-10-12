@@ -20,6 +20,28 @@ const MAX_TRAITS: usize = 4_096;
 const MAX_PATH: usize = 64;
 const MAX_EDGES: usize = 100_000;
 
+/// Exact checked upcast targets, including the bounded iterator-result view.
+/// Other explicit associated outputs remain invariant.
+///
+/// # Errors
+/// Returns an error for invalid declaration contracts, exceeded ancestry/type
+/// traversal limits, or cancellation.
+pub fn interface_upcast_targets<'a>(
+    interface: &NominalTy,
+    receiver: &Ty,
+    cancel: &CancellationToken,
+    definitions: &DefinitionTable,
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
+) -> Result<Vec<NominalTy>, TypeTransformError> {
+    let mut targets = interface_views(interface, receiver, cancel, definitions, lookup)?;
+    if let Some(view) = erased_iterator_view(interface, receiver, cancel, definitions, lookup)?
+        && !targets.contains(&view)
+    {
+        targets.push(view);
+    }
+    Ok(targets)
+}
+
 /// The additional dynamic surface supported by the language's Iterable contract.
 /// Explicit implementation outputs remain the canonical static signature.
 pub fn erased_iterator_view<'a>(

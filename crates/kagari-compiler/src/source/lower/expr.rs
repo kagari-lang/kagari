@@ -17,10 +17,7 @@ use kagari_hir::{
     },
     resolver::resolved::ResolvedName,
     typeck::table::ResolvedInterfaceImplementation,
-    types::{
-        TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::{TypeId, TypeSubstitution},
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
@@ -176,15 +173,18 @@ impl FunctionLowerer<'_, '_> {
                         &self.instance.substitution,
                         span,
                     )?;
-                    let [TypeId::Trait(source), TypeId::Trait(target)] = types.as_slice() else {
+                    let [Ty::Trait(source), Ty::Trait(target)] = [
+                        self.planner.encode_type(&types[0]),
+                        self.planner.encode_type(&types[1]),
+                    ] else {
                         return Err(MirLoweringError::MissingBinding("interface upcast types"));
                     };
                     let dst = self.alloc_temp(ValueType::HeapObject);
                     self.emit(Instruction::UpcastInterface {
                         dst,
                         value,
-                        source: lower_nominal_type(source),
-                        target: lower_nominal_type(target),
+                        source,
+                        target,
                     });
                     return Ok(dst);
                 }
@@ -204,14 +204,14 @@ impl FunctionLowerer<'_, '_> {
                 self.function
                     .semantic
                     .registers
-                    .insert(value.temp.index(), lower_type(&types[0]));
+                    .insert(value.temp.index(), self.planner.encode_type(&types[0]));
                 self.planner.require_parent_interfaces(
                     &types[0],
                     interface,
                     &Default::default(),
                     span,
                 )?;
-                let (implementation, arguments) = match coercion.implementation {
+                let (implementation, arguments, constructed) = match coercion.implementation {
                     ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
                     ResolvedInterfaceImplementation::Host => {
                         let mut types = self
@@ -233,6 +233,7 @@ impl FunctionLowerer<'_, '_> {
                         (
                             self.planner.host_interface(&receiver, &interface, span)?,
                             Vec::new(),
+                            interface,
                         )
                     }
                     ResolvedInterfaceImplementation::Script {
@@ -246,8 +247,28 @@ impl FunctionLowerer<'_, '_> {
                         )?;
                         self.planner
                             .record_interface(&declaration, &arguments, span)?;
-
-                        (declaration, arguments.iter().map(lower_type).collect())
+                        let contract = self
+                            .planner
+                            .catalog
+                            .implementation_signature(&declaration)
+                            .ok_or(MirLoweringError::MissingBinding(
+                                "interface construction contract",
+                            ))?;
+                        let substitution: TypeSubstitution = contract
+                            .generic_params
+                            .iter()
+                            .cloned()
+                            .zip(arguments.iter().cloned())
+                            .collect();
+                        let constructed = contract.trait_type.instantiate(&substitution);
+                        (
+                            declaration,
+                            arguments
+                                .iter()
+                                .map(|ty| self.planner.encode_type(ty))
+                                .collect(),
+                            constructed,
+                        )
                     }
                 };
                 let dst = self.alloc_temp(ValueType::HeapObject);
@@ -258,6 +279,27 @@ impl FunctionLowerer<'_, '_> {
                     arguments,
                 });
                 value = dst;
+                // The table constructs its exact outputs. The value's bounded
+                // iterator-result view is a separate checked adaptation.
+                let source = self.planner.encode_nominal(&constructed);
+                let Ty::Trait(target) = self.planner.encode_type(&TypeId::Trait(interface.clone()))
+                else {
+                    unreachable!("interface value type")
+                };
+                if source != target {
+                    self.function
+                        .semantic
+                        .registers
+                        .insert(value.temp.index(), Ty::Trait(source.clone()));
+                    let dst = self.alloc_temp(ValueType::HeapObject);
+                    self.emit(Instruction::UpcastInterface {
+                        dst,
+                        value,
+                        source,
+                        target,
+                    });
+                    value = dst;
+                }
             }
         }
         if !self.current_block_terminated() {
@@ -273,7 +315,7 @@ impl FunctionLowerer<'_, '_> {
                     .planner
                     .arguments(&[ty], &self.instance.substitution, span)?
                     .remove(0);
-                let abi = lower_type(&ty);
+                let abi = self.planner.encode_type(&ty);
                 // A distinct move records access weakening without changing an alias's contract.
                 if ty.collection_access() == Some(CollectionAccess::ReadOnly) {
                     let dst = self.alloc_temp(value.ty);

@@ -9,7 +9,7 @@ use kagari_hir::{
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
     language::semantics::ProtocolSemantics,
     resolver::resolved::ResolvedName,
-    types::{NominalType, TypeId, semantic::lower_nominal_type},
+    types::{NominalType, TypeId},
 };
 use kagari_mir::{
     ids::LocalId,
@@ -240,7 +240,7 @@ impl FunctionLowerer<'_, '_> {
                                 &self.analyzed.declarations,
                             )
                             .expect("checked writable array interface");
-                            Some(lower_nominal_type(&write))
+                            Some(self.planner.encode_nominal(&write))
                         } else {
                             None
                         };
@@ -251,7 +251,7 @@ impl FunctionLowerer<'_, '_> {
                     place.projections.push(Projection {
                         kind: ProjectionKind::InterfaceIndex {
                             index,
-                            read: lower_nominal_type(&read),
+                            read: self.planner.encode_nominal(&read),
                             write,
                         },
                         ty: self.place_type(id)?,

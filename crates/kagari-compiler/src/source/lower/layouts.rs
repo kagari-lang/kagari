@@ -6,10 +6,7 @@ use kagari_contract::{
 };
 use kagari_hir::{
     AnalyzedModule,
-    types::{
-        NominalType, TypeId, TypeSubstitution,
-        semantic::{lower_nominal_type, lower_type, raise_type},
-    },
+    types::{NominalType, TypeId, TypeSubstitution, semantic::raise_type},
 };
 use kagari_mir::function::MirFunction;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
@@ -165,7 +162,7 @@ pub(super) fn collect(
         planner.check()?;
         if !ty.is_concrete()
             && !types_in_scope(
-                [&lower_type(&ty)],
+                [&planner.encode_type(&ty)],
                 &scope,
                 &planner.options.cancel,
                 &planner.definitions(),
@@ -247,12 +244,12 @@ pub(super) fn collect(
                         visibility: field.visibility,
                         declaration: field.id,
                         name: field.name.clone(),
-                        ty: lower_type(&ty),
+                        ty: planner.encode_type(&ty),
                         mutable: field.writeability.is_var(),
                     });
                     pending.push_back((ty, span));
                 }
-                let identity = lower_nominal_type(&nominal);
+                let identity = planner.encode_nominal(&nominal);
                 structures.push(StructLayout {
                     declaration: identity.declaration,
                     arguments: identity.arguments,
@@ -285,7 +282,7 @@ pub(super) fn collect(
                     for ty in &types {
                         planner.value_type(ty, &substitution, span)?;
                     }
-                    let payload = types.iter().map(lower_type).collect();
+                    let payload = types.iter().map(|ty| planner.encode_type(ty)).collect();
                     variants.push(EnumVariantLayout {
                         reports_failure: variant.reports_failure,
                         declaration: variant.id,
@@ -293,7 +290,7 @@ pub(super) fn collect(
                     });
                     pending.extend(types.into_iter().map(|ty| (ty, span)));
                 }
-                let identity = lower_nominal_type(&nominal);
+                let identity = planner.encode_nominal(&nominal);
                 enumerations.push(EnumLayout {
                     declaration: identity.declaration,
                     arguments: identity.arguments,

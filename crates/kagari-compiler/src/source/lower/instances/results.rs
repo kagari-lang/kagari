@@ -8,7 +8,7 @@ use kagari_contract::{
 use kagari_hir::{
     aggregates::implementations::ImplementationSearchLimits,
     typeck::{GenericBounds, table::ConstraintTarget},
-    types::semantic::{lower_type, raise_nominal_type, raise_type},
+    types::semantic::{raise_nominal_type, raise_type},
 };
 use kagari_types::ty::{Constraint, Ty, substitution::TypeSubstitution};
 
@@ -89,10 +89,10 @@ impl InstancePlanner<'_> {
         )?;
         self.record_layout_root(&receiver, &Default::default(), span)?;
         Ok(Some(NativeResultAdapter {
-            receiver: lower_type(&receiver),
+            receiver: self.encode_type(&receiver),
             implementation: ConcreteFunctionIdentity {
                 declaration: implementation,
-                arguments: arguments.iter().map(lower_type).collect(),
+                arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
             },
         }))
     }

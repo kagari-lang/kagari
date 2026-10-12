@@ -8,13 +8,7 @@ use kagari_contract::{
     slots::SemanticSlots,
     types::{ConcreteFunctionIdentity, InterfaceTable, ModuleContract, PublicItem},
 };
-use kagari_hir::{
-    AnalyzedModule,
-    types::{
-        TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
-};
+use kagari_hir::{AnalyzedModule, types::TypeId};
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
     function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp},
@@ -237,8 +231,8 @@ pub(super) fn collect(
                 ),
                 generic_params: Vec::new(),
                 bounds: Vec::new(),
-                trait_type: Ty::Trait(lower_nominal_type(&interface)),
-                for_type: lower_type(&receiver),
+                trait_type: Ty::Trait(planner.encode_nominal(&interface)),
+                for_type: planner.encode_type(&receiver),
                 methods,
             })));
     }

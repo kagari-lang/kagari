@@ -4,7 +4,7 @@ use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{callable::shared::SharedCall, types::ConcreteFunctionIdentity};
 use kagari_hir::{
     resolver::resolved::ResolvedName,
-    types::{GenericParameterType, TypeId, TypeSubstitution, semantic::lower_type},
+    types::{GenericParameterType, TypeId, TypeSubstitution},
 };
 use kagari_types::callable::{CallableImplementation, Signature};
 
@@ -80,7 +80,7 @@ impl InstancePlanner<'_> {
             implementation,
             signature,
             operations,
-            arguments: arguments.iter().map(lower_type).collect(),
+            arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
         })
     }
 }

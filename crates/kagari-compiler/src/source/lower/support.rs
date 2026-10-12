@@ -10,10 +10,7 @@ use kagari_hir::{
     },
     resolver::resolved::ResolvedName,
     typeck::scalar::ScalarValue,
-    types::{
-        TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::TypeId,
 };
 use kagari_mir::{
     ids::LocalId,
@@ -235,7 +232,7 @@ impl FunctionLowerer<'_, '_> {
         if !ty.is_concrete()
             && !self.function.semantic.generic.as_ref().is_some_and(|body| {
                 body.types_valid(
-                    [&lower_type(ty)],
+                    [&self.planner.encode_type(ty)],
                     &self.planner.options.cancel,
                     &self.planner.definitions(),
                 )
@@ -250,7 +247,7 @@ impl FunctionLowerer<'_, '_> {
         else {
             return Err(MirLoweringError::MissingBinding("nominal instance"));
         };
-        Ok(lower_nominal_type(ty))
+        Ok(self.planner.encode_nominal(ty))
     }
 
     pub(crate) fn expr_nominal_instance(&self, id: ExprId) -> Result<NominalTy, MirLoweringError> {

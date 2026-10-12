@@ -832,17 +832,20 @@ impl AggregateCatalog {
         budget: &mut SearchBudget<'_>,
     ) -> Result<Option<TypeSubstitution>, ImplementationSearchError> {
         budget.check_candidate()?;
+        // Operation requirements may be raised from executable value types.
+        // Compare canonical nested values while retaining exact root constraints.
+        let receiver = self.canonical_value_type(budget.definitions, receiver);
         let Some(matched) = match_implementation(
-            &implementation.trait_type,
-            trait_type,
-            &implementation.for_type,
-            receiver,
+            &self.canonical_interface_application(budget.definitions, &implementation.trait_type),
+            &self.canonical_interface_application(budget.definitions, trait_type),
+            &self.canonical_value_type(budget.definitions, &implementation.for_type),
+            &receiver,
             &implementation.generic_params,
         ) else {
             return Ok(None);
         };
         if implementation.engine_owned
-            && !implementation.accepts_native_receiver(receiver, &matched)
+            && !implementation.accepts_native_receiver(&receiver, &matched)
         {
             return Ok(None);
         }

@@ -2,11 +2,8 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_common::span::Span;
 use kagari_hir::{
-    callable::AppliedCallSignature,
-    declarations::DeclarationId,
-    resolver::resolved::ResolvedName,
-    typeck::table::CallTarget as CheckedCallTarget,
-    types::{TypeId, semantic::lower_type},
+    callable::AppliedCallSignature, declarations::DeclarationId, resolver::resolved::ResolvedName,
+    typeck::table::CallTarget as CheckedCallTarget, types::TypeId,
 };
 use kagari_mir::instruction::CallTarget;
 use kagari_types::callable::Signature;
@@ -55,8 +52,11 @@ impl FunctionLowerer<'_, '_> {
             )?
             .remove(0);
         let signature = Signature {
-            params: params.iter().map(lower_type).collect(),
-            result: lower_type(&result),
+            params: params
+                .iter()
+                .map(|ty| self.planner.encode_type(ty))
+                .collect(),
+            result: self.planner.encode_type(&result),
         };
         Ok(CallTarget::Shared(Box::new(self.planner.shared_call(
             &declaration,

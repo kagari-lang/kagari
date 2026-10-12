@@ -12,10 +12,7 @@ use kagari_hir::{
     language::semantics::{ProtocolSemantics, callable_signature, ordering_type},
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, TypedFunction},
-    types::{
-        TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::TypeId,
 };
 use kagari_mir::{
     debug::MirCapturedBindingDebugInfo,
@@ -210,8 +207,8 @@ pub(crate) fn lower_protocol<'a>(
         .intern_child(protocol_owner, DefinitionKind::Method, member_name, 0)
         .map_err(DefinitionMappingError::from)?;
     let required = NativeCallableRequirement {
-        receiver: lower_type(&receiver),
-        interface: lower_nominal_type(&interface),
+        receiver: lowerer.planner.encode_type(&receiver),
+        interface: lowerer.planner.encode_nominal(&interface),
         member,
         arguments: vec![],
     };

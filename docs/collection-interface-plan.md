@@ -1212,3 +1212,68 @@ targets and diff checks passed. Structural review kept declaration proof discove
 member policy and branch inference in their existing ownership layers; no new
 re-exports, visibility bridges, unchecked conversions or production placeholders
 remain. This is a coherent but incomplete CI04 checkpoint; CI acceptance is unrun.
+
+
+CI04 iterator-value adaptation checkpoint: the enabled
+inferred_iterable_join_preserves_iterator_result_adaptation reproduction is now
+resolved. A concrete implementation still constructs its exact Iterable output
+(e.g. Iter<i32>); source lowering then emits a checked UpcastInterface to the
+bounded Iterator<Item = i32> value view. It no longer labels the raw construction
+as the authored interface value. MIR and bytecode verification share the exact
+permitted targets at the types ancestry owner, including only the existing bounded
+iterator-result adaptation. Other explicit associated outputs remain invariant.
+The linker retains the corresponding view of the same implementation and its
+checked result adapter through the existing parent-link mechanism. Runtime parent
+preparation and receiver-comparison retention need no new selection path or cache.
+
+Executable value encoding now canonicalizes omitted iterator outputs consistently
+inside signatures, locals/registers, closures, nominal/layout arguments, callable
+requirements and implementation identities. Requirement roots remain constraints:
+T: Iterable<Item = i32> does not acquire an Iter = Iterator<Item = i32> equality
+requirement. Only its nested value arguments use canonical value encoding.
+Associated projections remain separate checked normalization facts. Source
+substitutions and implementation selection stay at HIR; encoding runs after those
+steps. Implementation matching compares canonical nested values on both sides when
+checked operation requirements are raised back from executable types, preserving
+exact root constraints, access, conditional bounds and explicit outputs.
+
+Intermediate verification exposed two boundary errors during this repair. Applying
+value normalization to a default method's constraint root caused InvalidPublicAbi
+for the standard Iterable implementation over Iterator; constraint encoding now
+preserves the root. Canonicalizing InstancePlanner.arguments before implementation
+selection caused UnsupportedExpr("interface dispatch requires linked implementation
+tables") for Reader<Iterable<Item = i32>>. Keeping source substitutions separate
+from executable encoding resolves that case, including generic default-method
+bounds, ordinary bounded calls and closure results. Temporary verifier diagnostics
+were removed; no assertion or executable validation was weakened.
+
+The existing reproduction now executes both branch choices, a generic interface
+method returning a closure, and a nested Reader<Iterable<Item = i32>> implementation
+through ordinary and default generic calls. Source, artifact and ArtifactJit routes
+retain forced-GC execution. A distinct source-free case rejects both a forged
+Iterator item type and replacing the bounded iterator result with a scalar.
+collection_interfaces passed all 13 cases and collection_access all 6; the former
+carried CI04 failure is included, with no filtering or disabled case. Further
+selected regression and structural evidence is recorded below. CI03's enabled
+mixed-generation compound-comparison failure remains independently outstanding
+and was not rerun unchanged. CI04 indexing/relationship acceptance and CI05-CI06
+remain open; this checkpoint does not claim goal or phase completion.
+
+
+Final selected evidence for this checkpoint: 43 distinct tests passed across
+collection_interfaces (13), collection_access (6), default_methods upcast (2),
+HIR joins/completion (7), HIR inference/recovery (14), and the existing runtime
+rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast case (1).
+These target exact output adaptation, ordinary invariant matching, conditional
+inference, source-free rejection and retained parent lifetime boundaries affected
+by this change. The 19 collection cases remain evidence after the subsequent
+warning-only budget-variable cleanup and formatting. Scoped library Clippy passed
+for compiler, bytecode, MIR, HIR and types. Structure checked 1102 Rust files with
+zero violations/exceptions; formatting, plan links and diff checks passed.
+
+Structural review keeps source substitutions at HIR, value encoding at compiler
+lowering, permitted adaptation at the shared types ancestry owner, and retained
+view/result links at bytecode linking. No runtime trait search, executable code
+specialization, new cache, public re-export, compatibility reader or format revision
+was added. Full workspace and exhaustive feature/backend acceptance remain CI-owned
+and unrun locally. The unrelated roadmap working-tree edit is excluded.

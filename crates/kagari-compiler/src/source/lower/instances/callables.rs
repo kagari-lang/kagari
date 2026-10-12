@@ -19,7 +19,7 @@ use kagari_hir::{
     typeck::FunctionImplementation,
     types::{
         TypeId, TypeSubstitution as HirSubstitution,
-        semantic::{lower_nominal_type, lower_type, raise_nominal_type, raise_type},
+        semantic::{raise_nominal_type, raise_type},
     },
 };
 use kagari_types::{
@@ -127,7 +127,7 @@ impl InstancePlanner<'_> {
                         requirement: required,
                         implementation: ConcreteFunctionIdentity {
                             declaration,
-                            arguments: arguments.iter().map(lower_type).collect(),
+                            arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
                         },
                     },
                 )));
@@ -205,13 +205,13 @@ impl InstancePlanner<'_> {
                 }
             }
         }
-        required.receiver = lower_type(&receiver);
-        required.interface = lower_nominal_type(&interface);
+        required.receiver = self.encode_type(&receiver);
+        required.interface = self.encode_nominal(&interface);
         required.arguments = required
             .arguments
             .iter()
             .map(|ty| {
-                lower_type(
+                self.encode_type(
                     &self
                         .catalog
                         .normalize_type(&self.definitions(), &raise_type(ty)),
@@ -297,6 +297,7 @@ impl InstancePlanner<'_> {
                 let id =
                     self.enqueue_selected_protocol(application.kind, &receiver, &interface, span)?;
                 let instance = self.instances[id.index()].key.lower(
+                    self.catalog,
                     self.options,
                     &self.definitions(),
                     span,
@@ -380,7 +381,7 @@ impl InstancePlanner<'_> {
                 .collect();
             substitution.insert_receiver(interface.declaration, receiver.clone());
             let normalize = |ty: &TypeId| {
-                lower_type(
+                self.encode_type(
                     &self.catalog.normalize_type(
                         &self.definitions(),
                         &ty.instantiate(&substitution)
@@ -435,7 +436,10 @@ impl InstancePlanner<'_> {
                 requirement: required,
                 instance: ConcreteFunctionIdentity {
                     declaration: target,
-                    arguments: instance_arguments.iter().map(lower_type).collect(),
+                    arguments: instance_arguments
+                        .iter()
+                        .map(|ty| self.encode_type(ty))
+                        .collect(),
                 },
                 implementation: kind,
                 signature: applied,

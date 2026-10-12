@@ -5,6 +5,7 @@ use execution::Route;
 
 use kagari_bytecode::{
     artifact::KbcArtifact,
+    instruction::BytecodeInstruction,
     program::{identity, verify_program},
 };
 use kagari_common::identity::map::DefinitionContext;
@@ -81,6 +82,27 @@ fn main() -> i32 {
 fn inferred_iterable_join_preserves_iterator_result_adaptation() {
     execute(
         r#"
+trait Factory {
+    fn later<T>(self, value: T) -> fn() -> Iterable<Item = T> {
+        val items = Vec::from([value]);
+        || items
+    }
+    fn consume<R: Reader<Iterable<Item = i32>>>(self, reader: R, value: Iterable<Item = i32>) -> i32 {
+        reader.read(value)
+    }
+}
+impl Factory for i32 {}
+trait Reader<T> { fn read(self, value: T) -> i32; }
+impl Reader<Iterable<Item = i32>> for i32 {
+    fn read(self, value: Iterable<Item = i32>) -> i32 {
+        var total = 0;
+        for item in value { total += item; }
+        total
+    }
+}
+fn consume<R: Reader<Iterable<Item = i32>>>(reader: R, value: Iterable<Item = i32>) -> i32 {
+    reader.read(value)
+}
 fn choose_iter(flag: bool, concrete: Vec<i32>, view: Iterable<Item = i32>) -> i32 {
     val joined = match flag { true => concrete, false => view };
     var total = 0;
@@ -90,10 +112,66 @@ fn choose_iter(flag: bool, concrete: Vec<i32>, view: Iterable<Item = i32>) -> i3
 fn main() -> i32 {
     if choose_iter(true, Vec::from([3, 4]), Vec::from([8])) != 7 { return 0; }
     if choose_iter(false, Vec::from([3, 4]), Vec::from([8])) != 8 { return 0; }
-    42
+    val factory: Factory = 0;
+    val later = factory.later(42);
+    if consume(0, later()) != 42 { return 0; }
+    factory.consume(0, later())
 }
 "#,
     );
+}
+
+#[test]
+fn iterator_view_adaptation_rejects_forged_output_types() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "iterator-view-proof.kgr",
+                "fn main() -> Iterable<Item = i32> { Vec::from([42]) }",
+            ),
+            Default::default(),
+        )
+        .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    for wrong_result in [false, true] {
+        let mut program = artifact.program.clone();
+        let target = program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.functions)
+            .flat_map(|function| &mut function.instructions)
+            .find_map(|instruction| match instruction {
+                BytecodeInstruction::UpcastInterface { source, target, .. }
+                    if source.declaration == target.declaration && source != target =>
+                {
+                    Some(target)
+                }
+                _ => None,
+            })
+            .expect("checked iterator-result adaptation");
+        let result = target
+            .associated_types
+            .values_mut()
+            .find(|value| matches!(value, Ty::Trait(_)))
+            .expect("erased iterator result");
+        if wrong_result {
+            *result = Ty::Builtin(BuiltinType::I32);
+        } else {
+            let Ty::Trait(iterator) = result else {
+                unreachable!()
+            };
+            *iterator.associated_types.values_mut().next().unwrap() = Ty::Builtin(BuiltinType::I64);
+        }
+        assert!(
+            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            "forged iterator output (wrong result category: {wrong_result})"
+        );
+    }
 }
 
 #[test]

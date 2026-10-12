@@ -17,10 +17,7 @@ use kagari_hir::{
     language::semantics as traits,
     native::NativeBinding,
     typeck::table::CallTarget as HirCallTarget,
-    types::{
-        NominalType, TypeId, TypeSubstitution,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
@@ -258,7 +255,7 @@ impl FunctionLowerer<'_, '_> {
             self.function
                 .semantic
                 .registers
-                .insert(dst.temp.index(), lower_type(&result));
+                .insert(dst.temp.index(), self.planner.encode_type(&result));
             let operations = self.planner.method_operations(
                 method,
                 &interface,
@@ -273,10 +270,14 @@ impl FunctionLowerer<'_, '_> {
                 dst: Some(dst),
                 callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
                     normalizations,
-                    receiver: matches!(&ty, TypeId::Generic(_)).then(|| lower_type(&ty)),
+                    receiver: matches!(&ty, TypeId::Generic(_))
+                        .then(|| self.planner.encode_type(&ty)),
                     operations,
-                    arguments: method_arguments.iter().map(lower_type).collect(),
-                    interface: lower_nominal_type(&interface),
+                    arguments: method_arguments
+                        .iter()
+                        .map(|ty| self.planner.encode_type(ty))
+                        .collect(),
+                    interface: self.planner.encode_nominal(&interface),
                     method_slot: signature.slot as u32,
                 })),
                 args: args.iter().copied().collect(),
@@ -426,7 +427,10 @@ impl FunctionLowerer<'_, '_> {
             } else {
                 CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                     declaration,
-                    arguments: arguments.iter().map(lower_type).collect(),
+                    arguments: arguments
+                        .iter()
+                        .map(|ty| self.planner.encode_type(ty))
+                        .collect(),
                     params: args.iter().map(|a| a.ty).collect(),
                     return_type: result_ty,
                 }))
@@ -508,7 +512,7 @@ impl FunctionLowerer<'_, '_> {
                     self.function
                         .semantic
                         .registers
-                        .insert(zero.temp.index(), lower_type(&ty));
+                        .insert(zero.temp.index(), self.planner.encode_type(&ty));
                     self.emit(Instruction::Numeric {
                         dst,
                         operation: NumericOperation {

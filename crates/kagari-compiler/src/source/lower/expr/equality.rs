@@ -6,7 +6,7 @@ use kagari_contract::{operations::BinaryOp, standard::RuntimePrimitive};
 use kagari_hir::{
     aggregates::implementations::{ImplementationSearchError, ImplementationSearchLimits},
     language::semantics::ProtocolSemantics,
-    types::{TypeId, semantic::lower_nominal_type},
+    types::TypeId,
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
@@ -369,7 +369,7 @@ impl FunctionLowerer<'_, '_> {
                     .id;
                 // Hash tags encode reachable symbolic identities canonically; process-local
                 // table/index values and declaration insertion order never affect the tag.
-                let nominal = lower_nominal_type(nominal);
+                let nominal = self.planner.encode_nominal(nominal);
                 let definitions = self.planner.definitions();
                 let cancel = &self.planner.options.cancel;
                 let mut references = HashSet::from([*declaration]);

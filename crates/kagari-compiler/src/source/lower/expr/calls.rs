@@ -15,10 +15,7 @@ use kagari_hir::{
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{scalar::ScalarValue, table::CallTarget as TypeckCallTarget},
-    types::{
-        NominalType, TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::{NominalType, TypeId},
 };
 use kagari_mir::instruction::{
     CallTarget, Instruction, MirValue, RuntimeHelper, SourceFunctionContract, ValueBuffer,
@@ -47,7 +44,7 @@ impl FunctionLowerer<'_, '_> {
         self.function
             .semantic
             .registers
-            .insert(dst.temp.index(), lower_type(result));
+            .insert(dst.temp.index(), self.planner.encode_type(result));
         Ok(dst)
     }
 
@@ -329,8 +326,11 @@ impl FunctionLowerer<'_, '_> {
                             normalizations,
                             receiver: None,
                             operations,
-                            arguments: arguments.iter().map(lower_type).collect(),
-                            interface: lower_nominal_type(&interface),
+                            arguments: arguments
+                                .iter()
+                                .map(|ty| self.planner.encode_type(ty))
+                                .collect(),
+                            interface: self.planner.encode_nominal(&interface),
                             method_slot: u32::try_from(slot).map_err(|_| {
                                 MirLoweringError::UnsupportedExpr("interface method slot overflow")
                             })?,
@@ -456,7 +456,7 @@ impl FunctionLowerer<'_, '_> {
                     .collect::<Vec<_>>();
                 if arguments.iter().any(|ty| !ty.is_concrete()) {
                     let normalize = |parameter: &TypeId| {
-                        lower_type(
+                        self.planner.encode_type(
                             &self.planner.catalog.normalize_type(
                                 &self.planner.definitions(),
                                 &parameter
@@ -531,7 +531,10 @@ impl FunctionLowerer<'_, '_> {
                 } else {
                     CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                         declaration: implementation,
-                        arguments: arguments.iter().map(lower_type).collect(),
+                        arguments: arguments
+                            .iter()
+                            .map(|ty| self.planner.encode_type(ty))
+                            .collect(),
                         params,
                         return_type,
                     }))
@@ -690,7 +693,10 @@ impl FunctionLowerer<'_, '_> {
                                 let return_type = self.value_type(&signature.return_type)?;
                                 CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                                     declaration: *declaration,
-                                    arguments: arguments.iter().map(lower_type).collect(),
+                                    arguments: arguments
+                                        .iter()
+                                        .map(|ty| self.planner.encode_type(ty))
+                                        .collect(),
                                     params,
                                     return_type,
                                 }))
@@ -723,7 +729,10 @@ impl FunctionLowerer<'_, '_> {
                             let return_type = self.value_type(&signature.return_type)?;
                             CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                                 declaration: imported.declaration,
-                                arguments: arguments.iter().map(lower_type).collect(),
+                                arguments: arguments
+                                    .iter()
+                                    .map(|ty| self.planner.encode_type(ty))
+                                    .collect(),
                                 params,
                                 return_type,
                             }))

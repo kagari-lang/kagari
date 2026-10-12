@@ -8,10 +8,7 @@ use kagari_hir::{
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::table::CallTarget,
-    types::{
-        GenericParameterType, NominalType, TypeId, TypeSubstitution,
-        semantic::{lower_type, raise_type},
-    },
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution, semantic::raise_type},
 };
 
 impl InstancePlanner<'_> {
@@ -83,9 +80,9 @@ impl InstancePlanner<'_> {
             != signature
                 .params
                 .iter()
-                .map(|p| lower_type(&normalize(&p.ty)))
+                .map(|p| self.encode_type(&normalize(&p.ty)))
                 .collect::<Vec<_>>()
-            || import.signature.result != lower_type(&normalize(&signature.return_type))
+            || import.signature.result != self.encode_type(&normalize(&signature.return_type))
         {
             return Err(invalid());
         }

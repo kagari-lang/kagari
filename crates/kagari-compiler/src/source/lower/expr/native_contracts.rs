@@ -9,10 +9,7 @@ use kagari_hir::{
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, table::CallTarget},
-    types::{
-        NominalType, TypeId, TypeSubstitution as HirSubstitution,
-        semantic::{lower_type, raise_type},
-    },
+    types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, semantic::raise_type},
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
 use kagari_types::{callable::Signature, ty::substitution::TypeSubstitution};
@@ -77,7 +74,10 @@ impl FunctionLowerer<'_, '_> {
         if arguments.len() != function.generic_params.len() {
             return Err(invalid());
         }
-        let arguments: Vec<_> = arguments.iter().map(lower_type).collect();
+        let arguments: Vec<_> = arguments
+            .iter()
+            .map(|ty| self.planner.encode_type(ty))
+            .collect();
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in function.generic_params.iter().zip(&arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
@@ -86,7 +86,13 @@ impl FunctionLowerer<'_, '_> {
             .planner
             .registered_native_declaration(&declaration)
             .map(|registered| registered.function.bounds.clone())
-            .unwrap_or_else(|| checked_bounds(&self.planner.definitions(), &function.bounds));
+            .unwrap_or_else(|| {
+                checked_bounds(
+                    self.planner.catalog,
+                    &self.planner.definitions(),
+                    &function.bounds,
+                )
+            });
         let requirements = substitution
             .apply_bounds(
                 &bounds,
@@ -113,8 +119,11 @@ impl FunctionLowerer<'_, '_> {
             binding,
             host: None,
             signature: Signature {
-                params: params.iter().map(lower_type).collect(),
-                result: lower_type(&result[0]),
+                params: params
+                    .iter()
+                    .map(|ty| self.planner.encode_type(ty))
+                    .collect(),
+                result: self.planner.encode_type(&result[0]),
             },
             requirements,
         };
@@ -160,7 +169,7 @@ impl FunctionLowerer<'_, '_> {
         self.function
             .semantic
             .registers
-            .insert(dst.temp.index(), lower_type(result));
+            .insert(dst.temp.index(), self.planner.encode_type(result));
         self.emit(Instruction::Call {
             dst: Some(dst),
             callee,
@@ -216,7 +225,10 @@ impl FunctionLowerer<'_, '_> {
             *first = receiver.clone();
         }
         let mut bindings = TypeSubstitution::default();
-        let applied_arguments = arguments.iter().map(lower_type).collect::<Vec<_>>();
+        let applied_arguments = arguments
+            .iter()
+            .map(|ty| self.planner.encode_type(ty))
+            .collect::<Vec<_>>();
         for (param, argument) in function.generic_params.iter().zip(&applied_arguments) {
             bindings.bind(&param.owner, param.position, argument);
         }
@@ -224,7 +236,13 @@ impl FunctionLowerer<'_, '_> {
             .planner
             .registered_native_declaration(declaration)
             .map(|registered| registered.function.bounds.clone())
-            .unwrap_or_else(|| checked_bounds(&self.planner.definitions(), &function.bounds));
+            .unwrap_or_else(|| {
+                checked_bounds(
+                    self.planner.catalog,
+                    &self.planner.definitions(),
+                    &function.bounds,
+                )
+            });
         let requirements = bindings
             .apply_bounds(
                 &bounds,
@@ -244,8 +262,11 @@ impl FunctionLowerer<'_, '_> {
                 binding: *binding,
                 host: None,
                 signature: Signature {
-                    params: params.iter().map(lower_type).collect(),
-                    result: lower_type(result),
+                    params: params
+                        .iter()
+                        .map(|ty| self.planner.encode_type(ty))
+                        .collect(),
+                    result: self.planner.encode_type(result),
                 },
                 requirements,
             },
@@ -325,13 +346,19 @@ impl FunctionLowerer<'_, '_> {
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {
                     declaration: *method,
-                    arguments: arguments.iter().map(lower_type).collect(),
+                    arguments: arguments
+                        .iter()
+                        .map(|ty| self.planner.encode_type(ty))
+                        .collect(),
                 },
                 binding: *binding,
                 host: None,
                 signature: Signature {
-                    params: params.iter().map(lower_type).collect(),
-                    result: lower_type(&result),
+                    params: params
+                        .iter()
+                        .map(|ty| self.planner.encode_type(ty))
+                        .collect(),
+                    result: self.planner.encode_type(&result),
                 },
                 requirements: vec![],
             },

@@ -4,10 +4,7 @@ use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{
     callable::generic::GenericBody, native_import::NativeImport, types::ConcreteFunctionIdentity,
 };
-use kagari_hir::types::{
-    TypeId,
-    semantic::{lower_type, raise_type},
-};
+use kagari_hir::types::{TypeId, semantic::raise_type};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     ty::{GenericParam, substitution::TypeSubstitution},
@@ -83,7 +80,7 @@ impl InstancePlanner<'_> {
         let arguments = self.arguments(arguments, &Default::default(), span)?;
         let instance = ConcreteFunctionIdentity {
             declaration: *declaration,
-            arguments: arguments.iter().map(lower_type).collect(),
+            arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
         };
         let parameters: Vec<_> = arguments
             .iter()
@@ -110,7 +107,7 @@ impl InstancePlanner<'_> {
             let ty = substitution
                 .apply(ty, &self.options.cancel)
                 .map_err(|_| invalid())?;
-            Ok(lower_type(
+            Ok(self.encode_type(
                 &self
                     .catalog
                     .normalize_type(&self.definitions(), &raise_type(&ty)),

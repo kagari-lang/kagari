@@ -12,12 +12,10 @@ use kagari_contract::callable::{
     generic::GenericBody, interface::TypeNormalization, witness::OperationWitness,
 };
 use kagari_hir::{
+    aggregates::AggregateCatalog,
     resolver::resolved::ResolvedName,
     typeck::{GenericBounds, TypedFunction, table::ConstraintTarget},
-    types::{
-        GenericParameterType, NominalType, TypeId, TypeSubstitution,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
@@ -57,8 +55,9 @@ impl InstancePlanner<'_> {
             let source = ty
                 .instantiate(&substitution)
                 .with_associated_types(interface, receiver);
-            let result = lower_type(&self.catalog.normalize_type(&self.definitions(), &source));
-            let source = lower_type(&source);
+            let result =
+                self.encode_type(&self.catalog.normalize_type(&self.definitions(), &source));
+            let source = self.encode_type(&source);
             if source != result
                 && !facts
                     .iter()
@@ -204,8 +203,8 @@ impl InstancePlanner<'_> {
                             .ok_or_else(invalid)?;
                         for operation in &contract.methods {
                             let required = NativeCallableRequirement {
-                                receiver: lower_type(&receiver),
-                                interface: lower_nominal_type(&interface),
+                                receiver: self.encode_type(&receiver),
+                                interface: self.encode_nominal(&interface),
                                 member: operation.id,
                                 arguments: vec![],
                             };
@@ -266,7 +265,8 @@ impl InstancePlanner<'_> {
             .registered_native_declaration(declaration)
             .zip(self.catalog.implementation_signature(&owner))
             .is_some_and(|(native, implementation)| {
-                let outer = checked_bounds(&self.definitions(), &implementation.bounds);
+                let outer =
+                    checked_bounds(self.catalog, &self.definitions(), &implementation.bounds);
                 native.function.bounds.iter().any(|bound| {
                     bound.constraints.iter().any(|constraint| {
                         !outer.iter().any(|assumed| {
@@ -393,6 +393,7 @@ impl Instance {
     pub(crate) fn shared_body(
         &self,
         typed: &TypedFunction,
+        catalog: &AggregateCatalog,
         definitions: &DefinitionTable,
     ) -> Option<GenericBody> {
         let parameters: Vec<_> = self
@@ -432,7 +433,7 @@ impl Instance {
             .collect();
         Some(GenericBody {
             parameters,
-            bounds: checked_bounds(definitions, &bounds),
+            bounds: checked_bounds(catalog, definitions, &bounds),
         })
     }
 }

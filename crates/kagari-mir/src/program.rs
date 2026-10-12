@@ -396,8 +396,12 @@ pub fn verify_program(
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
             if let Instruction::UpcastInterface { source, target, .. } = instruction {
-                let ancestry =
-                    inheritance::trait_closure(source, &Ty::Trait(source.clone()), cancel, &|id| {
+                let ancestry = inheritance::interface_upcast_targets(
+                    source,
+                    &Ty::Trait(source.clone()),
+                    cancel,
+                    &definitions,
+                    &|id| {
                         let owner = *indices.get(definitions.resolve(*id).ok()?.module())?;
                         if owner != index && !dependencies.contains(&owner) {
                             return None;
@@ -410,7 +414,8 @@ pub fn verify_program(
                             id,
                             &definitions,
                         )
-                    });
+                    },
+                );
                 if !ancestry.is_ok_and(|parents| parents.contains(target)) {
                     return Err(error(
                         &module.identity,
