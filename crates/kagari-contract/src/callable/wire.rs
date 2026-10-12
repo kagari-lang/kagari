@@ -3,7 +3,7 @@ use crate::{
     callable::{
         generic::GenericBody,
         interface::{InterfaceCallContract, TypeNormalization},
-        receiver::{InterfaceInstance, ReceiverComparison},
+        receiver::{InterfaceInstance, ReceiverComparison, ReceiverEligibility},
         shared::SharedCall,
         witness::{OperationWitness, SharedMethodWitness},
     },
@@ -360,6 +360,14 @@ pub struct ReceiverComparisonRecord {
     operation: OperationWitnessRecord,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     conditions: Vec<GenericBoundRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    eligibility: Vec<ReceiverEligibilityRecord>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ReceiverEligibilityRecord {
+    bound: GenericBoundRecord,
+    satisfied: bool,
 }
 
 impl ReceiverComparisonRecord {
@@ -375,6 +383,16 @@ impl ReceiverComparisonRecord {
                 .iter()
                 .map(|condition| GenericBoundRecord::encode(condition, encoding, cancel))
                 .collect::<Result<_, _>>()?,
+            eligibility: value
+                .eligibility
+                .iter()
+                .map(|fact| {
+                    Ok(ReceiverEligibilityRecord {
+                        bound: GenericBoundRecord::encode(&fact.bound, encoding, cancel)?,
+                        satisfied: fact.satisfied,
+                    })
+                })
+                .collect::<Result<_, DefinitionMappingError>>()?,
         })
     }
 
@@ -390,6 +408,16 @@ impl ReceiverComparisonRecord {
                 .into_iter()
                 .map(|condition| condition.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
+            eligibility: self
+                .eligibility
+                .into_iter()
+                .map(|fact| {
+                    Ok(ReceiverEligibility {
+                        bound: fact.bound.decode(decoding, cancel)?,
+                        satisfied: fact.satisfied,
+                    })
+                })
+                .collect::<Result<_, DefinitionMappingError>>()?,
         })
     }
 }

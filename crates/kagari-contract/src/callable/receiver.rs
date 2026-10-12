@@ -17,6 +17,7 @@ use kagari_types::{
     language::Protocol,
     ty::{GenericBound, GenericParam, Ty, substitution::TypeTransformError},
 };
+use std::slice;
 
 /// A selected object comparison, separate from the boxed interface's bounds.
 /// For `val xs: List<i32> = vec`, this carries Vec<i32>'s selected PartialEq
@@ -30,6 +31,17 @@ pub struct ReceiverComparison {
     /// Nonempty guards require separately supplied eligibility before execution;
     /// they never add bounds to the exposed interface itself.
     pub conditions: Vec<GenericBound>,
+    /// Closed applicability outcomes supplied by this checked construction.
+    /// These facts are independent of caller assumptions, including false facts.
+    pub eligibility: Vec<ReceiverEligibility>,
+}
+
+/// A single closed condition, authenticated against its supplying declarations.
+/// A missing record proves nothing; `satisfied: false` is an explicit negative.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReceiverEligibility {
+    pub bound: GenericBound,
+    pub satisfied: bool,
 }
 
 impl ReceiverComparison {
@@ -46,9 +58,28 @@ impl ReceiverComparison {
     ) -> Result<bool, TypeTransformError> {
         if !object_receiver(receiver)
             || self.conditions.len() > 4096
+            || self.eligibility.len() > 4096
             || !native_bounds_valid(&self.conditions, parameters, cancel, catalog.definitions())
         {
             return Ok(false);
+        }
+        for (index, fact) in self.eligibility.iter().enumerate() {
+            if fact.bound.constraints.len() != 1
+                || !fact.bound.ty.is_concrete()
+                || !native_bounds_valid(
+                    slice::from_ref(&fact.bound),
+                    &[],
+                    cancel,
+                    catalog.definitions(),
+                )
+                || self.eligibility[..index]
+                    .iter()
+                    .any(|other| other.bound == fact.bound)
+                || catalog.constraints_hold(&fact.bound.ty, &fact.bound.constraints, &[], cancel)?
+                    != fact.satisfied
+            {
+                return Ok(false);
+            }
         }
         let required = self.operation.requirement();
         let definitions = catalog.definitions();
@@ -123,6 +154,16 @@ impl RemapDefinitions for ReceiverComparison {
                 .iter()
                 .map(|condition| condition.remap_definitions(mapper))
                 .collect::<Result<_, _>>()?,
+            eligibility: self
+                .eligibility
+                .iter()
+                .map(|fact| {
+                    Ok(ReceiverEligibility {
+                        bound: fact.bound.remap_definitions(mapper)?,
+                        satisfied: fact.satisfied,
+                    })
+                })
+                .collect::<Result<_, DefinitionMappingError>>()?,
         })
     }
 }
@@ -136,6 +177,9 @@ impl DefinitionReferences for ReceiverComparison {
         self.operation.visit_definition_ids(visit, cancel)?;
         for condition in &self.conditions {
             condition.visit_definition_ids(visit, cancel)?;
+        }
+        for fact in &self.eligibility {
+            fact.bound.visit_definition_ids(visit, cancel)?;
         }
         Ok(())
     }

@@ -132,7 +132,12 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         if let Some(comparison) = &table.comparison
             && (!add_operations(slice::from_ref(&comparison.operation), &mut add)
                 || !add(comparison.conditions.len())
-                || !add_abi_bounds(&comparison.conditions, &mut add))
+                || !add_abi_bounds(&comparison.conditions, &mut add)
+                || !add(comparison.eligibility.len())
+                || !comparison
+                    .eligibility
+                    .iter()
+                    .all(|fact| add_abi_bounds(slice::from_ref(&fact.bound), &mut add)))
         {
             return false;
         }
@@ -387,6 +392,10 @@ pub(super) fn module_abi_type_limit(
         && module.interface_tables.iter().all(|table| {
             table.comparison.as_ref().is_none_or(|comparison| {
                 bounds_type_limit(&comparison.conditions)
+                    && comparison
+                        .eligibility
+                        .iter()
+                        .all(|fact| bounds_type_limit(slice::from_ref(&fact.bound)))
                     && module.public_items.iter().any(|item| match item {
                         PublicItem::InterfaceTable(contract)
                             if contract.declaration == table.declaration =>

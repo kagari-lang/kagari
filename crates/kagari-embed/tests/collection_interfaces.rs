@@ -537,7 +537,12 @@ fn main() -> i32 {
 #[test]
 fn receiver_comparison_evidence_is_checked_without_source() {
     let engine = KagariEngine::default();
-    for (source, shared, conditional) in [
+    for (source, symbolic, conditional) in [
+        (
+            "trait View {} struct Plain {} impl View for Plain {} fn main() -> View { Plain {} }",
+            false,
+            false,
+        ),
         (
             "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }",
             false,
@@ -567,6 +572,8 @@ trait View {}
 struct Bag<T> { val value: T }
 impl<T: PartialEq> PartialEq for Bag<T> { fn eq(self, other: Self) -> bool { self.value == other.value } }
 impl<T> View for Bag<T> {}
+enum Hidden { Value(View) }
+fn opaque() -> View { val value: View = Bag { value: 1 }; Bag { value: Hidden::Value(value) } }
 trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
 impl Boxer for i32 {}
 fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
@@ -594,7 +601,7 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
         verify_program(&artifact.program, &definitions).unwrap();
         // Generic templates may omit comparison pending closed demands. When a
         // shared selection is present, its scoped claim must still be checked.
-        for mutation in if shared { 1..5 } else { 0..4 } {
+        for mutation in if symbolic { 1..5 } else { 0..4 } {
             let mut program = artifact.program.clone();
             let mut changed = false;
             for table in program
@@ -605,7 +612,7 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                 let Some(comparison) = &mut table.comparison else {
                     continue;
                 };
-                if matches!(comparison.operation, OperationWitness::SharedMethod(_)) != shared {
+                if comparison.operation.requirement().receiver.is_concrete() == symbolic {
                     continue;
                 }
                 changed = true;
@@ -680,6 +687,40 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                     KbcArtifact::from_program(program, Default::default(), &context).is_err(),
                     "forged receiver comparison guard {mutation}"
                 );
+            }
+            for satisfied in [false, true] {
+                for mutation in 0..3 {
+                    let mut program = artifact.program.clone();
+                    let comparison = program
+                        .modules
+                        .iter_mut()
+                        .flat_map(|module| &mut module.interface_tables)
+                        .filter_map(|table| table.comparison.as_mut())
+                        .find(|comparison| {
+                            comparison
+                                .eligibility
+                                .iter()
+                                .any(|fact| fact.satisfied == satisfied)
+                        })
+                        .expect("closed positive and negative eligibility facts");
+                    let fact = comparison
+                        .eligibility
+                        .iter_mut()
+                        .find(|fact| fact.satisfied == satisfied)
+                        .unwrap();
+                    match mutation {
+                        0 => fact.satisfied = !fact.satisfied,
+                        1 => fact.bound.constraints.clear(),
+                        _ => {
+                            let duplicate = fact.clone();
+                            comparison.eligibility.push(duplicate);
+                        }
+                    }
+                    assert!(
+                        KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+                        "forged eligibility {satisfied}, mutation {mutation}"
+                    );
+                }
             }
         }
     }

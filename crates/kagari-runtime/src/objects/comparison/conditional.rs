@@ -1,4 +1,4 @@
-//! Bind positive conditional evidence from retained, independently checked operations.
+//! Bind conditional comparison using retained eligibility facts and checked operations.
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -7,9 +7,9 @@ use crate::{
         EnvironmentRecord, arguments::TypeArgument, compatibility::TypeIdentity,
         construction::ConstructionScope, operations::OperationBindings,
     },
-    gc::interfaces::InterfaceResultBinding,
+    gc::interfaces::{InterfaceResultBinding, ReceiverComparisonBinding},
     module::LoadedModule,
-    objects::adapters::AdapterApplication,
+    objects::{adapters::AdapterApplication, calls::resolve_requirement},
 };
 use kagari_contract::callable::witness::OperationWitness;
 use kagari_types::{
@@ -17,14 +17,14 @@ use kagari_types::{
     language::Protocol,
     ty::{Constraint, Ty},
 };
-use std::slice;
+use std::{slice, sync::Arc};
 
 impl Runtime {
     pub(super) fn bind_conditional_comparison(
         &self,
         binding: &InterfaceResultBinding,
         scopes: &[LoadedModule],
-    ) -> Result<Option<InterfaceResultBinding>, RuntimeError> {
+    ) -> Result<Option<ReceiverComparisonBinding>, RuntimeError> {
         let Some(comparison) = &binding.owner.bytecode.interface_tables[binding.table].comparison
         else {
             return Ok(None);
@@ -38,18 +38,8 @@ impl Runtime {
             scopes,
             remaining: 100_000,
         };
-        let mut operations = OperationBindings::default();
+        let mut unresolved = false;
         for condition in &comparison.conditions {
-            // A methodless marker (for example Eq) needs its own eligibility
-            // certificate. Merely finding another callable cannot prove it.
-            if condition.constraints.iter().any(|constraint| {
-                !matches!(constraint, Constraint::Trait(interface)
-                    if interface == &comparison.operation.requirement().interface
-                        && Protocol::from_definition(&interface.declaration, binding.owner.definitions())
-                            == Some(Protocol::PartialEq))
-            }) {
-                return Ok(None);
-            }
             let argument = self
                 .type_arguments(
                     &binding.owner,
@@ -57,12 +47,60 @@ impl Runtime {
                     slice::from_ref(&condition.ty),
                 )?
                 .remove(0);
-            let required = NativeCallableRequirement {
-                receiver: argument.ty().clone(),
-                ..comparison.operation.requirement().clone()
+            for constraint in &condition.constraints {
+                let (constraint, constraint_identity) = match constraint {
+                    Constraint::Standard(kind) => (Constraint::Standard(*kind), None),
+                    Constraint::Trait(interface) => {
+                        let applied = self
+                            .type_arguments(
+                                &binding.owner,
+                                binding.environment.as_ref().map(|env| env.types.clone()),
+                                &[Ty::Trait(interface.clone())],
+                            )?
+                            .remove(0);
+                        let Ty::Trait(interface) = applied.ty() else {
+                            return Err(RuntimeError::module_validation(
+                                "receiver constraint application",
+                            ));
+                        };
+                        let identity = applied.identity(&binding.owner).ok_or_else(|| {
+                            RuntimeError::module_validation("receiver constraint identity")
+                        })?;
+                        (Constraint::Trait(interface.clone()), Some(identity))
+                    }
+                };
+                match evidence.eligibility(
+                    &argument,
+                    &constraint,
+                    constraint_identity.as_ref(),
+                    0,
+                )? {
+                    Some(false) => return Ok(Some(ReceiverComparisonBinding::Identity)),
+                    Some(true) => {}
+                    None => unresolved = true,
+                }
+            }
+        }
+        if unresolved {
+            return Ok(None);
+        }
+        // Guard truth and executable dependencies are separate. In particular
+        // methodless Eq needs a fact, while callable leaves retain their own
+        // checked selections. Neither is inherited by ordinary interface calls.
+        let mut operations = OperationBindings::default();
+        for witness in comparison.operation.walk() {
+            let OperationWitness::Forward(required) = witness else {
+                continue;
             };
+            let argument = self
+                .type_arguments(
+                    &binding.owner,
+                    binding.environment.as_ref().map(|env| env.types.clone()),
+                    slice::from_ref(&required.receiver),
+                )?
+                .remove(0);
+            let required = resolve_requirement(binding.environment.as_ref(), required)?;
             let Some(operation) = evidence.operation(&argument, &required, 0)? else {
-                // Unavailable evidence is deliberately not a negative certificate.
                 return Ok(None);
             };
             operations.push(&self.gc, operation)?;
@@ -72,10 +110,12 @@ impl Runtime {
         environment.constructions =
             self.construction_scope(&binding.owner, binding.environment.as_ref())?;
         environment.extend_operations(operations);
-        Ok(Some(InterfaceResultBinding {
-            environment: Some(self.alloc_environment(environment)?),
-            ..binding.clone()
-        }))
+        Ok(Some(ReceiverComparisonBinding::Selected(
+            InterfaceResultBinding {
+                environment: Some(self.alloc_environment(environment)?),
+                ..binding.clone()
+            },
+        )))
     }
 }
 
@@ -95,6 +135,71 @@ impl ComparisonEvidence<'_> {
         }
         self.remaining -= 1;
         Ok(())
+    }
+
+    fn eligibility(
+        &mut self,
+        argument: &TypeArgument,
+        constraint: &Constraint,
+        constraint_identity: Option<&Arc<TypeIdentity>>,
+        depth: usize,
+    ) -> Result<Option<bool>, RuntimeError> {
+        self.step(depth)?;
+        let invalid = || RuntimeError::module_validation("receiver eligibility scope");
+        let identity = argument.identity(self.fallback).ok_or_else(invalid)?;
+        for scope in self.scopes {
+            for owner in scope.members() {
+                for fact in owner
+                    .bytecode
+                    .interface_tables
+                    .iter()
+                    .filter_map(|table| table.comparison.as_ref())
+                    .flat_map(|comparison| &comparison.eligibility)
+                {
+                    self.step(depth)?;
+                    if fact.bound.ty != *argument.ty()
+                        || fact.bound.constraints.as_slice() != slice::from_ref(constraint)
+                    {
+                        continue;
+                    }
+                    let selected = self
+                        .runtime
+                        .resolve_type_arguments(&owner, slice::from_ref(&fact.bound.ty))?;
+                    if selected[0].identity(&owner).as_ref() != Some(&identity) {
+                        continue;
+                    }
+                    if let Constraint::Trait(interface) = constraint {
+                        let applied = self
+                            .runtime
+                            .resolve_type_arguments(&owner, &[Ty::Trait(interface.clone())])?;
+                        if applied[0].identity(&owner).as_ref() != constraint_identity {
+                            continue;
+                        }
+                    }
+                    return Ok(Some(fact.satisfied));
+                }
+            }
+        }
+        if let (Ty::Tuple(items), Constraint::Trait(interface)) = (argument.ty(), constraint)
+            && matches!(
+                Protocol::from_definition(&interface.declaration, self.fallback.definitions()),
+                Some(Protocol::PartialEq | Protocol::Eq | Protocol::Hash)
+            )
+            && interface.arguments.is_empty()
+            && interface.associated_types.is_empty()
+        {
+            let mut unknown = false;
+            for index in 0..items.len() {
+                let item = argument.parameter(self.runtime, self.fallback, index)?;
+                match self.eligibility(&item, constraint, constraint_identity, depth + 1)? {
+                    Some(false) => return Ok(Some(false)),
+                    Some(true) => {}
+                    None => unknown = true,
+                }
+            }
+            return Ok((!unknown).then_some(true));
+        }
+        Ok(None)
     }
 
     fn operation(

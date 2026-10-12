@@ -13,6 +13,7 @@ use kagari_types::{
     },
     ty::{Ty, substitution::TypeTransformError},
 };
+use std::slice;
 
 pub(super) fn validate<'a>(
     module: &MirModule,
@@ -61,6 +62,9 @@ pub(super) fn validate<'a>(
         validator.types(&instance.arguments)?;
         if let Some(comparison) = &instance.comparison {
             validator.bounds(&comparison.conditions)?;
+            for fact in &comparison.eligibility {
+                validator.bounds(slice::from_ref(&fact.bound))?;
+            }
             let operation = &comparison.operation;
             let required = operation.requirement();
             validator.validate_type(&required.receiver)?;

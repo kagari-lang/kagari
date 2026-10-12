@@ -8,51 +8,48 @@ GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-13)
 
-Resume from the CI03 positive conditional-composition checkpoint; the progress ledger below owns
-completed changes and their validation evidence. CI01-CI02 are complete and CI03
-remains active. CI04 has implementation checkpoints but still needs its phase
-acceptance audit; CI05 marker removal and CI06 documentation/final acceptance
-remain open. Do not restart completed migrations or treat partial CI04 work as
-completion of the overall plan.
+Resume from the CI03 conditional eligibility checkpoint; the progress ledger below
+owns completed changes and their validation evidence. CI01-CI02 are complete and
+CI03 remains active. CI04 has implementation checkpoints but still needs its phase
+acceptance audit; CI05 marker removal and CI06 documentation/final acceptance remain
+open. Do not restart completed migrations or treat partial CI04 work as completion
+of the overall plan.
 
-The positive conditional-composition path now passes both mixed-generation
-`Vec<(old Local, new Item)>` cases, including same-nominal old/new Local arguments.
-Runtime binds independently checked positive operations by exact TypeIdentity and
-reuses the verified generic tuple adapter; it never searches implementation headers
-or the live module store. Concrete tuple witnesses now use that same shared body.
-Guarded selections still carry their exact substituted implementation bounds through
-lowering, wire encoding and independent verification. Comparison-only operation
-bindings do not become capabilities of ordinary interface calls.
+Positive and negative mixed-generation `Vec<(old Local, new Item)>` comparisons now
+pass. Closed comparison records retain independently authenticated bound outcomes;
+missing facts remain unknown, while a verified false bound selects the object's
+identity default. Runtime matches full receiver and constraint type identities to
+their supplying generations. Methodless Eq truth is separate from PartialEq callable
+selection: the generic Bag fixture checks both an eligible mixed-generation tuple
+and an element with PartialEq but no Eq. Closed generic receiver selections now
+retain their checked bound operations even if the selected method body ignores them.
+Tuple composition uses the verified shared adapter and exact component operations.
+Comparison-only evidence does not become an ordinary interface capability.
 
-The next implementation step is explicit eligibility evidence for negative and
-methodless conditions. Missing operations must remain distinct from a verified
-negative result; Eq cannot be established merely by finding a PartialEq callable.
-Keep compiler/contract selection and validation separate from runtime binding to
-each type argument's supplying generation. Retire the superseded whole closed-view
-comparison scan when this conditional binding path is complete.
+The next step is to finish the optional-binding coverage audit and retire the
+superseded whole closed-view comparison scan in
+[receiver comparison binding](../crates/kagari-runtime/src/objects/comparison.rs). In
+particular, audit generic objects with no explicit comparison implementation and
+receiver headers specialized to particular type arguments; do not infer a default
+from a failed lookup or an unknown condition. The compiler currently emits outcomes
+for demanded candidate implementation bounds, not a blanket protocol dictionary.
+Keep source/contract selection independent from runtime binding to supplying
+programs. CI04's recorded generic-erasure acceptance question and CI05-CI06 still
+remain; no phase completion is claimed by these focused regressions.
 
-The enabled negative-boundary reproduction now compiles and fails at runtime in
-the new caller with "interface receiver does not support object comparison":
+The former negative-boundary failure is resolved:
 
 ```text
 cargo test -p kagari-embed --test generic_reload shared_collection_comparison_preserves_ineligible -- --nocapture
 ```
 
 It constructs Vec<(old Local, new Item)> where Item is an enum containing an ordinary
-Opaque interface without PartialEq. Expected equality is the eligible object's
-identity default: an alias compares equal, a distinct collection does not. The old
-caller succeeds; the mixed-generation new caller lacks a negative certificate.
-Consider retaining checked bound outcomes with the concrete comparison applications
-that already supply positive selections, with independent source-free validation and
-exact argument identities; do not infer a negative result from failed lookup.
-
-The first attempt at this fixture exposed catalog-free equality eligibility during
-conditional implementation selection, then a weaker local-table fallback in final
-source checks. Both bypasses are removed. The aggregate catalog owns completed
-conditional bounds, including enum payloads and explicit object overrides. Local
-signature recovery remains staged; it cannot override final aggregate rejection.
-Focused positive execution, source rejection and source-free proof checks are
-recorded below. CI03 and the remaining phases are not complete.
+Opaque interface without PartialEq. An alias now compares equal and a distinct
+collection does not, in both callers. Missing enum layout evidence is a validation
+error rather than a negative eligibility certificate. Source-free mutation tests
+reject flipped, empty and duplicated eligibility facts as well as altered guards.
+The earlier catalog-free eligibility and weaker final local-table retries remain
+removed; aggregate proof owns completed conditional bounds.
 
 The user settled the interface identity contract after reviewing the Object-bound
 proposal: do not introduce a public Object bound. Ordinary interfaces permit
@@ -1861,3 +1858,56 @@ evidence lookup only inspects validated selections and canonical component bound
 with existing operation owners retaining execution metadata. Its final canonical
 bound restriction was followed by passing both formerly failing composition cases.
 Complete workspace/backend validation remains CI-owned and unrun.
+
+
+CI03 conditional eligibility checkpoint supplies explicit closed positive and
+negative bound outcomes alongside receiver comparisons. A fact has one closed
+constraint, is independent of caller assumptions and must agree with the executable
+proof catalog. Wire encoding, definition remapping/reference collection, application
+validation and artifact limits cover the added records. Missing enum payload layout
+now returns InvalidContract from structural proof; incomplete metadata cannot certify
+ineligibility. No format identifier bump or compatibility reader was introduced for
+this unpublished record change.
+
+Runtime resolves each guard and its constraint arguments in the retained environment,
+then matches the receiver and constraint identities against supplying programs.
+Tuple eligibility composes component facts for the fixed structural protocols.
+Any authenticated false guard selects object identity; an unknown guard remains
+unresolved. If every guard holds, each Forward leaf binds its own checked operation.
+A methodless Eq fact cannot be replaced by finding a PartialEq operation. The binding
+and its dependencies remain comparison-only; the original receiver table and type
+environment retain the negative branch's generations, and selected operations trace
+the positive branch's dependencies.
+
+The expanded generic Bag reload case exposed a missing tuple PartialEq adapter even
+though its Eq guard was true. Closed generic receiver comparisons previously kept
+only their selected method, so unused method bounds did not retain executable
+evidence. Such comparisons now use the existing SharedMethod witness with its full
+checked bound operations; no second comparison body or runtime implementation search
+was added. The test also supplies a new caller's Unequal type with PartialEq but no
+Eq, proving the false guard wins over available equality. An initial version removed
+an Eq implementation on reload and correctly hit PublicAbiFingerprintMismatch; the
+final fixture preserves declarations and changes only the caller's argument type.
+The existing negative-content case now passes as well.
+
+Source-free proof coverage now distinguishes symbolic and concrete receiver
+applications independently of their witness representation, and retains a plain
+object fixture for Selected/default signature corruption. Added fact mutations flip
+each truth value, remove its constraint and duplicate it; all are rejected. The
+old whole-view comparison scan is still present pending the optional-binding audit
+identified in the handoff. CI03, CI04 acceptance and CI05-CI06 remain open.
+
+
+Focused validation passed seven distinct cases: four generic_reload cases (the
+expanded generic selection, ineligible content and two mixed-generation operation
+compositions) and three collection_interfaces cases (source-free receiver evidence,
+concrete content protocols/helpers and shared generic boxing). Reload cases force
+GC and assert root/generation release; content execution retains source, decoded
+artifact and ArtifactJit coverage. These selections cover the changed applicability,
+dependency retention and fallback paths without repeating the backend matrix.
+Compiler/runtime library Clippy, formatting and diff checks passed. Structure checked
+1111 Rust files with no violations or documented exceptions. Manual review found no
+new re-exports, production globs, deep parent paths, visibility bridges or mixed
+runtime/source policy. Temporary diagnostics were removed. Complete workspace and
+backend validation remains CI-owned and unrun; no currently failing case remains in
+this selected scope.

@@ -452,6 +452,26 @@ impl<T> List<T> for Bag<T> {{
     assert_shared_collection_comparison_reloading(&source, true, |source| {
         source.replace("bool { true }", "bool { false }")
     });
+    let constrained = source
+        .replace(
+            "impl<T> PartialEq for Bag<T>",
+            "impl<T: Eq> PartialEq for Bag<T>",
+        )
+        .replace("struct Local", "impl Eq for Local {}\nstruct Local")
+        .replace("struct Item", "impl Eq for Item {}\nstruct Item");
+    // Eq has no callable. Its positive and negative facts must independently
+    // follow the generation of the actual element, not the factory's body.
+    assert_shared_collection_comparison_reloading(&constrained, true, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+    let negative = format!(
+        "struct Unequal {{}}\nimpl PartialEq for Unequal {{ fn eq(self, other: Self) -> bool {{ true }} }}\n{constrained}"
+    );
+    assert_shared_collection_comparison_reloading(&negative, false, |source| {
+        source
+            .replace("Item { value: 1 }", "Unequal {}")
+            .replace("Item { value: 2 }", "Unequal {}")
+    });
 }
 
 fn mixed_generation_collection_source() -> String {

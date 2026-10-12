@@ -3,7 +3,7 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::{arguments::type_parameter, compatibility::TypeView},
-    gc::interfaces::InterfaceResultBinding,
+    gc::interfaces::{InterfaceResultBinding, ReceiverComparisonBinding},
     native::context::{ScriptCall, ScriptInvoker},
     objects::calls::resolve_requirement,
     value::Value,
@@ -21,7 +21,7 @@ impl Runtime {
         binding: &InterfaceResultBinding,
         expression: &Ty,
         arguments: &[Ty],
-    ) -> Result<Option<InterfaceResultBinding>, RuntimeError> {
+    ) -> Result<Option<ReceiverComparisonBinding>, RuntimeError> {
         let invalid = || RuntimeError::module_validation("receiver comparison application");
         let receiver = self
             .type_arguments(
@@ -46,7 +46,7 @@ impl Runtime {
             // The checked selection is valid for this template's binders. Its
             // active environment retains the actual arguments' supplying owners;
             // no closed application or new implementation selection is needed.
-            return Ok(Some(binding.clone()));
+            return Ok(Some(ReceiverComparisonBinding::Selected(binding.clone())));
         }
         let declaration = binding.owner.bytecode.interface_tables[binding.table].declaration;
         let mut scopes = self
@@ -99,12 +99,14 @@ impl Runtime {
                 if selected[0].identity(&owner).as_ref() != Some(&identity) {
                     continue;
                 }
-                return Ok(Some(InterfaceResultBinding {
-                    owner,
-                    table: index,
-                    arguments: arguments.to_vec(),
-                    environment: binding.environment.clone(),
-                }));
+                return Ok(Some(ReceiverComparisonBinding::Selected(
+                    InterfaceResultBinding {
+                        owner,
+                        table: index,
+                        arguments: arguments.to_vec(),
+                        environment: binding.environment.clone(),
+                    },
+                )));
             }
         }
         Ok(None)
@@ -147,6 +149,9 @@ impl Runtime {
         };
         let left = unwrap(left)?;
         let right = unwrap(right)?;
+        let ReceiverComparisonBinding::Selected(binding) = binding else {
+            return value_semantics::identity_equal(&self.gc, &left, &right).map(Value::Bool);
+        };
         let receiver = snapshot.concrete_type.clone();
         let compatible = [left, right].iter().all(|value| {
             self.matches_type_in(

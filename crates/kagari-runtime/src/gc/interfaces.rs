@@ -35,6 +35,14 @@ pub(crate) struct InterfaceResultBinding {
     pub(crate) environment: Option<TypeEnvironment>,
 }
 
+/// Receiver equality selected at construction, including an authenticated
+/// negative conditional bound that permits the object's identity default.
+#[derive(Debug, Clone)]
+pub(crate) enum ReceiverComparisonBinding {
+    Selected(InterfaceResultBinding),
+    Identity,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceParentBinding {
     pub(crate) prepared: MetadataCache<InterfaceSnapshotId>,
@@ -46,7 +54,7 @@ pub(crate) struct InterfaceParentBinding {
 #[derive(Debug)]
 pub(crate) struct InterfaceValueSnapshot {
     /// Original construction table and generation supplying receiver equality.
-    pub(crate) comparison: Option<InterfaceResultBinding>,
+    pub(crate) comparison: Option<ReceiverComparisonBinding>,
     pub(crate) receiver_operations: MetadataCache<OperationGroupId>,
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) parents: Vec<InterfaceParentBinding>,

@@ -79,7 +79,10 @@ impl ProofCatalog<'_> {
             Ty::Tuple(items) => items.iter().collect(),
             Ty::Enum(instance) => {
                 let Some(payload) = self.enumerations.get(instance) else {
-                    return Ok(false);
+                    // Missing declaration/layout evidence is not proof that a
+                    // structural protocol is inapplicable. In particular it
+                    // must never authorize an object's identity fallback.
+                    return Err(TypeTransformError::InvalidContract);
                 };
                 payload.clone()
             }
