@@ -107,6 +107,10 @@ impl Runtime {
         if exported.generic_params.len() != arguments.len() {
             return Err(invalid());
         }
+        let declaration = owner
+            .definitions()
+            .lookup(declaration)
+            .ok_or_else(invalid)?;
         let evidence = EntryEvidence::find(self, owner, declaration, arguments)?;
         self.cache_function(evidence)
     }
@@ -119,12 +123,8 @@ impl Runtime {
         self.gc().ensure_no_native_borrow()?;
         member.applied.validate(self)?;
         let arguments = member.arguments(self, arguments)?;
-        let evidence = EntryEvidence::find(
-            self,
-            member.applied.owner(),
-            &member.declaration,
-            &arguments,
-        )?;
+        let evidence =
+            EntryEvidence::find(self, member.applied.owner(), member.declaration, &arguments)?;
         if member.has_receiver
             && !evidence.signature.params.first().is_some_and(|receiver| {
                 receiver

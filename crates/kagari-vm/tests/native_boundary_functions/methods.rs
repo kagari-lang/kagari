@@ -32,6 +32,18 @@ fn prepared_methods_and_associated_functions_enforce_receiver_and_access() {
     let runtime = vm.runtime();
     let player_type = runtime.bind_type(&owner, "Player", &[]).unwrap();
     let declaration = player_type.method("damage").unwrap();
+    let query = declaration
+        .definitions()
+        .resolve(declaration.declaration())
+        .unwrap()
+        .to_path();
+    assert_eq!(
+        player_type
+            .method_declaration(&query)
+            .unwrap()
+            .declaration(),
+        declaration.declaration()
+    );
     let damage = runtime
         .bind_method_declaration::<(i32,), i32>(&declaration)
         .unwrap();

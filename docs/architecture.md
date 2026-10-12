@@ -805,8 +805,7 @@ models; only explicit wire records serialize file-local references. Type remappi
 helpers are private to the semantic owner. Common metadata exposes scope validation
 and ID-to-ID imports, with no arbitrary rebinding or whole-record path/file-reference
 projection. Protocol recognition and Host nominal validation require a retained
-table. The active [Definition ID migration](definition-id-plan.md) still owns
-remaining legacy test/example consumers and final integration.
+table.
 Bytecode verification, linked executable proofs and Host contract validation use
 scoped records directly.
 Bytecode verification checks the complete input reference
@@ -816,6 +815,14 @@ records with their table, and editable extraction retains that identity ownershi
 while discarding executable evidence. Source checking, editor queries and source
 specialization retain their definition scopes. HIR arenas/body handles and runtime
 generations/epochs remain separate safeguards.
+
+Loaded modules in one program share its retained definition table. Public path
+queries resolve once against that table; inherent members, executable-entry
+evidence, constructor selection and nominal layout matching use IDs internally.
+An inherent member exposes its ID together with the retained table for explicit
+queries or exports. ID equality selects a declaration, not a supplying version:
+prepared calls still require closed type arguments, checked callable evidence,
+runtime ownership, borrow admission and generation-pinned receiver compatibility.
 
 Native `ModuleDecl` validation borrows its supplied identity table. Construction
 collects implicit declaration/member names only after checking the input reference

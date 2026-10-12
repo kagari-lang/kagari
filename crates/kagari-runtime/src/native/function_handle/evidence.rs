@@ -17,7 +17,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, NativeImportId},
     module::CallableTarget,
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{callable::shared::SharedCall, ids::FunctionRef};
 use kagari_types::ty::Ty;
 use std::{slice, sync::Arc};
@@ -42,15 +42,12 @@ impl EntryEvidence {
     pub(super) fn find(
         runtime: &Runtime,
         root: &LoadedModule,
-        declaration: &DefinitionPath,
+        declaration: DefinitionId,
         arguments: &[TypeArgument],
     ) -> NativeResult<Self> {
-        let same_declaration = |owner: &LoadedModule, id| {
-            owner
-                .definitions()
-                .resolve(id)
-                .is_ok_and(|id| id.to_path() == *declaration)
-        };
+        root.definitions()
+            .resolve(declaration)
+            .map_err(|_| missing())?;
         let same_arguments = |owner: &LoadedModule, types: &[Ty]| {
             types.len() == arguments.len()
                 && types.iter().zip(arguments).all(|(ty, argument)| {
@@ -65,7 +62,7 @@ impl EntryEvidence {
             for function in &owner.bytecode.functions {
                 if function.metadata.semantic.generic.is_some()
                     || !function.identity.as_ref().is_some_and(|identity| {
-                        same_declaration(&owner, identity.declaration)
+                        identity.declaration == declaration
                             && same_arguments(&owner, &identity.arguments)
                     })
                 {
@@ -97,7 +94,7 @@ impl EntryEvidence {
             }
             for (index, import) in owner.bytecode.native_imports.iter().enumerate() {
                 if import.generic.is_none()
-                    && same_declaration(&owner, import.instance.declaration)
+                    && import.instance.declaration == declaration
                     && same_arguments(&owner, &import.instance.arguments)
                 {
                     return Self::closed(
@@ -130,7 +127,7 @@ impl EntryEvidence {
                     else {
                         continue;
                     };
-                    if !same_declaration(&carrier, contract.instance.declaration)
+                    if contract.instance.declaration != declaration
                         || !same_arguments(&carrier, &contract.arguments)
                     {
                         continue;

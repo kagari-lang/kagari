@@ -19,7 +19,7 @@ use crate::{
         typed::NativeContext,
     },
 };
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::ty::{GenericParam, Ty};
 
 /// Installed types expose public member evidence through the same resolver.
@@ -31,7 +31,7 @@ pub trait InherentType {
 #[derive(Debug, Clone)]
 pub struct InherentMember {
     pub(crate) applied: AppliedReceiver,
-    pub(crate) declaration: DefinitionPath,
+    pub(crate) declaration: DefinitionId,
     pub(crate) has_receiver: bool,
     receiver: Ty,
     parameters: Vec<GenericParam>,
@@ -39,8 +39,15 @@ pub struct InherentMember {
 }
 
 impl InherentMember {
-    pub fn declaration(&self) -> &DefinitionPath {
-        &self.declaration
+    /// Returns the member ID in the retained receiver program's definition scope.
+    /// This identity does not replace the pinned generation or binding evidence.
+    pub fn declaration(&self) -> DefinitionId {
+        self.declaration
+    }
+
+    /// Borrows the retained scope for resolving or explicitly exporting the member ID.
+    pub fn definitions(&self) -> &DefinitionTable {
+        self.applied.owner().definitions()
     }
 }
 

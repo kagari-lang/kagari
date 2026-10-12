@@ -76,7 +76,7 @@ impl EnumType {
         })
     }
 
-    /// Registration handles supply their declaration identity through `id()`.
+    /// Resolve an explicit variant path against the retained installed identity scope.
     pub fn variant_declaration(
         &self,
         runtime: &Runtime,
@@ -88,12 +88,8 @@ impl EnumType {
             .filter(|segment| segment.kind == DefinitionKind::Variant)
             .ok_or_else(|| RuntimeError::module_validation("enum variant declaration"))?;
         let member = self.variant(runtime, &segment.name)?;
-        if member
-            .layout
-            .module()
-            .definition(member.layout.variant().declaration)?
-            .to_path()
-            != *declaration
+        if member.layout.module().definitions().lookup(declaration)
+            != Some(member.layout.variant().declaration)
         {
             return Err(RuntimeError::module_validation(
                 "variant belongs to another enum",

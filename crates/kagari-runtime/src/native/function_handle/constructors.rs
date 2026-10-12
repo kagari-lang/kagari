@@ -11,7 +11,7 @@ use crate::{
         function_handle::{PinnedFunction, evidence::EntryEvidence},
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_common::identity::DefinitionKind;
 use kagari_contract::types::{PublicItem, inherent::InherentTable};
 use kagari_types::{
     collection::CollectionAccess,
@@ -98,17 +98,15 @@ impl Runtime {
                     ));
                 }
                 let applied = constructor_arguments(table, arguments, &member, owner)?;
-                let mut declaration = member.definition(table.declaration)?.to_path();
-                declaration.path.push(DefinitionPathSegment {
-                    kind: DefinitionKind::Method,
-                    name: method.name.clone(),
-                    occurrence: 0,
-                });
+                let declaration = member
+                    .definitions()
+                    .lookup_child(table.declaration, DefinitionKind::Method, &method.name, 0)
+                    .ok_or_else(invalid)?;
                 found = Some((declaration, applied));
             }
         }
         let (declaration, applied) = found.ok_or_else(invalid)?;
-        let evidence = EntryEvidence::find(self, owner, &declaration, &applied)?;
+        let evidence = EntryEvidence::find(self, owner, declaration, &applied)?;
         if evidence.signature.result.ty() != &receiver {
             return Err(invalid());
         }

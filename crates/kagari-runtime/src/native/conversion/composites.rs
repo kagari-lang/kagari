@@ -179,10 +179,7 @@ fn check_enum_type(
         .type_reference(declaration)?;
     if let Ty::Enum(nominal) = expected.ty()
         && nominal.arguments.len() == arity
-        && expected
-            .definitions()
-            .resolve(nominal.declaration)
-            .is_ok_and(|view| view.to_path() == *declaration)
+        && expected.definitions().lookup(declaration) == Some(nominal.declaration)
     {
         return Ok(());
     }

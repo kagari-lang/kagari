@@ -1,6 +1,6 @@
 # Definition IDs throughout semantic processing
 
-Status: active implementation; SI01 is complete; coupled SI02-SI06 migrations are in progress.
+Status: implementation and focused local validation complete; final documentation retirement remains.
 Planning baseline: `2276061e`, after the SA12/SA13 HIR cleanup. The
 [roadmap](implementation-roadmap.md) owns sequencing. This plan owns SA19's
 implementation scope, SI01-SI06 acceptance and progress ledger.
@@ -260,10 +260,10 @@ boundary data; do not erase them to satisfy a text-search count.
 
 - [x] Agree the representation/ownership design and record this execution plan.
 - [x] SI01: Boundary inventory and identity services.
-- [ ] SI02: Scoped declarations and Native registration.
-- [ ] SI03: Scoped HIR semantics and queries.
-- [ ] SI04: Scoped specialization and executable checking.
-- [ ] SI05: Portable codecs and runtime adoption.
+- [x] SI02: Scoped declarations and Native registration.
+- [x] SI03: Scoped HIR semantics and queries.
+- [x] SI04: Scoped specialization and executable checking.
+- [x] SI05: Portable codecs and runtime adoption.
 - [ ] SI06: Remove obsolete representations and integrate.
 
 ### SI01 boundary decisions and validation
@@ -4066,3 +4066,43 @@ program scope. Generation/borrow/type-argument evidence must stay unchanged. Oth
 observed runtime path inputs are explicit lookup/authoring boundaries; compiler
 DefinitionPathSegment usage identifies registered children, not a second semantic
 model. Final boundary audit and documentation retirement remain outstanding.
+
+### SI06 runtime query boundaries and final implementation audit
+
+InherentMember now retains DefinitionId and exposes its retained definition table.
+Method and collection-constructor discovery use child-ID lookup; executable entry
+and struct layout selection compare IDs in the loaded program's shared scope.
+Explicit path queries resolve once at entry, including enum variants and standard
+Option/Result conversion. Closed generic arguments, provider admission, access,
+borrow checks, callable witnesses and generation-pinned compatibility remain at
+their existing owners. The architecture documents the resulting query boundary.
+
+Seven selected native_boundary cases pass for inherent application inference,
+closed generic evidence, checked collection constructors, method access, native
+method parameters, retained methods across reload and custom-key reentry/reload.
+After the remaining query conversion, three selected cases pass for method queries,
+registered enum variants and native map Option conversion. The method contract
+also checks exporting an ID through its retained table and resolving that explicit
+query back to the same member. Scoped runtime-library and VM native_boundary
+Clippy passes. Structure checks 1087 Rust files with zero violations/exceptions;
+formatting and diff checks pass. Review confirms all member scans share the root
+program's definition table and preserves every nonidentity admission check.
+
+The final audit finds no DefinitionReference, Rebind, to_paths, scope_record,
+collect_authoring or CatalogScopes API in Rust sources. HIR production records
+have no DefinitionPath representation. Remaining compiler path segments identify
+registered children; other remaining owned paths are authoring inputs, diagnostics,
+explicit external queries or codec boundary data. Runtime native processing no
+longer projects IDs to paths; the remaining test export deliberately authors a
+negative fixture. Negative fixture review confirms imported reference closures
+collect implicit names where needed, valid baselines retain their tables, and
+forgeries preserve their intended contract rejection rather than failing because
+of unrelated scope mismatches. No new compatibility layer or execution authority
+was added to metadata imports.
+
+All carried local integration errors are resolved. Reuse the earlier focused
+identity, registration, snapshot, specialization, codec, source-free, Host/GC and
+reload evidence recorded above; no full workspace suite was run. The exhaustive
+workspace/feature/backend matrix remains CI scope, and no performance improvement
+is claimed. SI06's only remaining step is removing this completed ledger and
+reconciling roadmap/review links with the lasting architecture/specification owners.

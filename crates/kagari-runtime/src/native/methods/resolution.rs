@@ -5,7 +5,7 @@ use crate::{
         methods::{InherentMember, receiver::AppliedReceiver},
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, table::DefinitionId};
 use kagari_contract::types::PublicItem;
 use kagari_types::ty::matching::match_receiver;
 
@@ -18,12 +18,17 @@ impl AppliedReceiver {
         &self,
         declaration: &DefinitionPath,
     ) -> NativeResult<InherentMember> {
+        let declaration = self
+            .owner()
+            .definitions()
+            .lookup(declaration)
+            .ok_or_else(|| RuntimeError::module_validation("unknown public inherent member"))?;
         self.find_member(|_, candidate| candidate == declaration)
     }
 
     fn find_member(
         &self,
-        matches: impl Fn(&str, &DefinitionPath) -> bool,
+        matches: impl Fn(&str, DefinitionId) -> bool,
     ) -> NativeResult<InherentMember> {
         let mut found = None;
         for owner in self.owner().members() {
@@ -43,13 +48,13 @@ impl AppliedReceiver {
                     continue;
                 }
                 for method in &table.methods {
-                    let mut declaration = owner.definition(table.declaration)?.to_path();
-                    declaration.path.push(DefinitionPathSegment {
-                        kind: DefinitionKind::Method,
-                        name: method.name.clone(),
-                        occurrence: 0,
-                    });
-                    if !matches(&method.name, &declaration) {
+                    let declaration = owner
+                        .definitions()
+                        .lookup_child(table.declaration, DefinitionKind::Method, &method.name, 0)
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("missing inherent member identity")
+                        })?;
+                    if !matches(&method.name, declaration) {
                         continue;
                     }
                     if found.is_some() {

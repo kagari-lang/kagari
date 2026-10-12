@@ -54,6 +54,9 @@ impl Runtime {
         for argument in arguments {
             argument.validate(self)?;
         }
+        let declaration = owner.definitions().lookup(declaration).ok_or_else(|| {
+            RuntimeError::module_validation("missing executable struct application")
+        })?;
         let types = arguments.iter().map(|a| a.ty().clone()).collect::<Vec<_>>();
         let (member, id) = owner
             .members()
@@ -64,11 +67,7 @@ impl Runtime {
                     .iter()
                     .enumerate()
                     .filter(|(_, layout)| {
-                        member
-                            .definitions()
-                            .resolve(layout.declaration)
-                            .is_ok_and(|view| view.to_path() == *declaration)
-                            && layout.accepts(&types)
+                        layout.declaration == declaration && layout.accepts(&types)
                     })
                     .max_by_key(|(_, layout)| {
                         !layout.arguments.iter().all(|ty| ty.is_concrete())
