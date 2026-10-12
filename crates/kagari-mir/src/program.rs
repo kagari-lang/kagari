@@ -2,6 +2,7 @@
 use kagari_contract::representation::semantic_representation;
 use kagari_types::declaration::TypeDefKind;
 mod applications;
+pub mod construction;
 mod native;
 mod shared;
 use crate::{
@@ -569,6 +570,23 @@ pub fn verify_program(
     cancel
         .check()
         .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+    construction::verify_closed_interfaces(
+        &modules
+            .iter()
+            .map(|module| module.metadata.records())
+            .collect::<Vec<_>>(),
+        &definitions,
+        cancel,
+    )
+    .map_err(|cause| {
+        error(
+            &root,
+            match cause {
+                TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                _ => ProgramErrorKind::InvalidGraph,
+            },
+        )
+    })?;
     let modules = modules.into_iter().map(ValidatedMirModule::seal).collect();
     Ok(VerifiedMirProgram {
         root,

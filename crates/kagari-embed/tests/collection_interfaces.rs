@@ -224,11 +224,15 @@ use std::hash::Hash;
 fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
 fn lists_same<T: PartialEq>(a: Vec<T>, b: Vec<T>) -> bool { a == b }
 fn as_list<T>(xs: Vec<T>) -> List<T> { xs }
+trait Boxer { fn boxed<T>(self, xs: Vec<T>) -> List<T> { xs } }
+impl Boxer for i32 {}
 fn main() -> i32 {
     val a = Vec::from([1, 2]);
     val b = Vec::from([1, 2]);
     if !(a == b && same(a, b) && lists_same(a, b) && a.hash() == b.hash()) { return 1; }
     if a === b || a == Vec::from([2, 1]) { return 2; }
+    val boxer: Boxer = 0;
+    if !(boxer.boxed(a) == boxer.boxed(b)) { return 7; }
     val al: List<i32> = a;
     val bl: List<i32> = b;
     if !(al == bl && as_list(a) == as_list(b) && same(al, bl) && (al, 1) == (bl, 1) && list_content_equal(al, bl)) { return 3; }
@@ -348,57 +352,90 @@ fn main() -> i32 {
 
 #[test]
 fn receiver_comparison_evidence_is_checked_without_source() {
-    let artifact = KagariEngine::default()
-        .compile_to_artifact(
-            SourceFile::new("receiver-proof.kgr", "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }"),
-            Default::default(),
+    let engine = KagariEngine::default();
+    for source in [
+        "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }",
+        "use std::collections::List; trait Boxer {fn one<T>(self, value: T) -> List<T> {Vec::from([value])}} impl Boxer for i32 {} fn main() -> bool {val boxer: Boxer = 0; boxer.one(1) == boxer.one(1)}",
+    ] {
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("receiver-proof.kgr", source),
+                Default::default(),
+            )
+            .unwrap();
+        let context = DefinitionContext::new().unwrap();
+        let artifact = artifact
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        let definitions = identity::collect(
+            &artifact.program.modules.iter().collect::<Vec<_>>(),
+            &context,
         )
         .unwrap();
-    let context = DefinitionContext::new().unwrap();
-    let artifact = artifact
-        .import_into(&context, &Default::default())
-        .unwrap()
-        .into_records();
-    let definitions = identity::collect(
-        &artifact.program.modules.iter().collect::<Vec<_>>(),
-        &context,
-    )
-    .unwrap();
-    verify_program(&artifact.program, &definitions).unwrap();
-    for mutation in 0..4 {
-        let mut program = artifact.program.clone();
-        for table in program
-            .modules
-            .iter_mut()
-            .flat_map(|module| &mut module.interface_tables)
-        {
-            let Some(comparison) = &mut table.comparison else {
-                continue;
-            };
-            match mutation {
-                0 => table.comparison = None,
-                1 => {
-                    let OperationWitness::Selected(call) = &mut comparison.operation else {
-                        panic!("concrete selection");
-                    };
-                    call.requirement.receiver = Ty::Builtin(BuiltinType::I32);
-                }
-                2 => {
-                    let OperationWitness::Selected(call) = &mut comparison.operation else {
-                        panic!("concrete selection");
-                    };
-                    call.signature.result = Ty::Builtin(BuiltinType::I32);
-                }
-                _ => {
-                    comparison.operation = OperationWitness::Forward(Box::new(
-                        comparison.operation.requirement().clone(),
-                    ))
+        verify_program(&artifact.program, &definitions).unwrap();
+        for mutation in 0..4 {
+            let mut program = artifact.program.clone();
+            for table in program
+                .modules
+                .iter_mut()
+                .flat_map(|module| &mut module.interface_tables)
+            {
+                let Some(comparison) = &mut table.comparison else {
+                    continue;
+                };
+                match mutation {
+                    0 => table.comparison = None,
+                    1 => {
+                        let OperationWitness::Selected(call) = &mut comparison.operation else {
+                            panic!("concrete selection");
+                        };
+                        call.requirement.receiver = Ty::Builtin(BuiltinType::I32);
+                    }
+                    2 => {
+                        let OperationWitness::Selected(call) = &mut comparison.operation else {
+                            panic!("concrete selection");
+                        };
+                        call.signature.result = Ty::Builtin(BuiltinType::I32);
+                    }
+                    _ => {
+                        comparison.operation = OperationWitness::Forward(Box::new(
+                            comparison.operation.requirement().clone(),
+                        ))
+                    }
                 }
             }
+            assert!(
+                KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+                "forged receiver comparison {mutation}"
+            );
         }
-        assert!(
-            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
-            "forged receiver comparison {mutation}"
-        );
     }
+}
+
+#[test]
+fn shared_generic_boxing_selects_comparison_without_a_concrete_boxing_site() {
+    execute(
+        r#"
+use std::collections::List;
+fn forward<T>(xs: Vec<T>) -> List<T> { xs }
+trait Boxer {
+    fn boxed<T>(self, xs: Vec<T>) -> List<T> { forward(xs) }
+    fn one<T>(self, value: T) -> List<T> { Vec::from([value]) }
+    fn later<T>(self, value: T) -> fn() -> List<T> { || Vec::from([value]) }
+}
+impl Boxer for i32 {}
+fn main() -> i32 {
+    val boxer: Boxer = 0;
+    val a = boxer.boxed(Vec::from([1]));
+    val b = boxer.one(1);
+    val later = boxer.later(1);
+    if !(a == b && b == later()) { return 1; }
+    val nan = boxer.one(0.0f32 / 0.0f32);
+    if nan == nan { return 2; }
+    if !(boxer.one(0.0f32) == boxer.one(-0.0f32)) { return 3; }
+    42
+}
+"#,
+    );
 }

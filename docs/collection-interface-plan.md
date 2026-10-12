@@ -721,9 +721,10 @@ and direct-call acceptance; current CI03 fixtures use explicitly typed interface
 variables to exercise the accepted executable path. A fixture-only `HashMap::from`
 call was replaced with the existing new/insert API.
 Concrete interface receiver comparison and the separation from Eq/Hash are now
-implemented as described below. CI03 remains incomplete: shared generic construction,
-native result adapters and legacy readonly builtin Map/Set host
-descriptors still require acceptance against concrete protocol selection. Keep NC
+implemented as described below. Shared generic construction and native result
+adapters now have the additional closed-call coverage recorded below. CI03 remains
+incomplete: callback boundaries, caller-scoped shared reload and legacy readonly
+builtin Map/Set host descriptors still require acceptance against concrete selection. Keep NC
 storage migration out of scope.
 
 The directly affected script/enum composition regression
@@ -778,10 +779,11 @@ interface equality, ordinary generic boxing, tuple composition and NaN self-comp
 passed across Source/Artifact/ArtifactJit, with forced collection enabled. These route
 names alone do not prove native machine-code execution.
 
-Remaining CI03 acceptance: symbolic shared-template construction currently omits
-comparison and must obtain checked concrete selection before comparison; ordinary
-monomorphized generic boxing has passed. Check native result conversion, explicit
-protocol-bound interface calls, callback mutation/traps/depth/cancellation, and readonly builtin Map/Set host descriptors. Static collection
+The symbolic shared-template omission described at this checkpoint is resolved for
+closed calls by the following construction-coverage checkpoint. Remaining CI03
+acceptance includes retained shared methods receiving caller-scoped nominal arguments,
+ordinary protocol-bound calls, callback mutation/traps/depth/cancellation, and readonly
+builtin Map/Set host descriptors. Static collection
 operator eligibility still uses the old marker pending its CI04/CI05 migration; the
 runtime comparison path no longer does. Do not mark CI03 complete from the concrete
 coverage above. The CI04 direct-helper first-argument coercion gap remains unchanged.
@@ -805,3 +807,59 @@ kept selection/validation at compiler/contract owners and checked invocation at
 runtime, with no new re-exports, production globs or LOC exceptions. The selected
 regressions cover the changed equality and interface boundaries; full workspace
 and exhaustive feature/backend validation remain CI-owned and were not run locally.
+
+
+CI03 shared-construction checkpoint: a focused reproduction made an interface's
+unconstrained generic method return List<T> from Vec<T>, then compared two results.
+It trapped with `interface receiver does not support object comparison`. Reusing an
+exact prechecked table application fixed the case when another concrete boxing site
+had already demanded that application; the isolated shared-only case still failed.
+The compiler now collects closed interface-construction applications through shared
+script calls, dynamic method slots, retained closure bodies and native result adapters.
+It materializes the corresponding interface records and selected comparisons without
+specializing shared function bodies. A common contract-owned construction graph
+performs bounded binder substitution and deduplicates pending applications, with
+cancellation polling and existing generic-instance diagnostics. MIR and bytecode
+independently project their executable records into that graph and reject missing
+concrete object comparison applications before execution. No live trait lookup is added.
+
+The graph follows method-local binder mappings separately from receiver arguments,
+including native default applications. Runtime shared construction retains the exact
+record for the selected implementation and reified arguments, together with its owner
+and type environment. Native return conversions use the same retained records as
+script MakeInterface; no collection-name dispatch or separate content algorithm is
+introduced. The added graph is executable call/construction metadata analysis, not
+source type inference or a replacement for ordinary method/implementation verification.
+
+`cargo test -p kagari-embed --test collection_interfaces --no-fail-fast` passed all
+10 cases after initial shared-construction/bytecode integration. The expanded isolated
+`shared_generic_boxing` case additionally passed a generic helper, construction inside
+the shared body, a retained closure, NaN and signed zero. The `receiver_comparison_evidence`
+case passed all four corruption variants for both a direct construction and a program
+whose collection is constructed only in a shared generic method. The extra native
+harness in that filtered invocation ran zero tests; it is not native-result evidence.
+`cargo test -p kagari-embed --test native_provider_reset
+concrete_native_results_construct_declared_interfaces_in_generic_calls` passed with
+an added content comparison of two native generic factory results, including decoded
+artifacts, and passed again after MIR coverage validation was enabled.
+`cargo test -p kagari-embed --test default_methods shared_generic_method --no-fail-fast`
+passed all 3 selected shared list/helper/nominal-construction regression cases.
+The temporary compile error from importing MAX_TABLE_RECORDS from common rather than
+its executable-contract owner was corrected; no selected behavior failure remains.
+
+CI03 is still open for the remaining acceptance above; CI04's direct-helper inference
+repair and CI05's marker removal remain pending. Shared comparison under mixed nominal
+supplying generations must be checked before declaring the generic/reload boundary
+complete. Complete feature/backend/workspace coverage remains CI-owned.
+
+The isolated shared-boxing regression passed again after MIR coverage validation and
+native slot mapping changes. The existing `instantiation` test
+`instance_limits_report_revision_owned_diagnostics_without_poisoning_compilation`
+passed after preserving ordinary generic-instance diagnostics for construction limits.
+Scoped Clippy (`kagari-compiler`, `kagari-runtime`, `kagari-mir`, `kagari-bytecode`,
+`kagari-contract`, library targets only), structure checks (1096 files, no violations
+or exceptions), formatting, plan links and diff checks passed. Structural review kept
+binder traversal at contract, representation extraction at MIR/bytecode, materialization
+at compiler and generation retention at runtime; no new re-exports, production globs,
+compatibility APIs or LOC exceptions were added. This is a buildable CI03 checkpoint,
+not completion of CI03 or the full goal.

@@ -12,10 +12,16 @@ use kagari_hir::{
 use kagari_mir::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
-    program::{ProgramError, ProgramErrorKind, VerifiedMirProgram, verify_program},
+    program::{
+        ProgramError, ProgramErrorKind, VerifiedMirProgram,
+        construction::closed_interface_instances, verify_program,
+    },
 };
-use kagari_source::diagnostic::DiagnosticKind;
-use kagari_types::{callable::CallableImplementation, ty::GenericParam};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{
+    callable::CallableImplementation,
+    ty::{GenericParam, substitution::TypeTransformError},
+};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug)]
@@ -202,6 +208,55 @@ pub fn lower_program_to_mir(
                     .entry(owner_of(instance.declaration).clone())
                     .or_default()
                     .push(instance);
+                changed = true;
+            }
+        }
+        let constructions = closed_interface_instances(
+            &modules.iter().collect::<Vec<_>>(),
+            &definitions,
+            options.max_generic_instances.saturating_add(
+                modules
+                    .iter()
+                    .map(|module| {
+                        module.functions.len()
+                            + module
+                                .native_applications()
+                                .filter(|import| import.result_adapter.is_some())
+                                .count()
+                    })
+                    .sum::<usize>(),
+            ),
+            &options.cancel,
+        )
+        .map_err(|error| SourceProgramError::Lowering {
+            module: Box::new(root.clone()),
+            error: match error {
+                TypeTransformError::Cancelled => MirLoweringError::Cancelled,
+                TypeTransformError::LimitExceeded => MirLoweringError::Diagnostic(Box::new(
+                    Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                        resource: "generic instances",
+                        limit: options.max_generic_instances,
+                    })
+                    .with_span(Default::default()),
+                )),
+                TypeTransformError::InvalidContract => {
+                    MirLoweringError::MissingBinding("shared construction contract")
+                }
+            },
+        })?;
+        for instance in constructions {
+            let owner = owner_of(instance.declaration);
+            let materialized = modules
+                .iter()
+                .find(|module| &module.identity == owner)
+                .is_some_and(|module| {
+                    module
+                        .interface_instances
+                        .iter()
+                        .any(|demand| demand.identity() == instance)
+                });
+            if !materialized && seen.insert(instance.clone()) {
+                requests.entry(owner.clone()).or_default().push(instance);
                 changed = true;
             }
         }

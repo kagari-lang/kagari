@@ -193,6 +193,18 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         {
             return Err(MirLoweringError::MissingBinding("requested instance owner"));
         }
+        if planner
+            .catalog
+            .implementation_signature(&request.declaration)
+            .is_some()
+        {
+            planner.record_interface(
+                &request.declaration,
+                &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
+                Default::default(),
+            )?;
+            continue;
+        }
         if request.arguments.iter().all(Ty::is_concrete)
             && planner.prepare_native_target(
                 &request.declaration,

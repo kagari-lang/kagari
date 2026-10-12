@@ -24,6 +24,7 @@ use std::{
     slice,
 };
 
+mod construction;
 pub mod identity;
 pub mod verified;
 
@@ -335,6 +336,7 @@ pub(crate) fn verify_with_suspensions(
     if reachable.len() != program.modules.len() {
         return Err(invalid());
     }
+    construction::verify(program, definitions)?;
     Ok(suspensions)
 }
 
