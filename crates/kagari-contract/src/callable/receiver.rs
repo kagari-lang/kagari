@@ -13,6 +13,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
+    declaration::verify::native_bounds_valid,
     language::Protocol,
     ty::{GenericBound, GenericParam, Ty, substitution::TypeTransformError},
 };
@@ -24,6 +25,11 @@ use kagari_types::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReceiverComparison {
     pub operation: OperationWitness,
+    /// Exact applicability bounds of a unique explicit receiver implementation.
+    /// Empty means unconditional under the interface construction assumptions.
+    /// Nonempty guards require separately supplied eligibility before execution;
+    /// they never add bounds to the exposed interface itself.
+    pub conditions: Vec<GenericBound>,
 }
 
 impl ReceiverComparison {
@@ -38,7 +44,10 @@ impl ReceiverComparison {
         assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
-        if !object_receiver(receiver) {
+        if !object_receiver(receiver)
+            || self.conditions.len() > 4096
+            || !native_bounds_valid(&self.conditions, parameters, cancel, catalog.definitions())
+        {
             return Ok(false);
         }
         let required = self.operation.requirement();
@@ -58,8 +67,18 @@ impl ReceiverComparison {
         {
             return Ok(false);
         }
+        let mut assumptions = assumptions.to_vec();
+        if !self.conditions.is_empty() {
+            let OperationWitness::SharedMethod(selected) = &self.operation else {
+                return Ok(false);
+            };
+            if !catalog.receiver_comparison_conditions_match(selected, &self.conditions, cancel)? {
+                return Ok(false);
+            }
+            assumptions.extend(self.conditions.iter().cloned());
+        }
         self.operation
-            .valid(catalog, parameters, assumptions, cancel)
+            .valid(catalog, parameters, &assumptions, cancel)
     }
 }
 
@@ -99,6 +118,11 @@ impl RemapDefinitions for ReceiverComparison {
     ) -> Result<Self, DefinitionMappingError> {
         Ok(Self {
             operation: self.operation.remap_definitions(mapper)?,
+            conditions: self
+                .conditions
+                .iter()
+                .map(|condition| condition.remap_definitions(mapper))
+                .collect::<Result<_, _>>()?,
         })
     }
 }
@@ -109,7 +133,11 @@ impl DefinitionReferences for ReceiverComparison {
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        self.operation.visit_definition_ids(visit, cancel)
+        self.operation.visit_definition_ids(visit, cancel)?;
+        for condition in &self.conditions {
+            condition.visit_definition_ids(visit, cancel)?;
+        }
+        Ok(())
     }
 }
 

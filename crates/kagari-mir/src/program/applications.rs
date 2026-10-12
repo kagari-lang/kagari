@@ -60,6 +60,7 @@ pub(super) fn validate<'a>(
     for instance in &module.interface_instances {
         validator.types(&instance.arguments)?;
         if let Some(comparison) = &instance.comparison {
+            validator.bounds(&comparison.conditions)?;
             let operation = &comparison.operation;
             let required = operation.requirement();
             validator.validate_type(&required.receiver)?;

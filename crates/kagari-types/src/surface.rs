@@ -22,7 +22,7 @@ pub struct BuiltinTypeSpec {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 // Operation predicates for intrinsic signatures. HashKey and Comparable delegate
 // to canonical standard traits and are not source-level bound names.

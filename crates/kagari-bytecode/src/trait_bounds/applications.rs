@@ -85,6 +85,7 @@ pub(super) fn validate(
     for table in &module.interface_tables {
         validator.types(&table.arguments)?;
         if let Some(comparison) = &table.comparison {
+            validator.bounds(&comparison.conditions)?;
             let operation = &comparison.operation;
             let required = operation.requirement();
             validator.validate_type(&required.receiver)?;

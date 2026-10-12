@@ -135,13 +135,13 @@ pub struct GenericParam {
     pub position: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GenericBound {
     pub ty: Ty,
     pub constraints: Vec<Constraint>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Constraint {
     Standard(StandardTypeConstraint),
     Trait(NominalTy),

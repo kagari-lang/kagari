@@ -358,6 +358,8 @@ impl TypeNormalizationRecord {
 #[derive(Serialize, Deserialize)]
 pub struct ReceiverComparisonRecord {
     operation: OperationWitnessRecord,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    conditions: Vec<GenericBoundRecord>,
 }
 
 impl ReceiverComparisonRecord {
@@ -368,6 +370,11 @@ impl ReceiverComparisonRecord {
     ) -> Result<Self, DefinitionMappingError> {
         Ok(Self {
             operation: OperationWitnessRecord::encode(&value.operation, encoding, cancel)?,
+            conditions: value
+                .conditions
+                .iter()
+                .map(|condition| GenericBoundRecord::encode(condition, encoding, cancel))
+                .collect::<Result<_, _>>()?,
         })
     }
 
@@ -378,6 +385,11 @@ impl ReceiverComparisonRecord {
     ) -> Result<ReceiverComparison, DefinitionMappingError> {
         Ok(ReceiverComparison {
             operation: self.operation.decode(decoding, cancel)?,
+            conditions: self
+                .conditions
+                .into_iter()
+                .map(|condition| condition.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
         })
     }
 }

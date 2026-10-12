@@ -6,9 +6,9 @@ owns queue placement. This document owns CI01-CI06, the activation decisions,
 acceptance and progress ledger. CI phase IDs here mean collection interfaces;
 GitHub CI acceptance is recorded separately.
 
-## Execution handoff (2026-10-12)
+## Execution handoff (2026-10-13)
 
-Resume from the latest CI03 receiver-bound operation checkpoint; the progress ledger below owns
+Resume from the CI03 guarded receiver-selection checkpoint; the progress ledger below owns
 completed changes and their validation evidence. CI01-CI02 are complete and CI03
 remains active. CI04 has implementation checkpoints but still needs its phase
 acceptance audit; CI05 marker removal and CI06 documentation/final acceptance
@@ -28,6 +28,10 @@ and the native import's own checked binding path. Conditional receiver compariso
 still needs optional evidence when the interface factory has no element protocol
 bound: explicit negative eligibility must remain distinct from absent evidence;
 absence cannot authorize identity fallback.
+Guarded selections now carry the exact substituted implementation bounds through
+lowering, wire encoding and independent verification. Runtime deliberately does
+not execute those selections until their actual eligibility and operations are
+supplied. This is metadata/proof completion, not completion of conditional dispatch.
 Keep operation selection and structural adapter proof in compiler/contract
 owners, with runtime binding to the actual arguments' supplying generations.
 Do not add runtime trait search or substitute layout equality for generation
@@ -1756,3 +1760,50 @@ identity-test Clippy passed; structure checked 1109 Rust files without violation
 or exceptions, with formatting and diff checks passing. The value-semantics owner
 now documents this implemented identity rule. CI03 conditional comparison, the
 CI04 audit and remaining marker consumers still prevent phase completion.
+
+
+CI03 conditional selection implementation boundary: receiver comparison records
+will carry the exact substituted bounds of a unique explicit implementation as a
+guard, separate from the interface's promised bounds. Source-free proof must match
+this guard to the implementation declaration and reject omitted, added or substituted
+conditions; it checks the positive operation under those additional assumptions.
+The guard does not grant its bounds to ordinary interface calls. Runtime may use
+this conditional selection only after actual argument eligibility is supplied;
+missing evidence is still an error and never a negative certificate. The current
+exact closed-selection path remains until composed optional argument evidence is
+bound, then its superseded scan must be removed at this CI03 checkpoint's completion.
+This is a finite extension of retained receiver selection, not a runtime trait search
+or an Object/Any feature. The first integration step carries and verifies guards;
+executing mixed-generation optional selections remains the immediate follow-up.
+
+The guarded-selection checkpoint implements that first step. ReceiverComparison
+carries exact substituted implementation bounds; compiler selection emits the
+guard separately from the interface assumptions. Contract proof authenticates the
+unique implementation header and checks its positive operation under those guards.
+It conservatively rejects competing receiver constructors rather than claiming a
+negative result from a symbolic match. Wire mapping, definition traversal, MIR and
+bytecode application checks and artifact limits include the guard. Runtime skips
+guarded records until optional eligibility binding is implemented. No runtime trait
+search, implicit bound, version bump or compatibility reader was added.
+
+The existing source-free receiver proof case now includes an unbounded Bag<T>
+factory with conditional PartialEq. Its valid artifact verifies; deleting,
+duplicating or changing a guard type, or clearing its constraints, is rejected.
+Initial compilation required Hash derivations on GenericBound, Constraint and
+StandardTypeConstraint for the enclosing witness identity; these build errors were
+repaired before validation. Six distinct selected contract cases passed: the
+concrete content protocol case and source-free receiver proof case in
+collection_interfaces; shared_tuple_comparison and shared_receiver_implementation
+in default_methods; shared_tuple_adapter and
+shared_collection_comparison_retains_the_callers in generic_reload. The last four
+were rerun after an interrupted result retrieval left no completion evidence;
+no earlier running process remained. The two mixed-generation unbounded factory
+failures are unchanged at their last recorded execution and were not rerun.
+
+Scoped types/contract/MIR/bytecode/compiler/runtime library Clippy passed. Structure
+checked 1110 Rust files with no violations or exceptions; formatting and diff checks
+passed. Structural review found no new re-export, production glob, deep traversal,
+visibility bridge or handwritten include. The new proof module owns conditional
+selection authentication; runtime binding remains a separate unfinished step.
+CI03, CI04's acceptance audit and CI05-CI06 remain open. Complete workspace and
+backend validation remains CI-owned and unrun.

@@ -510,13 +510,15 @@ fn main() -> i32 {
 #[test]
 fn receiver_comparison_evidence_is_checked_without_source() {
     let engine = KagariEngine::default();
-    for (source, shared) in [
+    for (source, shared, conditional) in [
         (
             "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }",
+            false,
             false,
         ),
         (
             "use std::collections::List; trait Boxer {fn one<T>(self, value: T) -> List<T> {Vec::from([value])}} impl Boxer for i32 {} fn main() -> bool {val boxer: Boxer = 0; boxer.one(1) == boxer.one(1)}",
+            false,
             false,
         ),
         (
@@ -529,6 +531,20 @@ trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
 impl Boxer for i32 {}
 fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
 "#,
+            true,
+            false,
+        ),
+        (
+            r#"
+trait View {}
+struct Bag<T> { val value: T }
+impl<T: PartialEq> PartialEq for Bag<T> { fn eq(self, other: Self) -> bool { self.value == other.value } }
+impl<T> View for Bag<T> {}
+trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
+impl Boxer for i32 {}
+fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
+"#,
+            true,
             true,
         ),
     ] {
@@ -616,6 +632,28 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                 KbcArtifact::from_program(program, Default::default(), &context).is_err(),
                 "forged receiver comparison {mutation}"
             );
+        }
+        if conditional {
+            for mutation in 0..4 {
+                let mut program = artifact.program.clone();
+                let comparison = program
+                    .modules
+                    .iter_mut()
+                    .flat_map(|module| &mut module.interface_tables)
+                    .filter_map(|table| table.comparison.as_mut())
+                    .find(|comparison| !comparison.conditions.is_empty())
+                    .expect("conditional comparison guard");
+                match mutation {
+                    0 => comparison.conditions.clear(),
+                    1 => comparison.conditions.push(comparison.conditions[0].clone()),
+                    2 => comparison.conditions[0].ty = Ty::Builtin(BuiltinType::I32),
+                    _ => comparison.conditions[0].constraints.clear(),
+                }
+                assert!(
+                    KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+                    "forged receiver comparison guard {mutation}"
+                );
+            }
         }
     }
 }

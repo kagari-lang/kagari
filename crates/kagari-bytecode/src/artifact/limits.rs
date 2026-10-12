@@ -130,7 +130,9 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     }
     for table in &module.interface_tables {
         if let Some(comparison) = &table.comparison
-            && !add_operations(slice::from_ref(&comparison.operation), &mut add)
+            && (!add_operations(slice::from_ref(&comparison.operation), &mut add)
+                || !add(comparison.conditions.len())
+                || !add_abi_bounds(&comparison.conditions, &mut add))
         {
             return false;
         }
@@ -384,16 +386,17 @@ pub(super) fn module_abi_type_limit(
         })
         && module.interface_tables.iter().all(|table| {
             table.comparison.as_ref().is_none_or(|comparison| {
-                module.public_items.iter().any(|item| match item {
-                    PublicItem::InterfaceTable(contract)
-                        if contract.declaration == table.declaration =>
-                    {
-                        comparison
-                            .operation
-                            .structurally_valid(&contract.generic_params, definitions)
-                    }
-                    _ => false,
-                })
+                bounds_type_limit(&comparison.conditions)
+                    && module.public_items.iter().any(|item| match item {
+                        PublicItem::InterfaceTable(contract)
+                            if contract.declaration == table.declaration =>
+                        {
+                            comparison
+                                .operation
+                                .structurally_valid(&contract.generic_params, definitions)
+                        }
+                        _ => false,
+                    })
             }) && table.view.as_ref().is_none_or(|view| {
                 valid(&Ty::Trait(view.interface.clone()))
                     && view

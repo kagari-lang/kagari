@@ -37,7 +37,8 @@ impl Runtime {
             .comparison
             .as_ref()
             .is_some_and(|comparison| {
-                matches!(comparison.operation, OperationWitness::SharedMethod(_))
+                comparison.conditions.is_empty()
+                    && matches!(comparison.operation, OperationWitness::SharedMethod(_))
             })
         {
             // The checked selection is valid for this template's binders. Its
@@ -82,6 +83,11 @@ impl Runtime {
                 let Some(comparison) = &table.comparison else {
                     continue;
                 };
+                if !comparison.conditions.is_empty() {
+                    // Guarded selections cannot execute until their actual
+                    // argument eligibility is supplied. Absence proves nothing.
+                    continue;
+                }
                 let required = comparison.operation.requirement();
                 let selected =
                     self.resolve_type_arguments(&owner, slice::from_ref(&required.receiver))?;
