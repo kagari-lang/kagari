@@ -16,6 +16,9 @@ impl RemapDefinitions for OperationWitness {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
+            Self::SharedAdapter(adapter) => {
+                OperationWitness::SharedAdapter(Box::new(adapter.remap_definitions(mapper)?))
+            }
             Self::Selected(field0) => {
                 OperationWitness::Selected(Box::new(((field0).as_ref()).remap_definitions(mapper)?))
             }
@@ -37,6 +40,7 @@ impl DefinitionReferences for OperationWitness {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
+            Self::SharedAdapter(adapter) => adapter.visit_definition_ids(visit, cancel)?,
             Self::Selected(field0) => {
                 ((field0).as_ref()).visit_definition_ids(visit, cancel)?;
             }

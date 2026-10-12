@@ -29,6 +29,20 @@ impl LinkedCallable {
             .gc
             .bound_operation(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid native selected operation"))?;
+        if let Some(id) = operation.application {
+            let application = runtime.gc.method_application(id).ok_or_else(|| {
+                RuntimeError::module_validation("selected shared operation application")
+            })?;
+            return Ok(Self {
+                owner: CallableOwner::Resolved(operation.owner.clone()),
+                target: operation.target,
+                params: application.signature.params.clone().into(),
+                result: application.signature.result.clone(),
+                primitive: operation.primitive,
+                environment: application.environment.clone(),
+                scoped_signature: application.scoped_signature.clone().map(Arc::new),
+            });
+        }
         let (binders, environment) = if let Some(generic) = &operation.generic {
             let arguments = runtime.type_arguments(
                 caller,

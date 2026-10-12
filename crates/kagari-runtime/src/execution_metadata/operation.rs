@@ -1,6 +1,9 @@
 //! Checked executable selections and their generic invocation metadata.
 use crate::{
-    frame::types::TypeEnvironment, gc::interfaces::InterfaceResultBinding, module::LoadedModule,
+    execution_metadata::applications::ApplicationId,
+    frame::types::{TypeEnvironment, compatibility::TypeIdentity},
+    gc::interfaces::InterfaceResultBinding,
+    module::LoadedModule,
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::standard::RuntimePrimitive;
@@ -9,9 +12,12 @@ use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     ty::{GenericParam, NominalTy, Ty},
 };
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BoundOperation {
+    pub(crate) receiver_identity: Arc<TypeIdentity>,
+    pub(crate) application: Option<ApplicationId>,
     pub(crate) generic: Option<BoundGenericMethod>,
     pub(crate) requirement: NativeCallableRequirement,
     pub(crate) associated_interface: NominalTy,

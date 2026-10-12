@@ -698,17 +698,25 @@ pub(super) fn artifact_count_limit(
 
 fn add_operations(operations: &[OperationWitness], add: &mut impl FnMut(usize) -> bool) -> bool {
     add(operations.len())
-        && operations.iter().all(|operation| {
-            add_callable_requirement(operation.requirement(), add)
-                && match operation {
-                    OperationWitness::Selected(selected) => {
-                        add(selected.instance.arguments.len())
-                            && add(selected.signature.params.len())
+        && operations
+            .iter()
+            .flat_map(OperationWitness::walk)
+            .all(|operation| {
+                add_callable_requirement(operation.requirement(), add)
+                    && match operation {
+                        OperationWitness::Selected(selected) => {
+                            add(selected.instance.arguments.len())
+                                && add(selected.signature.params.len())
+                        }
+                        OperationWitness::SharedAdapter(adapter) => {
+                            add(adapter.call.arguments.len())
+                                && add(adapter.call.signature.params.len())
+                                && add(adapter.call.operations.len())
+                        }
+                        OperationWitness::Forward(_) => true,
+                        OperationWitness::SharedMethod(selected) => {
+                            add(selected.implementation.arguments.len())
+                        }
                     }
-                    OperationWitness::Forward(_) => true,
-                    OperationWitness::SharedMethod(selected) => {
-                        add(selected.implementation.arguments.len())
-                    }
-                }
-        })
+            })
 }

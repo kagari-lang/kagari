@@ -1,6 +1,6 @@
 //! File-local Native imports, selected callables and result adapters.
 use crate::{
-    callable::wire::{GenericBodyRecord, OperationWitnessRecord},
+    callable::wire::{GenericBodyRecord, operations::OperationWitnessRecord},
     effects::EffectSet,
     native_import::{
         NativeImport,

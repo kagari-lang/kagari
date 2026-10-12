@@ -32,6 +32,7 @@ use kagari_types::{
     ty::{NominalTy, Ty, substitution::TypeSubstitution},
 };
 use std::{cell::Ref, slice};
+mod adapters;
 mod application;
 mod calls;
 mod comparison;

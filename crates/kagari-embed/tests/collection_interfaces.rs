@@ -572,7 +572,9 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                         let required = match &mut comparison.operation {
                             OperationWitness::Selected(call) => &mut call.requirement,
                             OperationWitness::SharedMethod(call) => &mut call.requirement,
-                            OperationWitness::Forward(_) => panic!("selected comparison"),
+                            OperationWitness::Forward(_) | OperationWitness::SharedAdapter(_) => {
+                                panic!("selected object comparison")
+                            }
                         };
                         required.receiver = Ty::Builtin(BuiltinType::I32);
                     }
@@ -585,7 +587,9 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                                 .arguments
                                 .push(Ty::Builtin(BuiltinType::I32));
                         }
-                        OperationWitness::Forward(_) => panic!("selected comparison"),
+                        OperationWitness::Forward(_) | OperationWitness::SharedAdapter(_) => {
+                            panic!("selected object comparison")
+                        }
                     },
                     3 => {
                         comparison.operation = OperationWitness::Forward(Box::new(

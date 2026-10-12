@@ -91,12 +91,17 @@ impl MirFunction {
 
 impl MirModule {
     pub fn selected_callables(&self) -> impl Iterator<Item = &NativeCallableApplication> {
-        self.native_applications()
-            .flat_map(|import| &import.callables)
+        self.operation_witnesses()
             .filter_map(|operation| match operation {
                 OperationWitness::Selected(selected) => Some(selected.as_ref()),
-                OperationWitness::Forward(_) | OperationWitness::SharedMethod(_) => None,
+                _ => None,
             })
+    }
+
+    /// Include nested structural operations in target verification and reachability.
+    pub fn operation_witnesses(&self) -> impl Iterator<Item = &OperationWitness> {
+        self.native_applications()
+            .flat_map(|import| &import.callables)
             .chain(
                 self.functions
                     .iter()
@@ -113,19 +118,15 @@ impl MirModule {
                         } => Some(&contract.operations),
                         _ => None,
                     })
-                    .flatten()
-                    .filter_map(|operation| match operation {
-                        OperationWitness::Selected(selected) => Some(selected.as_ref()),
-                        OperationWitness::Forward(_) | OperationWitness::SharedMethod(_) => None,
-                    }),
+                    .flatten(),
             )
             .chain(self.interface_instances.iter().filter_map(|instance| {
-                let comparison = instance.comparison.as_ref()?;
-                match &comparison.operation {
-                    OperationWitness::Selected(selected) => Some(selected.as_ref()),
-                    _ => None,
-                }
+                instance
+                    .comparison
+                    .as_ref()
+                    .map(|comparison| &comparison.operation)
             }))
+            .flat_map(OperationWitness::walk)
     }
 
     pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {

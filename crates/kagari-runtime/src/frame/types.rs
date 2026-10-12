@@ -12,15 +12,15 @@ use crate::{
         groups::{OperationGroupId, OperationId},
     },
     frame::types::{
-        arguments::TypeArgument, bindings::TypeBindings, construction::ConstructionScope,
-        operations::OperationBindings,
+        arguments::TypeArgument, bindings::TypeBindings, compatibility::TypeIdentity,
+        construction::ConstructionScope, operations::OperationBindings,
     },
     gc::GcHeap,
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
-    ty::{GenericParam, NominalTy, Ty},
+    ty::{GenericParam, NominalTy},
 };
 use std::sync::Arc;
 
@@ -109,7 +109,7 @@ impl TypeEnvironment {
     pub(crate) fn operation_slot(
         &self,
         heap: &GcHeap,
-        receiver: &Ty,
+        receiver: &TypeIdentity,
         interface: &NominalTy,
         slot: u32,
     ) -> Option<OperationId> {
@@ -122,9 +122,10 @@ impl TypeEnvironment {
         &self,
         heap: &GcHeap,
         required: &NativeCallableRequirement,
+        receiver: &TypeIdentity,
     ) -> Option<OperationId> {
         heap.environment(self.id)?
             .operations
-            .operation(heap, required)
+            .operation(heap, required, receiver)
     }
 }

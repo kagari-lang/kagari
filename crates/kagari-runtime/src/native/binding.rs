@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{TypeEnvironment, arguments::ScopedSignature},
+    frame::types::{TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView},
     module::LoadedModule,
     native::{
         catalog::DeclarationCatalog,
@@ -311,15 +311,23 @@ impl LinkedNativeFunction {
                         Ok(LinkedOperation::Ready(callable.clone()))
                     }
                     LinkedOperation::Forward(required) => {
+                        let receiver = TypeView::new(
+                            &required.receiver,
+                            owner,
+                            Some(environment.types.as_ref()),
+                        )
+                        .identity()
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("native operation receiver identity")
+                        })?;
                         let resolved = environment.types.resolve_requirement(required)?;
-                        let operation =
-                            environment
-                                .operation(&runtime.gc, &resolved)
-                                .ok_or_else(|| {
-                                    RuntimeError::module_validation(
-                                        "native constraint operation environment",
-                                    )
-                                })?;
+                        let operation = environment
+                            .operation(&runtime.gc, &resolved, &receiver)
+                            .ok_or_else(|| {
+                                RuntimeError::module_validation(
+                                    "native constraint operation environment",
+                                )
+                            })?;
                         Ok(LinkedOperation::Ready(LinkedCallable::prepare(
                             runtime,
                             owner,

@@ -6,7 +6,7 @@ use crate::{
         groups::OperationGroupId,
         operation::{BoundGenericMethod, BoundOperation},
     },
-    frame::types::EnvironmentRecord,
+    frame::types::{EnvironmentRecord, compatibility::TypeView},
     gc::interfaces::InterfaceResultBinding,
     module::LoadedModule,
     objects::calls,
@@ -16,6 +16,7 @@ use kagari_contract::{callable::witness::OperationWitness, types as abi, types::
 use kagari_types::{
     callable::Signature, declaration::requirement::NativeCallableRequirement, ty::Ty,
 };
+use std::sync::Arc;
 
 impl Runtime {
     pub(crate) fn bind_receiver_operations(
@@ -88,8 +89,8 @@ impl Runtime {
                 binding.table,
                 arguments
                     .iter()
-                    .map(|argument| argument.ty().clone())
-                    .collect::<Vec<_>>(),
+                    .map(|argument| argument.identity(owner).ok_or_else(invalid))
+                    .collect::<Result<Vec<_>, _>>()?,
             );
             if visited.contains(&key) {
                 continue;
@@ -104,6 +105,11 @@ impl Runtime {
                 self.construction_scope(owner, binding.environment.as_ref())?;
             let environment = self.alloc_environment(environment)?;
             let receiver = environment.types.resolve(&template.for_type)?;
+            let receiver_identity = Arc::new(
+                TypeView::new(&template.for_type, owner, Some(environment.types.as_ref()))
+                    .identity()
+                    .ok_or_else(invalid)?,
+            );
             let Ty::Trait(interface) = environment.types.resolve(&template.trait_type)? else {
                 return Err(invalid());
             };
@@ -145,10 +151,10 @@ impl Runtime {
                     member: slot.method,
                     arguments: vec![],
                 };
-                if operations
-                    .iter()
-                    .any(|operation| operation.requirement == requirement)
-                {
+                if operations.iter().any(|operation| {
+                    operation.requirement == requirement
+                        && operation.receiver_identity == receiver_identity
+                }) {
                     continue;
                 }
                 let body = match slot.target {
@@ -170,6 +176,8 @@ impl Runtime {
                         .as_ref(),
                 };
                 operations.push(BoundOperation {
+                    receiver_identity: receiver_identity.clone(),
+                    application: None,
                     associated_interface: interface.clone(),
                     generic: Some(BoundGenericMethod {
                         receiver_table: binding.clone(),

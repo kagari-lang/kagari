@@ -7,7 +7,6 @@ use crate::{
         shared::SharedCall,
         witness::{OperationWitness, SharedMethodWitness},
     },
-    native_import::wire::NativeCallableApplicationRecord,
     types::wire::module::ConcreteFunctionIdentityRecord,
 };
 use kagari_common::{
@@ -127,74 +126,64 @@ impl SharedMethodWitnessRecord {
     }
 }
 
-/// File-local OperationWitness facts; no verification evidence is serialized.
-#[derive(Serialize, Deserialize)]
-pub(crate) enum OperationWitnessRecord {
-    Selected(Box<NativeCallableApplicationRecord>),
-    SharedMethod(Box<SharedMethodWitnessRecord>),
-    Forward(Box<NativeCallableRequirementRecord>),
-}
-
-impl OperationWitnessRecord {
-    /// Convert using the explicit file table; preserve cancellation and shape errors.
-    /// The caller retains the resulting scope and performs semantic verification.
-    pub(crate) fn encode(
-        value: &OperationWitness,
-        encoding: &DefinitionEncoding,
-        cancel: &CancellationToken,
-    ) -> Result<Self, DefinitionMappingError> {
-        check_cancel(cancel)?;
-        Ok(match value {
-            OperationWitness::Selected(field0) => Self::Selected(Box::new(
-                NativeCallableApplicationRecord::encode(field0.as_ref(), encoding, cancel)?,
-            )),
-            OperationWitness::SharedMethod(field0) => Self::SharedMethod(Box::new(
-                SharedMethodWitnessRecord::encode(field0.as_ref(), encoding, cancel)?,
-            )),
-            OperationWitness::Forward(field0) => Self::Forward(Box::new(
-                NativeCallableRequirementRecord::encode(field0.as_ref(), encoding, cancel)?,
-            )),
-        })
-    }
-
-    /// Convert using the explicit file table; preserve cancellation and shape errors.
-    /// The caller retains the resulting scope and performs semantic verification.
-    pub(crate) fn decode(
-        self,
-        decoding: &DefinitionDecoding,
-        cancel: &CancellationToken,
-    ) -> Result<OperationWitness, DefinitionMappingError> {
-        check_cancel(cancel)?;
-        Ok(match self {
-            Self::Selected(field0) => {
-                OperationWitness::Selected(Box::new((*field0).decode(decoding, cancel)?))
-            }
-            Self::SharedMethod(field0) => {
-                OperationWitness::SharedMethod(Box::new((*field0).decode(decoding, cancel)?))
-            }
-            Self::Forward(field0) => {
-                OperationWitness::Forward(Box::new((*field0).decode(decoding, cancel)?))
-            }
-        })
-    }
-}
+pub(crate) mod operations;
+use operations::OperationWitnessRecord;
 
 /// File-local SharedCall facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub struct SharedCallRecord {
+    entry: SharedCallEntryRecord,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    operations: Vec<OperationWitnessRecord>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SharedCallEntryRecord {
     instance: ConcreteFunctionIdentityRecord,
     implementation: CallableImplementationRecord,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     arguments: Vec<WireType>,
     signature: SignatureRecord,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
-    operations: Vec<OperationWitnessRecord>,
 }
 
 impl SharedCallRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
     pub fn encode(
+        value: &SharedCall,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            entry: SharedCallEntryRecord::encode(value, encoding, cancel)?,
+            operations: value
+                .operations
+                .iter()
+                .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// Convert using the explicit file table; preserve cancellation and shape errors.
+    /// The caller retains the resulting scope and performs semantic verification.
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<SharedCall, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        let operations = self
+            .operations
+            .into_iter()
+            .map(|value| value.decode(decoding, cancel))
+            .collect::<Result<_, _>>()?;
+        self.entry.decode(operations, decoding, cancel)
+    }
+}
+
+impl SharedCallEntryRecord {
+    fn encode(
         value: &SharedCall,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
@@ -215,18 +204,12 @@ impl SharedCallRecord {
                 })
                 .collect::<Result<_, _>>()?,
             signature: SignatureRecord::encode(&value.signature, encoding, cancel)?,
-            operations: value
-                .operations
-                .iter()
-                .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
-                .collect::<Result<_, _>>()?,
         })
     }
 
-    /// Convert using the explicit file table; preserve cancellation and shape errors.
-    /// The caller retains the resulting scope and performs semantic verification.
-    pub fn decode(
+    fn decode(
         self,
+        operations: Vec<OperationWitness>,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
     ) -> Result<SharedCall, DefinitionMappingError> {
@@ -240,11 +223,7 @@ impl SharedCallRecord {
                 .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
                 .collect::<Result<_, _>>()?,
             signature: self.signature.decode(decoding, cancel)?,
-            operations: self
-                .operations
-                .into_iter()
-                .map(|value| value.decode(decoding, cancel))
-                .collect::<Result<_, _>>()?,
+            operations,
         })
     }
 }

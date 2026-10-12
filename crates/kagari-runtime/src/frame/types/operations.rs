@@ -5,13 +5,10 @@ use crate::{
         MetadataEdge,
         groups::{OperationGroupId, OperationId},
     },
-    frame::types::bindings::AssociatedInterface,
+    frame::types::{bindings::AssociatedInterface, compatibility::TypeIdentity},
     gc::GcHeap,
 };
-use kagari_types::{
-    declaration::requirement::NativeCallableRequirement,
-    ty::{NominalTy, Ty},
-};
+use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::NominalTy};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -106,7 +103,7 @@ impl OperationBindings {
     pub(crate) fn operation_slot(
         &self,
         heap: &GcHeap,
-        receiver: &Ty,
+        receiver: &TypeIdentity,
         interface: &NominalTy,
         slot: u32,
     ) -> Option<OperationId> {
@@ -114,7 +111,7 @@ impl OperationBindings {
             OperationSegment::Selected(id) => {
                 let operation = heap.bound_operation(*id)?;
                 (operation.slot == slot
-                    && operation.requirement.receiver == *receiver
+                    && operation.receiver_identity.as_ref() == receiver
                     && operation.associated_interface.satisfies(interface))
                 .then_some(*id)
             }
@@ -128,13 +125,18 @@ impl OperationBindings {
         &self,
         heap: &GcHeap,
         required: &NativeCallableRequirement,
+        receiver: &TypeIdentity,
     ) -> Option<OperationId> {
         self.segments().iter().find_map(|segment| match segment {
             OperationSegment::Selected(id) => {
                 let operation = heap.bound_operation(*id)?;
-                operation.matches_requirement(required).then_some(*id)
+                (operation.receiver_identity.as_ref() == receiver
+                    && operation.matches_requirement(required))
+                .then_some(*id)
             }
-            OperationSegment::Receiver(id) => heap.operation_group(*id)?.operation(required),
+            OperationSegment::Receiver(id) => {
+                heap.operation_group(*id)?.operation(required, receiver)
+            }
         })
     }
 }

@@ -98,18 +98,25 @@ fn closed_interface_contract(contract: &InterfaceCallContract) -> bool {
     contract.receiver.is_none()
         && Ty::Trait(contract.interface.clone()).is_concrete()
         && contract.arguments.iter().all(Ty::is_concrete)
-        && contract.operations.iter().all(|operation| match operation {
-            OperationWitness::Selected(_) => true,
-            OperationWitness::Forward(_) => false,
-            OperationWitness::SharedMethod(selected) => {
-                selected
-                    .implementation
-                    .arguments
-                    .iter()
-                    .all(Ty::is_concrete)
-                    && selected.requirement.receiver.is_concrete()
-                    && Ty::Trait(selected.requirement.interface.clone()).is_concrete()
-                    && selected.requirement.arguments.iter().all(Ty::is_concrete)
-            }
-        })
+        && contract
+            .operations
+            .iter()
+            .flat_map(OperationWitness::walk)
+            .all(|operation| match operation {
+                OperationWitness::Selected(_) => true,
+                OperationWitness::Forward(_) => false,
+                OperationWitness::SharedAdapter(adapter) => {
+                    adapter.call.arguments.iter().all(Ty::is_concrete)
+                }
+                OperationWitness::SharedMethod(selected) => {
+                    selected
+                        .implementation
+                        .arguments
+                        .iter()
+                        .all(Ty::is_concrete)
+                        && selected.requirement.receiver.is_concrete()
+                        && Ty::Trait(selected.requirement.interface.clone()).is_concrete()
+                        && selected.requirement.arguments.iter().all(Ty::is_concrete)
+                }
+            })
 }

@@ -101,7 +101,7 @@ pub(super) fn collect(
                 .chain(slice::from_ref(&import.signature.result))
                 .map(|ty| (raise_type(ty), Default::default())),
         );
-        for operation in &import.callables {
+        for operation in import.callables.iter().flat_map(OperationWitness::walk) {
             let required = operation.requirement();
             pending.push_back((raise_type(&required.receiver), Default::default()));
             pending.extend(

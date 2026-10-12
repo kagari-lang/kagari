@@ -18,6 +18,8 @@ use crate::{
     objects::{invocation::MethodInvocation, method_view::SelectionView},
     value::Value,
 };
+use std::sync::Arc;
+
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_contract::{
     callable::witness::{OperationWitness, SharedMethodWitness},
@@ -165,15 +167,27 @@ impl Runtime {
         let mut operations = OperationBindings::default();
         for witness in witnesses {
             let operation = match witness {
+                OperationWitness::SharedAdapter(adapter) => {
+                    self.bind_shared_adapter(scope.owner, scope.environment.clone(), adapter)?
+                }
                 OperationWitness::SharedMethod(selected) => {
                     self.bind_shared_method(&scope, selected)?
                 }
                 OperationWitness::Forward(required) => {
+                    let receiver = TypeView::new(
+                        &required.receiver,
+                        scope.owner,
+                        scope.environment.as_ref().map(|env| env.types.as_ref()),
+                    )
+                    .identity()
+                    .ok_or_else(invalid)?;
                     let required = resolve_requirement(scope.environment.as_ref(), required)?;
                     scope
                         .environment
                         .as_ref()
-                        .and_then(|environment| environment.operation(&self.gc, &required))
+                        .and_then(|environment| {
+                            environment.operation(&self.gc, &required, &receiver)
+                        })
                         .ok_or_else(invalid)?
                 }
                 OperationWitness::Selected(selected) => {
@@ -276,7 +290,14 @@ impl Runtime {
                             associated_interface = interface;
                         }
                     }
+                    let receiver_identity = Arc::new(
+                        TypeView::new(&selected.requirement.receiver, &owner, None)
+                            .identity()
+                            .ok_or_else(invalid)?,
+                    );
                     self.gc.alloc_bound_operation(BoundOperation {
+                        receiver_identity,
+                        application: None,
                         associated_interface,
                         generic: None,
                         slot,
@@ -307,13 +328,20 @@ impl Runtime {
             scope.environment.clone(),
         )?;
         let required = resolve_requirement(scope.environment.as_ref(), &selected.requirement)?;
+        let receiver = TypeView::new(
+            &selected.requirement.receiver,
+            scope.owner,
+            scope.environment.as_ref().map(|env| env.types.as_ref()),
+        )
+        .identity()
+        .ok_or_else(|| RuntimeError::module_validation("shared operation receiver identity"))?;
         let group = self.bind_table_operations(&binding)?;
         self.gc
             .operation_group(group)
             .and_then(|group| {
                 group
-                    .operation(&required)
-                    .or_else(|| group.selected_method(&required))
+                    .operation(&required, &receiver)
+                    .or_else(|| group.selected_method(&required, &receiver))
             })
             .ok_or_else(|| RuntimeError::module_validation("shared constraint method selection"))
     }

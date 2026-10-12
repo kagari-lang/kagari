@@ -6,7 +6,7 @@ use crate::{
     },
     frame::{
         transfer::ReturnValue,
-        types::{EnvironmentRecord, operations::OperationBindings},
+        types::{EnvironmentRecord, compatibility::TypeView, operations::OperationBindings},
     },
     module::{LoadedModule, execution::calls::PreparedCallTarget},
     native::{
@@ -132,7 +132,12 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             .gc
             .operation_group(group)
             .unwrap()
-            .operation(&requirement)
+            .operation(
+                &requirement,
+                &TypeView::new(&requirement.receiver, &loaded, None)
+                    .identity()
+                    .unwrap(),
+            )
             .unwrap();
         let operation = runtime.gc.bound_operation(operation_id).unwrap();
         let prepare = || {
@@ -171,7 +176,11 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
                 .unwrap()
                 .id
         );
-        assert!(environment.operation(&runtime.gc, &requirement).is_some());
+        assert!(
+            environment
+                .operation(&runtime.gc, &requirement, &operation.receiver_identity)
+                .is_some()
+        );
         let environment_id = environment.id;
         let runtime_owner = runtime.resources().lifetime_probe();
         let application_id = first.application.unwrap();

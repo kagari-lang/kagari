@@ -10,6 +10,7 @@ use kagari_common::{
     identity::{DefinitionKind, table::DefinitionTable},
 };
 use kagari_contract::{
+    callable::witness::OperationWitness,
     native_import::callables::NativeCallableOrigin,
     types::{
         ConcreteFunctionIdentity, PublicItem,
@@ -248,6 +249,33 @@ pub(super) fn validate(
             return Ok(false);
         };
         if !import.matches_declaration(declaration, &catalog, cancel)? {
+            return Ok(false);
+        }
+    }
+    for operation in caller.operation_witnesses() {
+        let OperationWitness::SharedAdapter(adapter) = operation else {
+            continue;
+        };
+        let Some((body, required, signature)) = adapter.template(definitions) else {
+            return Ok(false);
+        };
+        let Some(target) = closure
+            .iter()
+            .flat_map(|owner| &owner.functions)
+            .find(|function| function.instance == adapter.call.instance)
+        else {
+            return Ok(false);
+        };
+        if target.semantic.generic.as_ref() != Some(&body)
+            || target.semantic.protocol_adapter.as_ref() != Some(&required)
+            || target.semantic.params.len() != signature.params.len()
+            || signature
+                .params
+                .iter()
+                .enumerate()
+                .any(|(index, ty)| target.semantic.params.get(&index) != Some(ty))
+            || target.semantic.result.as_ref() != Some(&signature.result)
+        {
             return Ok(false);
         }
     }

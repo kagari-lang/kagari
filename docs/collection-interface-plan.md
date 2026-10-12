@@ -8,7 +8,7 @@ GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-12)
 
-Resume from the latest CI03 shared tuple adapter checkpoint; the progress ledger below owns
+Resume from the latest CI03 composed operation witness checkpoint; the progress ledger below owns
 completed changes and their validation evidence. CI01-CI02 are complete and CI03
 remains active. CI04 has implementation checkpoints but still needs its phase
 acceptance audit; CI05 marker removal and CI06 documentation/final acceptance
@@ -37,8 +37,9 @@ cargo test -p kagari-embed --test generic_reload shared_collection_comparison_co
 ```
 
 They separately cover the retained Local operation and the new Item operation.
-The latest checkpoint passed 11 selected contract cases and scoped library
-Clippy; exact coverage and earlier evidence are recorded in the ledger. Continue
+The latest checkpoint extends shared tuple calls to checked operation witnesses
+and fixes same-nominal mixed-generation selection; exact validation and earlier
+evidence are recorded in the ledger. Continue
 with affected tests and lightweight checks, leaving the exhaustive workspace and
 backend matrix to CI. These two failures and the remaining phase work must be
 resolved before declaring completion.
@@ -1539,3 +1540,61 @@ execution through the existing shared-call runtime. No new public re-export,
 production glob, deep parent traversal or compatibility entrypoint was added.
 The contract proof signature now accepts explicit assumptions; existing callers
 were updated directly without a compatibility wrapper.
+
+
+CI03 composed operation witness checkpoint: a shared tuple adapter can now serve
+as a checked callable requirement, including nested tuples and native content
+helper arguments. SharedAdapterWitness retains the existing SharedCall contract;
+the contract owner verifies its canonical tuple body, bound scope, exact signature
+and component operations. MIR and bytecode linkage walk nested witnesses and verify
+every adapter target. The compiler uses one tuple-call planner for direct shared
+calls and operation arguments. Runtime binding reuses MethodApplication and its
+scoped signature/environment, with the operation-to-application GC edge traced.
+No runtime implementation search or second tuple algorithm is added.
+
+Operation wire records use a flat, bounded preorder tree rather than recursively
+serialized records. Decode rejects missing children, multiple roots, oversized
+node counts and depth beyond 64 before admitting recursive executable metadata.
+The unpublished schema changes directly, without a compatibility reader or format
+identifier bump. The new wire boundary unit case covers malformed shape, depth
+64/65 and oversized counts. Scoped Clippy identified a large wire enum variant;
+boxing its entry reduces representation size without changing the wire contract.
+
+The expanded mixed-generation tuple test now compares through direct shared calls,
+a bounded generic function and native list_content_equal. Besides old Local/new
+Item, it constructs (old Local, new Local). That third case initially returned
+true instead of false because executable operation lookup indexed only the raw Ty.
+BoundOperation and OperationGroup now use the existing complete TypeIdentity;
+forwarded/native/interface lookup computes it from the original scoped expression.
+Receiver-table deduplication also retains each argument's supplying identity.
+The regression now passes all three variants under forced GC, retaining and then
+releasing the old generation. This is a concrete ownership repair, not a relaxation
+of type matching or permission to invoke a different generation's method.
+
+The shared tuple fixture covers custom PartialEq and Hash through nested tuple
+operation forwarding, primitive components and native helper arguments. Its new
+source-free mutation matrix rejects missing/duplicate component operations,
+mismatched arguments, an out-of-scope forwarded component and a wrong result.
+The earlier direct adapter proof matrix remains intact. A fixture-only missing
+debug import was removed; disagreement is checked by a deliberate arithmetic trap.
+Two exhaustive comparison-test matches were updated for the new witness variant;
+their compile failure did not count as passed coverage. A scoped-signature Vec to
+Box conversion and a missing TypeIdentity import were repaired before execution.
+
+Selected validation covers eight default_methods cases, three collection_interfaces
+content/float/receiver-proof cases, one generic_reload case with three generation
+variants, fourteen runtime operation-group/application lifetime cases and the flat
+wire unit case. The operation lifecycle set is selected because composed operations
+now retain applied environments, and lookup/group membership semantics changed.
+The exhaustive workspace/backend matrix remains CI-owned and unrun. The original
+two unconstrained Vec receiver-comparison failures remain open at their last
+recorded run; this checkpoint does not supply optional conditional evidence to
+an unbounded factory. CI03, CI04's audit and CI05-CI06 remain open.
+
+All 27 distinct selected cases above passed (including the wire case after the
+representation adjustment). Contract/compiler/MIR/bytecode/runtime library Clippy
+passed. Structure checked 1108 Rust files with zero violations/exceptions; format
+and diff checks passed. Structural review found no new re-exports, production
+globs, deep parent traversal, handwritten include or widened visibility bridge.
+The tuple witness owns composition only; existing shared calls own argument and
+bound contracts, and runtime operation/application owners retain execution state.

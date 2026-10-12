@@ -1,4 +1,5 @@
 //! Checked executable call applications and interface signatures.
+pub mod adapter;
 pub mod construction;
 pub mod generic;
 pub mod interface;

@@ -13,7 +13,38 @@ pub(super) fn witness_valid(
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
 ) -> bool {
+    operation
+        .walk()
+        .all(|operation| witness_target_valid(operation, closure, definitions))
+}
+
+fn witness_target_valid(
+    operation: &OperationWitness,
+    closure: &[&BytecodeModule],
+    definitions: &DefinitionTable,
+) -> bool {
     match operation {
+        OperationWitness::SharedAdapter(adapter) => {
+            let Some((body, required, signature)) = adapter.template(definitions) else {
+                return false;
+            };
+            closure
+                .iter()
+                .flat_map(|owner| &owner.functions)
+                .find(|function| function.identity.as_ref() == Some(&adapter.call.instance))
+                .is_some_and(|function| {
+                    let semantic = &function.metadata.semantic;
+                    semantic.generic.as_ref() == Some(&body)
+                        && semantic.protocol_adapter.as_ref() == Some(&required)
+                        && semantic.params.len() == signature.params.len()
+                        && signature
+                            .params
+                            .iter()
+                            .enumerate()
+                            .all(|(index, ty)| semantic.params.get(&index) == Some(ty))
+                        && semantic.result.as_ref() == Some(&signature.result)
+                })
+        }
         OperationWitness::Forward(_) => true,
         OperationWitness::Selected(call) => target_valid(call, closure, definitions),
         OperationWitness::SharedMethod(selected) => closure

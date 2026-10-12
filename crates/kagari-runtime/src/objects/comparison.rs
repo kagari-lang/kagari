@@ -2,7 +2,7 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::types::arguments::type_parameter,
+    frame::types::{arguments::type_parameter, compatibility::TypeView},
     gc::interfaces::InterfaceResultBinding,
     native::context::{ScriptCall, ScriptInvoker},
     objects::calls::resolve_requirement,
@@ -168,8 +168,15 @@ impl Runtime {
             binding.environment.as_ref(),
             comparison.operation.requirement(),
         )?;
+        let receiver_identity = TypeView::new(
+            &comparison.operation.requirement().receiver,
+            &binding.owner,
+            binding.environment.as_ref().map(|env| env.types.as_ref()),
+        )
+        .identity()
+        .ok_or_else(invalid)?;
         let operation = operations
-            .operation(&self.gc, &required)
+            .operation(&self.gc, &required, &receiver_identity)
             .ok_or_else(invalid)?;
         let root = self.root_value(left).ok_or_else(invalid)?;
         let method = RootedInterfaceMethod::from_comparison(

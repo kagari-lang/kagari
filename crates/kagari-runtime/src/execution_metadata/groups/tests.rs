@@ -7,7 +7,7 @@ use crate::{
         MetadataEdge, MetadataRoot,
         application_key::{ApplicationArguments, ApplicationKey, MethodIdentity},
     },
-    frame::types::EnvironmentRecord,
+    frame::types::{EnvironmentRecord, compatibility::TypeView},
     module::LoadedModule,
     value::Value,
 };
@@ -164,7 +164,12 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
             .gc
             .operation_group(group)
             .unwrap()
-            .operation(&requirement)
+            .operation(
+                &requirement,
+                &TypeView::new(&requirement.receiver, &loaded, None)
+                    .identity()
+                    .unwrap(),
+            )
             .unwrap();
         let operation = runtime.gc.bound_operation(operation_id).unwrap();
         let mut environment =
@@ -255,12 +260,17 @@ fn selections() -> (Runtime, LoadedModule, Vec<OperationId>) {
                 .gc
                 .operation_group(group)
                 .unwrap()
-                .operation(&NativeCallableRequirement {
-                    receiver: snapshot.concrete_type.clone(),
-                    interface: snapshot.interface_type.clone(),
-                    member: method.method,
-                    arguments: vec![],
-                })
+                .operation(
+                    &NativeCallableRequirement {
+                        receiver: snapshot.concrete_type.clone(),
+                        interface: snapshot.interface_type.clone(),
+                        member: method.method,
+                        arguments: vec![],
+                    },
+                    &TypeView::new(&snapshot.concrete_type, &loaded, None)
+                        .identity()
+                        .unwrap(),
+                )
                 .unwrap()
         })
         .collect();
@@ -284,20 +294,24 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.gc.stats().operation_groups, 1);
     assert_eq!(
-        environment.operation(&runtime.gc, &first.requirement),
+        environment.operation(&runtime.gc, &first.requirement, &first.receiver_identity),
         Some(ids[0])
     );
     assert!(runtime.gc.bound_operation(ids[1]).is_some());
     assert!(
         environment
-            .operation(&runtime.gc, &sibling.requirement)
+            .operation(
+                &runtime.gc,
+                &sibling.requirement,
+                &sibling.receiver_identity
+            )
             .is_none()
     );
     assert!(
         environment
             .operation_slot(
                 &runtime.gc,
-                &sibling.requirement.receiver,
+                &sibling.receiver_identity,
                 &sibling.requirement.interface,
                 sibling.slot
             )
@@ -309,7 +323,11 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
     receiver.add_receiver(&runtime.gc, ids[0].group).unwrap();
     let receiver = runtime.alloc_environment(receiver).unwrap();
     assert_eq!(
-        receiver.operation(&runtime.gc, &sibling.requirement),
+        receiver.operation(
+            &runtime.gc,
+            &sibling.requirement,
+            &sibling.receiver_identity
+        ),
         Some(ids[1])
     );
     drop(root);
@@ -323,12 +341,16 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
     // Detached descriptor views are not retention or access capabilities.
     assert!(
         environment
-            .operation(&runtime.gc, &first.requirement)
+            .operation(&runtime.gc, &first.requirement, &first.receiver_identity)
             .is_none()
     );
     assert!(
         receiver
-            .operation(&runtime.gc, &sibling.requirement)
+            .operation(
+                &runtime.gc,
+                &sibling.requirement,
+                &sibling.receiver_identity
+            )
             .is_none()
     );
 }

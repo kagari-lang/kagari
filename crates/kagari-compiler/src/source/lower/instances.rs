@@ -42,6 +42,7 @@ use std::{
     slice,
 };
 
+mod adapters;
 mod callables;
 mod calls;
 mod defaults;

@@ -40,7 +40,7 @@ pub(super) fn validate<'a>(
         validator.types(&import.signature.params)?;
         validator.validate_type(&import.signature.result)?;
         validator.bounds(&import.requirements)?;
-        for operation in &import.callables {
+        for operation in import.callables.iter().flat_map(OperationWitness::walk) {
             let required = operation.requirement();
             validator.validate_type(&required.receiver)?;
             validator.trait_application(&required.interface)?;
@@ -102,7 +102,7 @@ pub(super) fn validate<'a>(
                     validator.types(&contract.arguments)?;
                     validator.types(&contract.signature.params)?;
                     validator.validate_type(&contract.signature.result)?;
-                    for operation in &contract.operations {
+                    for operation in contract.operations.iter().flat_map(OperationWitness::walk) {
                         let required = operation.requirement();
                         validator.validate_type(&required.receiver)?;
                         validator.trait_application(&required.interface)?;

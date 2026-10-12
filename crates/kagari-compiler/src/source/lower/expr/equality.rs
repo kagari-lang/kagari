@@ -137,10 +137,8 @@ impl FunctionLowerer<'_, '_> {
             } else {
                 ValueType::I64
             });
-            let callee = if let TypeId::Tuple(members) = ty
-                && !ty.is_concrete()
-            {
-                self.shared_tuple_protocol(function, protocol, ty, members)?
+            let callee = if matches!(ty, TypeId::Tuple(_)) && !ty.is_concrete() {
+                self.shared_tuple_protocol(function, protocol, ty)?
             } else {
                 CallTarget::Function(function)
             };

@@ -5,7 +5,10 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
-    callable::witness::{OperationWitness, SharedMethodWitness},
+    callable::{
+        adapter::SharedAdapterWitness,
+        witness::{OperationWitness, SharedMethodWitness},
+    },
     effects::EffectSet,
     native_import::{
         NativeImport,
@@ -26,7 +29,7 @@ use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{NativeDeclaration, requirement::NativeCallableRequirement},
     language::Protocol,
-    ty::substitution::TypeSubstitution,
+    ty::{Ty, substitution::TypeSubstitution},
 };
 
 impl InstancePlanner<'_> {
@@ -84,6 +87,27 @@ impl InstancePlanner<'_> {
         let mut operations = vec![];
         for mut required in requirements {
             required = self.normalize_callable_requirement(required)?;
+            if !required.receiver.is_concrete()
+                && matches!(required.receiver, Ty::Tuple(_))
+                && let Some(protocol @ (Protocol::PartialEq | Protocol::Hash)) =
+                    Protocol::from_definition(&required.interface.declaration, &self.definitions())
+            {
+                let function = self.enqueue_selected_protocol(
+                    protocol,
+                    &raise_type(&required.receiver),
+                    &raise_nominal_type(&required.interface),
+                    span,
+                )?;
+                let call = self.tuple_protocol_call(function, required.clone(), span)?;
+                operations.push(OperationWitness::SharedAdapter(Box::new(
+                    SharedAdapterWitness {
+                        requirement: required,
+                        call,
+                    },
+                )));
+                continue;
+            }
+
             // A nominal receiver containing binders can still have a selected
             // implementation. Forward only when that table is unavailable.
             if required.arguments.is_empty()

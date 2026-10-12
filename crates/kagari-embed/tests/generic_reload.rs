@@ -338,13 +338,21 @@ fn shared_collection_comparison_composes_the_new_argument_operation() {
 #[test]
 fn shared_tuple_adapter_preserves_each_arguments_generation() {
     let source = r#"
+use std::collections::list_content_equal;
+fn same<T: PartialEq>(left: T, right: T) -> bool { left == right }
 struct Local {}
 impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }
 struct Item { val value: i32 }
 impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
 trait Boxer {
     fn one<T: PartialEq>(self, left: T, right: T) -> bool {
-        (Local {}, left) == (Local {}, right)
+        val a = (Local {}, left);
+        val b = (Local {}, right);
+        val direct = a == b;
+        val forwarded = same(a, b);
+        val native = list_content_equal(Vec::from([a]), Vec::from([b]));
+        if direct != forwarded || direct != native { val zero = 0; 1 / zero; }
+        direct
     }
 }
 struct Factory {}
@@ -366,6 +374,12 @@ fn probe() -> Probe { Checker {} }
         )
     });
     assert_shared_collection_comparison_reloading(source, false, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+    let same_nominal = source
+        .replace("Item { value: 1 }", "Local {}")
+        .replace("Item { value: 2 }", "Local {}");
+    assert_shared_collection_comparison_reloading(&same_nominal, false, |source| {
         source.replace("bool { true }", "bool { false }")
     });
 }

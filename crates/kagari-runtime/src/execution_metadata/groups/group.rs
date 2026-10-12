@@ -5,14 +5,11 @@ use crate::{
         groups::{OperationGroupId, OperationId},
         operation::BoundOperation,
     },
-    frame::types::bindings::AssociatedInterface,
+    frame::types::{bindings::AssociatedInterface, compatibility::TypeIdentity},
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_types::{
-    declaration::requirement::NativeCallableRequirement,
-    ty::{NominalTy, Ty},
-};
-use std::collections::HashMap;
+use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::NominalTy};
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Default)]
 struct ReceiverMethods {
@@ -24,7 +21,7 @@ struct ReceiverMethods {
 pub(crate) struct OperationGroup {
     id: OperationGroupId,
     entries: Vec<BoundOperation>,
-    index: HashMap<NominalTy, HashMap<Ty, ReceiverMethods>>,
+    index: HashMap<NominalTy, HashMap<Arc<TypeIdentity>, ReceiverMethods>>,
 }
 
 impl OperationGroup {
@@ -38,12 +35,13 @@ impl OperationGroup {
     }
 
     pub(crate) fn new(entries: Vec<BoundOperation>, id: OperationGroupId) -> Self {
-        let mut index: HashMap<NominalTy, HashMap<Ty, ReceiverMethods>> = HashMap::new();
+        let mut index: HashMap<NominalTy, HashMap<Arc<TypeIdentity>, ReceiverMethods>> =
+            HashMap::new();
         for (position, operation) in entries.iter().enumerate() {
             let methods = index
                 .entry(operation.requirement.interface.clone())
                 .or_default()
-                .entry(operation.requirement.receiver.clone())
+                .entry(operation.receiver_identity.clone())
                 .or_default();
             let slot = operation.slot as usize;
             methods
@@ -72,13 +70,13 @@ impl OperationGroup {
         })
     }
 
-    fn methods(&self, receiver: &Ty, interface: &NominalTy) -> Option<&ReceiverMethods> {
+    fn methods(&self, receiver: &TypeIdentity, interface: &NominalTy) -> Option<&ReceiverMethods> {
         self.index.get(interface)?.get(receiver)
     }
 
     pub(crate) fn slot(
         &self,
-        receiver: &Ty,
+        receiver: &TypeIdentity,
         interface: &NominalTy,
         slot: u32,
     ) -> Option<OperationId> {
@@ -98,10 +96,11 @@ impl OperationGroup {
     pub(crate) fn selected_method(
         &self,
         required: &NativeCallableRequirement,
+        receiver: &TypeIdentity,
     ) -> Option<OperationId> {
         let mut matches = self.entries.iter().enumerate().filter(|(_, operation)| {
             operation.generic.is_some()
-                && operation.requirement.receiver == required.receiver
+                && operation.receiver_identity.as_ref() == receiver
                 && operation.requirement.member == required.member
                 && operation
                     .requirement
@@ -115,9 +114,13 @@ impl OperationGroup {
         })
     }
 
-    pub(crate) fn operation(&self, required: &NativeCallableRequirement) -> Option<OperationId> {
+    pub(crate) fn operation(
+        &self,
+        required: &NativeCallableRequirement,
+        receiver: &TypeIdentity,
+    ) -> Option<OperationId> {
         let position = self
-            .methods(&required.receiver, &required.interface)?
+            .methods(receiver, &required.interface)?
             .members
             .get(&required.member)?;
         self.entries

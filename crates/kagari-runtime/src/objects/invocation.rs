@@ -51,7 +51,7 @@ impl MethodInvocation {
         runtime.validate_loaded_module(&operation.owner)?;
         Ok(Self {
             selection: MethodSelection::Operation(id),
-            application: None,
+            application: operation.application,
         })
     }
 

@@ -250,6 +250,8 @@ impl<'a> MetadataTrace<'a> {
                     let operation = self.groups.operation(id)?;
                     self.pending.push(MetadataEdge::Group(id.group));
                     self.pending.push(MetadataEdge::Program(&operation.owner));
+                    self.pending
+                        .extend(operation.application.map(MetadataEdge::Application));
                     if let Some(generic) = &operation.generic {
                         self.pending
                             .push(MetadataEdge::Binding(&generic.receiver_table));

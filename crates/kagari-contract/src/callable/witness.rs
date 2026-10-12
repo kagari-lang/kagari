@@ -1,7 +1,7 @@
 //! Checked operations supplied by a generic caller, independent of native binding.
 use {
     crate::{
-        callable::interface::InterfaceCallContract,
+        callable::{adapter::SharedAdapterWitness, interface::InterfaceCallContract},
         effects::EffectSet,
         native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
         types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
@@ -15,6 +15,8 @@ use {
         },
     },
 };
+
+use std::iter;
 
 use kagari_common::{
     cancellation::CancellationToken,
@@ -31,6 +33,7 @@ use kagari_common::{
 pub enum OperationWitness {
     Selected(Box<NativeCallableApplication>),
     SharedMethod(Box<SharedMethodWitness>),
+    SharedAdapter(Box<SharedAdapterWitness>),
     Forward(Box<NativeCallableRequirement>),
 }
 
@@ -43,12 +46,57 @@ pub struct SharedMethodWitness {
 }
 
 impl OperationWitness {
+    /// Walk composed witnesses without recursive metadata traversal.
+    pub fn walk(&self) -> impl Iterator<Item = &Self> {
+        let mut pending = vec![self];
+        iter::from_fn(move || {
+            let operation = pending.pop()?;
+            if let Self::SharedAdapter(adapter) = operation {
+                pending.extend(adapter.call.operations.iter().rev());
+            }
+            Some(operation)
+        })
+    }
+
+    fn within_limits(&self) -> bool {
+        let mut pending = vec![(self, 0)];
+        let mut count = 0;
+        while let Some((operation, depth)) = pending.pop() {
+            count += 1;
+            if count > 4096 || depth > 64 {
+                return false;
+            }
+            if let Self::SharedAdapter(adapter) = operation {
+                if adapter.call.operations.len() > 4096 {
+                    return false;
+                }
+                pending.extend(
+                    adapter
+                        .call
+                        .operations
+                        .iter()
+                        .map(|operation| (operation, depth + 1)),
+                );
+            }
+        }
+        true
+    }
+
     pub fn structurally_valid(
         &self,
         parameters: &[GenericParam],
         definitions: &DefinitionTable,
     ) -> bool {
+        if !self.within_limits() {
+            return false;
+        }
         match self {
+            Self::SharedAdapter(adapter) => {
+                adapter.template(definitions).is_some()
+                    && adapter
+                        .call
+                        .structurally_valid(parameters, &Default::default(), definitions)
+            }
             Self::SharedMethod(selected) => {
                 definitions
                     .resolve(selected.implementation.declaration)
@@ -123,6 +171,7 @@ impl OperationWitness {
             return Ok(false);
         }
         match self {
+            Self::SharedAdapter(adapter) => adapter.valid(catalog, parameters, assumptions, cancel),
             Self::SharedMethod(selected) => {
                 catalog.shared_method_matches(selected, parameters, assumptions, cancel)
             }
@@ -156,6 +205,7 @@ impl OperationWitness {
 impl OperationWitness {
     pub fn requirement(&self) -> &NativeCallableRequirement {
         match self {
+            Self::SharedAdapter(adapter) => &adapter.requirement,
             Self::Selected(selected) => &selected.requirement,
             Self::SharedMethod(selected) => &selected.requirement,
             Self::Forward(required) => required,

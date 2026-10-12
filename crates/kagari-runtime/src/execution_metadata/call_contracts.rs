@@ -8,7 +8,10 @@ use crate::{
     execution_metadata::{
         MetadataEdge, application_key::ApplicationArguments, groups::OperationId,
     },
-    frame::types::{TypeEnvironment, arguments::TypeArgument, operations::OperationBindings},
+    frame::types::{
+        TypeEnvironment, arguments::TypeArgument, compatibility::TypeView,
+        operations::OperationBindings,
+    },
     module::LoadedModule,
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
@@ -103,7 +106,9 @@ impl Runtime {
         };
         let operation = if let Some(receiver) = &contract.receiver {
             let environment = environment.as_ref().ok_or_else(invalid)?;
-            let receiver = environment.types.resolve(receiver)?;
+            let receiver = TypeView::new(receiver, owner, Some(environment.types.as_ref()))
+                .identity()
+                .ok_or_else(invalid)?;
             Some(
                 environment
                     .operation_slot(&self.gc, &receiver, interface_type, contract.method_slot)
