@@ -1,4 +1,5 @@
 //! Analyze native declaration views normally, then attach checked registration metadata.
+mod access;
 #[cfg(test)]
 mod tests;
 use crate::{
@@ -121,6 +122,7 @@ pub(crate) fn import_source(
     lowered.registered_declarations = definition.native_declarations(definitions)?;
     attach_types(definition, definitions, &mut lowered)?;
     attach_functions(definition, &mut lowered)?;
+    access::attach(definition, definitions, &mut lowered)?;
     attach_dependencies(metadata, providers, &mut lowered, cancel)?;
     Ok((parsed, Arc::new(lowered)))
 }

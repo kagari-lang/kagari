@@ -21,7 +21,10 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, table::DefinitionTable},
 };
-use kagari_types::{declaration::names::NameNamespace, language::Protocol, scalar::BuiltinType};
+use kagari_types::{
+    collection::CollectionAccess, declaration::names::NameNamespace, language::Protocol,
+    scalar::BuiltinType,
+};
 
 /// Borrowed declaration environment for resolving one written type.
 #[derive(Debug, Clone, Copy)]
@@ -421,6 +424,19 @@ pub(super) fn resolve_type_in(
                 .collect(),
             result: Box::new(resolve_type_in(module, *result, context, table, cancel)),
         },
+    };
+    let resolved = if context.declarations.native_readonly_type(ty) {
+        match resolved {
+            TypeId::Map { key, value, .. } => TypeId::Map {
+                key,
+                value,
+                access: CollectionAccess::ReadOnly,
+            },
+            TypeId::Set(item, _) => TypeId::Set(item, CollectionAccess::ReadOnly),
+            _ => TypeId::Error,
+        }
+    } else {
+        resolved
     };
     table.resolving_types.remove(&ty);
     table.insert_type_ref(

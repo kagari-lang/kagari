@@ -7,7 +7,7 @@
 
 use crate::{
     hir::{
-        ids::{FunctionId, OpaqueTypeId, TraitId, VariantId},
+        ids::{FunctionId, OpaqueTypeId, TraitId, TypeRefId, VariantId},
         item::Module,
     },
     lower::context::Lowerer,
@@ -99,6 +99,9 @@ pub struct LoweredModule {
     pub(crate) registered_declarations: Vec<NativeDeclaration>,
     /// Lowering-local opaque type slots mapped to registered representation descriptors.
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    /// Exact registered readonly Map/Set occurrences in the validated source view.
+    /// These are concrete host descriptors, not trait capability markers.
+    pub(crate) native_readonly_types: HashSet<TypeRefId>,
     /// Lowering-local function slots mapped to registered semantic binding descriptors.
     pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
     /// Registered conversion adapters indexed by the generated trait slot.
@@ -274,6 +277,7 @@ pub(crate) fn lower_module_controlled(
         native_array_interfaces: BTreeMap::new(),
         registered_traits: BTreeMap::new(),
         registered_declarations: vec![],
+        native_readonly_types: HashSet::new(),
         native_types: HashMap::new(),
         native_functions: HashMap::new(),
         native_trait_access: HashMap::new(),

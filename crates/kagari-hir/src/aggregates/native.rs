@@ -70,8 +70,8 @@ impl AggregateCatalog {
 }
 
 impl ImplementationSignature {
-    /// Storage access is part of an installed capability contract. A readonly
-    /// view can reuse read/iteration implementations, never mutable capabilities.
+    /// Match the exact registered receiver, including its concrete host access
+    /// descriptor. Readonly receivers have distinct read/iteration declarations.
     pub(super) fn accepts_native_receiver(
         &self,
         receiver: &TypeId,

@@ -851,10 +851,9 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
             left.len() == right.len()
         }
         (TypeId::Range(_, left), TypeId::Range(_, right)) => left == right,
-        (TypeId::Iter(_), TypeId::Iter(_))
-        | (TypeId::Array(_), TypeId::Array(_))
-        | (TypeId::Set(_, _), TypeId::Set(_, _))
-        | (TypeId::Map { .. }, TypeId::Map { .. }) => true,
+        (TypeId::Set(_, left), TypeId::Set(_, right))
+        | (TypeId::Map { access: left, .. }, TypeId::Map { access: right, .. }) => left == right,
+        (TypeId::Iter(_), TypeId::Iter(_)) | (TypeId::Array(_), TypeId::Array(_)) => true,
         _ => false,
     }
 }

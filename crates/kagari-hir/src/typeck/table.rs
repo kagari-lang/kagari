@@ -1040,26 +1040,29 @@ pub(crate) fn match_implementation(
                 pending.push((left, right))
             }
             (TypeId::Iter(left), TypeId::Iter(right))
-            | (TypeId::Array(left), TypeId::Array(right))
-            | (TypeId::Set(left, _), TypeId::Set(right, _)) => pending.push((left, right)),
+            | (TypeId::Array(left), TypeId::Array(right)) => pending.push((left, right)),
+            (TypeId::Set(left, a), TypeId::Set(right, b)) if a == b => pending.push((left, right)),
             (
                 TypeId::Map {
                     key: left_key,
                     value: left_value,
-                    ..
+                    access: left_access,
                 },
                 TypeId::Map {
                     key: right_key,
                     value: right_value,
-                    ..
+                    access: right_access,
                 },
-            ) => {
+            ) if left_access == right_access => {
                 pending.push((left_key, right_key));
                 pending.push((left_value, right_value));
             }
             (left, right) if left == right => {}
             _ => return None,
         }
+    }
+    if pattern.instantiate(&bindings) != *actual {
+        return None;
     }
     for (member, expected) in &requested_trait.associated_types {
         let actual = implemented_trait

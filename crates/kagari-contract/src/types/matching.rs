@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn native_templates_weaken_only_declared_readonly_outer_access() {
+    fn implementation_receivers_match_exact_access_independent_of_trait_markers() {
         let context = DefinitionContext::new().unwrap();
         let catalog = catalog::shared()
             .unwrap()
@@ -84,16 +84,12 @@ mod tests {
             .unwrap()
             .clone();
         let integer = Ty::Builtin(BuiltinType::I32);
-        let mutable = Ty::Set(Box::new(integer.clone()), CollectionAccess::Mutable);
-        let readonly = Ty::Set(Box::new(integer.clone()), CollectionAccess::ReadOnly);
         let parameter = GenericParam {
             owner: id(&context, DefinitionKind::Impl, ""),
             position: 0,
         };
-        // An ordinary installed interface gets its capability from its record,
-        // without any addition to the language protocol inventory.
         let custom = id(&context, DefinitionKind::Trait, "CustomSet");
-        let mut interface = applied(custom, vec![integer.clone()]);
+        let interface = applied(custom, vec![integer.clone()]);
         let mut table = InterfaceTable {
             declaration: parameter.owner,
             name: "Set".into(),
@@ -106,74 +102,38 @@ mod tests {
             associated_type_families: vec![],
             host_bridge: false,
         };
-        let Ty::Trait(implemented) = &mut table.trait_type else {
-            unreachable!()
-        };
-        implemented.declaration = custom;
         let cancel = CancellationToken::default();
-        assert!(
-            match_implementation(
-                &table,
-                Some(&contract),
-                &interface,
-                &mutable,
-                &cancel,
-                &context.snapshot()
-            )
-            .unwrap()
-            .is_some()
-        );
-        assert!(
-            match_implementation(
-                &table,
-                Some(&contract),
-                &interface,
-                &readonly,
-                &cancel,
-                &context.snapshot()
-            )
-            .unwrap()
-            .is_some()
-        );
-        contract.storage_access = Some(CollectionAccess::Mutable);
-        let Ty::Trait(implemented) = &mut table.trait_type else {
-            unreachable!()
-        };
-        implemented.declaration = interface.declaration;
-        assert!(
-            match_implementation(
-                &table,
-                Some(&contract),
-                &interface,
-                &mutable,
-                &cancel,
-                &context.snapshot()
-            )
-            .unwrap()
-            .is_some()
-        );
-        assert!(
-            match_implementation(
-                &table,
-                Some(&contract),
-                &interface,
-                &readonly,
-                &cancel,
-                &context.snapshot()
-            )
-            .unwrap()
-            .is_none()
-        );
-        contract.storage_access = Some(CollectionAccess::ReadOnly);
-        // Generic arguments cannot acquire the outer access relaxation.
-        interface = applied(custom, vec![readonly.clone()]);
-        interface.declaration = custom;
-        table.trait_type = Ty::Trait(applied(custom, vec![parameter.as_type()]));
-        let Ty::Trait(implemented) = &mut table.trait_type else {
-            unreachable!()
-        };
-        implemented.declaration = custom;
-        table.for_type = Ty::Set(Box::new(mutable), CollectionAccess::Mutable);
+        for marker in [
+            None,
+            Some(CollectionAccess::Mutable),
+            Some(CollectionAccess::ReadOnly),
+        ] {
+            contract.storage_access = marker;
+            for declared in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
+                table.for_type = Ty::Set(Box::new(parameter.as_type()), declared);
+                for requested in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
+                    let receiver = Ty::Set(Box::new(integer.clone()), requested);
+                    assert_eq!(
+                        match_implementation(
+                            &table,
+                            Some(&contract),
+                            &interface,
+                            &receiver,
+                            &cancel,
+                            &context.snapshot()
+                        )
+                        .unwrap()
+                        .is_some(),
+                        declared == requested
+                    );
+                }
+            }
+        }
+        // Nested generic arguments must also keep their exact access descriptor.
+        let mutable = Ty::Set(Box::new(integer.clone()), CollectionAccess::Mutable);
+        let readonly = Ty::Set(Box::new(integer), CollectionAccess::ReadOnly);
+        let interface = applied(custom, vec![readonly.clone()]);
+        table.for_type = Ty::Set(Box::new(mutable), CollectionAccess::ReadOnly);
         let nested = Ty::Set(Box::new(readonly), CollectionAccess::ReadOnly);
         assert!(
             match_implementation(

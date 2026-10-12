@@ -17,10 +17,15 @@ use kagari_embed::{
 use kagari_runtime::{host::HostFunction, native::types::Type, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+use kagari_types::{
+    collection::CollectionAccess,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        value_type::HostValueType,
+    },
+    scalar::BuiltinType,
+    ty::Ty,
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -87,7 +92,6 @@ fn main() -> i32 {
     writable[0] = Item { value: 7 };
     if !(copy[0] === item && copy !== view) { return 0; }
     if !(view === writable && view == writable) { return 0; }
-    if !(view.hash() == writable.hash()) { return 0; }
     val join = if true { view } else { writable };
     val other = match true { true => writable, false => view };
     val inspect = || size(join) == size(other);
@@ -328,4 +332,133 @@ fn mutable_list(definitions: &DefinitionContext, id: DefinitionId) -> Definition
     definitions
         .intern_child(parent, segment.kind, "MutableList", segment.occurrence)
         .unwrap()
+}
+
+#[test]
+fn readonly_host_hash_storage_has_exact_read_and_content_protocols() {
+    let definitions = DefinitionContext::new().unwrap();
+    let map = |access| HostValueType::Map {
+        key: Box::new(HostValueType::I32),
+        value: Box::new(HostValueType::I32),
+        access,
+    };
+    let set = |access| HostValueType::Set(Box::new(HostValueType::I32), access);
+    let declarations = [
+        (
+            "demo.read_map",
+            map(CollectionAccess::Mutable),
+            map(CollectionAccess::ReadOnly),
+        ),
+        (
+            "demo.read_set",
+            set(CollectionAccess::Mutable),
+            set(CollectionAccess::ReadOnly),
+        ),
+    ]
+    .into_iter()
+    .map(|(name, input, output)| {
+        HostFunctionDeclaration::new(
+            &definitions,
+            name,
+            vec![HostParameter {
+                name: "value".into(),
+                ty: input,
+                passing: HostPassingStyle::Owned,
+            }],
+            output,
+        )
+        .unwrap()
+    })
+    .collect::<Vec<_>>();
+    let mut config = EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let engine = KagariEngine::new(config);
+    engine
+        .set_host_interface(
+            DefinitionMetadata::checked(
+                definitions.snapshot(),
+                HostInterface {
+                    functions: declarations.clone(),
+                    types: vec![],
+                    paths: vec![],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    for expression in [
+        "val raw: HashMap<i32, i32> = HashMap::new(); val ro = demo::read_map(raw); ro.insert(1, 2);",
+        "val ro = demo::read_set(HashSet::from([1])); ro.insert(2);",
+        "val raw: HashMap<i32, i32> = HashMap::new(); val ro = demo::read_map(raw); val writable: MutableMap<i32, i32> = ro;",
+        "val ro = demo::read_set(HashSet::from([1])); val writable: MutableSet<i32> = ro;",
+    ] {
+        let source = format!(
+            "use std::collections::{{HashMap, HashSet, MutableMap, MutableSet}}; fn main() {{ {expression} }}"
+        );
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new("host-readonly-negative.kgr", source),
+                    Default::default()
+                )
+                .is_err()
+        );
+    }
+    let source = r#"
+use std::collections::{HashMap, HashSet, Map, Set, map_content_equal, set_content_equal};
+use std::hash::Hash;
+fn equal<T: Eq>(a: T, b: T) -> bool { a == b }
+fn main() -> i32 {
+    val a: HashMap<i32, i32> = HashMap::new(); a.insert(1, 40);
+    val b: HashMap<i32, i32> = HashMap::new(); b.insert(1, 40);
+    val x = demo::read_map(a); val y = demo::read_map(b);
+    if !(equal(x, y) && x.hash() == y.hash() && x.get(1) == Some(40)) { return 1; }
+    val mx: Map<i32, i32> = x; val my: Map<i32, i32> = y;
+    if !(mx == my && mx === x && map_content_equal(mx, my)) { return 2; }
+    val sa = HashSet::from([1, 2]); val sb = HashSet::from([2, 1]);
+    val sx = demo::read_set(sa); val sy = demo::read_set(sb);
+    if !(equal(sx, sy) && sx.hash() == sy.hash() && sx.contains(2)) { return 3; }
+    val ix: Set<i32> = sx; val iy: Set<i32> = sy;
+    if !(ix == iy && ix === sx && set_content_equal(ix, iy)) { return 4; }
+    a.insert(2, 2); sa.insert(3);
+    if !(mx.get(2) == Some(2) && ix.contains(3)) { return 5; }
+    42
+}
+"#;
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("host-readonly-protocols.kgr", source),
+            Default::default(),
+        )
+        .unwrap();
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
+    let program =
+        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    for declaration in declarations {
+        runtime
+            .register_host_function(HostFunction::new(
+                DefinitionMetadata::checked(
+                    definitions.snapshot(),
+                    declaration,
+                    &Default::default(),
+                )
+                .unwrap(),
+                |_, arguments| Ok(arguments[0]),
+            ))
+            .unwrap();
+    }
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
+    assert_eq!(
+        result.return_value.value(runtime.runtime().gc()),
+        Some(Value::I32(42))
+    );
+    drop(result);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
 }

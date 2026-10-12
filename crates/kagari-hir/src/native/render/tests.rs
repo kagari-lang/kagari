@@ -4,6 +4,7 @@ use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionCo
 use kagari_source::source::SourceFile;
 use kagari_stdlib::catalog;
 use kagari_syntax::parser::parse_declarations;
+use kagari_types::collection::CollectionAccess;
 
 #[test]
 fn native_views_preserve_canonical_text_and_scoped_navigation() {

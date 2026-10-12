@@ -31,7 +31,26 @@ pub(super) fn declare(
             RegistrationTrait::Eq,
             RegistrationTrait::Hash,
         ] {
-            concrete(ids, module, family, collection, arity, protocol)?;
+            concrete(
+                ids,
+                module,
+                family,
+                collection,
+                arity,
+                protocol,
+                CollectionAccess::Mutable,
+            )?;
+            if family != "list" {
+                concrete(
+                    ids,
+                    module,
+                    family,
+                    collection,
+                    arity,
+                    protocol,
+                    CollectionAccess::ReadOnly,
+                )?;
+            }
         }
     }
     Ok(())
@@ -128,6 +147,7 @@ fn concrete(
     collection: RegistrationTrait,
     arity: usize,
     protocol: RegistrationTrait,
+    access: CollectionAccess,
 ) -> Result<(), DeclarationError> {
     let index = module.implementations.len();
     let owner = identities::implementation(ids, index)?;
@@ -135,11 +155,11 @@ fn concrete(
     let items: Vec<_> = params.iter().map(GenericParam::as_type).collect();
     let receiver = match family {
         "list" => vec_type(ids, items[0].clone())?,
-        "set" => Ty::Set(Box::new(items[0].clone()), CollectionAccess::Mutable),
+        "set" => Ty::Set(Box::new(items[0].clone()), access),
         "map" => Ty::Map {
             key: Box::new(items[0].clone()),
             value: Box::new(items[1].clone()),
-            access: CollectionAccess::Mutable,
+            access,
         },
         _ => unreachable!("collection family"),
     };

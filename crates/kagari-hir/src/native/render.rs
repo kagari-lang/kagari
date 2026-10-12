@@ -10,7 +10,6 @@ use kagari_common::{
 };
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
-    collection::CollectionAccess,
     declaration::{
         FnDecl, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
@@ -462,12 +461,12 @@ impl<'a> DeclarationView<'a> {
             Ty::Map {
                 key,
                 value,
-                access: CollectionAccess::Mutable,
+                access: _,
             } => {
                 let name = self.representation_name(NativeTypeConstructor::Map, "HashMap")?;
                 format!("{name}<{}, {}>", self.spell(key)?, self.spell(value)?)
             }
-            Ty::Set(item, CollectionAccess::Mutable) => {
+            Ty::Set(item, _) => {
                 let name = self.representation_name(NativeTypeConstructor::Set, "HashSet")?;
                 format!("{name}<{}>", self.spell(item)?)
             }

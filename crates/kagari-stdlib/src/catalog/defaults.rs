@@ -278,7 +278,20 @@ pub(super) fn declare(
         ),
         ("cursor", &["T"][..], &[RegistrationTrait::Iterator][..]),
     ] {
-        for kind in protocols {
+        // Legacy host Map/Set descriptors have exact readable implementations.
+        // Ordinary trait matching never weakens access to obtain these methods.
+        let readable = protocols.iter().filter(|kind| {
+            matches!(family, "map" | "set")
+                && matches!(
+                    kind,
+                    RegistrationTrait::Map | RegistrationTrait::Set | RegistrationTrait::Iterable
+                )
+        });
+        for (kind, access) in protocols
+            .iter()
+            .map(|kind| (kind, CollectionAccess::Mutable))
+            .chain(readable.map(|kind| (kind, CollectionAccess::ReadOnly)))
+        {
             let owner = identities::implementation(ids, module.implementations.len())?;
             let params = parameters(&owner, names);
             let items: Vec<_> = params.iter().map(GenericParam::as_type).collect();
@@ -288,6 +301,11 @@ pub(super) fn declare(
                 items[0].clone()
             };
             let receiver = storage(ids, family, &items)?;
+            let receiver = if access == CollectionAccess::ReadOnly {
+                receiver.read_only_view().expect("host map/set descriptor")
+            } else {
+                receiver
+            };
             let mut applied = if kind.iteration() {
                 applied_item(ids, *kind, item.clone())?
             } else if *kind == RegistrationTrait::Index {

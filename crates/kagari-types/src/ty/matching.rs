@@ -51,17 +51,15 @@ pub fn match_pattern<'a>(
     // nested arguments into the returned substitution.
     TypeSubstitution::default().apply_nominal(interface, cancel)?;
     TypeSubstitution::default().apply_nominal(implemented, cancel)?;
-    // Readonly native capabilities admit either storage view. Other impls must
-    // match access exactly; storage arguments remain invariant in either case.
-    let readonly = pattern.storage_access == Some(CollectionAccess::ReadOnly)
-        || matches!(pattern.protocol, Some(Protocol::Iterable | Protocol::Index));
     let mut pending = vec![(pattern.receiver, receiver)];
     pending.extend(implemented.arguments.iter().zip(&interface.arguments));
     let Some(bindings) = match_pairs(pattern.parameters, pending, cancel)? else {
         return Ok(None);
     };
     let target = bindings.apply(pattern.receiver, cancel)?;
-    if target != *receiver && !(readonly && target.can_weaken_to(receiver)) {
+    // Implementation identity includes the receiver's access descriptor. Host
+    // adaptation is checked at its boundary, never inferred from a trait marker.
+    if target != *receiver {
         return Ok(None);
     }
     for (template, actual) in implemented.arguments.iter().zip(&interface.arguments) {
@@ -169,17 +167,22 @@ fn match_pairs<'a>(
             }
             (Ty::Range(left, a), Ty::Range(right, b)) if a == b => pending.push((left, right)),
             (Ty::Iter(left), Ty::Iter(right)) => pending.push((left, right)),
-            (Ty::Array(left), Ty::Array(right)) | (Ty::Set(left, _), Ty::Set(right, _)) => {
-                pending.push((left, right))
-            }
+            (Ty::Array(left), Ty::Array(right)) => pending.push((left, right)),
+            (Ty::Set(left, a), Ty::Set(right, b)) if a == b => pending.push((left, right)),
             (
                 Ty::Map {
-                    key: lk, value: lv, ..
+                    key: lk,
+                    value: lv,
+                    access: la,
                 },
                 Ty::Map {
-                    key: rk, value: rv, ..
+                    key: rk,
+                    value: rv,
+                    access: ra,
                 },
-            ) => pending.extend([(lk.as_ref(), rk.as_ref()), (lv.as_ref(), rv.as_ref())]),
+            ) if la == ra => {
+                pending.extend([(lk.as_ref(), rk.as_ref()), (lv.as_ref(), rv.as_ref())])
+            }
             (left, right) if left == right => {}
             _ => return Ok(None),
         }

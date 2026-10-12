@@ -964,3 +964,71 @@ no new re-exports, production globs, compatibility entrypoints or LOC exceptions
 Construction provenance belongs to executable environments, while immutable type
 provenance still owns nominal identity; the two are not conflated. Full workspace
 and exhaustive backend validation remain CI-owned.
+
+
+CI03 readonly host protocol checkpoint (also the exact receiver declaration part
+of CI04): the stdlib now declares readable Map/Set/Iterable and conditional
+PartialEq/Eq/Hash implementations for the existing readonly concrete host Map/Set
+descriptors. These reuse library algorithms and selected callbacks, with the
+same element/key/value bounds as writable descriptors. MutableMap/MutableSet and
+allocating inherent operations remain attached to the writable receiver only.
+The legacy concrete host descriptors remain until NC replaces that representation;
+this work does not add readonly source syntax or interface capability markers.
+
+The registered declaration renderer previously rejected readonly descriptors.
+After exact source/registration correspondence, the importer now attaches readonly
+access to the corresponding concrete type occurrences. Ordinary name and generic
+resolution still runs before applying this descriptor. Traversal covers nested
+parameter/result types, implementation receivers and outputs, trait parents and
+associated constraints, enum payloads and rendered where predicates. Signature
+reuse compares this metadata as well as the declaration text. Authority stays with
+the registered type descriptor, not a displayed collection name.
+
+The first declaration installation then exposed a second defect: HIR overlap
+checking treated writable and readonly generic Map/Set receivers as identical.
+It now distinguishes their access descriptors. Source and executable implementation
+matching require exact receiver access, including nested generic arguments; neither
+trait storage_access nor Iterable/Index language roles relax a match. Existing
+outer host adaptation remains at its host boundary. Removing the now-unused
+ImplementationPattern marker fields remains the coordinated CI05 schema cleanup.
+
+The decoded readonly_host_hash_storage_has_exact_read_and_content_protocols
+case passed with forced GC: readonly host results satisfy ordinary Eq/Hash bounds,
+execute reads and concrete content equality/hash, preserve equality and identity
+through Map/Set interfaces, and support explicit content helpers. Writes through
+the original aliases remain visible. Direct mutation and writable interface
+upgrades are rejected; roots and objects are released after execution. The
+native_collection_views case and both executable types::matching::tests passed.
+The matching test now checks exact descriptor admission regardless of legacy
+trait markers, retaining repeated-binder, associated-family and cancellation coverage.
+
+Focused HIR tests initially failed to build because renderer tests had implicitly
+inherited a removed production CollectionAccess import; they now import it at the
+test owner. The nested-result fixture initially used unsupported tuple `.0` syntax
+and was corrected to indexing. The existing native-view trivia fixture also passed
+independent provider identity scopes directly to an importer requiring an adopted
+batch; it now uses the production adoption step before testing trivia equivalence.
+These fixture repairs do not relax source or registration validation.
+
+The broader selected collection_access run found one obsolete assertion granting
+hash() to an ordinary List view. It was removed from the alias/closure/join case:
+collection_interfaces already rejects List.hash() and HashSet<List<T>>, and checks
+concrete Vec equality/hash agreement. All alias, identity, object-equality, branch,
+closure and shallow element mutation assertions remain in the access case.
+
+Final focused results for this checkpoint: collection_interfaces passed 10 cases;
+collection_access passed 5 initially and its corrected alias/closure/join case
+passed on the focused rerun (all 6 selected cases completed). The 6 native::api
+HIR tests passed, including nested readonly result access and registration tamper
+rejection. Both types::matching tests passed again after recursive access guards.
+HIR/types/stdlib library Clippy passed. Structure checked 1099 Rust files with no
+violations or exceptions; formatting, plan links and diff checks passed. Structural
+review kept descriptor attachment in native import, exact matching in source and
+executable type owners, and protocol policy in stdlib. No re-exports, production
+globs, compatibility wrappers or version bumps were introduced.
+
+CI03 remains open for compound receivers whose nominal components are supplied by
+different generations. CI04 still owns ordinary script/native relationship and
+multi-arm join discovery; CI05 removes the obsolete marker fields. This checkpoint
+closes the readonly host comparison/protocol admission gap, not those phases or
+the overall goal. Exhaustive workspace/backend validation remains CI-owned.
