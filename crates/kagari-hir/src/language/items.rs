@@ -135,8 +135,7 @@ pub(crate) fn validate_shapes(
         };
         let owner_generic_count = expected.generic_params.len();
         let valid = aggregates.trait_(id).is_some_and(|actual| {
-            actual.storage_access == expected.storage_access
-                && actual.conversion_adapter == expected.conversion_adapter
+            actual.conversion_adapter == expected.conversion_adapter
                 && actual.generic_params.len() == expected.generic_params.len()
                 && actual.bounds.values().all(Vec::is_empty)
                 && actual.associated_consts.is_empty()

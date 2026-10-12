@@ -166,7 +166,10 @@ impl AggregateCatalog {
             return None;
         }
         match &implementation.for_type {
-            TypeId::NativeObject(nominal) | TypeId::Struct(nominal) | TypeId::Enum(nominal) => {
+            TypeId::NativeObject(nominal)
+            | TypeId::Struct(nominal)
+            | TypeId::Enum(nominal)
+            | TypeId::Trait(nominal) => {
                 if definitions
                     .resolve(nominal.declaration)
                     .expect("scoped nominal type")
@@ -267,14 +270,6 @@ impl AggregateCatalog {
         {
             return Ok(true);
         }
-        if let TypeId::Trait(interface) = ty
-            && self
-                .trait_(&interface.declaration)
-                .is_some_and(|contract| contract.storage_access.is_some())
-            && matches!(protocol, Protocol::PartialEq | Protocol::Debug)
-        {
-            return Ok(true);
-        }
         if budget.defaults.contains(&(protocol, ty.clone())) {
             return Ok(true);
         }
@@ -296,7 +291,8 @@ impl AggregateCatalog {
         let result = (|| {
             if matches!(
                 ty,
-                TypeId::NativeObject(_)
+                TypeId::Trait(_)
+                    | TypeId::NativeObject(_)
                     | TypeId::Struct(_)
                     | TypeId::Enum(_)
                     | TypeId::Map { .. }

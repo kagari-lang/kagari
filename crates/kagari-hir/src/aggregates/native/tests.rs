@@ -35,7 +35,7 @@ fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
 }
 
 #[test]
-fn native_capabilities_require_installed_impls_and_declared_storage_access() {
+fn native_receivers_require_installed_impls_and_exact_host_access() {
     let (snapshot, root) = snapshot("fn main() {}");
     let authoring_catalog = snapshot
         .file(root)

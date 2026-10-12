@@ -32,7 +32,7 @@ impl InstancePlanner<'_> {
             }
         }
         let operations = self.bind_operations(requirements, span)?;
-        let instance = self.instances[function.index()].key.lower(
+        let instance = self.instances[function.index()].lower(
             self.catalog,
             self.options,
             &definitions,

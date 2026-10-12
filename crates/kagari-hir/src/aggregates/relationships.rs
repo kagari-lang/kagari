@@ -23,10 +23,11 @@ impl AggregateCatalog {
         cancel
             .check()
             .map_err(|_| ImplementationSearchError::Cancelled)?;
-        if let TypeId::Trait(interface) = ty {
-            return self.interface_closure(definitions, interface, ty, cancel);
-        }
-        let mut roots = Vec::new();
+        let mut roots = if let TypeId::Trait(interface) = ty {
+            self.interface_closure(definitions, interface, ty, cancel)?
+        } else {
+            Vec::new()
+        };
         if !matches!(
             ty,
             TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }

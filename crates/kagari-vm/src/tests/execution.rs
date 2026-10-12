@@ -209,7 +209,6 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
     module.public_items = vec![
         PublicItem::Trait(TraitDef {
             conversion_adapter: None,
-            storage_access: None,
             associated_consts: Vec::new(),
             supertraits: Vec::new(),
             associated_types: Vec::new(),

@@ -125,7 +125,6 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
     }
     module.traits.push(TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: "NativeRead".into(),
         generic_params: vec![],
         bounds: vec![],
@@ -212,7 +211,6 @@ pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
     );
     module.traits.push(TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: "TextItems".into(),
         generic_params: vec![],
         bounds: vec![],

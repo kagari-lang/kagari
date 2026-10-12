@@ -69,13 +69,6 @@ impl ProofCatalog<'_> {
             Ty::Struct(_) | Ty::NativeObject(_) | Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => {
                 return Ok(true);
             }
-            Ty::Trait(interface) => {
-                return Ok(matches!(kind, Protocol::PartialEq | Protocol::Debug)
-                    && self
-                        .contracts
-                        .get(&interface.declaration)
-                        .is_some_and(|contract| contract.storage_access.is_some()));
-            }
             Ty::Tuple(items) => items.iter().collect(),
             Ty::Enum(instance) => {
                 let Some(payload) = self.enumerations.get(instance) else {

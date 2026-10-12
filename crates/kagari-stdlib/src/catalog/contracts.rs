@@ -23,7 +23,6 @@ pub(super) fn contract(
     let owner = key::identity(ids, kind)?;
     Ok(TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: kind.name().into(),
         supertraits: vec![],
         generic_params: parameters

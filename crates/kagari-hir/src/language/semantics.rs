@@ -361,12 +361,6 @@ pub fn intrinsic_holds(
                     return false;
                 }
             }
-            TypeId::Trait(ref interface)
-                if catalog.is_some_and(|catalog| {
-                    catalog
-                        .trait_(&interface.declaration)
-                        .is_some_and(|contract| contract.storage_access.is_some())
-                }) && matches!(protocol, Protocol::PartialEq | Protocol::Debug) => {}
             TypeId::Enum(_) | TypeId::Host(_) if protocol == Protocol::Debug => {}
             TypeId::NativeObject(_)
             | TypeId::Struct(_)

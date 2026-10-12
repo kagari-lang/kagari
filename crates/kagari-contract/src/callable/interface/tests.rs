@@ -30,7 +30,6 @@ fn fixture(context: &DefinitionContext) -> (InterfaceCallContract, TraitDef) {
     };
     let contract = TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: "Map".into(),
         generic_params: vec![item.clone()],
         bounds: vec![],
@@ -137,7 +136,6 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
     };
     let marker_contract = TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: "Marker".into(),
         generic_params: vec![],
         bounds: vec![],

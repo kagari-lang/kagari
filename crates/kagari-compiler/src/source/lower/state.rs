@@ -68,7 +68,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         let mut function = MirFunction {
             semantic: Default::default(),
             id: instance.id,
-            instance: instance.key.lower(
+            instance: instance.lower(
                 planner.catalog,
                 planner.options,
                 &planner.definitions(),

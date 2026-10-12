@@ -318,7 +318,12 @@ fn shared_collection_comparison_accepts_new_primitive_applications_after_reload(
 
 #[test]
 fn shared_collection_comparison_composes_old_and_new_nominal_arguments() {
-    let source = mixed_generation_collection_source();
+    // Exercise the typed native protocol binding with a mixed-generation view;
+    // the neighboring cases retain operator-selection coverage.
+    let source = mixed_generation_collection_source().replace(
+        "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
+        "factory.one(Item { value: 1 }).eq(factory.one(Item { value: 2 }))",
+    );
     assert_shared_collection_comparison_reloading(&source, true, |source| {
         source.replace(
             "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",

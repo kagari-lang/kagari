@@ -381,6 +381,7 @@ fn concrete_content_protocols_and_interface_helpers() {
     execute(
         r#"use std::collections::{HashMap, HashSet, List, Set, Map, list_content_equal, set_content_equal, map_content_equal};
 use std::hash::Hash;
+use std::fmt::Debug;
 fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
 fn lists_same<T: PartialEq>(a: Vec<T>, b: Vec<T>) -> bool { a == b }
 fn as_list<T>(xs: Vec<T>) -> List<T> { xs }
@@ -395,12 +396,14 @@ fn main() -> i32 {
     if !(boxer.boxed(a) == boxer.boxed(b)) { return 7; }
     val al: List<i32> = a;
     val bl: List<i32> = b;
+    if !al.eq(bl) || al.debug() != "<interface>" { return 11; }
     if !(al == bl && as_list(a) == as_list(b) && same(al, bl) && (al, 1) == (bl, 1) && list_content_equal(al, bl)) { return 3; }
     if !(list_content_equal(a, b) && list_content_equal(a, bl) && list_content_equal(al, b)) { return 8; }
     val s = HashSet::from([1, 2]);
     val t = HashSet::from([2, 1]);
     val sl: Set<i32> = s;
     val tl: Set<i32> = t;
+    if !sl.eq(tl) || sl.debug() != "<interface>" { return 12; }
     if !(s == t && same(s, t) && s.hash() == t.hash() && sl == tl && set_content_equal(sl, tl)) { return 4; }
     if !set_content_equal(s, t) { return 9; }
     val m: HashMap<i32, i32> = HashMap::new();
@@ -409,6 +412,7 @@ fn main() -> i32 {
     n.insert(2, 20); n.insert(1, 10);
     val ml: Map<i32, i32> = m;
     val nl: Map<i32, i32> = n;
+    if !ml.eq(nl) || ml.debug() != "<interface>" { return 13; }
     if !(m == n && same(m, n) && m.hash() == n.hash() && ml == nl && map_content_equal(ml, nl)) { return 5; }
     if !map_content_equal(m, n) { return 10; }
     n.insert(1, 20); n.insert(2, 10);

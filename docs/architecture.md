@@ -1562,14 +1562,47 @@ format identifiers, without routine unpublished-version bumps.
 
 ### Library identities and representation boundaries
 
-Generic HIR, contract and execution consumers read installed storage-access facts,
-nominal implementation headers, declared parents and checked members. The language
+Generic HIR, contract and execution consumers read nominal implementation headers,
+declared parents and checked members. Trait declarations carry no storage-access
+marker; legacy Map/Set access descriptors belong to concrete host/storage admission. The language
 Protocol inventory contains only 26 core roles. A private RegistrationTrait enum
 belongs solely to the Rust library catalog. Storage joins/inference, readonly
 matching, identity/equality and interface dispatch do not recognize collection
 names. NativeTypeKind/NativeTypeConstructor retain representation descriptors;
 ordinary new containers use existing nominal NativeStorage registration without
 a new generic type or execution-dispatch variant.
+
+The standard library owns concrete conditional content protocols and the explicit
+cross-implementation helpers in [collection semantics](spec/collection-access.md#content-protocols-and-helpers).
+It also registers PartialEq and Debug implementations for collection interface
+values. These implementations grant no Eq/Hash evidence. Runtime's typed
+`Interface::receiver_equal` retains normal conversion, root, borrow and view checks
+and delegates to the comparison captured when the interface was constructed.
+`Interface::debug_preview` delegates to bounded value formatting.
+
+`ReceiverComparison` belongs to contract. A selected operation retains its checked
+conditions and separately authenticated positive/negative eligibility facts. An unconditional
+identity-default certificate requires proof that the receiver template has no possibly
+applicable explicit PartialEq implementation. Specialized heads carry an exhaustive
+list of implementation identities and checked parameter extraction paths, including
+associated-output identities. MIR and bytecode verify these records independently
+and require the referenced executable tables. Runtime follows those checked records
+and matches complete type identities against their supplying generations; it does
+not search a live implementation catalog. Unknown or missing evidence is an error,
+not proof that an explicit implementation is absent. Comparison-only facts do not
+become ordinary interface capabilities.
+
+Interface snapshots preserve actual receiver categories. Boxing a value type grants
+no identity. Ordinary-interface identity operations unwrap checked snapshots and
+trap for hidden value receivers. Object comparison retains its selected operation
+and environment across parent conversion and reload. Invocation, cancellation,
+call depth, rooting and trap cleanup use the existing checked call machinery.
+
+Generated protocol adapter identities distinguish value-type arguments from their
+applied protocol contract. Encoding Iterable's contract as an interface value would
+invent an erased Iter output and change the adapter identity. Lowering encodes that
+application as declaration metadata; executable validation requires an exact match
+between identity arguments, signature and the checked protocol requirement.
 
 Builtin Array typing and MakeArray/RepeatArray lowering own fixed-length syntax
 and element context. Array indexing and indexed assignment carry intrinsic checked

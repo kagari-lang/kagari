@@ -10,6 +10,7 @@ mod documentation;
 mod enums;
 mod future;
 mod identities;
+mod interface_protocols;
 mod iterable;
 mod iterable_defaults;
 mod key;
@@ -55,6 +56,10 @@ pub fn declarations() -> Result<Vec<DefinitionMetadata<ModuleDecl>>, Declaration
         list_methods::declare(&ids, &mut module),
     )?;
     construction_step("defaults::declare", defaults::declare(&ids, &mut module))?;
+    construction_step(
+        "interface_protocols::declare",
+        interface_protocols::declare(&ids, &mut module),
+    )?;
     construction_step(
         "comparison::declare",
         comparison::declare(&ids, &mut module),

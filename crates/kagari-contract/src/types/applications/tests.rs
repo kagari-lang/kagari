@@ -27,7 +27,6 @@ fn declaration(context: &DefinitionContext) -> (DefinitionId, TraitDef) {
         .unwrap();
     let record = TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: "Read".into(),
         generic_params: vec![GenericParam {
             owner: id,

@@ -1,7 +1,6 @@
 //! Intrinsic defining modules and explicit native constructor bindings.
 use crate::{
     declaration::{TypeDef, TypeDefKind, module::DeclarationError, native::NativeTypeConstructor},
-    language::Protocol,
     scalar::BuiltinType,
     ty::Ty,
 };
@@ -45,7 +44,10 @@ impl ReceiverOwners {
     /// foreign nominal IDs never establish ownership.
     pub fn owner(&self, ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleIdentity> {
         let constructor = match ty {
-            Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
+            Ty::NativeObject(nominal)
+            | Ty::Struct(nominal)
+            | Ty::Enum(nominal)
+            | Ty::Trait(nominal) => {
                 return definitions
                     .resolve(nominal.declaration)
                     .ok()
@@ -59,15 +61,6 @@ impl ReceiverOwners {
                 });
             }
             Ty::Builtin(BuiltinType::String) => NativeTypeConstructor::String,
-            Ty::Trait(interface)
-                if Protocol::from_definition(&interface.declaration, definitions)
-                    == Some(Protocol::Iterator) =>
-            {
-                return definitions
-                    .resolve(interface.declaration)
-                    .ok()
-                    .map(|view| view.module().clone());
-            }
             Ty::Array(..) => {
                 return Some(ModuleIdentity {
                     package: PackageId("kagari-core".into()),

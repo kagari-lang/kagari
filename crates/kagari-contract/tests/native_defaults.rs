@@ -119,7 +119,6 @@ impl Fixture {
             owner,
             contract: TraitDef {
                 conversion_adapter: None,
-                storage_access: None,
                 name: "Echo".into(),
                 generic_params: vec![],
                 bounds: vec![],

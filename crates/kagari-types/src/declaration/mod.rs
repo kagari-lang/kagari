@@ -13,7 +13,6 @@ pub mod verify;
 pub mod wire;
 use crate::{
     callable::{CallableImplementation, MethodPolicy},
-    collection::CollectionAccess,
     declaration::{
         native::{NativeStorageLayout, NativeTypeConstructor},
         requirement::NativeCallableRequirement,
@@ -115,9 +114,6 @@ pub struct TraitDef {
     pub bounds: Vec<GenericBound>,
     pub methods: Vec<FnDecl>,
     pub associated_types: Vec<AssociatedTypeDef>,
-    /// Installed native storage capability of this interface. Ordinary source
-    /// traits have no storage capability; declarations and loading retain it.
-    pub storage_access: Option<CollectionAccess>,
     /// Adapter authority carried from installed native library declarations.
     pub conversion_adapter: Option<conversion::ConversionAdapter>,
 }

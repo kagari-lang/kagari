@@ -48,20 +48,9 @@ pub(crate) fn interfaces(
     let mut implemented = aggregates
         .declared_interfaces(definitions, ty, assumptions, cancel)
         .unwrap_or_default();
-    if let TypeId::Trait(interface) = ty {
-        if aggregates
-            .trait_(&interface.declaration)
-            .is_some_and(|contract| contract.storage_access.is_some())
-        {
-            implemented.extend(
-                [Protocol::PartialEq, Protocol::Debug]
-                    .into_iter()
-                    .filter_map(|kind| kind.nominal(definitions)),
-            );
-        }
-    } else if !matches!(
+    if !matches!(
         ty,
-        TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }
+        TypeId::Trait(_) | TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }
     ) {
         for kind in LangRole::ALL.map(LangRole::protocol) {
             let Some(interface) = kind.intrinsic_view(definitions, ty) else {

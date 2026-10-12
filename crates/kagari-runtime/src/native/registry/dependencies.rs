@@ -6,8 +6,8 @@ use kagari_contract::types::{InterfaceTable, PublicItem};
 use kagari_types::{declaration::module::ImplDecl, language, language::Protocol, ty::Ty};
 
 /// Installed trait identities retain their exact contracts even without calls.
-/// Ordinary uninstalled traits carry no native authority. Legacy storage and
-/// conversion capabilities still require installation until their owners migrate.
+/// Ordinary uninstalled traits carry no native authority. Conversion adapters
+/// and reserved language contracts still require exact installed declarations.
 pub(super) fn validate_installed_traits(
     installed: &DeclarationCatalog,
     module: &BytecodeModule,
@@ -24,10 +24,7 @@ pub(super) fn validate_installed_traits(
             definitions.lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
         });
         let registered = id.and_then(|id| installed.traits.get_id(id));
-        if (registered.is_some()
-            || reserved
-            || contract.storage_access.is_some()
-            || contract.conversion_adapter.is_some())
+        if (registered.is_some() || reserved || contract.conversion_adapter.is_some())
             && registered != Some(contract)
         {
             return Err(RuntimeError::module_validation(
@@ -42,7 +39,6 @@ pub(super) fn validate_installed_traits(
         let registered = installed.traits.get_id(contract.declaration);
         if (registered.is_some()
             || Protocol::from_definition(&contract.declaration, &definitions).is_some()
-            || contract.abi.storage_access.is_some()
             || contract.abi.conversion_adapter.is_some())
             && registered != Some(&contract.abi)
         {

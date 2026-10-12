@@ -1,7 +1,6 @@
 use crate::types::verify::*;
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_stdlib::{catalog, namespaces};
-use kagari_types::collection::CollectionAccess;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{Param, conversion::ConversionAdapter},
@@ -52,9 +51,6 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
         assert!(valid(contract));
         let mut changed = contract.clone();
         changed.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
-        assert!(!valid(&changed));
-        changed = contract.clone();
-        changed.storage_access = Some(CollectionAccess::ReadOnly);
         assert!(!valid(&changed));
         changed = contract.clone();
         match changed.conversion_adapter.as_mut().unwrap() {
@@ -138,7 +134,6 @@ fn required_methods_cannot_forbid_an_implementation() {
     let cancel = CancellationToken::default();
     let mut interface = TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: "Reader".into(),
         associated_consts: vec![],
         associated_types: vec![],

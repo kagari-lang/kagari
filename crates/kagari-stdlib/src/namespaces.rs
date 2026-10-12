@@ -67,7 +67,10 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
 
 pub fn receiver_owner(ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleIdentity> {
     Some(match ty {
-        Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => definitions
+        Ty::NativeObject(nominal)
+        | Ty::Struct(nominal)
+        | Ty::Enum(nominal)
+        | Ty::Trait(nominal) => definitions
             .resolve(nominal.declaration)
             .ok()?
             .module()
@@ -77,15 +80,6 @@ pub fn receiver_owner(ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleId
         Ty::Array(..) => module("core", "array"),
         Ty::Map { .. } | Ty::Set(..) => module("std", "collections"),
         Ty::Iter(_) => module("core", "iter"),
-        Ty::Trait(interface)
-            if definitions
-                .resolve(interface.declaration)
-                .ok()?
-                .last()
-                .is_some_and(|member| member.name == "Iterator") =>
-        {
-            module("core", "iter")
-        }
         Ty::Range(..) => module("core", "ops"),
         _ => return None,
     })

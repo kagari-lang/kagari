@@ -212,10 +212,6 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                         .aggregates
                         .trait_(owner)
                         .and_then(|contract| contract.conversion_adapter.clone()),
-                    storage_access: module
-                        .aggregates
-                        .trait_(owner)
-                        .and_then(|contract| contract.storage_access),
                     associated_consts: trait_item
                         .associated_consts
                         .iter()

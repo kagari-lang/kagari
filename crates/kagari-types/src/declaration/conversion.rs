@@ -116,8 +116,7 @@ impl ConversionAdapter {
         contract: &TraitDef,
         definitions: &DefinitionTable,
     ) -> bool {
-        if contract.storage_access.is_some()
-            || contract.generic_params.len() != 1
+        if contract.generic_params.len() != 1
             || contract.methods.len() != 1
             || !contract.associated_consts.is_empty()
         {

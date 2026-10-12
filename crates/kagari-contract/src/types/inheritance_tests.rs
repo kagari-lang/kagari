@@ -38,7 +38,6 @@ fn contract(
 ) -> TraitDef {
     TraitDef {
         conversion_adapter: None,
-        storage_access: None,
         name: context
             .snapshot()
             .resolve(*owner)

@@ -1,6 +1,5 @@
 //! Fixed wire data and trait declarations; no semantic operations.
 use crate::{
-    collection::CollectionAccess,
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, TraitDef,
         TypeDef, TypeDefKind, VariantDef,
@@ -255,7 +254,6 @@ pub struct TraitDefRecord {
     methods: Vec<FnDeclRecord>,
     #[serde(deserialize_with = "decode_limits::nested")]
     associated_types: Vec<AssociatedTypeDefRecord>,
-    storage_access: Option<CollectionAccess>,
     conversion_adapter: Option<ConversionAdapterRecord>,
 }
 
@@ -300,7 +298,6 @@ impl TraitDefRecord {
                 .iter()
                 .map(|value| AssociatedTypeDefRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
-            storage_access: value.storage_access,
             conversion_adapter: value
                 .conversion_adapter
                 .as_ref()
@@ -349,7 +346,6 @@ impl TraitDefRecord {
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
-            storage_access: self.storage_access,
             conversion_adapter: self
                 .conversion_adapter
                 .map(|value| value.decode(decoding, cancel))

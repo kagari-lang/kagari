@@ -16,7 +16,6 @@ use kagari_common::{
     identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId},
 };
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{
         AssociatedTypeDef, TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement,
     },
@@ -46,7 +45,6 @@ impl<'module> TraitBuilder<'module> {
             id,
             declaration: TraitDef {
                 conversion_adapter: None,
-                storage_access: None,
                 name,
                 supertraits: vec![],
                 generic_params: vec![],
@@ -93,13 +91,6 @@ impl<'module> TraitBuilder<'module> {
         }
         self.documentation.insert(id, text.into());
         Ok(())
-    }
-
-    /// Declare the access capability of an installed storage interface. Readonly
-    /// interfaces may view mutable storage without granting mutable operations;
-    /// generic arguments remain invariant. Source traits cannot author this fact.
-    pub fn storage_view(&mut self, access: CollectionAccess) {
-        self.declaration.storage_access = Some(access);
     }
 
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {

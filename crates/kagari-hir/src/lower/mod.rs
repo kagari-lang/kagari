@@ -35,7 +35,6 @@ use kagari_syntax::{
 };
 use kagari_types::{
     callable::MethodPolicy,
-    collection::CollectionAccess,
     declaration::names::NameNamespace,
     declaration::{NativeDeclaration, TraitDef, conversion::ConversionAdapter},
 };
@@ -104,8 +103,6 @@ pub struct LoweredModule {
     pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
     /// Registered conversion adapters indexed by the generated trait slot.
     pub(crate) native_trait_adapters: HashMap<TraitId, ConversionAdapter>,
-    /// Collection access policies indexed by registered trait slot.
-    pub(crate) native_trait_access: HashMap<TraitId, CollectionAccess>,
     /// Registered receiver/call policies indexed by generated function slot.
     pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     /// Registered attribute byte ranges allowed on generated declaration source.
@@ -277,7 +274,6 @@ pub(crate) fn lower_module_controlled(
         native_readonly_types: HashSet::new(),
         native_types: HashMap::new(),
         native_functions: HashMap::new(),
-        native_trait_access: HashMap::new(),
         native_trait_adapters: HashMap::new(),
         method_policies: HashMap::new(),
         native_attributes: HashSet::new(),

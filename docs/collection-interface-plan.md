@@ -1,19 +1,21 @@
 # Collection interface ownership execution plan
 
 Status: active execution plan for [SA18](review.md#sa18-collection-operations-should-be-constrained-by-trait-interfaces).
-Execution authorized on 2026-10-12. CI01-CI02 are complete; CI03 is in progress. The [roadmap](implementation-roadmap.md#review-follow-up-order)
+Execution authorized on 2026-10-12. CI01-CI03 are complete; CI04-CI06 final audits and handoff are in progress. The [roadmap](implementation-roadmap.md#review-follow-up-order)
 owns queue placement. This document owns CI01-CI06, the activation decisions,
 acceptance and progress ledger. CI phase IDs here mean collection interfaces;
 GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-13)
 
-Resume from the CI03 specialized receiver-dispatch checkpoint; the progress ledger below
-owns completed changes and their validation evidence. CI01-CI02 are complete and
-CI03 remains active. CI04 has implementation checkpoints but still needs its phase
-acceptance audit; CI05 marker removal and CI06 documentation/final acceptance remain
-open. Do not restart completed migrations or treat partial CI04 work as completion
-of the overall plan.
+Resume from the explicit interface-protocol and marker-removal checkpoint. CI01-CI03
+are complete. CI04's implementation has focused execution evidence but still needs
+its acceptance audit, including classification of the recorded generic-erasure
+limitation. CI05's model/API/wire removal and source-free fixture refresh are done;
+its final retained host/access inventory audit remains with CI04. CI06's durable
+handoff is partly written but review/roadmap/NC reconciliation and final completion
+audit remain open. Do not restart completed migrations or treat focused local
+validation as the exhaustive CI matrix.
 
 Positive and negative mixed-generation `Vec<(old Local, new Item)>` comparisons now
 pass. Closed comparison records retain independently authenticated bound outcomes;
@@ -42,16 +44,15 @@ the identity default. The old whole closed-view comparison scan has been removed
 The compiler emits evidence for demanded applications rather than a blanket protocol
 dictionary; execution never searches a live implementation catalog.
 
-The next implementation step is the remaining marker-owned interface PartialEq/Debug
-and declaration/conversion consumers, followed by CI04's acceptance audit and CI05's
-coherent field/API removal. `storage_access`/`storage_view` remain in the declarations,
-stdlib interface registration, source/contract protocol eligibility, member surfaces
-and installation checks. Replace their semantic grants with ordinary checked protocol
-ownership, not a renamed marker or collection-name dispatch. CI04's recorded generic
-trait-erasure question must be classified against the existing supported boundary;
-do not silently expand this into Any/downcasts or a new generic-erasure subsystem.
-CI03 remains active because those semantic grants are not yet removed; CI04-CI06
-remain open. No complete acceptance is claimed from the focused regressions.
+The marker-owned PartialEq/Debug grants are replaced with explicit stdlib
+implementations for all six collection interfaces. The old field, builder API,
+HIR attachment and wire copies are removed. Direct eq/debug calls, retained
+mixed-generation calls, source-free declaration validation and fixture consumption
+all pass. An Iterable adapter identity mismatch found by the artifact producer was
+fixed at compiler instance encoding; executable validators remain unchanged.
+The ledger below owns exact selected results and repaired failures. Next audit
+CI04/CI05's remaining acceptance items, then finish durable documentation and remove
+the completed plan only after the full CI01-CI06 completion audit.
 
 The former negative-boundary failure is resolved:
 
@@ -727,7 +728,7 @@ Implementation checkpoints use `Plan: collection-interface-plan CI0N` trailers.
   exact ordinary installed traits and no-call native declarations.
 - [x] CI02: Separate installed declaration checks and ordinary implementation
   ownership from the access marker; retain legacy forgery checks until CI05.
-- [ ] CI03: Implement concrete stdlib protocols/content helpers and retain identity.
+- [x] CI03: Implement concrete stdlib protocols/content helpers and retain identity.
 - [ ] CI04: Migrate ordinary relationships, joins, operations and host admission.
 - [ ] CI05: Remove obsolete fields/APIs, migrate codecs and refresh affected fixtures.
 - [ ] CI06: Complete focused acceptance and durable documentation handoff.
@@ -2045,3 +2046,106 @@ scope/remapping, unknown versus false guards, supplying generations, metadata
 retention and cancellation. There are no carried errors in this selected scope.
 CI03 still owns marker-based protocol grants; CI04 acceptance and CI05-CI06 remain
 open. Complete workspace/backend validation is CI-owned and unrun.
+
+
+CI03/CI05 interface protocol and marker-removal checkpoint in progress:
+stdlib declares ordinary installed PartialEq and Debug implementations on List,
+MutableList, Set, MutableSet, Map and MutableMap. No Eq/Hash is granted. The native
+interface handle exposes receiver comparison using retained checked operation
+selection and bounded formatting through the existing value-semantic owner.
+Typed conversion, full view compatibility, roots, no-native-borrow checks and
+execution polling remain required. Each binding has its own signature identity.
+Nominal trait receiver ownership replaces the former Iterator-only ownership case;
+stdlib assembly partitioning maps trait receivers to their canonical trait module.
+
+HIR explicit lookup and method surfaces now consume those declarations. The old
+PartialEq/Debug grants in HIR and source-free structural proofs are removed.
+Installed interface receiver implementations generalize the already supported
+Iterator-to-Iterable registration path; source-authored impl targets remain under
+the existing concrete receiver restriction. A temporary attempt to extend source
+impl targets was rejected by the existing standard-protocol source rule and was
+removed: broad interface-value impl authoring is outside this migration. The
+focused existing helper fixture now also checks direct eq/debug calls.
+
+TraitDef.storage_access, TraitBuilder.storage_view, native_trait_access, trait
+signature fields, all mappings and wire copies are removed together. Conversion
+adapters keep their structural and installation validation. The obsolete
+methodless-marker forgery test is removed because the capability no longer exists;
+ordinary exact-installation public/private/reload coverage remains. No ABI version
+bump or old reader was introduced. Remaining Map/Set CollectionAccess descriptors
+continue to belong to physical/host access, not ordinary interface policy.
+
+Current evidence: collection_interfaces 15 and collection_access 7 passed before
+adding direct eq/debug assertions; all 9 shared_collection_ generic_reload cases
+passed. Structure checked 1115 Rust files with no violations/exceptions. The first
+library assembly run exposed a missing trait-owner partition, then HIR's old
+interface-target and implicit protocol assumptions; these were repaired at their
+owners before passing execution. Declaration/wire/installation and final scoped
+Clippy checks remain pending, as does the enhanced direct-method fixture.
+
+
+The enhanced direct eq/debug fixture passed. All 9 selected reload cases passed;
+the mixed old/new nominal argument case now invokes the interface's direct eq
+method and passed again, exercising the new typed native boundary. Public ABI wire
+roundtrip/limits (2 cases) and conversion adapter shape/ownership (1 case) passed.
+Installation selection initially passed 4 of 5 cases: moving core::fmt::Debug to
+private now correctly invalidates its dependent public interface implementations.
+The fixture now tests private reserved installation authority in an independent
+no-call module, proves source-free structural acceptance first, and requires the
+specific installed-contract rejection. That repaired case passed; no verifier was
+weakened. Library Clippy for types, contract, HIR, compiler, runtime and stdlib passed.
+
+The disposable artifact fixture exposed a carried CI04 encoding defect:
+`cargo test -p kagari-embed --test artifact_features portable_fixture_matches_source_emission`
+failed with std::collections InvalidGraph. Diagnostic probes identified an Iterable
+adapter whose identity encoded its protocol argument as a runtime interface value,
+adding an erased Iter output, while its checked requirement retained the authored
+application. Instance identity lowering now belongs to Instance and encodes that
+protocol application with canonical_interface_application, preserving ordinary
+value-type encoding for actual generic values. Callers and adapter bodies share
+that owner. No contract validator changed; temporary diagnostics were removed.
+The fixture now passes and refreshes target/fixtures/feature_artifact.kbc. The first
+no-source consumer attempt could not run because the producer had failed and no
+fixture existed; its rerun after successful regeneration is still pending, along
+with focused Iterable/shared tuple regressions and compiler Clippy after this repair.
+
+
+Final local evidence for the marker-removal checkpoint: source-free fixture
+consumption passed with `--no-default-features`, including native binding execution
+and scope/root cleanup. The affected inferred Iterable join and shared generic
+boxing cases passed after the adapter-identity repair. Compiler library Clippy
+passed after that repair; the earlier unaffected library Clippy results remain
+valid. Structure checked 1115 Rust files with zero violations/exceptions; formatting
+and diff checks passed. No production probes, compatibility adapters/readers or
+version bump remain. CI03 is complete; CI04's acceptance audit, CI05's final retained
+access inventory and CI06 handoff remain open. Full workspace Clippy/tests and the
+complete feature/backend matrix remain CI-owned and unrun locally.
+
+Selected commands at this checkpoint (all selected tests completed successfully,
+including the repaired individual installation case):
+
+```text
+cargo test -p kagari-embed --test collection_interfaces --test collection_access --no-fail-fast
+cargo test -p kagari-embed --test collection_interfaces concrete_content_protocols
+cargo test -p kagari-embed --test generic_reload shared_collection_
+cargo test -p kagari-embed --test generic_reload shared_collection_comparison_composes_old_and_new_nominal_arguments
+cargo test -p kagari-contract --test public_abi_wire
+cargo test -p kagari-contract --lib installed_conversion_adapters_validate_shapes_and_member_ownership
+cargo test -p kagari-runtime --test installation_access
+cargo test -p kagari-runtime --test installation_access reserved_core_roles_require_exact_installed_declarations_without_calls
+cargo test -p kagari-embed --test artifact_features portable_fixture_matches_source_emission
+cargo test -p kagari-embed --no-default-features --test artifact_features source_free_native_bindings_execute_and_release_scopes
+cargo test -p kagari-embed --test collection_interfaces inferred_iterable_join_preserves_iterator_result_adaptation
+cargo test -p kagari-embed --test collection_interfaces shared_generic_boxing_selects_comparison_without_a_concrete_boxing_site
+cargo clippy -p kagari-types -p kagari-contract -p kagari-hir -p kagari-compiler -p kagari-runtime -p kagari-stdlib --lib -- -D warnings
+cargo clippy -p kagari-compiler --lib -- -D warnings
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+git diff --check
+```
+
+The public/private reserved-core test now isolates its private forged contract
+without removing a public role needed by dependent implementation tables. Its
+structural-success assertion remains, and it asserts the precise private installed
+contract error. The discarded source-interface impl experiment is not part of this
+checkpoint; source impl authoring remains within its prior concrete-target scope.

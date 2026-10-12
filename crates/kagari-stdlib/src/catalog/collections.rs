@@ -6,7 +6,6 @@ use crate::catalog::{
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::module::{DeclarationError, ModuleDecl},
     ty::Ty,
 };
@@ -16,7 +15,6 @@ pub(super) fn declare(
     module: &mut ModuleDecl,
 ) -> Result<(), DeclarationError> {
     let mut list = contract(ids, RegistrationTrait::List, &["T"])?;
-    list.storage_access = Some(CollectionAccess::ReadOnly);
     let item = list.generic_params[0].as_type();
     let mut index = key::applied(ids, RegistrationTrait::Index, vec![usize_type()])?;
     index.associated_types.insert(
@@ -35,7 +33,6 @@ pub(super) fn declare(
     ]);
     module.traits.push(list);
     let mut writable = contract(ids, RegistrationTrait::MutableList, &["T"])?;
-    writable.storage_access = Some(CollectionAccess::Mutable);
     let item = writable.generic_params[0].as_type();
     writable.supertraits.push(key::applied(
         ids,
@@ -61,7 +58,6 @@ pub(super) fn declare(
     ]);
     module.traits.push(writable);
     let mut map = contract(ids, RegistrationTrait::Map, &["K", "V"])?;
-    map.storage_access = Some(CollectionAccess::ReadOnly);
     let key = map.generic_params[0].as_type();
     let value = map.generic_params[1].as_type();
     let this = receiver(ids, RegistrationTrait::Map)?;
@@ -78,7 +74,6 @@ pub(super) fn declare(
     ]);
     module.traits.push(map);
     let mut writable = contract(ids, RegistrationTrait::MutableMap, &["K", "V"])?;
-    writable.storage_access = Some(CollectionAccess::Mutable);
     let key = writable.generic_params[0].as_type();
     let value = writable.generic_params[1].as_type();
     let this = receiver(ids, RegistrationTrait::MutableMap)?;
@@ -98,7 +93,6 @@ pub(super) fn declare(
     ]);
     module.traits.push(writable);
     let mut set = contract(ids, RegistrationTrait::Set, &["T"])?;
-    set.storage_access = Some(CollectionAccess::ReadOnly);
     let item = set.generic_params[0].as_type();
     let this = receiver(ids, RegistrationTrait::Set)?;
     set.supertraits.push(applied_item(
@@ -113,7 +107,6 @@ pub(super) fn declare(
     ]);
     module.traits.push(set);
     let mut writable = contract(ids, RegistrationTrait::MutableSet, &["T"])?;
-    writable.storage_access = Some(CollectionAccess::Mutable);
     let item = writable.generic_params[0].as_type();
     let this = receiver(ids, RegistrationTrait::MutableSet)?;
     writable.supertraits.push(key::applied(

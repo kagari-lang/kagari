@@ -191,11 +191,12 @@ pub(super) fn validate_trait_surface(
             continue;
         };
         let type_name = display_type_id(declarations.definitions(), &for_ty);
-        let erased_iterator_identity = lowered.registered_native_api
-            && Protocol::from_definition(&id.declaration, declarations.definitions())
-                == Some(Protocol::Iterable)
-            && matches!(&for_ty, TypeId::Trait(receiver) if Protocol::from_definition(&receiver.declaration, declarations.definitions()) == Some(Protocol::Iterator));
-        if matches!(for_ty, TypeId::Trait(_) | TypeId::Generic(_)) && !erased_iterator_identity {
+        // Installed implementations can define protocols on interface values,
+        // just as Iterator's registered Iterable adapter does. This does not
+        // extend source impl targets or allow bare generic receiver blankets.
+        if matches!(for_ty, TypeId::Generic(_))
+            || matches!(for_ty, TypeId::Trait(_)) && !lowered.registered_native_api
+        {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: trait_name.to_string(),

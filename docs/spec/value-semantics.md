@@ -108,15 +108,19 @@ The defaults differ by type, but follow the same selection rule:
 | User enum | Same concrete enum type and variant, then corresponding members | Combine enum/variant identity and member hashes | Allowed |
 | Tuple | Corresponding members in position order | Combine member hashes in position order | No independent override |
 | Option / Result | Standard enum variant and member comparison | Standard enum variant and member hashes | No independent override |
-| Array / Map / Set | Object identity | Stable object identity | No override |
+| Array | Object identity | Stable object identity | No override |
+| Vec / HashMap / HashSet | Conditional stdlib content implementation, otherwise eligible identity default | Conditional content implementation or eligible identity default | Type-owned library implementations |
 | Unit / bool / integers / String | Value | Value | No override |
 | Float | IEEE comparison | None | No override |
 
 Struct defaults supply PartialEq, Eq and Hash regardless of field types. Default
-Tuple and enum protocols are conditional, as described below. Collection views
-retain object-identity equality and hashing. Other interfaces, host handles/paths
-and function values remain outside general equality and hashing;
-this extension does not open host equality implementations.
+Tuple and enum protocols are conditional, as described below. The six collection
+interfaces explicitly provide PartialEq by delegating to the retained object's
+comparison selection, and provide bounded Debug. They do not provide Eq/Hash.
+Concrete collection bounds and cross-implementation helpers are specified in
+[collection content protocols](collection-access.md#content-protocols-and-helpers).
+Other interfaces, host handles/paths and function values gain no automatic equality
+or hashing; this does not open host equality implementations.
 
 Implicit `==` and `!=` semantics remain available when no native packages are
 installed. A default identity or member comparison does not require an imported

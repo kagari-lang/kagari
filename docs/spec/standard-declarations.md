@@ -110,9 +110,15 @@ requirements. `TypeBuilder` declares a nominal native type and its storage.
 `implement` introduces scoped implementation parameters; `inherent_impl` and
 `trait_impl` declare the appropriate method groups. Native implementations
 reference complete checked trait contracts instead of redeclaring them.
-`TraitBuilder::storage_view` declares an installed readonly/mutable storage
-capability. It does not grant a new heap representation; nominal implementations
-retain their storage and ownership checks. Script traits cannot author this fact.
+Collection interfaces use ordinary methods and parent traits. There is no
+storage-access marker on trait declarations. Installed implementations can supply
+protocols for nominal interface values; type-owned protocols belong to that
+interface's defining module. The standard library explicitly implements PartialEq
+and Debug for its six collection interfaces, without Eq or Hash. Their equality
+binding uses `Interface::receiver_equal` to invoke the receiver's retained checked
+comparison; `Interface::debug_preview` supplies bounded interface formatting.
+Neither operation grants a storage layout or writable methods. Concrete host
+Map/Set access descriptors remain checked at their independent storage boundary.
 
 `ModuleBuilder::define_enum` authors an ordinary managed nominal enum rather than
 an opaque Rust storage object. Its `EnumBuilder` declares type parameters and unit

@@ -13,7 +13,6 @@ use kagari_contract::types::{
 };
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication},
-    collection::CollectionAccess,
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl,
         Param, TraitDef, TypeDef, TypeDefKind, VariantDef, conversion::ConversionAdapter,
@@ -133,7 +132,6 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         bounds: vec![],
         methods: vec![function.clone()],
         associated_types: vec![associated],
-        storage_access: Some(CollectionAccess::ReadOnly),
         conversion_adapter: Some(ConversionAdapter::Reverse {
             origin: parent,
             method,

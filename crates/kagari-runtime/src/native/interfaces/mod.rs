@@ -2,6 +2,7 @@
 mod applications;
 pub mod binding;
 mod calls;
+mod comparison;
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,

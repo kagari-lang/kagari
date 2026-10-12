@@ -61,7 +61,7 @@ fn function_owner(name: &str) -> ModuleIdentity {
         let carrier = name.split('_').next().expect("propagation carrier binding");
         return namespaces::type_owner(carrier);
     }
-    if name.starts_with("__default_") {
+    if name.starts_with("__default_") || name.starts_with("$foundation_interface_") {
         return namespaces::module("std", "collections");
     }
     if name.starts_with("$foundation_string_") {
@@ -118,6 +118,16 @@ pub(super) fn finish(
     let mut counts = BTreeMap::<ModuleIdentity, u32>::new();
     for (index, implementation) in assembly.implementations.iter().enumerate() {
         let owner = match &implementation.for_type {
+            Ty::Trait(nominal) => {
+                let declaration = source
+                    .resolve(nominal.declaration)
+                    .map_err(identities::invalid)?;
+                if declaration.module() == &assembly.identity {
+                    namespaces::trait_owner(declaration.segments().next().expect("trait root").name)
+                } else {
+                    declaration.module().clone()
+                }
+            }
             Ty::Enum(nominal) | Ty::NativeObject(nominal)
                 if source
                     .resolve(nominal.declaration)

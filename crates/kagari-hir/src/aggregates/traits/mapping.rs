@@ -146,7 +146,6 @@ impl RemapDefinitions for TraitSignature {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TraitSignature {
-            storage_access: self.storage_access,
             conversion_adapter: self
                 .conversion_adapter
                 .as_ref()

@@ -361,7 +361,6 @@ fn trait_members_require_the_retained_scope_and_exact_parent() {
             },
             method_policy: Default::default(),
         }],
-        storage_access: None,
         conversion_adapter: None,
     };
     let retained = context.snapshot();

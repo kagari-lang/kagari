@@ -237,9 +237,6 @@ fn attach_functions(
                 .native_trait_adapters
                 .insert(item.id, adapter.clone());
         }
-        if let Some(access) = trait_.storage_access {
-            lowered.native_trait_access.insert(item.id, access);
-        }
         for method in &trait_.methods {
             let member = item
                 .methods

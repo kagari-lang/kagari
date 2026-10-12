@@ -2,9 +2,8 @@
 
 This defines the collection access and construction contract. Value, identity
 and failure rules are defined in [value semantics](value-semantics.md).
-The current compiler-owned catalog defines the foundational collection traits.
-The runtime foundation supplies the three default implementations through
-[ordinary native registration](standard-declarations.md).
+The standard library owns the collection traits and the three default
+implementations through [ordinary native registration](standard-declarations.md).
 Generated .kgr files are tooling views, not the source of these declarations.
 
 ## Types
@@ -15,10 +14,11 @@ Generated .kgr files are tooling views, not the source of these declarations.
 | `Map<K, V>` | `MutableMap<K, V>: Map<K, V>` | `HashMap<K, V>` |
 | `Set<T>` | `MutableSet<T>: Set<T>` | `HashSet<T>` |
 
-These are complete compiler-owned trait contracts, usable as generic bounds or
+These are ordinary installed trait contracts, usable as generic bounds or
 dynamic interface types. Native and script types implement them through ordinary
-trait checking. The contracts, parent relationships, associated outputs and
-read-only/writable conversions exist without optional native libraries.
+trait checking. Their methods and declared parents determine available operations;
+there is no separate collection marker or Object upper bound. The bundled provider
+installs these declarations independently of optional native libraries.
 
 `[T]` is a builtin fixed-length array. `[1, 2]` and `[value; count]` construct
 arrays; their length is established at construction and is absent from the type.
@@ -89,13 +89,26 @@ Mutable interfaces upcast to the read-only parent; reverse conversion and
 implicit downcasts are rejected. Type arguments are invariant: converting an
 outer container does not recursively convert elements or grant nested writes.
 Conversions apply to arguments, assignments, returns, fields and contextual
-expressions. Branches of the same collection family can join at a read-only view.
+expressions. Branch joins enumerate valid native and script implementations and
+choose a unique most-specific common interface across all completing arms. An
+existing operand's interface is preserved when every arm can convert to it.
+Ambiguous unrelated candidates are rejected; generic arguments remain invariant.
+A join does not introduce Eq/Hash evidence.
 
 The underlying object identity survives interface wrapping and upcasting.
-Collection-interface `==`, `===` and hashing use that identity, including repeated
-views of a custom implementation. Native storage equality remains identity-based;
-this change does not introduce structural collection equality. Other unrelated
-interfaces retain their existing equality restrictions.
+`===` and `!==` compare that identity independently of content protocols. Ordinary
+interfaces also admit identity operators; hidden value receivers trap as described
+in [value semantics](value-semantics.md#operators-and-defaults).
+
+The standard library explicitly implements PartialEq and bounded Debug for all
+six collection interfaces. Interface `==`, `!=` and `.eq()` use the underlying
+object's applicable PartialEq implementation, or its eligible identity default.
+Adapting a view preserves this selection and its supplying generation. Comparing
+different concrete receiver types does not manufacture a cross-type equality
+implementation: they compare unequal. Merely implementing List/Set/Map imposes no
+content equality on a custom collection. Interfaces gain neither Eq nor Hash from
+this comparison behavior, so plain List/Set/Map values cannot serve as hash keys.
+Use the explicit content helpers below for cross-implementation content comparison.
 
 Concrete native operations retain intrinsic fast paths. Generic calls select a
 concrete implementation during compilation; dynamic calls use the existing
@@ -126,6 +139,47 @@ List insert permits an index equal to the length. `pop` returns None when empty.
 Map remove returns the previous value or None; Set remove returns a boolean.
 Interface push/insert/set/clear return unit. Existing native fluent push/insert
 methods continue returning their concrete receiver.
+
+## Content protocols and helpers
+
+Stdlib declares these concrete conditional implementations through the same
+checked protocol and native-call contracts used by other libraries:
+
+| Concrete type | PartialEq | Eq | Hash |
+| --- | --- | --- | --- |
+| Vec<T> | T: PartialEq | T: Eq | T: Eq + Hash |
+| HashSet<T> | T: Eq + Hash | T: Eq + Hash | T: Eq + Hash |
+| HashMap<K,V> | K: Eq + Hash, V: PartialEq | K: Eq + Hash, V: Eq | K: Eq + Hash, V: Eq + Hash |
+
+When a conditional content implementation does not apply, eligible object identity
+defaults remain available. Once explicit PartialEq applies, implicit identity Eq or
+Hash cannot contradict it. For example Vec<f32> has content PartialEq and no Eq/Hash;
+Vec containing values without PartialEq retains identity defaults. Arrays remain
+separate and retain identity equality/hash.
+
+`std::collections::list_content_equal`, `set_content_equal` and
+`map_content_equal` accept two List<T>, Set<T> or Map<K,V> interfaces. Their bounds
+are respectively T: PartialEq; T: Eq; and K: Eq, V: PartialEq. They work across
+native and script implementations without selecting either receiver's object
+comparison policy. Lists compare in iteration order and stop at the first mismatch.
+Sets and maps compare independent of iteration order, matching each member/entry
+once using the selected element/key equality. Matching supports multiple candidates;
+a custom collection's lookup relation cannot replace the helper's selected equality.
+
+Callbacks and iterator reads preserve left-to-right execution and completed effects.
+Builtin structural edits invalidate existing cursors; the next affected read traps.
+A helper that already short-circuited does not perform another read to force a trap.
+Custom iterators retain their declared behavior. Working values are rooted and
+long operations poll cancellation. No implicit snapshot, freeze, rollback or
+coinductive cycle comparison is introduced; recursion retains call-depth limits.
+
+Content hashing returns i64 bits and uses wrapping u64 arithmetic. With
+`mix(h, x) = (h XOR x) * 1099511628211` and seed `14695981039346656037`, Vec folds
+mix over element hashes in order and finally mixes length. HashSet sums
+mix(seed, element_hash) and mixes cardinality. HashMap sums
+mix(mix(seed, key_hash), value_hash) and mixes cardinality. Set/map hashes are
+independent of traversal order. These algorithms belong to stdlib, separately
+from runtime identity hashing and internal hash-table storage.
 
 ## Foundation algorithms
 

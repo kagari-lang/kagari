@@ -28,7 +28,6 @@ use kagari_runtime::{
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{NativeDeclaration, TraitDef},
     host_interface::{HostFunctionDeclaration, value_type::HostValueType},
 };
@@ -122,87 +121,6 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         .begin_execution(&module, ExecutionOptions::default())
         .unwrap();
     runtime.resources().poll_execution().unwrap();
-}
-
-#[test]
-fn storage_capabilities_require_exact_installation_without_native_calls() {
-    let context = DefinitionContext::new().unwrap();
-    let mut builder = ModuleBuilder::new(
-        "example::storage",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
-    let mut interface = builder.define_trait("CustomStorage").unwrap();
-    interface.storage_view(CollectionAccess::ReadOnly);
-    interface.finish().unwrap();
-    let installed = builder.finish().unwrap();
-    let declaration = installed
-        .to_declaration()
-        .import_into(&context, &Default::default())
-        .unwrap()
-        .into_records();
-    let contract = declaration.traits[0].clone();
-    let program = |contract: TraitDef, private: bool| {
-        let mut module = BytecodeModule {
-            identity: declaration.identity.clone(),
-            ..Default::default()
-        };
-        let root = context.intern_root(&declaration.identity).unwrap();
-        context
-            .intern_child(root, DefinitionKind::Trait, &contract.name, 0)
-            .unwrap();
-        if private {
-            module.trait_contracts.push(TraitContract {
-                declaration: declaration
-                    .definition(DefinitionKind::Trait, &contract.name, &context.snapshot())
-                    .unwrap(),
-                abi: contract,
-            });
-        } else {
-            module.public_items.push(PublicItem::Trait(contract));
-        }
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-            &Default::default(),
-        )
-        .unwrap()
-    };
-    let mut runtime = Runtime::default();
-    assert!(
-        runtime
-            .load_program("uninstalled", program(contract.clone(), false))
-            .is_err()
-    );
-    installed.install(&mut runtime).unwrap();
-    let active = runtime
-        .load_program("storage", program(contract.clone(), false))
-        .unwrap();
-    let mut forged = contract.clone();
-    forged.storage_access = Some(CollectionAccess::Mutable);
-    assert!(
-        runtime
-            .load_program("forged", program(forged.clone(), false))
-            .is_err()
-    );
-    assert!(
-        runtime
-            .stage_reload_program(&active, "storage", program(forged, false))
-            .is_err()
-    );
-    // An arbitrary private trait cannot acquire native storage capabilities.
-    let mut private = contract;
-    private.name = "UninstalledPrivate".into();
-    assert!(
-        runtime
-            .load_program("private", program(private, true))
-            .is_err()
-    );
 }
 
 #[test]
@@ -480,28 +398,52 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
                 .load_program("duplicate_core", program(duplicate))
                 .is_err()
         );
-        let mut private = base.clone();
-        private.public_items.retain(
-            |item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == changed_name),
-        );
-        let mut contract = definition
-            .traits
-            .iter()
-            .find(|trait_| trait_.name == changed_name)
-            .unwrap()
-            .clone();
-        contract.methods[0].params[0].name = "forged_argument".into();
-        private.trait_contracts.push(TraitContract {
-            declaration: definition
-                .definition(DefinitionKind::Trait, &changed_name, &context.snapshot())
-                .unwrap(),
-            abi: contract,
-        });
-        VerifiedProgram::new(program(private.clone()), &context).unwrap();
-        assert!(
-            runtime
-                .load_program("private_core", program(private))
-                .is_err()
-        );
     }
+
+    // Moving a referenced public role to private correctly invalidates dependent
+    // public implementation tables. Test private installation authority in an
+    // independent no-call module, so rejection belongs to the installed catalog.
+    let format_module = modules
+        .iter()
+        .find(|module| module.identity == namespaces::module("core", "fmt"))
+        .unwrap();
+    let mut contract = format_module
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicItem::Trait(contract) if contract.name == "Debug" => Some(contract.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let root = context.intern_root(&format_module.identity).unwrap();
+    let declaration = context
+        .intern_child(root, DefinitionKind::Trait, &contract.name, 0)
+        .unwrap();
+    contract.methods[0].params[0].name = "forged_argument".into();
+    let private = DefinitionMetadata::checked(
+        context.snapshot(),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                identity: format_module.identity.clone(),
+                trait_contracts: vec![TraitContract {
+                    declaration,
+                    abi: contract,
+                }],
+                ..Default::default()
+            }],
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    VerifiedProgram::new(private.clone(), &context).unwrap();
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    let error = runtime.load_program("private_core", private).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("private reserved or native trait lacks an installed contract"),
+        "{error}"
+    );
 }

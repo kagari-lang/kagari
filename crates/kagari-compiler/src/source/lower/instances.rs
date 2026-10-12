@@ -85,35 +85,6 @@ pub(super) struct InstanceKey {
     pub arguments: Vec<TypeId>,
 }
 
-impl InstanceKey {
-    pub(super) fn lower(
-        &self,
-        catalog: &AggregateCatalog,
-        options: &MirLoweringOptions,
-        definitions: &DefinitionTable,
-        span: Span,
-    ) -> Result<ConcreteFunctionIdentity, MirLoweringError> {
-        let mut remaining = options.max_type_nodes;
-        let arguments = self
-            .arguments
-            .iter()
-            .filter(|argument| !matches!(argument, TypeId::Generic(parameter)
-                if definitions.contains(parameter.owner, self.declaration).expect("checked instance owner")))
-            .map(|argument| {
-                let argument = instantiate(argument, None, options, &mut remaining, 0, span)?;
-                if !argument.is_concrete() {
-                    return Err(unresolved_type(&argument, definitions, span));
-                }
-                Ok(lower_type(&catalog.canonical_value_type(definitions, &argument)))
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(ConcreteFunctionIdentity {
-            declaration: self.declaration,
-            arguments,
-        })
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
     pub callable: Option<CallableInstance>,
@@ -125,6 +96,49 @@ pub(super) struct Instance {
     pub substitution: TypeSubstitution,
     pub closure: Option<ExprId>,
     pub protocol: Option<(Protocol, TypeId)>,
+}
+
+impl Instance {
+    pub(super) fn lower(
+        &self,
+        catalog: &AggregateCatalog,
+        options: &MirLoweringOptions,
+        definitions: &DefinitionTable,
+        span: Span,
+    ) -> Result<ConcreteFunctionIdentity, MirLoweringError> {
+        let mut remaining = options.max_type_nodes;
+        let arguments = self
+            .key
+            .arguments
+            .iter()
+            .enumerate()
+            .filter(|(_, argument)| !matches!(argument, TypeId::Generic(parameter)
+                if definitions.contains(parameter.owner, self.key.declaration).expect("checked instance owner")))
+            .map(|(index, argument)| {
+                let argument = instantiate(argument, None, options, &mut remaining, 0, span)?;
+                if !argument.is_concrete() {
+                    return Err(unresolved_type(&argument, definitions, span));
+                }
+                // A protocol adapter's second identity argument describes a
+                // declaration application, not a runtime interface value. In
+                // particular Iterable must not acquire an erased Iter output.
+                if index == 1 && self.protocol.is_some() {
+                    let TypeId::Trait(interface) = argument else {
+                        return Err(MirLoweringError::MissingBinding("protocol adapter application"));
+                    };
+                    Ok(Ty::Trait(lower_nominal_type(
+                        &catalog.canonical_interface_application(definitions, &interface),
+                    )))
+                } else {
+                    Ok(lower_type(&catalog.canonical_value_type(definitions, &argument)))
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(ConcreteFunctionIdentity {
+            declaration: self.key.declaration,
+            arguments,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]

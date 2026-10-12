@@ -352,7 +352,7 @@ impl InstancePlanner<'_> {
                     span,
                     false,
                 )?;
-                let instance = self.instances[id.index()].key.lower(
+                let instance = self.instances[id.index()].lower(
                     self.catalog,
                     self.options,
                     &self.definitions(),

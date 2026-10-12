@@ -216,7 +216,6 @@ impl RemapDefinitions for TraitDef {
                 .as_ref()
                 .map(|adapter| adapter.remap_definitions(mapper))
                 .transpose()?,
-            storage_access: self.storage_access,
             associated_consts: map_sequence(&self.associated_consts, |value| {
                 (value).remap_definitions(mapper)
             })?,
