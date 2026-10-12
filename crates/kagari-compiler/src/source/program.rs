@@ -418,6 +418,8 @@ pub fn lower_program_to_mir(
     }
 }
 
+// Already emitted shared bodies need no source declaration demand. Generated
+// adapters have executable contracts but deliberately have no authored declaration.
 fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {
     let script = module
         .functions
@@ -425,6 +427,17 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
         .flat_map(|instruction| match instruction {
+            Instruction::Call {
+                callee: CallTarget::Shared(contract),
+                ..
+            } if contract.implementation == CallableImplementation::Script
+                && module
+                    .functions
+                    .iter()
+                    .any(|function| function.instance == contract.instance) =>
+            {
+                vec![]
+            }
             Instruction::Call {
                 callee: CallTarget::Shared(contract),
                 ..

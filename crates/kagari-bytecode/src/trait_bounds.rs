@@ -376,7 +376,16 @@ fn linked_bounds_match(
         }
         if let Some(required) = &function.metadata.semantic.protocol_adapter
             && catalog
-                .implicit_callable_signature(required, &cancel)?
+                .implicit_callable_signature(
+                    required,
+                    function
+                        .metadata
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or(&[], |body| body.bounds.as_slice()),
+                    &cancel,
+                )?
                 .is_none()
         {
             return Ok(false);

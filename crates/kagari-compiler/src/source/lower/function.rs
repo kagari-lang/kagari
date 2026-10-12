@@ -11,7 +11,7 @@ use kagari_hir::{
     hir::{expr::ExprKind, ids::ExprId, item::function::Function},
     language::semantics::{ProtocolSemantics, callable_signature, ordering_type},
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, TypedFunction},
+    typeck::{FunctionImplementation, TypedFunction, table::ConstraintTarget},
     types::TypeId,
 };
 use kagari_mir::{
@@ -161,10 +161,31 @@ pub(crate) fn lower_protocol<'a>(
     } else {
         None
     };
+    let generic_params = match &receiver {
+        TypeId::Tuple(members) if !receiver.is_concrete() => members
+            .iter()
+            .filter_map(|ty| {
+                let TypeId::Generic(parameter) = ty else {
+                    return None;
+                };
+                Some(parameter.clone())
+            })
+            .collect::<Vec<_>>(),
+        _ => vec![],
+    };
+    let bounds = generic_params
+        .iter()
+        .map(|parameter| {
+            (
+                TypeId::Generic(parameter.clone()),
+                vec![ConstraintTarget::Trait(interface.clone())],
+            )
+        })
+        .collect();
     let typed = TypedFunction {
         implementation: FunctionImplementation::Script,
-        generic_params: Vec::new(),
-        bounds: Default::default(),
+        generic_params,
+        bounds,
         id: parent.id,
         name: String::new(),
         params: Default::default(),
@@ -214,18 +235,19 @@ pub(crate) fn lower_protocol<'a>(
     };
     // Direct derived equality also works without an installed protocol contract.
     // Only a checked, declared implicit application can be selected by native code.
-    if lowerer
-        .planner
-        .catalog
-        .implicit_protocol_application(
-            &lowerer.planner.definitions(),
-            &required,
-            &receiver,
-            &interface,
-            &lowerer.planner.options.cancel,
-        )
-        .map_err(|_| MirLoweringError::MissingBinding("checked protocol adapter"))?
-        .is_some()
+    if lowerer.function.semantic.generic.is_some()
+        || lowerer
+            .planner
+            .catalog
+            .implicit_protocol_application(
+                &lowerer.planner.definitions(),
+                &required,
+                &receiver,
+                &interface,
+                &lowerer.planner.options.cancel,
+            )
+            .map_err(|_| MirLoweringError::MissingBinding("checked protocol adapter"))?
+            .is_some()
     {
         lowerer.function.semantic.protocol_adapter = Some(required.clone());
     }

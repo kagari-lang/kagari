@@ -336,6 +336,41 @@ fn shared_collection_comparison_composes_the_new_argument_operation() {
 }
 
 #[test]
+fn shared_tuple_adapter_preserves_each_arguments_generation() {
+    let source = r#"
+struct Local {}
+impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }
+struct Item { val value: i32 }
+impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
+trait Boxer {
+    fn one<T: PartialEq>(self, left: T, right: T) -> bool {
+        (Local {}, left) == (Local {}, right)
+    }
+}
+struct Factory {}
+impl Boxer for Factory {}
+trait Probe { fn check(self, factory: Boxer) -> bool; }
+struct Checker {}
+impl Probe for Checker {
+    fn check(self, factory: Boxer) -> bool {
+        factory.one(Item { value: 1 }, Item { value: 2 })
+    }
+}
+fn make() -> Boxer { Factory {} }
+fn probe() -> Probe { Checker {} }
+"#;
+    assert_shared_collection_comparison_reloading(source, true, |source| {
+        source.replace(
+            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
+            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
+        )
+    });
+    assert_shared_collection_comparison_reloading(source, false, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+}
+
+#[test]
 fn shared_collection_identity_does_not_require_a_comparison_application() {
     let source = mixed_generation_collection_source().replace(
         "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",

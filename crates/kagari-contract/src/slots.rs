@@ -9,7 +9,7 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{requirement::NativeCallableRequirement, verify::types_in_scope},
-    language::adapter::adapter_contract,
+    language::{Protocol, adapter::adapter_contract},
     ty::Ty,
 };
 use std::collections::BTreeMap;
@@ -98,18 +98,49 @@ impl SemanticSlots {
         let Some((kind, signature)) = adapter_contract(required, definitions) else {
             return false;
         };
+        let (parameters, identity_valid) = match &self.generic {
+            Some(body) => (
+                body.parameters.as_slice(),
+                matches!(kind, Protocol::PartialEq | Protocol::Hash)
+                    && required.receiver
+                        == Ty::Tuple(
+                            body.parameters
+                                .iter()
+                                .map(|parameter| parameter.as_type())
+                                .collect(),
+                        )
+                    && identity.arguments.is_empty()
+                    && definitions.resolve(identity.declaration).is_ok_and(|view| {
+                        view.segments().count() == 1
+                            && view.last().is_some_and(|part| {
+                                part.kind == DefinitionKind::Function
+                                    && part.name == format!("$derived_tuple_{}", kind.name())
+                                    && part.occurrence as usize == body.parameters.len()
+                            })
+                    }),
+            ),
+            None => (
+                &[][..],
+                identity.arguments == adapter_arguments(required, definitions)
+                    && definitions.resolve(identity.declaration).is_ok_and(|view| {
+                        view.segments().count() == 1
+                            && view.last().is_some_and(|part| {
+                                part.kind == DefinitionKind::Function
+                                    && part.name == format!("$derived_{}", kind.name())
+                                    && part.occurrence == 0
+                            })
+                    }),
+            ),
+        };
         definitions.resolve(required.member).is_ok()
             && required.receiver.within_wire_limits()
-            && types_in_scope([&required.receiver], &[], &Default::default(), definitions)
-            && identity.arguments == adapter_arguments(required, definitions)
-            && definitions.resolve(identity.declaration).is_ok_and(|view| {
-                view.segments().count() == 1
-                    && view.last().is_some_and(|part| {
-                        part.kind == DefinitionKind::Function
-                            && part.name == format!("$derived_{}", kind.name())
-                            && part.occurrence == 0
-                    })
-            })
+            && types_in_scope(
+                [&required.receiver],
+                parameters,
+                &Default::default(),
+                definitions,
+            )
+            && identity_valid
             && self.params.len() == signature.params.len()
             && signature
                 .params

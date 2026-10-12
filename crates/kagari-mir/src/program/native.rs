@@ -196,7 +196,15 @@ pub(super) fn validate(
         }
         if let Some(required) = &function.semantic.protocol_adapter
             && catalog
-                .implicit_callable_signature(required, cancel)?
+                .implicit_callable_signature(
+                    required,
+                    function
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .map_or(&[], |body| body.bounds.as_slice()),
+                    cancel,
+                )?
                 .is_none()
         {
             return Ok(false);

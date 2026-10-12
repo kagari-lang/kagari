@@ -29,7 +29,7 @@ impl FunctionLowerer<'_, '_> {
                 ));
             }
             match &ty {
-                TypeId::Trait(_) => return Ok(true),
+                TypeId::Trait(_) | TypeId::Generic(_) => return Ok(true),
                 TypeId::NativeObject(_)
                 | TypeId::Struct(_)
                 | TypeId::Enum(_)
@@ -137,9 +137,16 @@ impl FunctionLowerer<'_, '_> {
             } else {
                 ValueType::I64
             });
+            let callee = if let TypeId::Tuple(members) = ty
+                && !ty.is_concrete()
+            {
+                self.shared_tuple_protocol(function, protocol, ty, members)?
+            } else {
+                CallTarget::Function(function)
+            };
             self.emit(Instruction::Call {
                 dst: Some(dst),
-                callee: CallTarget::Function(function),
+                callee,
                 args: args.iter().copied().collect(),
             });
             Ok(dst)
@@ -209,6 +216,11 @@ impl FunctionLowerer<'_, '_> {
                     let mut values = Vec::new();
                     for base in args {
                         let dst = self.alloc_temp(self.value_type(member)?);
+                        let semantic = self.semantic_type(member)?;
+                        self.function
+                            .semantic
+                            .registers
+                            .insert(dst.temp.index(), semantic);
                         self.emit(Instruction::ReadAggregateIndex {
                             dst,
                             base: *base,

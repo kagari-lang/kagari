@@ -27,7 +27,7 @@ use kagari_hir::{
         table::ConstraintTarget,
     },
     types::{
-        NominalType, TypeId, TypeSubstitution,
+        GenericParameterType, NominalType, TypeId, TypeSubstitution,
         semantic::{lower_nominal_type, lower_type},
     },
 };
@@ -355,6 +355,15 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
         let (origin, function, substitution) = context;
+        let arity = match ty {
+            TypeId::Tuple(items)
+                if !ty.is_concrete()
+                    && matches!(protocol, Protocol::PartialEq | Protocol::Hash) =>
+            {
+                Some(items.len())
+            }
+            _ => None,
+        };
         let root = self
             .context
             .intern_root(self.module.lowered.source.module_identity())
@@ -364,16 +373,37 @@ impl<'a> InstancePlanner<'a> {
             .intern_child(
                 root,
                 DefinitionKind::Function,
-                &format!("$derived_{}", protocol.name()),
-                0,
+                &format!(
+                    "$derived_{}{}",
+                    if arity.is_some() { "tuple_" } else { "" },
+                    protocol.name()
+                ),
+                arity.unwrap_or(0) as u32,
             )
             .map_err(DefinitionMappingError::from)?;
+        let shared_arguments = arity.map(|arity| {
+            (0..arity)
+                .map(|position| {
+                    TypeId::Generic(GenericParameterType {
+                        owner: declaration,
+                        position,
+                        name: format!("T{position}"),
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        let receiver = shared_arguments
+            .as_ref()
+            .map(|arguments| TypeId::Tuple(arguments.clone()))
+            .unwrap_or_else(|| ty.clone());
         let key = InstanceKey {
             declaration,
-            arguments: [Some(ty.clone()), interface.cloned().map(TypeId::Trait)]
-                .into_iter()
-                .flatten()
-                .collect(),
+            arguments: shared_arguments.unwrap_or_else(|| {
+                [Some(ty.clone()), interface.cloned().map(TypeId::Trait)]
+                    .into_iter()
+                    .flatten()
+                    .collect()
+            }),
         };
         if let Some(id) = self.keys.get(&key) {
             return Ok(*id);
@@ -397,7 +427,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
-            protocol: Some((protocol, ty.clone())),
+            protocol: Some((protocol, receiver)),
         });
         self.record_layout_root(ty, &Default::default(), span)?;
         Ok(id)

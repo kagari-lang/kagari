@@ -13,21 +13,27 @@ use {
         callable::{CallableImplementation, Signature},
         declaration::requirement::NativeCallableRequirement,
         language::adapter::adapter_contract,
-        ty::substitution::{TypeSubstitution, TypeTransformError},
+        ty::{
+            GenericBound,
+            substitution::{TypeSubstitution, TypeTransformError},
+        },
     },
 };
 
 impl ProofCatalog<'_> {
+    /// Validate an implicit adapter in its declared bound scope. Closed selections
+    /// pass no assumptions; shared tuple bodies supply independently checked bounds.
     pub fn implicit_callable_signature(
         &self,
         required: &NativeCallableRequirement,
+        assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<Option<Signature>, TypeTransformError> {
         let Some((_, expected)) = adapter_contract(required, &self.definitions) else {
             return Ok(None);
         };
         if !self.callable_requirement_valid(required)
-            || !self.holds(&required.interface, &required.receiver, &[], cancel)?
+            || !self.holds(&required.interface, &required.receiver, assumptions, cancel)?
             || self.has_explicit_implementation(&required.interface, &required.receiver, cancel)?
         {
             return Ok(None);
@@ -59,7 +65,7 @@ impl ProofCatalog<'_> {
         }
         substitution.bind_receiver(&required.interface.declaration, &required.receiver);
         for bound in substitution.apply_bounds(&method.bounds, &self.definitions, cancel)? {
-            if !self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
+            if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(None);
             }
         }
@@ -100,7 +106,9 @@ impl ProofCatalog<'_> {
                             && part.name == format!("$derived_{}", kind.name())
                     })
             })
-            && self.implicit_callable_signature(required, cancel)?.as_ref()
+            && self
+                .implicit_callable_signature(required, &[], cancel)?
+                .as_ref()
                 == Some(&selected.signature))
     }
 }

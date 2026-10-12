@@ -8,7 +8,7 @@ GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-12)
 
-Resume from implementation checkpoint `93909724`; the progress ledger below owns
+Resume from the latest CI03 shared tuple adapter checkpoint; the progress ledger below owns
 completed changes and their validation evidence. CI01-CI02 are complete and CI03
 remains active. CI04 has implementation checkpoints but still needs its phase
 acceptance audit; CI05 marker removal and CI06 documentation/final acceptance
@@ -19,6 +19,11 @@ The next implementation step is checked conditional operation composition for
 `Vec<(old Local, new Item)>` across reload. Retain the old Local operation and the
 new Item operation independently. Reuse the checked shared receiver selections
 from `93909724`; whole closed-application lookup cannot supply this mixed tuple.
+The shared tuple adapter checkpoint now proves independently supplied component
+operations through ordinary bounded shared calls, including mixed-generation
+Local/Item execution. Reuse that body/proof rather than generating a second tuple
+comparison algorithm. Conditional receiver comparison still needs to carry and
+apply those operations when the interface factory has no element protocol bound.
 Keep operation selection and structural adapter proof in compiler/contract
 owners, with runtime binding to the actual arguments' supplying generations.
 Do not add runtime trait search or substitute layout equality for generation
@@ -1477,3 +1482,60 @@ and scope proof at the contract owner, and binding at the existing runtime call
 owner. No new witness variant, cache, public re-export, wire revision or runtime
 trait search was added. Exhaustive workspace/backend coverage remains CI-owned
 and unrun; CI03 and CI05-CI06 remain open.
+
+
+CI03 shared tuple adapter checkpoint: ordinary tuple PartialEq/Hash lowering can
+now emit a shared body with one checked operation argument per element type.
+The generated entry is canonical for protocol and tuple arity; actual arguments
+retain the caller's types and operations through the existing SharedCall contract.
+Repeated element requirements are deduplicated after substitution. Both concrete
+and shared adapters still use the same tuple traversal/combination lowering.
+The source-free adapter proof now receives the body's checked assumptions, checks
+its exact tuple parameter shape and signature, and retains ordinary call-site bound
+and operation validation. No runtime trait search, new callable witness variant,
+wire representation, cache or ABI revision is introduced.
+
+The new shared_tuple_comparison_composes_element_operations case first produced
+I32(0) instead of I32(42): tuple comparison inside a generic method ignored the
+supplied custom element equality. The repaired case covers custom equality,
+primitive arguments, repeated element types, != and Hash through source, decoded
+artifact and ArtifactJit execution with forced GC. Missing generic register facts
+initially produced InvalidParameterLayout; element extraction now records the exact
+semantic type. The planner also avoids requesting an already emitted shared body
+as an authored declaration, resolving MissingBinding("shared method declaration")
+for generated adapters. The shared helper materialization regression remains covered.
+Initial fixture-only errors (a struct literal in an if condition and a missing Hash
+import) were corrected without changing parser or protocol admission.
+
+The new shared_tuple_adapter_preserves_each_arguments_generation case invokes an
+old generic default with a new Item, separately changing Local.eq and Item.eq.
+It proves that the tuple body keeps the old lexical Local operation and the new
+caller's Item operation independently, including forced GC and release of old
+runtime values. The source-free tuple metadata case rejects erased bounds,
+out-of-scope binders, a forged adapter receiver and a mismatched parameter signature.
+The tests are in the default_method_contracts child module to keep the existing
+integration root within the effective LOC limit.
+
+This is the structural adapter prerequisite, not the full receiver-comparison
+repair. The two enabled shared_collection_comparison_composes cases remain failing
+at their last recorded run and were not rerun without changes to conditional
+receiver binding. Shared tuple calls currently require supplied element operations;
+optional conditional comparison through an unconstrained Vec factory still needs
+checked operation composition. CI03, CI04's final audit and CI05-CI06 remain open.
+
+Selected validation passed 11 distinct cases: the two shared tuple execution/proof
+cases, five default_methods regressions (shared helper bounds/materialization,
+shared function witness validation, ordinary shared receiver comparison and forged
+shared selections), three collection_interfaces content/float/receiver-proof cases,
+and the mixed-generation tuple case. The last case contains both old-Local and
+new-Item assertions. These cover the changed shared call/adapter/proof boundaries;
+the full workspace and exhaustive feature/backend matrix remain CI-owned and unrun.
+Contract/compiler/MIR/bytecode library Clippy passed; the compiler check passed
+again after sharing signature construction with the existing adapter contract.
+Structure checked 1103 Rust files with zero violations/exceptions; formatting,
+relative plan links and diff checks passed. Structural review retains protocol
+selection/lowering at compiler, generic scope/adapter proof at contract, and
+execution through the existing shared-call runtime. No new public re-export,
+production glob, deep parent traversal or compatibility entrypoint was added.
+The contract proof signature now accepts explicit assumptions; existing callers
+were updated directly without a compatibility wrapper.

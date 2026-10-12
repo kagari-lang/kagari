@@ -19,6 +19,8 @@ use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty
 #[path = "support/execution.rs"]
 mod execution;
 
+mod default_method_contracts;
+
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
