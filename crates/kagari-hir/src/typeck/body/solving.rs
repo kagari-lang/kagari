@@ -221,7 +221,7 @@ impl BodyChecker<'_> {
                         &implementation.generic_params,
                         &mut substitution,
                         self.cancel,
-                        Some(self.aggregates),
+                        None,
                     )
                     .is_err()
                     {

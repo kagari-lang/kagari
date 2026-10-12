@@ -125,6 +125,9 @@ fn main() -> i32 {
     if !(view == view && view != other_sequence && other_sequence != view) { return 0; }
     if !(list_content_equal(view, copied_view) && list_content_equal(copied_view, view)) { return 0; }
     if !(list_content_equal(source, copy) && list_content_equal(copy, source)) { return 0; }
+    val second_source = Sequence { items: Vec::from([7, 35]) };
+    if !list_content_equal(source, second_source) { return 0; }
+    if first(source) != 7 { return 0; }
     if !(!(view === copied_view) && view != copied_view && copied_view != view) { return 0; }
     val writable: MutableList<i32> = source;
     writable[0] -= 6;

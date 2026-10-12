@@ -33,7 +33,7 @@ pub(crate) fn inherent_substitution(
         &method.function.generic_params,
         &mut substitution,
         cancel,
-        Some(aggregates),
+        None,
     )
     .ok()?;
     let owner = aggregates.normalize_type(definitions, &method.owner.instantiate(&substitution));
@@ -77,7 +77,7 @@ pub(crate) fn interfaces(
                 &implementation.generic_params,
                 &mut substitution,
                 cancel,
-                Some(aggregates),
+                None,
             )
             .is_ok()
             {

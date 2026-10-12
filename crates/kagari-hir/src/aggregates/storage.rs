@@ -77,31 +77,6 @@ impl AggregateCatalog {
         common.next().is_none().then_some(TypeId::Trait(view))
     }
 
-    pub(crate) fn matching_storage_headers(
-        &self,
-        left: &TypeId,
-        right: &TypeId,
-        cancel: &CancellationToken,
-    ) -> Option<(NominalType, NominalType)> {
-        let left = self.storage_views(left, cancel)?;
-        let right = self.storage_views(right, cancel)?;
-        let mut selected = None;
-        for left in left {
-            for right in &right {
-                cancel.check().ok()?;
-                if left.declaration == right.declaration
-                    && left.arguments.len() == right.arguments.len()
-                {
-                    if selected.is_some() {
-                        return None;
-                    }
-                    selected = Some((left.clone(), right.clone()));
-                }
-            }
-        }
-        selected
-    }
-
     pub(crate) fn has_storage_view(&self, ty: &TypeId, cancel: &CancellationToken) -> bool {
         self.storage_views(ty, cancel)
             .is_some_and(|views| !views.is_empty())

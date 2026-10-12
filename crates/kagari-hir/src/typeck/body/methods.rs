@@ -234,7 +234,11 @@ impl<'a> BodyChecker<'a> {
                 &function.generic_params,
                 &mut substitution,
                 self.cancel,
-                Some(self.aggregates),
+                Some(inference::Context {
+                    definitions: self.declarations.definitions(),
+                    aggregates: self.aggregates,
+                    assumptions: &env.generic_bounds,
+                }),
             )
             .is_err()
         {
@@ -594,7 +598,11 @@ impl<'a> BodyChecker<'a> {
                 method_generics,
                 &mut substitution,
                 self.cancel,
-                Some(self.aggregates),
+                Some(inference::Context {
+                    definitions: self.declarations.definitions(),
+                    aggregates: self.aggregates,
+                    assumptions: &env.generic_bounds,
+                }),
             )
             .is_err()
         {

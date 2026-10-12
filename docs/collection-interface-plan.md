@@ -1070,3 +1070,57 @@ and primitive cases passed again (the unchanged known-failing compound case was
 explicitly skipped in that regression run). Formatting and diff checks passed.
 The compound test remains enabled and failing pending the owning CI03 repair;
 this is intentionally an incomplete test checkpoint, not passing phase acceptance.
+
+
+CI04 inference checkpoint in progress: the CI03 mixed-generation failure remains
+owned by comparison construction. Independent ordinary-interface inference is
+proceeding while that error is carried; it uses the existing checked implementation
+and member-surface owners and does not depend on compositional receiver comparison.
+This sequencing does not waive any CI03 exit requirement or final acceptance gate.
+
+Adding list_content_equal(Sequence, Sequence) to the existing custom collection
+fixture reproduced CannotInferGenericArgument for T. Mixed Sequence/Vec calls had
+succeeded because Vec supplied the missing inference information. The first probe
+also used a struct initializer inside an if condition; it was moved to a local so
+the focused failure concerns type inference alone. The two-custom-operand call and
+first(source) now execute successfully with the existing Source/Artifact/JIT routes.
+
+Callee inference now receives the caller's checked declarations and generic bounds.
+For an interface parameter, it uses the ordinary member/interface query's valid
+applied implementations, including script implementations, generic assumptions and
+declared parents. It infers against the requested declaration, preserves invariant
+arguments and explicit associated bindings, and commits a unique substitution only.
+Multiple incompatible applications remain unresolved for the caller's diagnostic;
+explicit result/type arguments can select a matching application. Inference does
+not grant a conversion: the existing final coercion/proof check still owns that.
+
+For a concrete return pattern with an interface result context, inference first
+projects an implementation header and solves receiver arguments, then discharges
+that applied implementation's bounds. This preserves generic collection constructor
+context without the old readonly marker. matching_storage_headers was deleted.
+Implementation/inherent header matching and propagation solver header projection
+now request structural substitution only, preventing candidate enumeration from
+recursively authorizing conversions while matching the same header. Ordinary
+branch/common-interface discovery still uses storage_views/shared_storage_view;
+its replacement and whole-expression multi-arm selection remain CI04 work.
+
+Focused acceptance for the inference checkpoint: collection_interfaces passed all
+10 cases and collection_access all 6. The custom fixture executes two concrete
+Sequence operands without a native operand or interface annotation supplying T,
+while retaining both argument orders for mixed implementations. The 6 HIR
+inference tests passed after the final helper extraction. Their new source matrix
+covers applicable and inapplicable conditional implementations, caller generic
+bounds, ambiguous applications, explicit result disambiguation, inference from an
+interface return context, and passing an interface through an unconstrained generic
+identity function. The 3 shared_generic_method default_methods regressions passed.
+These are the selected affected contracts, not full workspace acceptance.
+
+HIR library Clippy, structure (1099 Rust files, no violations or exceptions),
+formatting, plan links and diff checks passed. Structural review separates ordinary
+argument/result inference from header substitution and reuses the existing checked
+member and implementation queries. No new cache, public re-export, compatibility
+alias or executable format change was introduced. CI03's enabled mixed-generation
+comparison reproduction remains failing and was not rerun unchanged. CI04 remains
+open for common-interface candidate discovery, whole-expression joins, operator
+and indexing consumers; CI05-CI06 remain open. Full workspace and exhaustive
+backend coverage remain CI-owned.

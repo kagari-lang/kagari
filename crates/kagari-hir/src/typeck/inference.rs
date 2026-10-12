@@ -3,13 +3,26 @@
 //! applied signature and repeated occurrences after collecting substitutions.
 
 use crate::{
-    aggregates::AggregateCatalog,
-    types::{GenericParameterType, TypeId, TypeSubstitution},
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
+    typeck::{GenericBounds, members},
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::cancellation::{CancellationToken, Cancelled};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::table::DefinitionTable,
+};
 
 #[cfg(test)]
 use kagari_types::collection::CollectionAccess;
+
+/// Available implementation evidence at the inference site. Header matching
+/// passes None: finding a substitution does not authorize receiver conversion.
+#[derive(Clone, Copy)]
+pub(crate) struct Context<'a> {
+    pub definitions: &'a DefinitionTable,
+    pub aggregates: &'a AggregateCatalog,
+    pub assumptions: &'a GenericBounds,
+}
 
 /// Infer only the callee's parameters. Repeated occurrences are checked against
 /// the resulting signature by the caller; no source spelling participates.
@@ -19,22 +32,31 @@ pub(crate) fn infer(
     parameters: &[GenericParameterType],
     substitution: &mut TypeSubstitution,
     cancel: &CancellationToken,
-    aggregates: Option<&AggregateCatalog>,
+    context: Option<Context<'_>>,
 ) -> Result<(), Cancelled> {
-    if let Some(aggregates) = aggregates
-        && (matches!(expected, TypeId::Trait(_)) || matches!(actual, TypeId::Trait(_)))
-        && !matches!((expected, actual), (TypeId::Trait(left), TypeId::Trait(right)) if left.declaration == right.declaration)
-        && let Some((expected, actual)) =
-            aggregates.matching_storage_headers(expected, actual, cancel)
+    if let (Some(context), TypeId::Trait(expected_interface)) = (context, expected)
+        && !matches!(actual, TypeId::Trait(actual) if expected_interface.declaration == actual.declaration)
     {
-        return infer(
-            &TypeId::Trait(expected),
-            &TypeId::Trait(actual),
+        return context.infer_argument(
+            expected_interface,
+            actual,
             parameters,
             substitution,
             cancel,
-            None,
         );
+    }
+    if let (Some(context), TypeId::Trait(target)) = (context, actual)
+        && matches!(
+            expected,
+            TypeId::Struct(_)
+                | TypeId::NativeObject(_)
+                | TypeId::Enum(_)
+                | TypeId::Array(_)
+                | TypeId::Map { .. }
+                | TypeId::Set(_, _)
+        )
+    {
+        return context.infer_result(expected, target, parameters, substitution, cancel);
     }
     let mut pending = vec![(expected, actual)];
     while let Some((expected, actual)) = pending.pop() {
@@ -105,6 +127,129 @@ pub(crate) fn infer(
     Ok(())
 }
 
+impl Context<'_> {
+    fn infer_argument(
+        self,
+        expected_interface: &NominalType,
+        actual: &TypeId,
+        parameters: &[GenericParameterType],
+        substitution: &mut TypeSubstitution,
+        cancel: &CancellationToken,
+    ) -> Result<(), Cancelled> {
+        let mut selected = None;
+        for available in members::interfaces(
+            self.definitions,
+            self.aggregates,
+            actual,
+            self.assumptions,
+            cancel,
+        ) {
+            cancel.check()?;
+            if available.declaration != expected_interface.declaration {
+                continue;
+            }
+            let mut candidate = substitution.clone();
+            infer(
+                &TypeId::Trait(expected_interface.clone()),
+                &TypeId::Trait(available.clone()),
+                parameters,
+                &mut candidate,
+                cancel,
+                None,
+            )?;
+            let applied = expected_interface.instantiate(&candidate);
+            if applied.arguments != available.arguments
+                || !applied
+                    .associated_types
+                    .iter()
+                    .all(|(id, ty)| available.associated_types.get(id) == Some(ty))
+            {
+                continue;
+            }
+            if selected
+                .as_ref()
+                .is_some_and(|previous| previous != &candidate)
+            {
+                // Preserve the unresolved input for the caller's inference diagnostic.
+                return Ok(());
+            }
+            selected = Some(candidate);
+        }
+        cancel.check()?;
+        if let Some(selected) = selected {
+            *substitution = selected;
+        }
+        Ok(())
+    }
+
+    fn infer_result(
+        self,
+        expected: &TypeId,
+        target: &NominalType,
+        parameters: &[GenericParameterType],
+        substitution: &mut TypeSubstitution,
+        cancel: &CancellationToken,
+    ) -> Result<(), Cancelled> {
+        let mut selected = None;
+        for implementation in self.aggregates.implementations() {
+            cancel.check()?;
+            if implementation.trait_type.declaration != target.declaration {
+                continue;
+            }
+            let mut receiver_arguments = TypeSubstitution::default();
+            infer(
+                &implementation.for_type,
+                expected,
+                &implementation.generic_params,
+                &mut receiver_arguments,
+                cancel,
+                None,
+            )?;
+            let header = implementation.trait_type.instantiate(&receiver_arguments);
+            let mut candidate = substitution.clone();
+            infer(
+                &TypeId::Trait(header),
+                &TypeId::Trait(target.clone()),
+                parameters,
+                &mut candidate,
+                cancel,
+                None,
+            )?;
+            // Contextual return inference can start with unknown receiver arguments.
+            // Discharge the implementation bounds only after solving those slots.
+            let receiver = expected.instantiate(&candidate);
+            if !matches!(
+                self.aggregates.concrete_interface_implementation(
+                    self.definitions,
+                    target,
+                    &receiver,
+                    self.assumptions,
+                    ImplementationSearchLimits {
+                        max_checks: 100_000,
+                        max_depth: 64
+                    },
+                    cancel,
+                ),
+                Ok(Some(_))
+            ) {
+                continue;
+            }
+            if selected
+                .as_ref()
+                .is_some_and(|previous| previous != &candidate)
+            {
+                return Ok(());
+            }
+            selected = Some(candidate);
+        }
+        cancel.check()?;
+        if let Some(selected) = selected {
+            *substitution = selected;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,8 +259,10 @@ mod tests {
         map::DefinitionContext,
         table::{DefinitionId, DefinitionTable},
     };
-    use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
-    use kagari_stdlib::identity as library;
+    use kagari_source::{
+        diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceSnapshot,
+    };
+    use kagari_stdlib::{catalog, identity as library};
     use kagari_types::scalar::BuiltinType;
     use std::sync::Arc;
 
@@ -182,10 +329,74 @@ mod tests {
                 std::slice::from_ref(&parameter),
                 &mut substitution,
                 &Default::default(),
-                Some(&facts.records().facts().aggregates),
+                Some(Context {
+                    definitions,
+                    aggregates: &facts.records().facts().aggregates,
+                    assumptions: &Default::default(),
+                }),
             )
             .unwrap();
             assert_eq!(substitution[&parameter], integer);
+        }
+    }
+
+    #[test]
+    fn interface_argument_inference_checks_bounds_and_rejects_ambiguous_applications() {
+        let declarations = r#"
+trait Read<T> { fn read(self) -> T; }
+struct Cell<T> { val value: T }
+impl<T: Eq> Read<T> for Cell<T> { fn read(self) -> T { self.value } }
+struct Both {}
+impl Read<i32> for Both { fn read(self) -> i32 { 42 } }
+impl Read<i64> for Both { fn read(self) -> i64 { 42i64 } }
+fn take<T>(value: Read<T>) -> T { value.read() }
+fn identity<T>(value: T) -> T { value }
+fn make<T: Eq>() -> Cell<T> { loop {} }
+"#;
+        for (body, accepted) in [
+            (
+                "fn main() -> i32 { val x = Cell { value: 42 }; take(x) }",
+                true,
+            ),
+            (
+                "fn forward<T: Eq>(value: T) -> T { val x = Cell { value }; take(x) }",
+                true,
+            ),
+            (
+                "fn main() { val x = Cell { value: 1.0f32 }; take(x); }",
+                false,
+            ),
+            (
+                "fn main() -> i32 { val x = Both {}; val value: i32 = take(x); value }",
+                true,
+            ),
+            ("fn main() { val x = Both {}; take(x); }", false),
+            ("fn inferred_result() -> Read<i32> { make() }", true),
+            ("fn invalid_result() -> Read<f32> { make() }", false),
+            (
+                "fn pass(value: Read<i32>) -> Read<i32> { identity(value) }",
+                true,
+            ),
+        ] {
+            let source =
+                SourceFile::new("interface-inference.kgr", format!("{declarations}\n{body}"));
+            let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+            if accepted {
+                assert!(
+                    analysis.diagnostics().is_empty(),
+                    "{body}: {:?}",
+                    analysis.diagnostics()
+                );
+            } else {
+                assert!(
+                    analysis.diagnostics().iter().any(|diagnostic| matches!(
+                        diagnostic.kind,
+                        DiagnosticKind::CannotInferGenericArgument { .. }
+                    )),
+                    "{body}: {:?}",
+                    analysis.diagnostics()
+                );
+            }
         }
     }
 
