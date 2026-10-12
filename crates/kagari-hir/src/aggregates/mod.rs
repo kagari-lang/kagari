@@ -34,7 +34,6 @@ mod interfaces;
 mod native;
 pub mod protocols;
 mod relationships;
-mod storage;
 pub mod traits;
 
 /// A canonical struct field contract used for local and imported member access.

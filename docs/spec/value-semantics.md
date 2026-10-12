@@ -85,12 +85,20 @@ reflexivity, symmetry and transitivity. Eq does not mean field equality or
 immutability. `.eq()` and generic comparisons use the same implementation as `==`.
 
 `===` and `!==` compare object identity and cannot be overridden. They apply to
-Struct, Array, Map and Set, using stable runtime-owned identity rather than a
-physical address. Scalar, String, Tuple and enum values do not acquire identity
-operators merely because their implementation allocates storage. Collection views
-over shared objects preserve the identity of that underlying object, including
-views backed by different storage implementations. Other interface and host
-identity comparisons are outside this extension.
+Struct, native script objects, Array, Map and Set, using stable runtime-owned
+identity rather than a physical address. Ordinary interfaces also admit these
+operators under the existing operand type-compatibility rules; no Object bound
+or collection marker is required. Interface wrapping and parent adaptation preserve
+the underlying object's identity, independently of its selected equality protocol.
+
+Known scalar, String, Tuple and enum operands are rejected at compile time.
+If an interface hides one of these value categories, either identity operator
+traps at runtime, even when both operands refer to the same interface wrapper.
+Box allocation never supplies object identity. Both operands are evaluated left
+to right exactly once before comparison, and effects completed before a trap
+remain committed. Invalid or stale handles remain errors, not unequal objects.
+Host roots, borrowed handles and path-view identity comparisons remain outside
+this extension.
 
 The defaults differ by type, but follow the same selection rule:
 

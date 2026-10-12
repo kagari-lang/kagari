@@ -440,21 +440,25 @@ impl<'a> BodyChecker<'a> {
                         .common_branch_interface(&[lhs_ty.clone(), rhs_ty.clone()], env, rhs_expr)
                         .is_none())
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
-                        !self.aggregates.has_storage_view(ty, self.cancel)
-                            && !matches!(
-                                ty,
-                                TypeId::Unknown
-                                    | TypeId::Error
-                                    | TypeId::Struct(_)
-                                    | TypeId::Array(_)
-                                    | TypeId::Map { .. }
-                                    | TypeId::Set(_, _)
-                            )
+                        // Interfaces retain their concrete receiver category. A
+                        // hidden value receiver traps instead of acquiring the
+                        // identity of its interface wrapper.
+                        !matches!(
+                            ty,
+                            TypeId::Unknown
+                                | TypeId::Error
+                                | TypeId::Trait(_)
+                                | TypeId::Struct(_)
+                                | TypeId::NativeObject(_)
+                                | TypeId::Array(_)
+                                | TypeId::Map { .. }
+                                | TypeId::Set(_, _)
+                        )
                     })
                 {
                     self.emit_binary_operand_type_mismatch(
                         op,
-                        "matching identity-bearing object",
+                        "compatible objects or interfaces with object receivers",
                         &lhs_ty,
                         &rhs_ty,
                         rhs_expr,

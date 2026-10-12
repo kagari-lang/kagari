@@ -1714,3 +1714,45 @@ checkpoint; bytecode Clippy was repeated after its unused import was removed.
 Structure checked 1109 Rust files with zero violations/exceptions; formatting and
 diff checks passed. No new re-export, production glob, deep parent traversal or
 visibility bridge was introduced. Exhaustive workspace/backend checks remain CI-owned.
+
+
+CI03/CI04 ordinary-interface identity checkpoint follows the user's revised decision:
+no Object upper bound is introduced. HIR admits ordinary interface operands, keeps
+operand compatibility checks and rejects statically known value categories. Native
+script objects are admitted by their category, not by discovery of a collection
+implementation. The now-unused aggregates/storage.rs and its storage_views /
+has_storage_view queries were removed. Runtime identity_equal already unwraps a
+checked interface snapshot and rejects hidden value receivers and invalid handles;
+its behavior and GC/operation ownership need no replacement implementation.
+
+The new interface_identity contract suite checks ordinary object views through
+parents, branches and separate wrapping, distinct concrete receivers and identity
+inequality. Its source-free trap case covers scalar, tuple, enum and String receivers,
+either operand position, inequality, and aliasing the same wrapper through a parent.
+It observes left-to-right once-only effects before the trap, no later mutation,
+root cleanup and return to the loaded program's GC baseline (which retains a string
+constant). Known values and incompatible unrelated interfaces remain source errors.
+The direct primitive fixture compile initially used Display for EmbeddingError;
+that was a test error. The first execution fixture also used unsupported SDK entry
+arguments; it now uses the established interface invocation boundary.
+
+A test authoring attempt exposed an existing broader generic erasure limitation:
+`trait Child {} fn boxed<T: Child>(value: T) -> Child { value }` is rejected with
+KG_TYPE_RETURN_TYPE_MISMATCH. Identity does not require this conversion, so the
+identity fixture uses a concrete receiver. CI04's acceptance audit must classify
+this against its generic conversion scope before completion; it is not a new
+identity implementation failure or a claim of passing generic erasure coverage.
+
+Selected validation passed all three interface_identity contract groups and the
+existing collection_interfaces receiver_identity regression. The object-view case
+runs source, decoded artifact and ArtifactJit routes under forced GC; the trap case
+uses decoded artifacts and the established VM interface invocation boundary.
+The String case first exposed the fixture's zero-live-object assumption: constants
+are cached lazily. The fixture now materializes its one string constant before
+capturing the baseline and requires exact return to that baseline after every trap;
+execution roots must still reach zero. No runtime retention assertion was relaxed.
+Known-value rejection asserts the specific operand-type diagnostic. HIR library and
+identity-test Clippy passed; structure checked 1109 Rust files without violations
+or exceptions, with formatting and diff checks passing. The value-semantics owner
+now documents this implemented identity rule. CI03 conditional comparison, the
+CI04 audit and remaining marker consumers still prevent phase completion.
