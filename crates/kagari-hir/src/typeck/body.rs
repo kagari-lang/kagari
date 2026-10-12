@@ -5,7 +5,7 @@ use crate::{
     builtin::array_bridge,
     declarations::Declarations,
     hir::{
-        expr::{Condition, ExprKind, literal::LiteralKind},
+        expr::{ExprKind, literal::LiteralKind},
         ids::{BlockId, ConstId, ExprId},
     },
     imports::functions::ImportedFunctions,
@@ -42,6 +42,7 @@ mod statements;
 mod trait_calls;
 
 mod iteration;
+mod joins;
 mod numeric;
 mod operators;
 mod solving;
@@ -678,213 +679,9 @@ impl<'a> BodyChecker<'a> {
                 condition,
                 then_branch,
                 else_branch,
-            } => {
-                let mut then_env = env.clone();
-                let condition_completes = match condition {
-                    Condition::Expr(expr) => {
-                        let Ok(completes) = self.check_condition_type(*expr, "if", env) else {
-                            return TypeId::Unknown;
-                        };
-                        completes
-                    }
-                    Condition::Binding {
-                        pattern,
-                        initializer,
-                    } => {
-                        let ty = self.infer_expr_type(*initializer, env);
-                        self.check_pattern(*pattern, &ty, &mut then_env);
-                        let Ok(completes) = completion::expr_can_complete(
-                            &self.lowered.module,
-                            self.names,
-                            self.type_table,
-                            *initializer,
-                            self.cancel,
-                        ) else {
-                            return TypeId::Unknown;
-                        };
-                        completes
-                    }
-                };
-                let mut then_ty =
-                    self.infer_block_types_expected(*then_branch, &mut then_env, expected);
-                match else_branch {
-                    Some(else_expr) => {
-                        let Ok(then_completes) = completion::block_can_complete(
-                            &self.lowered.module,
-                            self.names,
-                            self.type_table,
-                            *then_branch,
-                            self.cancel,
-                        ) else {
-                            return TypeId::Unknown;
-                        };
-                        let mut else_context = expected.cloned();
-                        if condition_completes && then_completes {
-                            if let Some(context) = &mut else_context {
-                                context.recover_from(&then_ty);
-                            } else {
-                                else_context = Some(then_ty.clone());
-                            }
-                        }
-                        let else_ty =
-                            self.infer_expr_with_coercion(*else_expr, env, else_context.as_ref());
-                        let Ok(else_completes) = completion::expr_can_complete(
-                            &self.lowered.module,
-                            self.names,
-                            self.type_table,
-                            *else_expr,
-                            self.cancel,
-                        ) else {
-                            return TypeId::Unknown;
-                        };
-                        if !condition_completes {
-                            TypeId::Unknown
-                        } else {
-                            if !then_completes {
-                                then_ty = else_ty;
-                            } else if else_completes
-                                && then_ty != else_ty
-                                && let Some(view) = self.aggregates.shared_storage_view(
-                                    &then_ty,
-                                    &else_ty,
-                                    self.cancel,
-                                )
-                            {
-                                if let Some(tail) =
-                                    self.lowered.module.block(*then_branch).tail_expr
-                                {
-                                    self.apply_interface_coercion(
-                                        tail,
-                                        then_ty,
-                                        Some(&view),
-                                        &then_env,
-                                    );
-                                }
-                                self.apply_interface_coercion(
-                                    *else_expr,
-                                    else_ty,
-                                    Some(&view),
-                                    env,
-                                );
-                                then_ty = view;
-                            } else if else_completes
-                                && (then_ty.can_weaken_to(&else_ty)
-                                    || else_ty.can_weaken_to(&then_ty))
-                            {
-                                then_ty = then_ty.read_only_view().expect("collection branch join");
-                            } else if else_completes && then_ty.conflicts_with(&else_ty) {
-                                self.diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
-                                        expected: display_type_id(
-                                            self.declarations.definitions(),
-                                            &then_ty,
-                                        ),
-                                        found: display_type_id(
-                                            self.declarations.definitions(),
-                                            &else_ty,
-                                        ),
-                                    })
-                                    .with_span(self.lowered.source_map.expr_span(*else_expr)),
-                                );
-                            } else if else_completes {
-                                then_ty.recover_from(&else_ty);
-                                if !then_ty.is_unresolved()
-                                    && let Some(tail) =
-                                        self.lowered.module.block(*then_branch).tail_expr
-                                {
-                                    self.refine_standard_tail(tail, &then_ty, &mut then_env);
-                                }
-                            }
-                            then_ty
-                        }
-                    }
-                    None if condition_completes => TypeId::Builtin(BuiltinType::Unit),
-                    None => TypeId::Unknown,
-                }
-            }
+            } => self.infer_if_type(condition, *then_branch, *else_branch, env, expected),
             ExprKind::Match { scrutinee, arms } => {
-                let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
-                let Ok(scrutinee_completes) = completion::expr_can_complete(
-                    &self.lowered.module,
-                    self.names,
-                    self.type_table,
-                    *scrutinee,
-                    self.cancel,
-                ) else {
-                    return TypeId::Unknown;
-                };
-                let scrutinee_ty = if scrutinee_completes {
-                    scrutinee_ty
-                } else {
-                    TypeId::Unknown
-                };
-                let mut result: Option<TypeId> = None;
-                let mut reachable = scrutinee_completes;
-                for arm in arms {
-                    if self.cancel.check().is_err() {
-                        return TypeId::Unknown;
-                    }
-                    let arm_context = expected.or(if reachable { result.as_ref() } else { None });
-                    let found = self.infer_match_arm_type(arm, &scrutinee_ty, env, arm_context);
-                    if !reachable {
-                        continue;
-                    }
-                    reachable = !self
-                        .names
-                        .pattern_is_irrefutable(&self.lowered.module, arm.pattern)
-                        || arm.guard.is_some();
-                    let Ok(completes) = completion::expr_can_complete(
-                        &self.lowered.module,
-                        self.names,
-                        self.type_table,
-                        arm.expr,
-                        self.cancel,
-                    ) else {
-                        return TypeId::Unknown;
-                    };
-                    if !completes {
-                        continue;
-                    }
-                    if let Some(result) = &mut result {
-                        if found != *result
-                            && let Some(view) =
-                                self.aggregates
-                                    .shared_storage_view(&found, result, self.cancel)
-                        {
-                            for previous in arms {
-                                if let Some(ty) = self.type_table.expr_type(previous.expr) {
-                                    self.apply_interface_coercion(
-                                        previous.expr,
-                                        ty,
-                                        Some(&view),
-                                        env,
-                                    );
-                                }
-                                if previous.expr == arm.expr {
-                                    break;
-                                }
-                            }
-                            *result = view;
-                        } else if found.can_weaken_to(result) || result.can_weaken_to(&found) {
-                            *result = result.read_only_view().expect("collection arm join");
-                        } else if found.conflicts_with(result) {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
-                                    expected: display_type_id(
-                                        self.declarations.definitions(),
-                                        result,
-                                    ),
-                                    found: display_type_id(self.declarations.definitions(), &found),
-                                })
-                                .with_span(self.lowered.source_map.expr_span(arm.expr)),
-                            );
-                        }
-                        result.recover_from(&found);
-                    } else {
-                        result = Some(found);
-                    }
-                }
-                result.unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                self.infer_match_type(*scrutinee, arms, env, expected)
             }
             ExprKind::StructInit {
                 path,

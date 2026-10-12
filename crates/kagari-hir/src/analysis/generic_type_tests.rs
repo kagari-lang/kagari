@@ -6,5 +6,6 @@ use kagari_types::scalar::BuiltinType;
 mod completion;
 mod context;
 mod contracts;
+mod joins;
 mod operators;
 mod recovery;

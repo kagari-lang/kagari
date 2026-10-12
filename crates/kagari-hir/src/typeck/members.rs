@@ -1,11 +1,9 @@
 //! Receiver method surfaces shared by body checking and source tooling.
 
 use crate::{
-    aggregates::{
-        AggregateCatalog, InherentMethodSignature, implementations::ImplementationSearchLimits,
-    },
+    aggregates::{AggregateCatalog, InherentMethodSignature},
     language::semantics::{self as traits, ProtocolSemantics},
-    typeck::{GenericBounds, inference, table::ConstraintTarget},
+    typeck::{GenericBounds, inference},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{
@@ -47,60 +45,24 @@ pub(crate) fn interfaces(
     assumptions: &GenericBounds,
     cancel: &CancellationToken,
 ) -> Vec<NominalType> {
+    let mut implemented = aggregates
+        .declared_interfaces(definitions, ty, assumptions, cancel)
+        .unwrap_or_default();
     if let TypeId::Trait(interface) = ty {
-        let mut bounds = aggregates
-            .interface_closure(definitions, interface, ty, cancel)
-            .unwrap_or_default();
         if aggregates
             .trait_(&interface.declaration)
             .is_some_and(|contract| contract.storage_access.is_some())
         {
-            bounds.extend(
+            implemented.extend(
                 [Protocol::PartialEq, Protocol::Debug]
                     .into_iter()
                     .filter_map(|kind| kind.nominal(definitions)),
             );
         }
-        add_iterator_view(definitions, aggregates, ty, &mut bounds);
-        return bounds;
-    }
-    if !matches!(
+    } else if !matches!(
         ty,
         TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }
     ) {
-        let mut implemented = Vec::new();
-        for implementation in aggregates.implementations() {
-            let mut substitution = TypeSubstitution::default();
-            if inference::infer(
-                &implementation.for_type,
-                ty,
-                &implementation.generic_params,
-                &mut substitution,
-                cancel,
-                None,
-            )
-            .is_ok()
-            {
-                let applied = implementation.trait_type.instantiate(&substitution);
-                if matches!(
-                    aggregates.concrete_interface_implementation(
-                        definitions,
-                        &applied,
-                        ty,
-                        assumptions,
-                        ImplementationSearchLimits {
-                            max_checks: 100_000,
-                            max_depth: 64
-                        },
-                        cancel
-                    ),
-                    Ok(Some(_))
-                ) && !implemented.contains(&applied)
-                {
-                    implemented.push(applied);
-                }
-            }
-        }
         for kind in LangRole::ALL.map(LangRole::protocol) {
             let Some(interface) = kind.intrinsic_view(definitions, ty) else {
                 continue;
@@ -114,92 +76,9 @@ pub(crate) fn interfaces(
                 implemented.push(interface);
             }
         }
-        if !implemented.is_empty() {
-            add_iterator_view(definitions, aggregates, ty, &mut implemented);
-            return implemented;
-        }
     }
-    let mut bounds = assumptions
-        .get(ty)
-        .into_iter()
-        .flatten()
-        .cloned()
-        .collect::<Vec<_>>();
-    if let TypeId::Projection {
-        receiver,
-        interface,
-        member,
-        arguments,
-    } = ty
-        && let Some(contract) = aggregates.trait_(&interface.declaration)
-    {
-        let mut applied = (**interface).clone();
-        for bound in assumptions.get(receiver.as_ref()).into_iter().flatten() {
-            if let ConstraintTarget::Trait(available) = bound
-                && available.declaration == applied.declaration
-                && available.arguments == applied.arguments
-            {
-                applied
-                    .associated_types
-                    .extend(available.associated_types.clone());
-            }
-        }
-        let mut substitution: TypeSubstitution = contract
-            .generic_params
-            .iter()
-            .cloned()
-            .zip(interface.arguments.iter().cloned())
-            .collect();
-        substitution.insert_receiver(interface.declaration, (**receiver).clone());
-        if let Some(inputs) = contract.associated_type_parameters.get(member) {
-            substitution.extend(
-                inputs
-                    .parameters
-                    .iter()
-                    .cloned()
-                    .zip(arguments.iter().cloned()),
-            );
-        }
-        bounds.extend(
-            contract
-                .associated_types
-                .get(member)
-                .into_iter()
-                .flatten()
-                .map(|bound| match bound {
-                    ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
-                    ConstraintTarget::Trait(value) => {
-                        let TypeId::Trait(value) = TypeId::Trait(value.clone())
-                            .instantiate(&substitution)
-                            .with_associated_types(&applied, receiver)
-                        else {
-                            unreachable!("associated trait bound");
-                        };
-                        ConstraintTarget::Trait(value)
-                    }
-                }),
-        );
-    }
-    let direct = bounds
-        .into_iter()
-        .filter_map(|bound| match bound {
-            ConstraintTarget::Trait(ty) => Some(ty),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let mut expanded = Vec::new();
-    for interface in direct {
-        for parent in aggregates
-            .trait_closure(&interface, ty, cancel)
-            .unwrap_or_default()
-        {
-            if !expanded.contains(&parent) {
-                expanded.push(parent);
-            }
-        }
-    }
-    add_iterator_view(definitions, aggregates, ty, &mut expanded);
-    expanded
+    add_iterator_view(definitions, aggregates, ty, &mut implemented);
+    implemented
 }
 
 fn add_iterator_view(

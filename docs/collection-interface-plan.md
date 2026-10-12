@@ -1124,3 +1124,91 @@ comparison reproduction remains failing and was not rerun unchanged. CI04 remain
 open for common-interface candidate discovery, whole-expression joins, operator
 and indexing consumers; CI05-CI06 remain open. Full workspace and exhaustive
 backend coverage remain CI-owned.
+
+
+CI04 common-interface checkpoint: ordinary checked applications now have a shared
+[relationship owner](../crates/kagari-hir/src/aggregates/relationships.rs).
+Member lookup and inference reuse declared implementation discovery; branch joins
+and equality/identity operand compatibility no longer use shared_storage_view,
+which was deleted. Candidate enumeration checks exact receiver substitution and
+conditional implementation bounds under caller assumptions. Interface/generic
+inputs retain declared ancestry and associated outputs. Concrete receivers use
+separately proven parent implementations and their actual associated outputs;
+intrinsic operator availability is not an implicit interface conversion candidate.
+The marker-based has_storage_view identity eligibility predicate remains a CI05
+consumer; this checkpoint does not replace that independent semantic boundary.
+
+[Branch inference](../crates/kagari-hir/src/typeck/body/joins.rs) now collects all
+reachable, normally completing match arms with their checked environments before
+intersecting interface candidates. It removes dominated parents only after the
+intersection, then checks and records every final conversion. Equal concrete types
+and valid outer host access weakening retain priority. Earlier arm types may still
+supply contextual literal/constructor facts, but an intermediate interface join
+cannot discard alternatives. If branches use the same checked relationship query.
+Ambiguity reports KG_TYPE_AMBIGUOUS_COMMON_INTERFACE with the candidate names and
+an explicit-result-type suggestion, instead of silently picking a catalog order.
+
+The source matrix first reproduced A/B/C rejection when A and B each inherit X/Y
+and C inherits only X. All six permutations now select X. Tests cover ambiguous
+A/B pairs in both orders, explicit X/Y annotations, most-specific-parent selection,
+if/match joins, unreachable/non-completing arms, contextual numeric and Option
+results, mutable concrete host-family preservation, invariant arguments, associated
+outputs, and conditional implementations with/without caller Eq evidence. The new
+execution fixture covers inferred interface upcasts and concrete conditional generic
+implementations through Source/Artifact/JIT with forced GC; branch-producing calls
+are observed exactly once.
+
+An intermediate collection_interfaces run passed 8 cases and failed 3. One failure
+was a fixture struct initializer placed directly inside an if condition; moving it
+to a local restored the intended generic conversion test. Two failures exposed false
+iter ambiguity from mixing concrete and erased inherited iterator outputs. Candidate
+discovery now keeps concrete outputs at their implementation owner. The repaired
+collection_interfaces target passed all 11 cases. collection_access passed all 6;
+its readonly admission and source-free forged-upgrade guarantees remain intact.
+The initial HIR context matrix also used an unsupported Option.unwrap method;
+its assertion now checks the inferred Option<i32> type directly.
+
+CI03's enabled mixed-generation comparison construction regression is unchanged
+and remains failing; it was not rerun without a repair. CI04 still owns remaining
+indexing/relationship consumers and phase acceptance, and CI05-CI06 remain open.
+This checkpoint introduces no runtime specialization, cache, public re-export,
+compatibility model or executable format revision. Focused validation continues
+below; full-workspace and exhaustive backend validation remain CI-owned.
+
+
+The final one-way-conversion review preserves an existing operand's interface
+before inventing a common target. This allows Vec<i32>/Iterable<Item = i32> arm
+orders in HIR without erasing unrelated associated-output constraints. The
+additional enabled inferred_iterable_join_preserves_iterator_result_adaptation
+execution test exposes an existing representation boundary that remains CI04 work:
+`cargo test -p kagari-embed --test collection_interfaces inferred_iterable_join -- --nocapture`
+fails BytecodeLowering verification with "invalid collection access flow".
+The implementation constructs Iterable with Item = i32 and concrete Iter = Iter<i32>,
+while the authored parameter/result exposes only Item = i32. The separately retained
+dynamic iterator view instead exposes Iter = Iterator<Item = i32>. Treating these
+three contracts as identical is invalid. An attempted explicit upcast confirmed the
+mismatch at MIR InterfaceContract verification; merely admitting that upcast would
+also require a correctly retained runtime view/result adapter. The speculative
+compiler/verifier/linker edits and temporary diagnostic output were removed.
+
+The failing test is separate from the passing custom-interface/generic-implementation
+fixture and remains enabled. Finish the canonical authored/dynamic interface contract
+and its checked construction/adaptation path coherently; preserve exact associated
+bindings, iterator result adaptation, source-free verification and runtime lifetime
+checks. Do not fix it by relabeling registers, dropping associated outputs in general,
+or weakening validators. This is a carried CI04 error, not a completed phase gate.
+
+
+Final focused evidence for this checkpoint: 30 distinct selected cases passed
+(collection_interfaces 11, collection_access 6, HIR joins/completion 7, HIR inference
+6). The extended context matrix passed again with both concrete/Iterable arm orders.
+After removing the speculative adaptation edits, collection_interfaces passed its
+11 other cases with the enabled Iterable reproduction explicitly filtered out;
+the isolated reproduction was run separately and still failed as recorded above.
+No skipped failure is counted as passing. The existing CI03 compound-generation
+failure remains independently outstanding. HIR/source library Clippy, structure
+(1102 Rust files, no violations or exceptions), formatting, relative plan link
+targets and diff checks passed. Structural review kept declaration proof discovery,
+member policy and branch inference in their existing ownership layers; no new
+re-exports, visibility bridges, unchecked conversions or production placeholders
+remain. This is a coherent but incomplete CI04 checkpoint; CI acceptance is unrun.

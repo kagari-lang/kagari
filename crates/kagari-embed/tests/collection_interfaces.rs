@@ -32,6 +32,71 @@ fn execute(source: &str) {
 }
 
 #[test]
+fn inferred_common_interfaces_record_each_branch_conversion() {
+    execute(
+        r#"
+trait X { fn x(self) -> i32; }
+trait Y { fn y(self) -> i32; }
+trait A: X + Y {}
+trait B: X + Y {}
+trait C: X {}
+struct Item { val value: i32 }
+struct Counter { var count: i32 }
+impl X for Item { fn x(self) -> i32 { self.value } }
+impl Y for Item { fn y(self) -> i32 { self.value } }
+impl A for Item {}
+impl B for Item {}
+impl C for Item {}
+fn a(counter: Counter) -> A { counter.count += 1; Item { value: 10 } }
+fn b(counter: Counter) -> B { counter.count += 1; Item { value: 20 } }
+fn c(counter: Counter) -> C { counter.count += 1; Item { value: 12 } }
+fn choose(tag: i32, counter: Counter) -> i32 {
+    val joined = match tag { 0 => a(counter), 1 => b(counter), _ => c(counter) };
+    joined.x()
+}
+trait Read<T> { fn read(self) -> T; }
+struct Left<T> { val item: T }
+struct Right<T> { val item: T }
+impl<T: Eq> Read<T> for Left<T> { fn read(self) -> T { self.item } }
+impl<T: Eq> Read<T> for Right<T> { fn read(self) -> T { self.item } }
+fn choose_read<T: Eq>(flag: bool, left: Left<T>, right: Right<T>) -> T {
+    val joined = if flag { left } else { right };
+    joined.read()
+}
+fn main() -> i32 {
+    val counter = Counter { count: 0 };
+    val total = choose(0, counter) + choose(1, counter) + choose(2, counter);
+    if counter.count != 3 { return 0; }
+    val left = Left { item: 7 };
+    val right = Right { item: 9 };
+    if choose_read(true, left, right) != 7 { return 0; }
+    if choose_read(false, left, right) != 9 { return 0; }
+    total
+}
+"#,
+    );
+}
+
+#[test]
+fn inferred_iterable_join_preserves_iterator_result_adaptation() {
+    execute(
+        r#"
+fn choose_iter(flag: bool, concrete: Vec<i32>, view: Iterable<Item = i32>) -> i32 {
+    val joined = match flag { true => concrete, false => view };
+    var total = 0;
+    for item in joined { total += item; }
+    total
+}
+fn main() -> i32 {
+    if choose_iter(true, Vec::from([3, 4]), Vec::from([8])) != 7 { return 0; }
+    if choose_iter(false, Vec::from([3, 4]), Vec::from([8])) != 8 { return 0; }
+    42
+}
+"#,
+    );
+}
+
+#[test]
 fn native_collection_views() {
     execute(
         r#"use std::collections::{HashMap, HashSet, List, Map, MutableList, MutableMap, MutableSet, Set};

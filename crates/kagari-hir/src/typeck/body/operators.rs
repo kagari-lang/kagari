@@ -437,8 +437,7 @@ impl<'a> BodyChecker<'a> {
                     && !lhs_ty.can_weaken_to(&rhs_ty)
                     && !rhs_ty.can_weaken_to(&lhs_ty)
                     && self
-                        .aggregates
-                        .shared_storage_view(&lhs_ty, &rhs_ty, self.cancel)
+                        .common_branch_interface(&[lhs_ty.clone(), rhs_ty.clone()], env, rhs_expr)
                         .is_none())
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !self.aggregates.has_storage_view(ty, self.cancel)
@@ -468,8 +467,7 @@ impl<'a> BodyChecker<'a> {
                     && !lhs_ty.can_weaken_to(&rhs_ty)
                     && !rhs_ty.can_weaken_to(&lhs_ty)
                     && self
-                        .aggregates
-                        .shared_storage_view(&lhs_ty, &rhs_ty, self.cancel)
+                        .common_branch_interface(&[lhs_ty.clone(), rhs_ty.clone()], env, rhs_expr)
                         .is_none())
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)

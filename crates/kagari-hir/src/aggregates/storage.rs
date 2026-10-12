@@ -64,19 +64,6 @@ impl AggregateCatalog {
         Some(views)
     }
 
-    pub(crate) fn shared_storage_view(
-        &self,
-        left: &TypeId,
-        right: &TypeId,
-        cancel: &CancellationToken,
-    ) -> Option<TypeId> {
-        let left = self.storage_views(left, cancel)?;
-        let right = self.storage_views(right, cancel)?;
-        let mut common = left.into_iter().filter(|view| right.contains(view));
-        let view = common.next()?;
-        common.next().is_none().then_some(TypeId::Trait(view))
-    }
-
     pub(crate) fn has_storage_view(&self, ty: &TypeId, cancel: &CancellationToken) -> bool {
         self.storage_views(ty, cancel)
             .is_some_and(|views| !views.is_empty())

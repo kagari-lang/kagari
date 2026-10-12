@@ -278,6 +278,9 @@ pub enum DiagnosticKind {
         method_name: String,
         reason: String,
     },
+    AmbiguousCommonInterface {
+        candidates: Vec<String>,
+    },
     IfBranchTypeMismatch {
         expected: String,
         found: String,
@@ -449,6 +452,7 @@ impl DiagnosticKind {
             Self::InvalidTraitImpl { .. } => "KG_TYPE_INVALID_TRAIT_IMPL",
             Self::InvalidInterfaceType { .. } => "KG_TYPE_INVALID_INTERFACE_TYPE",
             Self::TraitMethodMismatch { .. } => "KG_TYPE_TRAIT_METHOD_MISMATCH",
+            Self::AmbiguousCommonInterface { .. } => "KG_TYPE_AMBIGUOUS_COMMON_INTERFACE",
             Self::IfBranchTypeMismatch { .. } => "KG_TYPE_IF_BRANCH_TYPE_MISMATCH",
             Self::MatchArmTypeMismatch { .. } => "KG_TYPE_MATCH_ARM_TYPE_MISMATCH",
             Self::ReturnTypeMismatch { .. } => "KG_TYPE_RETURN_TYPE_MISMATCH",
@@ -775,6 +779,11 @@ impl Display for DiagnosticKind {
             } => write!(
                 f,
                 "trait method `{trait_name}.{method_name}` mismatch: {reason}"
+            ),
+            Self::AmbiguousCommonInterface { candidates } => write!(
+                f,
+                "multiple common interfaces match: {}; add an explicit result type",
+                candidates.join(", ")
             ),
             Self::IfBranchTypeMismatch { expected, found } => write!(
                 f,

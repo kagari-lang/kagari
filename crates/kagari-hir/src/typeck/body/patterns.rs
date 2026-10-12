@@ -26,7 +26,8 @@ impl<'a> BodyChecker<'a> {
         scrutinee_ty: &TypeId,
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
-    ) -> TypeId {
+        coerce: bool,
+    ) -> (TypeId, BodyTypeEnv) {
         let mut arm_env = env.clone();
         self.check_pattern(arm.pattern, scrutinee_ty, &mut arm_env);
         if let Some(guard) = arm.guard
@@ -34,9 +35,14 @@ impl<'a> BodyChecker<'a> {
                 .check_condition_type(guard, "match guard", &mut arm_env)
                 .is_err()
         {
-            return TypeId::Unknown;
+            return (TypeId::Unknown, arm_env);
         }
-        self.infer_expr_with_coercion(arm.expr, &mut arm_env, expected)
+        let found = if coerce {
+            self.infer_expr_with_coercion(arm.expr, &mut arm_env, expected)
+        } else {
+            self.infer_expr_type_expected(arm.expr, &mut arm_env, expected)
+        };
+        (found, arm_env)
     }
 
     pub(super) fn check_pattern(
