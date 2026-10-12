@@ -95,5 +95,13 @@ pub(super) fn collect(
         }
         declarations.insert(id, ty.clone());
     }
-    Ok(declarations.into_values().collect())
+    // IDs deduplicate the closure, but allocation history must not order emitted contracts.
+    let mut declarations: Vec<_> = declarations.into_values().collect();
+    declarations.sort_by(|left, right| {
+        definitions
+            .compare(left.id, right.id)
+            .expect("checked Host type identities")
+    });
+    cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
+    Ok(declarations)
 }

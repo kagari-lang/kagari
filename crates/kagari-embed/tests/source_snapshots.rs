@@ -1,6 +1,6 @@
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, PackageId},
+    identity::{ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata},
 };
 use kagari_embed::{
     engine::{KagariEngine, source::ArtifactOptions},
@@ -9,6 +9,7 @@ use kagari_embed::{
 use kagari_hir::typeck::const_budget::ConstLimits;
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceLayer};
 use kagari_syntax::parser::ParseLimits;
+use kagari_types::host_interface::{HostInterface, type_declaration::HostTypeDeclaration};
 use std::sync::Arc;
 
 #[test]
@@ -118,6 +119,51 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     assert_eq!(
         reused.records().to_bytes(reused.definitions()).unwrap(),
         fresh.records().to_bytes(fresh.definitions()).unwrap()
+    );
+}
+
+#[test]
+fn host_artifacts_are_canonical_across_interface_adoption_histories() {
+    let context = DefinitionContext::new().unwrap();
+    let token = CancellationToken::default();
+    let types = [
+        HostTypeDeclaration::new(&context, "demo.A").unwrap(),
+        HostTypeDeclaration::new(&context, "demo.B").unwrap(),
+    ];
+    let metadata = |types| {
+        DefinitionMetadata::checked(
+            context.snapshot(),
+            HostInterface {
+                types,
+                ..Default::default()
+            },
+            &token,
+        )
+        .unwrap()
+    };
+    let full_interface = metadata(types.to_vec());
+    let artifacts = types.map(|first| {
+        let engine = KagariEngine::default();
+        engine.set_host_interface(metadata(vec![first])).unwrap();
+        // Adopt one type first so the two engines allocate A and B in opposite orders.
+        engine
+            .compile_source(SourceFile::new("host-order.kgr", "fn main() -> i32 { 0 }"))
+            .unwrap();
+        engine.set_host_interface(full_interface.clone()).unwrap();
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "host-order.kgr",
+                    "fn a(value: demo::A) -> demo::A { value } fn b(value: demo::B) -> demo::B { value } fn main() -> i32 { 42 }",
+                ),
+                Default::default(),
+            )
+            .unwrap();
+        artifact.records().to_bytes(artifact.definitions()).unwrap()
+    });
+    assert!(
+        artifacts[0] == artifacts[1],
+        "Host interface adoption history must not change artifact bytes"
     );
 }
 

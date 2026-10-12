@@ -835,10 +835,11 @@ operation grants declaration or executable authority. Native module editable
 extraction retains the scoped metadata and discards installation evidence.
 
 Specialization seeds aggregate layout and implementation queues in exact definition
-order. Associated layout dependencies and callable requirements use that same
-semantic ordering; numeric ID-key order is only internal storage order. This keeps
-layout/native slots and emitted bytes stable across fresh analysis and retained
-snapshot reuse without changing source expression traversal or evaluation order.
+order. Associated layout dependencies, callable requirements and collected Host
+type declarations use that same semantic ordering; numeric ID-key order is only
+internal storage order. This keeps layout/native slots and emitted bytes stable
+across fresh analysis and retained snapshot reuse without changing source expression
+traversal or evaluation order.
 
 Portable KBC/MIR data uses canonical exact tables and four-byte local references.
 Only referenced nodes and ancestors are emitted. Process table numbers, insertion
