@@ -12,6 +12,7 @@ use crate::{
     frame::types::EnvironmentRecord,
     module::LoadedModule,
     value::Value,
+    value_semantics::identity_equal,
 };
 use kagari_bytecode::instruction::StructId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -69,6 +70,12 @@ fn identity(runtime: &Runtime, value: &Value) -> InterfaceSnapshotId {
         panic!("interface fixture")
     };
     runtime.gc.interface_snapshot_id(*id).unwrap()
+}
+
+#[test]
+fn boxed_scalar_does_not_acquire_object_identity() {
+    let (runtime, _, _, value) = fixture();
+    assert!(identity_equal(runtime.gc(), &value, &value).is_err());
 }
 
 #[test]

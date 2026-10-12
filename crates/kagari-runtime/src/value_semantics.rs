@@ -15,12 +15,13 @@ use std::{
 };
 
 /// Checked object interface boxes preserve the underlying object's identity.
-pub(crate) fn object_data(gc: &GcHeap, value: &Value) -> Option<Value> {
+fn object_data(gc: &GcHeap, value: &Value) -> Option<Value> {
     let Value::Interface(id) = value else {
         return None;
     };
     let snapshot = gc.interface_snapshot(*id)?;
-    snapshot.comparison.as_ref()?;
+    // Publication validates the concrete receiver. Identity depends on its
+    // object category, independently of any selected PartialEq application.
     object_receiver(&snapshot.concrete_type).then_some(snapshot.data)
 }
 

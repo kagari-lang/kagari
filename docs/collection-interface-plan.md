@@ -1341,3 +1341,45 @@ no ABI/wire version change. The unpublished HIR helper/getter/visitor surface ch
 replace their old consumers directly. Source-free validators remain unchanged and
 the forged-access case passed. Full workspace/feature/backend coverage remains
 CI-owned; CI03 and CI05-CI06 work is not claimed complete.
+
+CI03 identity/comparison separation checkpoint: the mixed-generation fixture now
+tests both sides of the operation provenance independently. One replacement changes
+Local.eq and must still use the retained body's old Local operation; another also
+changes Item.eq and must use the new caller's Item operation. The command
+`cargo test -p kagari-embed --test generic_reload shared_collection_comparison_composes -- --nocapture`
+ran both enabled cases; both still fail with "interface receiver does not support
+object comparison". No production comparison-selection change is claimed here.
+
+The same construction exposed a separate identity error: object_data required an
+available PartialEq application before unwrapping an already validated object
+interface. Consequently ===/!== failed even though they invoke no comparison
+operation. The new shared_collection_identity_does_not_require_a_comparison_application
+case first reproduced "identity comparison requires object references" and then
+passed after removing that dependency. Publication still validates the concrete
+receiver, object_receiver still restricts the eligible categories, and identity_equal
+still validates heap ownership, generation and object kind. The helper is now private
+to its sole consumer module. Static interface eligibility and Eq/Hash proofs are
+unchanged. The fixture checks same/different objects under both operators, forced
+GC and release of old-generation runtime values.
+
+The remaining comparison repair belongs to checked operation composition. Current
+Selected witnesses and generated protocol adapters are closed applications; retaining
+more program roots cannot create a checked operation for an old/new compound type.
+The existing shared-entry model already canonicalizes native parameters, so a wider
+native parameter collector is not an established fix. Preserve exact supplying
+identities and use checked shared operation arguments for structural composition;
+do not reuse an old closed tuple adapter whose child calls select the old Item.
+Keep compiler selection, source-free application verification and runtime binding
+in their existing owners. This prerequisite does not authorize runtime trait search
+or treating structural type equality as generation equality.
+
+Focused validation for this separation passed four cases: the new mixed-generation
+identity case, boxed_scalar_does_not_acquire_object_identity, the existing
+identity_comparison_rejects_foreign_stale_and_disguised_handles, and
+receiver_identity_survives_upcasts_branches_and_concrete_hash_storage (its existing
+source/artifact/JIT routes). The two compound equality cases above remain enabled
+and failing; they are not counted as passes. Runtime library Clippy, structure
+(1102 Rust files, zero violations/exceptions), formatting, plan links and diff
+checks passed. Structural review found no new public API, re-export, cache or
+runtime selection path. Full workspace and exhaustive backend checks remain CI-owned
+and unrun; CI03 and the overall goal remain incomplete.

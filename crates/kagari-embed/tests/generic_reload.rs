@@ -318,16 +318,41 @@ fn shared_collection_comparison_accepts_new_primitive_applications_after_reload(
 
 #[test]
 fn shared_collection_comparison_composes_old_and_new_nominal_arguments() {
-    let source = SHARED_COLLECTION_SOURCE
-        .replace("struct Item", "struct Local {}\nimpl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }\nstruct Item")
-        .replace("List<T>", "List<(Local, T)>")
-        .replace("Vec::from([value])", "Vec::from([(Local {}, value)])");
+    let source = mixed_generation_collection_source();
     assert_shared_collection_comparison_reloading(&source, true, |source| {
         source.replace(
             "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
             "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
         )
     });
+}
+
+#[test]
+fn shared_collection_comparison_composes_the_new_argument_operation() {
+    let source = mixed_generation_collection_source();
+    assert_shared_collection_comparison_reloading(&source, false, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+}
+
+#[test]
+fn shared_collection_identity_does_not_require_a_comparison_application() {
+    let source = mixed_generation_collection_source().replace(
+        "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
+        "val a = factory.one(Item { value: 1 });
+        val b = factory.one(Item { value: 2 });
+        a === a && !(a === b) && !(a !== a) && a !== b",
+    );
+    assert_shared_collection_comparison_reloading(&source, true, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+}
+
+fn mixed_generation_collection_source() -> String {
+    SHARED_COLLECTION_SOURCE
+        .replace("struct Item", "struct Local {}\nimpl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }\nstruct Item")
+        .replace("List<T>", "List<(Local, T)>")
+        .replace("Vec::from([value])", "Vec::from([(Local {}, value)])")
 }
 
 const SHARED_COLLECTION_SOURCE: &str = r#"
