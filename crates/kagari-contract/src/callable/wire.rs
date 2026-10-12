@@ -115,11 +115,13 @@ impl SharedMethodWitnessRecord {
     /// The caller retains the resulting scope and performs semantic verification.
     pub(crate) fn decode(
         self,
+        operations: Vec<OperationWitness>,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
     ) -> Result<SharedMethodWitness, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SharedMethodWitness {
+            operations,
             requirement: self.requirement.decode(decoding, cancel)?,
             implementation: self.implementation.decode(decoding, cancel)?,
         })

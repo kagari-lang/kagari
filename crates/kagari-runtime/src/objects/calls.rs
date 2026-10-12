@@ -335,7 +335,9 @@ impl Runtime {
         )
         .identity()
         .ok_or_else(|| RuntimeError::module_validation("shared operation receiver identity"))?;
-        let group = self.bind_table_operations(&binding)?;
+        let dependencies =
+            self.bind_operations_in(scope.owner, scope.environment.clone(), &selected.operations)?;
+        let group = self.bind_table_operations(&binding, dependencies)?;
         self.gc
             .operation_group(group)
             .and_then(|group| {

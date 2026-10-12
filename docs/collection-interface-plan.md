@@ -8,7 +8,7 @@ GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-12)
 
-Resume from the latest CI03 composed operation witness checkpoint; the progress ledger below owns
+Resume from the latest CI03 receiver-bound operation checkpoint; the progress ledger below owns
 completed changes and their validation evidence. CI01-CI02 are complete and CI03
 remains active. CI04 has implementation checkpoints but still needs its phase
 acceptance audit; CI05 marker removal and CI06 documentation/final acceptance
@@ -22,8 +22,12 @@ from `93909724`; whole closed-application lookup cannot supply this mixed tuple.
 The shared tuple adapter checkpoint now proves independently supplied component
 operations through ordinary bounded shared calls, including mixed-generation
 Local/Item execution. Reuse that body/proof rather than generating a second tuple
-comparison algorithm. Conditional receiver comparison still needs to carry and
-apply those operations when the interface factory has no element protocol bound.
+comparison algorithm. Receiver-bound operation composition also supports bounded
+`same(Vec<(Local, T)>)` and Hash calls. Reuse the SharedMethodWitness dependencies
+and the native import's own checked binding path. Conditional receiver comparison
+still needs optional evidence when the interface factory has no element protocol
+bound: explicit negative eligibility must remain distinct from absent evidence;
+absence cannot authorize identity fallback.
 Keep operation selection and structural adapter proof in compiler/contract
 owners, with runtime binding to the actual arguments' supplying generations.
 Do not add runtime trait search or substitute layout equality for generation
@@ -37,8 +41,8 @@ cargo test -p kagari-embed --test generic_reload shared_collection_comparison_co
 ```
 
 They separately cover the retained Local operation and the new Item operation.
-The latest checkpoint extends shared tuple calls to checked operation witnesses
-and fixes same-nominal mixed-generation selection; exact validation and earlier
+The latest checkpoints extend shared tuple and conditional receiver operations to
+checked component evidence and fix same-nominal mixed-generation selection; exact validation and earlier
 evidence are recorded in the ledger. Continue
 with affected tests and lightweight checks, leaving the exhaustive workspace and
 backend matrix to CI. These two failures and the remaining phase work must be
@@ -1598,3 +1602,55 @@ and diff checks passed. Structural review found no new re-exports, production
 globs, deep parent traversal, handwritten include or widened visibility bridge.
 The tuple witness owns composition only; existing shared calls own argument and
 bound contracts, and runtime operation/application owners retain execution state.
+
+
+CI03 receiver-bound operation checkpoint: the existing tuple fixture was expanded
+to pass Vec<(T, i32)> through ordinary bounded PartialEq and Hash functions. It first
+failed MIR linkage with InvalidGraph. SharedMethodWitness now retains the operations
+required by its implementation bounds. The compiler selects a unique symbolic
+implementation shape and recursively prepares those dependencies; contract proof
+still checks every substituted bound in the actual caller scope and requires the
+exact dependency set. A shape match never proves applicability. Interface receiver
+comparison uses its own table assumptions before accepting a symbolic selection,
+so unbounded List<T> construction still does not fabricate element evidence.
+Compiler operation expansion is depth-bounded, and candidate matching retains a
+finite search limit. Existing flat wire trees now carry shared-method children too.
+
+After proof/linkage passed, execution exposed a separate native preparation defect:
+Vec.eq needed its own checked List operations, while preparation used only the
+caller's tuple equality operation. NativeApplication now binds the native import's
+verified operation selections in its actual entry environment. Forward leaves come
+from caller evidence; explicit shared selections come from the import. Receiver
+operation groups retain their checked component dependencies in their existing
+environment, and method/native entry application carries these into execution.
+This preserves the distinction between implementation-owned and caller-supplied
+operations, with no live trait search, blanket environment exposure or new cache.
+Temporary diagnostics were removed after identifying the missing List dependency.
+
+The expanded source/artifact/ArtifactJit tuple case now passes both collection
+PartialEq and Hash forwarding. Source-free mutations reject missing or duplicated
+receiver dependencies and an out-of-scope forwarded tuple component nested inside
+a shared receiver witness. The wire boundary test now alternates method and tuple
+nodes and rejects missing children of either kind. The mixed-generation fixture
+also compares through ordinary Vec equality under T: PartialEq, checking old Local,
+new Item and same-nominal old/new Local separately, with forced GC and release.
+The two unconstrained Vec factory comparison failures remain open at their last
+recorded run; this checkpoint repairs supplied evidence, not optional eligibility.
+CI03, CI04's acceptance audit and CI05-CI06 remain open.
+
+Selected validation passed 17 distinct cases: eight default_methods cases, three
+collection_interfaces content/float/receiver-proof cases, the mixed-generation tuple
+case, four runtime operation/application cases and the flat wire boundary case.
+The runtime selection covers supplied-witness visibility, operation/application
+cycle release, native receiver environment reuse and witness retirement; previously
+passing unrelated lifecycle checks were not repeated. Scoped contract/compiler/
+runtime/bytecode library Clippy passed. Structure checked 1109 Rust files with zero
+violations/exceptions; formatting and diff checks passed. Structural review keeps
+candidate selection at compiler, exact dependency proof at contract and binding at
+existing runtime owners. No new re-export, production glob or compatibility reader
+was added; the unpublished shared-method/wire API changes directly. Full workspace
+and feature/backend validation remains CI-owned and unrun.
+
+Final local review restricted receiver dependency inheritance to selected operation
+invocations; ordinary interface snapshots do not expose unrelated lexical witnesses.
+The shared tuple/collection execution case passed again after that restriction.

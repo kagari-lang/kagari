@@ -64,6 +64,11 @@ impl RemapDefinitions for SharedMethodWitness {
         Ok(SharedMethodWitness {
             requirement: self.requirement.remap_definitions(mapper)?,
             implementation: self.implementation.remap_definitions(mapper)?,
+            operations: self
+                .operations
+                .iter()
+                .map(|operation| operation.remap_definitions(mapper))
+                .collect::<Result<_, _>>()?,
         })
     }
 }
@@ -77,6 +82,9 @@ impl DefinitionReferences for SharedMethodWitness {
         check_cancel(cancel)?;
         self.requirement.visit_definition_ids(visit, cancel)?;
         self.implementation.visit_definition_ids(visit, cancel)?;
+        for operation in &self.operations {
+            operation.visit_definition_ids(visit, cancel)?;
+        }
         Ok(())
     }
 }

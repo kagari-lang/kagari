@@ -1,6 +1,10 @@
 use super::{Node, OperationWitnessRecord};
 use crate::{
-    callable::{shared::SharedCall, wire::SharedCallEntryRecord},
+    callable::{
+        shared::SharedCall,
+        wire::{SharedCallEntryRecord, SharedMethodWitnessRecord},
+        witness::SharedMethodWitness,
+    },
     types::ConcreteFunctionIdentity,
 };
 use bincode::{DefaultOptions, Options};
@@ -78,14 +82,37 @@ fn flat_operation_records_reject_invalid_tree_shapes_and_depth() {
         ),
         children,
     };
-    for nodes in [vec![], vec![leaf(), leaf()], vec![parent(2), leaf()]] {
+    let method = |children| Node::SharedMethod {
+        entry: Box::new(
+            SharedMethodWitnessRecord::encode(
+                &SharedMethodWitness {
+                    requirement: requirement.clone(),
+                    implementation: call.instance.clone(),
+                    operations: vec![],
+                },
+                &encoding,
+                &Default::default(),
+            )
+            .unwrap(),
+        ),
+        children,
+    };
+    for nodes in [
+        vec![],
+        vec![leaf(), leaf()],
+        vec![parent(2), leaf()],
+        vec![method(2), leaf()],
+    ] {
         assert!(matches!(
             OperationWitnessRecord { nodes }.decode(&decoding, &Default::default()),
             Err(DefinitionMappingError::InvalidContract)
         ));
     }
     for depth in [64, 65] {
-        let nodes = (0..depth).map(|_| parent(1)).chain([leaf()]).collect();
+        let nodes = (0..depth)
+            .map(|index| if index % 2 == 0 { parent(1) } else { method(1) })
+            .chain([leaf()])
+            .collect();
         let bytes = DefaultOptions::new()
             .with_fixint_encoding()
             .serialize(&OperationWitnessRecord { nodes })

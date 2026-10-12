@@ -1,9 +1,11 @@
 //! Recheck a concrete trait-member selection against carried implementation facts.
 use crate::{
-    callable::witness::{SharedMethodWitness, is_generic_member, requirement_signature_in_scope},
+    callable::witness::{
+        SharedMethodWitness, is_generic_member, required_operations, requirement_signature_in_scope,
+    },
     effects::EffectSet,
     native_import::{
-        callables::{NativeCallableApplication, NativeCallableOrigin},
+        callables::{NativeCallableApplication, NativeCallableOrigin, normalize_requirement},
         result::NativeResultAdapter,
     },
     types::{
@@ -110,8 +112,35 @@ impl ProofCatalog<'_> {
         {
             return Ok(false);
         }
-        for bound in substitution.apply_bounds(table.bounds(), &self.definitions, cancel)? {
+        let bounds = substitution.apply_bounds(table.bounds(), &self.definitions, cancel)?;
+        for bound in &bounds {
             if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
+                return Ok(false);
+            }
+        }
+        let requirements = required_operations(
+            &bounds,
+            &|id| self.trait_contract(id),
+            cancel,
+            &self.definitions,
+        )?
+        .iter()
+        .map(|required| normalize_requirement(required, self, cancel))
+        .collect::<Result<Vec<_>, _>>()?;
+        if requirements.len() != selected.operations.len()
+            || requirements.iter().any(|required| {
+                selected
+                    .operations
+                    .iter()
+                    .filter(|operation| operation.requirement() == required)
+                    .count()
+                    != 1
+            })
+        {
+            return Ok(false);
+        }
+        for operation in &selected.operations {
+            if !operation.valid(self, parameters, assumptions, cancel)? {
                 return Ok(false);
             }
         }

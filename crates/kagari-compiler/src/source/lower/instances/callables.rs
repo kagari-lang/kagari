@@ -84,6 +84,22 @@ impl InstancePlanner<'_> {
         requirements: Vec<NativeCallableRequirement>,
         span: Span,
     ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+        if self.operation_depth >= 64 {
+            return Err(MirLoweringError::MissingBinding(
+                "operation composition depth",
+            ));
+        }
+        self.operation_depth += 1;
+        let result = self.bind_operations_inner(requirements, span);
+        self.operation_depth -= 1;
+        result
+    }
+
+    fn bind_operations_inner(
+        &mut self,
+        requirements: Vec<NativeCallableRequirement>,
+        span: Span,
+    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
         let mut operations = vec![];
         for mut required in requirements {
             required = self.normalize_callable_requirement(required)?;
@@ -139,6 +155,13 @@ impl InstancePlanner<'_> {
                         &self.options.cancel,
                     )
                     .map_err(|_| invalid())?;
+                let implementation = match implementation {
+                    Some(implementation) => Some(implementation),
+                    None if !required.receiver.is_concrete() => {
+                        self.operation_candidate(&required)?
+                    }
+                    None => None,
+                };
                 let Some((declaration, arguments)) = implementation else {
                     if !required.receiver.is_concrete() {
                         operations.push(OperationWitness::Forward(Box::new(required)));
@@ -146,9 +169,12 @@ impl InstancePlanner<'_> {
                     }
                     return Err(invalid());
                 };
+                let dependencies =
+                    self.implementation_operations(&declaration, &arguments, span)?;
                 self.record_interface(&declaration, &arguments, span)?;
                 operations.push(OperationWitness::SharedMethod(Box::new(
                     SharedMethodWitness {
+                        operations: dependencies,
                         requirement: required,
                         implementation: ConcreteFunctionIdentity {
                             declaration,

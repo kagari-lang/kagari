@@ -2,7 +2,10 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::{TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView},
+    frame::types::{
+        TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
+        operations::OperationBindings,
+    },
     module::LoadedModule,
     native::{
         catalog::DeclarationCatalog,
@@ -272,6 +275,7 @@ impl LinkedNativeFunction {
         runtime: &Runtime,
         owner: &LoadedModule,
         environment: TypeEnvironment,
+        operations: &OperationBindings,
     ) -> NativeResult<Self> {
         let params = runtime.type_arguments(
             owner,
@@ -321,7 +325,7 @@ impl LinkedNativeFunction {
                             RuntimeError::module_validation("native operation receiver identity")
                         })?;
                         let resolved = environment.types.resolve_requirement(required)?;
-                        let operation = environment
+                        let operation = operations
                             .operation(&runtime.gc, &resolved, &receiver)
                             .ok_or_else(|| {
                                 RuntimeError::module_validation(

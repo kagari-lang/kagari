@@ -24,10 +24,12 @@ trait Compare {
     fn compare<T: PartialEq>(self, a: T, b: T) -> bool {
         (a, 7, a) == (b, 7, b) && !((a, 7) != (b, 7))
             && same((a, (7, a)), (b, (7, b)))
+            && same(Vec::from([(a, 7)]), Vec::from([(b, 7)]))
             && list_content_equal(Vec::from([(a, 7)]), Vec::from([(b, 7)]))
     }
     fn hashes<T: Eq + Hash>(self, a: T, b: T) -> bool {
         (a, 7).hash() == (b, 7).hash() && hashed((a, (7, a))) == hashed((b, (7, b)))
+            && hashed(Vec::from([(a, 7)])) == hashed(Vec::from([(b, 7)]))
     }
 }
 struct Source {}
@@ -135,6 +137,56 @@ fn composed_tuple_operation_witnesses_are_verified_without_source() {
         assert!(
             BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "composed witness mutation {mutation}"
+        );
+    }
+    for mutation in 0..3 {
+        let mut program = artifact.program.clone();
+        let selected = program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.functions)
+            .flat_map(|function| &mut function.instructions)
+            .find_map(|instruction| {
+                let BytecodeInstruction::Call {
+                    callee: CallTarget::Shared { contract, .. },
+                    ..
+                } = instruction
+                else {
+                    return None;
+                };
+                contract
+                    .operations
+                    .iter_mut()
+                    .find_map(|operation| match operation {
+                        OperationWitness::SharedMethod(selected)
+                            if !selected.operations.is_empty() =>
+                        {
+                            Some(selected)
+                        }
+                        _ => None,
+                    })
+            })
+            .expect("conditional receiver operation fixture");
+        match mutation {
+            0 => selected.operations.clear(),
+            1 => selected.operations.push(selected.operations[0].clone()),
+            2 => {
+                let OperationWitness::SharedAdapter(adapter) = &mut selected.operations[0] else {
+                    panic!("tuple element operation");
+                };
+                let OperationWitness::Forward(required) = &mut adapter.call.operations[0] else {
+                    panic!("forwarded element");
+                };
+                let Ty::Parameter { position, .. } = &mut required.receiver else {
+                    panic!("element binder");
+                };
+                *position += 10;
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            "conditional receiver dependency mutation {mutation}"
         );
     }
 }

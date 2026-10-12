@@ -47,6 +47,7 @@ mod callables;
 mod calls;
 mod defaults;
 mod native;
+mod operation_dependencies;
 mod receiver;
 mod results;
 mod shared;
@@ -147,6 +148,7 @@ pub(super) struct InstancePlanner<'a> {
     pub interface_instances: Vec<InterfaceInstance>,
     keys: HashMap<InstanceKey, InstanceId>,
     generic_count: usize,
+    operation_depth: usize,
     interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
     instruction_count: usize,
     failure: Option<Diagnostic>,
@@ -281,6 +283,7 @@ impl<'a> InstancePlanner<'a> {
             native_targets: Vec::new(),
             keys: HashMap::new(),
             generic_count: 0,
+            operation_depth: 0,
             interfaces: Default::default(),
             instruction_count: 0,
             failure: None,
@@ -678,7 +681,7 @@ impl<'a> InstancePlanner<'a> {
                     })
                     .collect();
                 self.require_parent_interfaces(&receiver, &interface, &assumptions, span)?;
-                let comparison = self.receiver_comparison(&receiver, span)?;
+                let comparison = self.receiver_comparison(&receiver, &assumptions, span)?;
                 self.interface_instances[instance_index].comparison = comparison;
             }
             if self.module_identity(*declaration) == *self.module.lowered.source.module_identity()

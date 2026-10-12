@@ -716,6 +716,7 @@ fn add_operations(operations: &[OperationWitness], add: &mut impl FnMut(usize) -
                         OperationWitness::Forward(_) => true,
                         OperationWitness::SharedMethod(selected) => {
                             add(selected.implementation.arguments.len())
+                                && add(selected.operations.len())
                         }
                     }
             })

@@ -152,7 +152,7 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.receiver_table)
+            .bind_table_operations(&snapshot.receiver_table, Default::default())
             .unwrap();
         let requirement = NativeCallableRequirement {
             receiver: snapshot.concrete_type.clone(),
@@ -249,7 +249,7 @@ fn selections() -> (Runtime, LoadedModule, Vec<OperationId>) {
     };
     let snapshot = runtime.gc.interface_snapshot(id).unwrap();
     let group = runtime
-        .bind_table_operations(&snapshot.receiver_table)
+        .bind_table_operations(&snapshot.receiver_table, Default::default())
         .unwrap();
     let operations = snapshot
         .methods
@@ -452,7 +452,7 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
     };
     let snapshot = runtime.gc.interface_snapshot(value).unwrap();
     let group = runtime
-        .bind_table_operations(&snapshot.receiver_table)
+        .bind_table_operations(&snapshot.receiver_table, Default::default())
         .unwrap();
     let receiver = snapshot.concrete_type.clone();
     let interface = snapshot.interface_type.clone();

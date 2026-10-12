@@ -113,7 +113,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.receiver_table)
+            .bind_table_operations(&snapshot.receiver_table, Default::default())
             .unwrap();
         let member = snapshot
             .methods
@@ -442,7 +442,7 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.receiver_table)
+            .bind_table_operations(&snapshot.receiver_table, Default::default())
             .unwrap();
         let interface = snapshot.interface_type.clone();
         drop(snapshot);

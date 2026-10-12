@@ -15,7 +15,7 @@ use crate::{
         arguments::{ScopedSignature, TypeArgument},
         operations::OperationBindings,
     },
-    objects::invocation::MethodInvocation,
+    objects::{invocation::MethodInvocation, method_view::SelectionView},
 };
 use kagari_types::callable::Signature;
 use std::slice;
@@ -99,6 +99,23 @@ impl Runtime {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::MethodPreparation);
         let view = method.view(self)?;
+        let dependencies = match &view.selection {
+            SelectionView::Operation { .. } => view.receiver_environment(),
+            SelectionView::Interface { .. } => None,
+        };
+        let mut supplied = dependencies
+            .map(|environment| {
+                self.gc
+                    .environment(environment.id)
+                    .map(|record| record.operations().clone())
+                    .ok_or_else(|| {
+                        RuntimeError::module_validation("receiver operation environment")
+                    })
+            })
+            .transpose()?
+            .unwrap_or_default();
+        supplied.extend(operations);
+        let operations = supplied;
         let mut binders = EnvironmentRecord::new(
             self.definition_context(),
             view.type_parameters().to_vec(),

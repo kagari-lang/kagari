@@ -75,6 +75,18 @@ impl LinkedCallable {
                     )?,
                 )?;
                 environment.constructions = constructions;
+                if let Some(receiver) = &generic.receiver_environment {
+                    environment.extend_operations(
+                        runtime
+                            .gc
+                            .environment(receiver.id)
+                            .ok_or_else(|| {
+                                RuntimeError::module_validation("receiver operation environment")
+                            })?
+                            .operations()
+                            .clone(),
+                    );
+                }
                 if let Some(group) = runtime.bind_receiver_operations(
                     &operation.owner,
                     operation.target,

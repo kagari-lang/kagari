@@ -38,22 +38,33 @@ pub enum OperationWitness {
 }
 
 /// Select the implementation table once, retaining caller-scoped receiver arguments.
-/// Any method-local arguments are supplied by each checked call into the shared entry.
+/// Receiver-bound operations remain attached to this selection: for example,
+/// selecting `Vec<T>.eq` under `T: PartialEq` retains the supplied `T.eq` operation.
+/// Method-local arguments are supplied by each checked call into the shared entry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedMethodWitness {
     pub requirement: NativeCallableRequirement,
     pub implementation: ConcreteFunctionIdentity,
+    /// Operations promised by the selected implementation's receiver bounds.
+    pub operations: Vec<OperationWitness>,
 }
 
 impl OperationWitness {
+    /// Direct component or receiver-bound operations, in their checked order.
+    pub fn children(&self) -> &[Self] {
+        match self {
+            Self::SharedAdapter(adapter) => &adapter.call.operations,
+            Self::SharedMethod(method) => &method.operations,
+            Self::Selected(_) | Self::Forward(_) => &[],
+        }
+    }
+
     /// Walk composed witnesses without recursive metadata traversal.
     pub fn walk(&self) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
         iter::from_fn(move || {
             let operation = pending.pop()?;
-            if let Self::SharedAdapter(adapter) = operation {
-                pending.extend(adapter.call.operations.iter().rev());
-            }
+            pending.extend(operation.children().iter().rev());
             Some(operation)
         })
     }
@@ -66,18 +77,10 @@ impl OperationWitness {
             if count > 4096 || depth > 64 {
                 return false;
             }
-            if let Self::SharedAdapter(adapter) = operation {
-                if adapter.call.operations.len() > 4096 {
-                    return false;
-                }
-                pending.extend(
-                    adapter
-                        .call
-                        .operations
-                        .iter()
-                        .map(|operation| (operation, depth + 1)),
-                );
+            if operation.children().len() > 4096 {
+                return false;
             }
+            pending.extend(operation.children().iter().map(|child| (child, depth + 1)));
         }
         true
     }
@@ -98,9 +101,13 @@ impl OperationWitness {
                         .structurally_valid(parameters, &Default::default(), definitions)
             }
             Self::SharedMethod(selected) => {
-                definitions
-                    .resolve(selected.implementation.declaration)
-                    .is_ok()
+                selected
+                    .operations
+                    .iter()
+                    .all(|operation| operation.structurally_valid(parameters, definitions))
+                    && definitions
+                        .resolve(selected.implementation.declaration)
+                        .is_ok()
                     && selected.implementation.arguments.len() <= 4096
                     && definitions.resolve(selected.requirement.member).is_ok()
                     && selected.requirement.arguments.is_empty()

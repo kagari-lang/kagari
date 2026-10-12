@@ -64,9 +64,17 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::module_validation("unlinked native application"))?;
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::NativePreparation);
+        // The native import owns its checked selections. Caller bounds supply
+        // Forward leaves; shared receiver/structural selections bind here using
+        // the native entry's actual type scope.
+        let operations = self.bind_operations_in(
+            owner,
+            Some(environment.clone()),
+            &owner.bytecode.native_imports[import.index()].callables,
+        )?;
         let prepared = Arc::new(NativeApplication {
             owner: owner.clone(),
-            function: function.apply(self, owner, environment.clone())?,
+            function: function.apply(self, owner, environment.clone(), &operations)?,
             environment,
         });
         self.publish_native_application(owner, import, prepared.clone())?;
