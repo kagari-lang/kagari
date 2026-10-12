@@ -6,6 +6,38 @@ owns queue placement. This document owns CI01-CI06, the activation decisions,
 acceptance and progress ledger. CI phase IDs here mean collection interfaces;
 GitHub CI acceptance is recorded separately.
 
+## Execution handoff (2026-10-12)
+
+Resume from implementation checkpoint `93909724`; the progress ledger below owns
+completed changes and their validation evidence. CI01-CI02 are complete and CI03
+remains active. CI04 has implementation checkpoints but still needs its phase
+acceptance audit; CI05 marker removal and CI06 documentation/final acceptance
+remain open. Do not restart completed migrations or treat partial CI04 work as
+completion of the overall plan.
+
+The next implementation step is checked conditional operation composition for
+`Vec<(old Local, new Item)>` across reload. Retain the old Local operation and the
+new Item operation independently. Reuse the checked shared receiver selections
+from `93909724`; whole closed-application lookup cannot supply this mixed tuple.
+Keep operation selection and structural adapter proof in compiler/contract
+owners, with runtime binding to the actual arguments' supplying generations.
+Do not add runtime trait search or substitute layout equality for generation
+identity.
+
+The two enabled reproductions currently fail with
+"interface receiver does not support object comparison":
+
+```text
+cargo test -p kagari-embed --test generic_reload shared_collection_comparison_composes -- --nocapture
+```
+
+They separately cover the retained Local operation and the new Item operation.
+The latest checkpoint passed 11 selected contract cases and scoped library
+Clippy; exact coverage and earlier evidence are recorded in the ledger. Continue
+with affected tests and lightweight checks, leaving the exhaustive workspace and
+backend matrix to CI. These two failures and the remaining phase work must be
+resolved before declaring completion.
+
 ## Outcome and bounded scope
 
 Make trait members, checked implementations and ordinary inheritance determine
