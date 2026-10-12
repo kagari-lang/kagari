@@ -167,14 +167,24 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         }
     }
     let input_definitions = context.snapshot();
-    for implementation in module.aggregates.implementations().filter(|item| {
+    let mut implementations: Vec<_> = module
+        .aggregates
+        .implementations()
+        .filter(|item| {
+            input_definitions
+                .resolve(item.id)
+                .expect("checked implementation")
+                .module()
+                == module.lowered.source.module_identity()
+                && item.generic_params.is_empty()
+        })
+        .collect();
+    implementations.sort_by(|left, right| {
         input_definitions
-            .resolve(item.id)
-            .expect("checked implementation")
-            .module()
-            == module.lowered.source.module_identity()
-            && item.generic_params.is_empty()
-    }) {
+            .compare(left.id, right.id)
+            .expect("checked implementation identities")
+    });
+    for implementation in implementations {
         planner.record_interface(&implementation.id, &[], Default::default())?;
     }
     for request in requests {

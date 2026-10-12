@@ -4006,3 +4006,30 @@ The example audit (`cargo clippy -p kagari-embed --examples --message-format=sho
 (3 each), host_reentry (2), and source_queries (1). SI06 owns these consumers, the
 snapshot byte mismatch, remaining dependent audits and final documentation cleanup;
 exhaustive workspace/feature/backend acceptance remains CI scope.
+
+### SI06 canonical specialization discovery
+
+The fresh/reused snapshot test exposed two compiler ordering defects. Aggregate
+catalog iteration seeded enum/struct layouts in numeric ID order; implementation
+iteration similarly seeded interface/native instances. A fresh context and a reused
+analysis had equal definitions but different allocation histories, producing different
+slots and KBC/MIR bytes. Lowering now orders those seeds by borrowed exact identity;
+associated layout dependencies and shared callable requirements use semantic order
+as well. Expression visitation, type argument order, checked contracts and execution
+semantics remain unchanged. This corrects discovery at its compiler owner rather
+than sorting already-linked executable slots in a codec.
+
+The existing snapshot byte-equality assertion now passes without weakening it or
+adding a duplicate test. Module rebinding and overlay/profile sharing passed before
+the compiler repair. After the repair, two directly affected imported applied/generic
+trait dispatch cases and the compiler's
+portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering case pass.
+Scoped compiler-library/source_snapshots Clippy passes. Structure checks 1087 Rust
+files with zero violations/exceptions, and formatting/diff checks pass. Review covers
+borrowed table provenance, discovery versus evaluation order, no path projection,
+normal imports and retained checked-type comparator invariants. Temporary diagnostic
+writes were removed. No performance improvement is claimed.
+
+The source_snapshots failure is resolved. Example API migration is in progress;
+remaining dependent audits, negative-fixture review and final documentation transfer/
+plan retirement remain SI06 work. Exhaustive CI acceptance has not run locally.

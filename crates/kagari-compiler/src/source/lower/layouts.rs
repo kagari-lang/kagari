@@ -30,11 +30,20 @@ pub(super) fn collect(
     functions: &[MirFunction],
 ) -> Result<Layouts, MirLoweringError> {
     let mut pending = VecDeque::new();
-    for structure in module
+    let definitions = planner.definitions();
+    // Catalog keys are context-local IDs. Seed the layout queue in exact
+    // definition order so snapshot history cannot change executable slots.
+    let mut structures: Vec<_> = module
         .aggregates
         .structures()
         .filter(|s| s.generic_params.is_empty())
-    {
+        .collect();
+    structures.sort_by(|left, right| {
+        definitions
+            .compare(left.id, right.id)
+            .expect("checked structure identities")
+    });
+    for structure in structures {
         pending.push_back((
             TypeId::Struct(NominalType {
                 associated_types: Default::default(),
@@ -44,11 +53,17 @@ pub(super) fn collect(
             structure.declaration.location.range,
         ));
     }
-    for enumeration in module
+    let mut enumerations: Vec<_> = module
         .aggregates
         .enumerations()
         .filter(|s| s.generic_params.is_empty() || module.lowered.is_registered_native_api())
-    {
+        .collect();
+    enumerations.sort_by(|left, right| {
+        definitions
+            .compare(left.id, right.id)
+            .expect("checked enum identities")
+    });
+    for enumeration in enumerations {
         pending.push_back((
             TypeId::Enum(NominalType {
                 associated_types: Default::default(),
@@ -300,7 +315,13 @@ pub(super) fn collect(
             }
             TypeId::NativeObject(nominal) | TypeId::Trait(nominal) => {
                 pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
-                pending.extend(nominal.associated_types.into_values().map(|ty| (ty, span)));
+                let mut associated: Vec<_> = nominal.associated_types.into_iter().collect();
+                associated.sort_by(|(left, _), (right, _)| {
+                    definitions
+                        .compare(*left, *right)
+                        .expect("checked associated identities")
+                });
+                pending.extend(associated.into_iter().map(|(_, ty)| (ty, span)));
             }
             _ => {}
         }

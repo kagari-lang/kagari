@@ -1,4 +1,7 @@
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, PackageId},
+};
 use kagari_embed::{
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
@@ -10,7 +13,6 @@ use std::sync::Arc;
 
 #[test]
 fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
-    use kagari_common::identity::{ModuleIdentity, PackageId};
     let engine = KagariEngine::default();
     let first = ModuleIdentity {
         package: PackageId("a".into()),
@@ -39,12 +41,12 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
     assert_eq!(new.module_identity(), &second);
     let artifact = engine.emit_bytecode(&new, Default::default()).unwrap();
     assert_eq!(
-        artifact.program.modules[artifact.program.root.index()].identity,
+        artifact.records().program.modules[artifact.records().program.root.index()].identity,
         second
     );
     assert_eq!(
-        artifact.header.module_identity,
-        artifact.program.modules[artifact.program.root.index()].identity
+        artifact.records().header.module_identity,
+        artifact.records().program.modules[artifact.records().program.root.index()].identity
     );
     let old_again = engine.compile_snapshot(old_source, id, &token).unwrap();
     assert_eq!(old_again.module_identity(), &first);
@@ -109,17 +111,13 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     let fresh = fresh_engine
         .compile_source(SourceFile::new("memory://reuse.kgr", edited))
         .unwrap();
+    let reused = engine.emit_bytecode(&reused, Default::default()).unwrap();
+    let fresh = fresh_engine
+        .emit_bytecode(&fresh, Default::default())
+        .unwrap();
     assert_eq!(
-        engine
-            .emit_bytecode(&reused, Default::default())
-            .unwrap()
-            .to_bytes()
-            .unwrap(),
-        fresh_engine
-            .emit_bytecode(&fresh, Default::default())
-            .unwrap()
-            .to_bytes()
-            .unwrap()
+        reused.records().to_bytes(reused.definitions()).unwrap(),
+        fresh.records().to_bytes(fresh.definitions()).unwrap()
     );
 }
 
@@ -165,12 +163,14 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
     let from_snapshot = engine
         .compile_snapshot(engine.source_snapshot(), id, &token)
         .unwrap();
+    let from_snapshot = engine
+        .emit_bytecode(&from_snapshot, ArtifactOptions::default())
+        .unwrap();
     assert_eq!(
-        artifact.to_bytes().unwrap(),
-        engine
-            .emit_bytecode(&from_snapshot, ArtifactOptions::default())
-            .unwrap()
-            .to_bytes()
+        artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        from_snapshot
+            .records()
+            .to_bytes(from_snapshot.definitions())
             .unwrap()
     );
     assert!(

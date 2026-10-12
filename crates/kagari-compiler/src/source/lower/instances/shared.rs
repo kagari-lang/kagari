@@ -19,7 +19,10 @@ use kagari_hir::{
         semantic::{lower_nominal_type, lower_type},
     },
 };
-use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::GenericParam};
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement,
+    ty::{GenericParam, Ty},
+};
 
 impl InstancePlanner<'_> {
     /// Preserve associated projections that disappear while applying a method's
@@ -214,22 +217,36 @@ impl InstancePlanner<'_> {
                 }
             }
         }
-        // HIR bounds are a hash map. Keep selected entry order and artifact bytes
-        // independent of its iteration order.
+        // HIR bounds are a hash map and their IDs are context-local. Order
+        // selected entries by exact semantic content, not either storage order.
+        let definitions = self.definitions();
+        let type_order = |left: &Ty, right: &Ty| {
+            left.canonical_cmp(right, &definitions, &Default::default())
+                .expect("checked callable requirement types")
+        };
         requirements.sort_by(|left, right| {
-            (
-                &left.receiver,
-                &left.interface,
-                &left.member,
-                &left.arguments,
-            )
-                .cmp(&(
-                    &right.receiver,
-                    &right.interface,
-                    &right.member,
-                    &right.arguments,
-                ))
+            type_order(&left.receiver, &right.receiver)
+                .then_with(|| {
+                    type_order(
+                        &Ty::Trait(left.interface.clone()),
+                        &Ty::Trait(right.interface.clone()),
+                    )
+                })
+                .then_with(|| {
+                    definitions
+                        .compare(left.member, right.member)
+                        .expect("checked callable member identities")
+                })
+                .then_with(|| {
+                    left.arguments
+                        .iter()
+                        .zip(&right.arguments)
+                        .map(|(left, right)| type_order(left, right))
+                        .find(|order| !order.is_eq())
+                        .unwrap_or_else(|| left.arguments.len().cmp(&right.arguments.len()))
+                })
         });
+        self.check()?;
         self.bind_operations(requirements, span)
     }
 
