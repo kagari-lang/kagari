@@ -302,22 +302,35 @@ fn probe() -> Probe { Checker {} }
 
 #[test]
 fn shared_collection_comparison_retains_the_callers_nominal_generation() {
-    assert_shared_collection_comparison_reloading(|source| {
+    assert_shared_collection_comparison_reloading(SHARED_COLLECTION_SOURCE, false, |source| {
         source.replace("bool { true }", "bool { false }")
     });
 }
 
 #[test]
 fn shared_collection_comparison_accepts_new_primitive_applications_after_reload() {
-    assert_shared_collection_comparison_reloading(|source| {
+    assert_shared_collection_comparison_reloading(SHARED_COLLECTION_SOURCE, false, |source| {
         source
             .replace("Item { value: 1 }", "0.0f32 / 0.0f32")
             .replace("Item { value: 2 }", "0.0f32 / 0.0f32")
     });
 }
 
-fn assert_shared_collection_comparison_reloading(replacement: impl FnOnce(&str) -> String) {
-    let source = r#"
+#[test]
+fn shared_collection_comparison_composes_old_and_new_nominal_arguments() {
+    let source = SHARED_COLLECTION_SOURCE
+        .replace("struct Item", "struct Local {}\nimpl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }\nstruct Item")
+        .replace("List<T>", "List<(Local, T)>")
+        .replace("Vec::from([value])", "Vec::from([(Local {}, value)])");
+    assert_shared_collection_comparison_reloading(&source, true, |source| {
+        source.replace(
+            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
+            "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
+        )
+    });
+}
+
+const SHARED_COLLECTION_SOURCE: &str = r#"
 use std::collections::List;
 struct Item { val value: i32 }
 impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
@@ -340,6 +353,12 @@ impl Probe for Checker {
 fn make() -> Boxer { Factory {} }
 fn probe() -> Probe { Checker {} }
 "#;
+
+fn assert_shared_collection_comparison_reloading(
+    source: &str,
+    new_expected: bool,
+    replacement: impl FnOnce(&str) -> String,
+) {
     let engine = KagariEngine::default();
     let original = prepare(&engine, source);
     let replacement = prepare(&engine, &replacement(source));
@@ -368,7 +387,7 @@ fn probe() -> Probe { Checker {} }
         .unwrap();
     let method =
         ModuleDecl::method_id(contract.declaration, "check", current.definitions()).unwrap();
-    for (probe, expected) in [(&old_probe, true), (&fresh_probe, false)] {
+    for (probe, expected) in [(&old_probe, true), (&fresh_probe, new_expected)] {
         assert_eq!(
             vm.invoke_interface_method(
                 &probe.value(vm.runtime().gc()).unwrap(),

@@ -1032,3 +1032,41 @@ different generations. CI04 still owns ordinary script/native relationship and
 multi-arm join discovery; CI05 removes the obsolete marker fields. This checkpoint
 closes the readonly host comparison/protocol admission gap, not those phases or
 the overall goal. Exhaustive workspace/backend validation remains CI-owned.
+
+
+CI03 compound-generation reproduction (known failing, owning follow-up: CI03
+comparison construction): `generic_reload` now also exercises an old Boxer with
+`one<T> -> List<(Local, T)>`. Its retained pack body constructs Local itself while
+the new Probe supplies Item as T. Reload changes Local.eq from true to false. Both
+old and new probes must observe the old Local.eq when using the retained factory;
+Item remains supplied by the respective caller. The original single-argument
+nominal and primitive cases share the same runtime/GC harness.
+
+`cargo test -p kagari-embed --test generic_reload shared_collection_comparison_composes -- --nocapture`
+failed on the new probe with `interface receiver does not support object comparison`.
+The old probe passed before that failure. This is a real CI03 execution defect,
+not a fixture issue. The receiver's reified identity correctly records old Local
+and new Item. Runtime receiver_comparison_binding compares that entire identity
+to closed table applications in retained programs; old and new programs contain
+only their own uniform-generation applications, so neither qualifies. Closed
+OperationWitness::Selected targets also retain one lexical program, including
+structural protocol adapters; weakening the identity check could silently select
+the wrong nested callback and is not a fix.
+
+The next CI03 checkpoint must compose checked comparison operations over the
+receiver's actual supplying type arguments. Review and reuse shared callable and
+operation-environment preparation; carry explicit substitution/child-operation
+contracts through compiler and independent executable verification rather than
+searching implementations at runtime. Keep this migration finite: replace the
+exact-closed-application assumption for generic receiver construction, preserve
+existing concrete/primitive/nominal and native-result paths, and remove superseded
+lookup scaffolding when its responsibility has moved. The regression must prove
+old Local selection and new Item selection independently, plus existing forced-GC
+and root/generation-release assertions. No runtime fix or completion is claimed
+by this reproduction checkpoint.
+
+After sharing the harness, the two existing shared_collection_comparison nominal
+and primitive cases passed again (the unchanged known-failing compound case was
+explicitly skipped in that regression run). Formatting and diff checks passed.
+The compound test remains enabled and failing pending the owning CI03 repair;
+this is intentionally an incomplete test checkpoint, not passing phase acceptance.
