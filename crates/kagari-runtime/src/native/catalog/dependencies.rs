@@ -164,6 +164,13 @@ impl References {
         for requirement in &declaration.callable_requirements {
             self.ty(&requirement.receiver)?;
             self.nominal(&requirement.interface)?;
+            // A callback on a constructed receiver can use an ordinary impl
+            // without an identical explicit function bound. Retain that impl
+            // and its transitive bindings for source-free contract validation.
+            self.pending.push(Reference::Obligation(
+                requirement.receiver.clone(),
+                requirement.interface.clone(),
+            ));
             for argument in &requirement.arguments {
                 self.ty(argument)?;
             }

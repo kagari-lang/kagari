@@ -1,7 +1,7 @@
 # Collection interface ownership execution plan
 
 Status: active execution plan for [SA18](review.md#sa18-collection-operations-should-be-constrained-by-trait-interfaces).
-Execution authorized on 2026-10-12. CI01-CI02 are complete; CI03 is next. The [roadmap](implementation-roadmap.md#review-follow-up-order)
+Execution authorized on 2026-10-12. CI01-CI02 are complete; CI03 is in progress. The [roadmap](implementation-roadmap.md#review-follow-up-order)
 owns queue placement. This document owns CI01-CI06, the activation decisions,
 acceptance and progress ledger. CI phase IDs here mean collection interfaces;
 GitHub CI acceptance is recorded separately.
@@ -679,5 +679,63 @@ scoped Clippy both passed. The execution case retained all three routes
 (Source, Artifact, ArtifactJit); the route name alone makes no claim of native
 execution. `cargo clippy -p kagari-runtime -p kagari-hir -p kagari-contract --lib -- -D warnings`
 passed. No CI02 failure remains. Full workspace/backend validation is left to CI.
-CI03 is next: stdlib content protocols/helpers and retained receiver comparison.
+CI03 is in progress. The stdlib now declares conditional concrete content protocols
+and the three interface helpers, with rooted checked reader/callback algorithms,
+ordered List comparison, unordered one-to-one Set/Map matching and the agreed hash
+formulas. HIR, lowering and executable composition now consider explicit Map/Set
+protocol implementations. Equality lowering reuses the ordinary applied-method path
+for native and script overrides. `cargo check -p kagari-stdlib --lib` passed.
+
+The first focused execution test failed during standard registration with
+`native template defaults or selected calls differ from their declared contracts`.
+The dependency closure retained callback traits but omitted applicable implementations
+when a callback receiver was a constructed type rather than a function-bound parameter.
+Collecting those ordinary implementation dependencies fixed the failure without weakening
+validation. `cargo test -p kagari-stdlib --test registration
+canonical_foundation_contracts_survive_scoped_publication_and_installation` passed.
+The next rerun exposed equality lowering treating native overrides as script functions;
+using the ordinary applied-method lowering fixed that issue.
+`cargo test -p kagari-embed --test collection_interfaces
+concrete_content_protocols_and_interface_helpers` then passed across Source/Artifact/
+ArtifactJit; this does not establish native machine-code entry. The `content` filter
+then passed both concrete and nested/IEEE cases, including direct/generic Vec selection,
+NaN self-comparison, signed zero, nested key lookup and float collection Hash rejection.
+The custom List fixture passed with helper calls in both directions across Sequence/Vec.
+The custom Map helper case passed one-to-one matching with a lookup relation distinct
+from key Eq, a non-greedy augmenting path, swapped arguments and a missing full matching.
+Its first run had a fixture parser error from a struct literal in an if condition;
+using a local lookup key fixed it.
+
+The retained legacy test `view_identity_survives_upcasts_branches_and_hash_storage`
+currently fails in Source (I32(0), expected I32(42)): concrete Vec hashing is now
+content-based while interface hashing still uses the old identity grant. CI03 owns
+migration of this superseded test together with retained receiver comparison and
+removal of the plain-interface Eq/Hash grant. This is a known intermediate behavior
+failure, not CI03 acceptance; do not rerun unchanged until that path is repaired.
+
+Direct generic helper calls such as `list_content_equal(vec_a, vec_b)` expose an
+existing first-argument coercion gap: inference discovers T but fails to install the
+interface adaptation for the first argument. CI04 owns the inference/coercion repair
+and direct-call acceptance; current CI03 fixtures use explicitly typed interface
+variables to exercise the accepted executable path. A fixture-only `HashMap::from`
+call was replaced with the existing new/insert API.
+Retained interface receiver comparison and separation of operator availability from
+Eq/Hash proofs are not yet implemented; CI03 remains incomplete. The next CI03 step
+must also check legacy readonly builtin Map/Set host descriptors against the concrete
+protocol selection while keeping NC storage migration out of scope.
+
+The directly affected script/enum composition regression
+`cargo test -p kagari-embed --test standard_traits
+custom_equality_composes_and_enum_overrides_variant_checks` passed. Scoped Clippy
+(`cargo clippy -p kagari-stdlib -p kagari-runtime -p kagari-compiler -p kagari-contract
+-p kagari-hir --lib -- -D warnings`), structure checks (1090 files, no violations),
+formatting, local plan links and diff checks passed. Structural review found no new
+re-exports, production globs, ownership widening or LOC exceptions. Library comparison
+policy stays in stdlib; generic proof/dependency and native call dispatch fixes stay
+with their existing owners. Callback mutation/depth/cancellation and retained-generation
+acceptance remain pending with the rest of CI03; full workspace/backend checks remain CI-owned.
+`cargo test -p kagari-runtime --test installation_access` passed all 6 tests after
+the callback dependency change, retaining the ordinary/private/no-call installation
+checks. This buildable CI03 stdlib checkpoint carries the one named legacy-interface
+behavior failure above; it does not complete the phase.
 Current semantic specifications remain unchanged until their implementation checkpoint.

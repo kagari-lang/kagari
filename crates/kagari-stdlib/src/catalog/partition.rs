@@ -42,6 +42,12 @@ fn entry<'a>(
 }
 
 fn function_owner(name: &str) -> ModuleIdentity {
+    if matches!(
+        name,
+        "list_content_equal" | "set_content_equal" | "map_content_equal"
+    ) {
+        return namespaces::module("std", "collections");
+    }
     if name.starts_with("__default_Iterable_")
         || name.ends_with("Iterator_next")
         || name == "$foundation_iterator_identity_iter"

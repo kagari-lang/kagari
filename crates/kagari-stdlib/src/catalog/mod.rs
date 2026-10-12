@@ -1,6 +1,7 @@
 //! Library-authored scoped declarations for the language foundation.
 //! Registration and tooling consume the same records; no Rust bodies live here.
 mod collections;
+mod comparison;
 mod construction;
 mod construction_defaults;
 mod contracts;
@@ -54,6 +55,10 @@ pub fn declarations() -> Result<Vec<DefinitionMetadata<ModuleDecl>>, Declaration
         list_methods::declare(&ids, &mut module),
     )?;
     construction_step("defaults::declare", defaults::declare(&ids, &mut module))?;
+    construction_step(
+        "comparison::declare",
+        comparison::declare(&ids, &mut module),
+    )?;
     construction_step(
         "construction_defaults::declare",
         construction_defaults::declare(&ids, &mut module),

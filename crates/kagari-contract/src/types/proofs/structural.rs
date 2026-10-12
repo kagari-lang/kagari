@@ -41,8 +41,10 @@ impl ProofCatalog<'_> {
         {
             return Ok(true);
         }
-        if matches!(receiver, Ty::Struct(_) | Ty::NativeObject(_) | Ty::Enum(_))
-            && matches!(kind, Protocol::Eq | Protocol::Hash)
+        if matches!(
+            receiver,
+            Ty::Struct(_) | Ty::NativeObject(_) | Ty::Enum(_) | Ty::Map { .. } | Ty::Set(_, _)
+        ) && matches!(kind, Protocol::Eq | Protocol::Hash)
             && self.explicit(
                 &intrinsic::applied(Protocol::PartialEq, vec![], &self.definitions)?,
                 receiver,

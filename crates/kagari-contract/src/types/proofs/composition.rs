@@ -28,7 +28,11 @@ impl ProofCatalog<'_> {
                 continue;
             }
             match ty {
-                Ty::NativeObject(_) | Ty::Struct(_) | Ty::Enum(_) => {
+                Ty::NativeObject(_)
+                | Ty::Struct(_)
+                | Ty::Enum(_)
+                | Ty::Map { .. }
+                | Ty::Set(_, _) => {
                     if self.explicit(
                         &intrinsic::applied(Protocol::PartialEq, vec![], &self.definitions)?,
                         ty,

@@ -1,6 +1,7 @@
 //! Mandatory Rust implementations of the compiler-owned language foundation.
 //! The declaration catalog is the single authority for every signature and bound.
 mod arrays;
+mod comparison;
 mod construction;
 mod enums;
 mod hash;
@@ -91,6 +92,18 @@ fn build_module(
             .last()
             .ok_or_else(|| RuntimeError::metadata_conflict("foundation binding identity"))?
             .name;
+        if let Some(binding) = comparison::binding(
+            name,
+            &DefinitionMetadata::checked(
+                declaration.definitions().clone(),
+                function.clone(),
+                &CancellationToken::default(),
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?,
+        )? {
+            bindings.insert(*id, binding);
+            continue;
+        }
         if let Some(binding) = strings::binding(name, &catalog)? {
             bindings.insert(*id, binding);
             continue;

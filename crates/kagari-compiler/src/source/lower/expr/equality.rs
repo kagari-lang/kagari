@@ -6,13 +6,10 @@ use kagari_contract::{operations::BinaryOp, standard::RuntimePrimitive};
 use kagari_hir::{
     aggregates::implementations::{ImplementationSearchError, ImplementationSearchLimits},
     language::semantics::ProtocolSemantics,
-    types::{
-        TypeId,
-        semantic::{lower_nominal_type, lower_type},
-    },
+    types::{TypeId, semantic::lower_nominal_type},
 };
 use kagari_mir::instruction::{
-    CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
+    CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
 };
 use kagari_types::{declaration::wire::leaf::NominalTyRecord, language::Protocol};
 use std::{collections::HashSet, fmt::Write};
@@ -32,7 +29,11 @@ impl FunctionLowerer<'_, '_> {
                 ));
             }
             match &ty {
-                TypeId::NativeObject(_) | TypeId::Struct(_) | TypeId::Enum(_) => {
+                TypeId::NativeObject(_)
+                | TypeId::Struct(_)
+                | TypeId::Enum(_)
+                | TypeId::Map { .. }
+                | TypeId::Set(_, _) => {
                     // Implicit identity/member equality does not import a
                     // protocol declaration. Only an actual checked override
                     // requires its method contract during call lowering.
@@ -178,37 +179,16 @@ impl FunctionLowerer<'_, '_> {
             return Ok(self.emit_intrinsic(RuntimePrimitive::ValueHash, args, result_ty));
         }
         let method = &self.protocol_method(protocol, 0)?;
-        if let Some((declaration, arguments)) = self.planner.catalog.implementation_method(
-            &self.planner.definitions(),
-            method,
-            &protocol
-                .nominal(&self.planner.definitions())
-                .expect("registered protocol identity"),
-            ty,
-        ) {
-            let callee = if self.planner.module_identity(declaration)
-                == *self.planner.owner().lowered.source.module_identity()
-            {
-                CallTarget::Function(self.planner.enqueue_declaration(
-                    &declaration,
-                    arguments,
-                    self.function.debug.source_span,
-                )?)
-            } else {
-                CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                    declaration,
-                    arguments: arguments.iter().map(lower_type).collect(),
-                    params: args.iter().map(|arg| arg.ty).collect(),
-                    return_type: result_ty,
-                }))
-            };
-            let dst = self.alloc_temp(result_ty);
-            self.emit(Instruction::Call {
-                dst: Some(dst),
-                callee,
-                args: args.iter().copied().collect(),
-            });
-            return Ok(dst);
+        let interface = protocol
+            .nominal(&self.planner.definitions())
+            .expect("registered protocol identity");
+        if self
+            .planner
+            .catalog
+            .implementation_method(&self.planner.definitions(), method, &interface, ty)
+            .is_some()
+        {
+            return self.lower_applied_method(interface, ty.clone(), method, &[], args);
         }
         match ty {
             TypeId::Tuple(members) => {

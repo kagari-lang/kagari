@@ -296,7 +296,11 @@ impl AggregateCatalog {
         let result = (|| {
             if matches!(
                 ty,
-                TypeId::NativeObject(_) | TypeId::Struct(_) | TypeId::Enum(_)
+                TypeId::NativeObject(_)
+                    | TypeId::Struct(_)
+                    | TypeId::Enum(_)
+                    | TypeId::Map { .. }
+                    | TypeId::Set(_, _)
             ) {
                 for implementation in self.implementations.values() {
                     if let Some(interface) = &interface

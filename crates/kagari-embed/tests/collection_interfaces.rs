@@ -61,7 +61,7 @@ fn main() -> i32 {
 #[test]
 fn user_containers_implement_the_same_storage_independent_contracts() {
     execute(
-        r#"use std::collections::{List, MutableList, Set};
+        r#"use std::collections::{List, MutableList, Set, list_content_equal};
 use std::iter::{CollectionCursor};
 
 mod storage {
@@ -111,6 +111,7 @@ fn main() -> i32 {
     val view: std::collections::List<i32> = source;
     val copy = Vec::from([view[0], view[1]]);
     val copied_view: List<i32> = copy;
+    if !(list_content_equal(view, copied_view) && list_content_equal(copied_view, view)) { return 0; }
     if !(!(view === copied_view) && view != copied_view) { return 0; }
     val writable: MutableList<i32> = source;
     writable[0] -= 6;
@@ -193,6 +194,135 @@ fn main() -> i32 {
     views.insert(read); views.insert(joined); views.insert(selected);
     if !(views.len() == 1usize) { return 0; }
     raw[0].value
+}
+"#,
+    );
+}
+
+#[test]
+fn concrete_content_protocols_and_interface_helpers() {
+    execute(
+        r#"use std::collections::{HashMap, HashSet, List, Set, Map, list_content_equal, set_content_equal, map_content_equal};
+use std::hash::Hash;
+fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
+fn lists_same<T: PartialEq>(a: Vec<T>, b: Vec<T>) -> bool { a == b }
+fn main() -> i32 {
+    val a = Vec::from([1, 2]);
+    val b = Vec::from([1, 2]);
+    if !(a == b && same(a, b) && lists_same(a, b) && a.hash() == b.hash()) { return 1; }
+    if a === b || a == Vec::from([2, 1]) { return 2; }
+    val al: List<i32> = a;
+    val bl: List<i32> = b;
+    if !list_content_equal(al, bl) { return 3; }
+    val s = HashSet::from([1, 2]);
+    val t = HashSet::from([2, 1]);
+    val sl: Set<i32> = s;
+    val tl: Set<i32> = t;
+    if !(s == t && same(s, t) && s.hash() == t.hash() && set_content_equal(sl, tl)) { return 4; }
+    val m: HashMap<i32, i32> = HashMap::new();
+    m.insert(1, 10); m.insert(2, 20);
+    val n: HashMap<i32, i32> = HashMap::new();
+    n.insert(2, 20); n.insert(1, 10);
+    val ml: Map<i32, i32> = m;
+    val nl: Map<i32, i32> = n;
+    if !(m == n && same(m, n) && m.hash() == n.hash() && map_content_equal(ml, nl)) { return 5; }
+    n.insert(1, 20); n.insert(2, 10);
+    if m == n { return 6; }
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn collection_content_composes_and_preserves_float_comparison() {
+    execute(
+        r#"use std::collections::{HashMap, HashSet, List, list_content_equal};
+use std::hash::Hash;
+fn main() -> i32 {
+    val a = Vec::from([Vec::from([1, 2])]);
+    val b = Vec::from([Vec::from([1, 2])]);
+    if !(a == b && a.hash() == b.hash()) { return 1; }
+    val keys: HashSet<Vec<Vec<i32>>> = HashSet::new();
+    keys.insert(a);
+    if !keys.contains(b) { return 2; }
+    val nan = 0.0f32 / 0.0f32;
+    val xs = Vec::from([nan]);
+    val read: List<f32> = xs;
+    if xs == xs || list_content_equal(read, read) { return 3; }
+    if !(Vec::from([0.0f32]) == Vec::from([-0.0f32])) { return 4; }
+    val m: HashMap<i32, f32> = HashMap::new();
+    m.insert(1, nan);
+    if m == m { return 5; }
+    42
+}
+"#,
+    );
+    let engine = KagariEngine::default();
+    for source in [
+        "use std::hash::Hash; fn main() { Vec::from([0.0f32]).hash(); }",
+        "use std::collections::HashSet; fn main() { val xs: HashSet<Vec<f32>> = HashSet::new(); }",
+        "use std::collections::HashMap; use std::hash::Hash; fn main() { val m: HashMap<i32,f32> = HashMap::new(); m.hash(); }",
+    ] {
+        assert!(
+            engine
+                .compile_to_artifact(SourceFile::new("rejected.kgr", source), Default::default())
+                .is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn map_helper_matches_entries_independently_of_lookup_policy_and_argument_order() {
+    execute(
+        r#"use std::collections::{Map, map_content_equal};
+use std::iter::CollectionCursor;
+struct Key { val tag: i32 }
+impl PartialEq for Key { fn eq(self, other: Self) -> bool { true } }
+impl Eq for Key {}
+struct Value { val number: i32 }
+impl PartialEq for Value {
+    fn eq(self, other: Self) -> bool {
+        self.number <= other.number + 1 && other.number <= self.number + 1
+    }
+}
+struct Pairs { val entries: Vec<(Key, Value)> }
+impl Iterable for Pairs {
+    type Item = (Key, Value);
+    type Iter = CollectionCursor<(Key, Value)>;
+    fn iter(self) -> CollectionCursor<(Key, Value)> { self.entries.iter() }
+}
+impl Map<Key, Value> for Pairs {
+    fn len(self) -> usize { self.entries.len() }
+    fn is_empty(self) -> bool { self.entries.is_empty() }
+    fn get(self, key: Key) -> Option<Value> {
+        for (stored, value) in self.entries { if stored.tag == key.tag { return Some(value); } }
+        None
+    }
+    fn contains_key(self, key: Key) -> bool {
+        for (stored, value) in self.entries { if stored.tag == key.tag { return true; } }
+        false
+    }
+}
+fn main() -> i32 {
+    val a: Map<Key, Value> = Pairs { entries: Vec::from([
+        (Key { tag: 1 }, Value { number: 1 }),
+        (Key { tag: 2 }, Value { number: 0 })
+    ]) };
+    val b: Map<Key, Value> = Pairs { entries: Vec::from([
+        (Key { tag: 3 }, Value { number: 0 }),
+        (Key { tag: 4 }, Value { number: 2 })
+    ]) };
+    val c: Map<Key, Value> = Pairs { entries: Vec::from([
+        (Key { tag: 1 }, Value { number: 2 }),
+        (Key { tag: 2 }, Value { number: 2 })
+    ]) };
+    val lookup = Key { tag: 3 };
+    if a.contains_key(lookup) { return 1; }
+    if !(map_content_equal(a, b) && map_content_equal(b, a)) { return 2; }
+    if map_content_equal(a, c) || map_content_equal(c, a) { return 3; }
+    42
 }
 "#,
     );
