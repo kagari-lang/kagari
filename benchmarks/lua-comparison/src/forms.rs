@@ -60,10 +60,10 @@ fn string_calls() -> i32 { var sum = 0; var i = 0;
         val result = string_identity(text);
         sum += result.len() as i32; i += 1;
     } sum }
-fn byte_state() -> i32 { val memory: Vec<u8> = [0u8; 256]; var state = 1u8; var sum = 0; var i = 0;
+fn byte_state() -> i32 { val memory: Vec<u8> = Vec::from([0u8; 256]); var state = 1u8; var sum = 0; var i = 0;
     while i < 5000 {
         state = (((state as u32) * 13u32 + 17u32) as u8) ^ (state >> 3u32);
-        val index = ((i as u32) & 255u32) as i32;
+        val index = ((i as u32) & 255u32) as usize;
         memory[index] = ((memory[index] as u32) + (state as u32)) as u8;
         sum += memory[index] as i32;
         i += 1;
@@ -160,7 +160,8 @@ fn lua_source(name: &str) -> String {
 
 pub(super) fn run(options: &Options) {
     let mut builder = KagariEngine::builder().expect("standard engine");
-    let mut native = ModuleBuilder::new("bench::numeric", builder.declarations());
+    let mut native = ModuleBuilder::new("bench::numeric", builder.declarations())
+        .expect("benchmark native module");
     let step = native
         .define_function(
             FunctionDecl::new("native_step")

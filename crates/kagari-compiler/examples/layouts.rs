@@ -3,7 +3,10 @@
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, PackageId},
+    identity::{
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+        metadata::DefinitionMetadata,
+    },
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
@@ -36,21 +39,34 @@ fn main() {
         package: PackageId("demo".into()),
         path: vec!["storage".into()],
     });
+    let context = DefinitionContext::new().unwrap();
+    let storage_root = context.intern_root(&storage.identity).unwrap();
+    let samples = context
+        .intern_child(storage_root, DefinitionKind::AssociatedType, "Samples", 0)
+        .unwrap();
     storage.types.push(TypeDef {
         name: "Samples".into(),
         kind: TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
         generic_params: vec![GenericParam {
-            owner: storage.definition(DefinitionKind::AssociatedType, "Samples"),
+            owner: samples,
             position: 0,
         }],
         bounds: vec![],
         fields: vec![],
         variants: vec![],
     });
-    storage.validate(&namespaces::receiver_owner).unwrap();
+    let definitions = storage.collect_definitions(&context).unwrap();
+    storage
+        .validate(
+            &|ty| namespaces::receiver_owner(ty, &definitions),
+            &definitions,
+        )
+        .unwrap();
+    let storage = DefinitionMetadata::checked(definitions, storage, &Default::default()).unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         foundation_catalog::shared()
+            .expect("foundation declarations")
             .into_iter()
             .chain([Arc::new(storage)])
             .collect(),
@@ -90,10 +106,11 @@ fn main() {
         MirVerificationErrorKind::Cancelled,
     );
     let program = lower_program_to_bytecode(&mir_program).unwrap();
-    let bytecode = &program.modules[program.root.index()];
+    let definitions = program.definitions();
+    let bytecode = &program.records().modules[program.records().root.index()];
     assert!(bytecode.functions.iter().all(|function| {
         function.identity.as_ref().is_some_and(|identity| {
-            identity.declaration.module == bytecode.identity
+            definitions.resolve(identity.declaration).unwrap().module() == &bytecode.identity
                 && bytecode.function_table[function.id.index()].identity == function.identity
         })
     }));
@@ -105,8 +122,12 @@ fn main() {
             _ => None,
         })
         .expect("checked interface declaration");
-    assert_eq!(interface.declaration.module, bytecode.identity);
-    assert_eq!(interface.declaration.path[0].kind, DefinitionKind::Impl);
+    let identity = definitions.resolve(interface.declaration).unwrap();
+    assert_eq!(identity.module(), &bytecode.identity);
+    assert_eq!(
+        identity.segments().next().unwrap().kind,
+        DefinitionKind::Impl
+    );
     let executable_table = bytecode
         .interface_tables
         .iter()
@@ -114,17 +135,28 @@ fn main() {
         .expect("executable interface table");
     assert_eq!(executable_table.methods.len(), 1);
     let method = &executable_table.methods[0];
-    assert_eq!(method.method.path.last().unwrap().name, "get");
+    assert_eq!(
+        definitions
+            .resolve(method.method)
+            .unwrap()
+            .last()
+            .unwrap()
+            .name,
+        "get"
+    );
     let CallableTarget::Script(function) = method.target else {
         panic!("script implementation")
     };
     assert_eq!(
-        bytecode.functions[function.index()]
-            .identity
-            .as_ref()
+        definitions
+            .resolve(
+                bytecode.functions[function.index()]
+                    .identity
+                    .as_ref()
+                    .unwrap()
+                    .declaration
+            )
             .unwrap()
-            .declaration
-            .path
             .last()
             .unwrap()
             .name,
@@ -168,7 +200,7 @@ fn main() {
             if let BytecodeInstruction::MakeStruct {
                 structure, fields, ..
             } = instruction
-                && bytecode.structures[structure.index()].name() == "Pair"
+                && bytecode.structures[structure.index()].name(definitions) == Some("Pair")
             {
                 Some((structure, fields))
             } else {

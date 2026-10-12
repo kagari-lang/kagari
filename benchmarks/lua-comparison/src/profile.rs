@@ -11,7 +11,6 @@ use std::{
 };
 
 use kagari_bytecode::instruction::BytecodeInstruction;
-use kagari_common::identity::table::DefinitionId;
 use kagari_embed::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_runtime::{
     Runtime,
@@ -43,7 +42,7 @@ struct InstructionCounts {
     layouts: HashMap<String, (u16, usize, u16, usize, usize)>,
 }
 
-type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction<DefinitionId>>, (String, u64)>;
+type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction>, (String, u64)>;
 
 impl ExecutionObserver for InstructionCounts {
     fn observe(
@@ -118,7 +117,7 @@ pub(super) fn run(
     println!(
         "PROFILE_LAYOUT,value_bytes={},instruction_bytes={},execution_bytes={},return_packet_bytes={}",
         size_of::<Value>(),
-        size_of::<BytecodeInstruction<DefinitionId>>(),
+        size_of::<BytecodeInstruction>(),
         size_of::<ExecutionInstruction>(),
         size_of::<ReturnValue>()
     );

@@ -3,6 +3,7 @@ use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
     module::CallableTarget,
 };
+use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
 use kagari_hir::analysis::AnalysisDatabase;
@@ -30,7 +31,7 @@ fn main() {
         .expect("checked applied trait implementation");
     let ir = lower_program_to_mir(&checked, &Default::default()).expect("verified IR");
     let program = lower_program_to_bytecode(&ir).expect("verified bytecode");
-    let bytecode = &program.modules[program.root.index()];
+    let bytecode = &program.records().modules[program.records().root.index()];
     let table = bytecode
         .public_items
         .iter()
@@ -52,12 +53,16 @@ fn main() {
         panic!("script implementation")
     };
     assert_eq!(
-        bytecode.functions[function.index()]
-            .identity
-            .as_ref()
+        program
+            .definitions()
+            .resolve(
+                bytecode.functions[function.index()]
+                    .identity
+                    .as_ref()
+                    .unwrap()
+                    .declaration
+            )
             .unwrap()
-            .declaration
-            .path
             .last()
             .unwrap()
             .name,
@@ -68,16 +73,31 @@ fn main() {
         table.name,
         executable.methods.len()
     );
-    let artifact =
-        KbcArtifact::from_program(program, ArtifactBuildOptions::default()).expect("artifact");
-    KbcArtifact::from_bytes(&artifact.to_bytes().expect("encoded artifact"))
-        .expect("decoded artifact")
-        .validate_for_loader(&ArtifactCompatibility::default())
+    let context = DefinitionContext::new().unwrap();
+    let program = program.import_into(&context, &Default::default()).unwrap();
+    let artifact = KbcArtifact::from_program(
+        program.into_records(),
+        ArtifactBuildOptions::default(),
+        &context,
+    )
+    .expect("artifact");
+    let decoded = KbcArtifact::from_bytes(
+        &artifact
+            .to_bytes(&context.snapshot())
+            .expect("encoded artifact"),
+    )
+    .expect("decoded artifact");
+    let loader_context = DefinitionContext::new().unwrap();
+    decoded
+        .import_into(&loader_context, &Default::default())
+        .unwrap()
+        .records()
+        .validate_for_loader(&ArtifactCompatibility::default(), &loader_context)
         .expect("loadable artifact");
 }
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared());
+    database.set_native_modules(foundation_catalog::shared().expect("foundation declarations"));
     database
 }
