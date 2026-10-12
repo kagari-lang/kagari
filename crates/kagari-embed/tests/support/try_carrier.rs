@@ -12,14 +12,14 @@ use kagari_types::language::Protocol;
 
 pub fn module() -> NativeResult<NativeModule> {
     let standard = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("external::try_carrier", &standard.catalog()?);
+    let mut module = ModuleBuilder::new("external::try_carrier", &standard.catalog()?)?;
     let option = StandardDeclarations::enumeration("Option")?;
     let none = option.variant("None")?;
     let residual = option.apply([StandardDeclarations::enumeration("Infallible")?.apply([])?])?;
     let flow = StandardDeclarations::enumeration("ControlFlow")?;
     let continued = flow.variant("Continue")?;
     let stopped = flow.variant("Break")?;
-    let mut carrier = module.define_enum("Carrier");
+    let mut carrier = module.define_enum("Carrier")?;
     carrier.documentation("An application-owned propagation carrier with traced payloads.");
     let item = carrier.type_parameter("T")?;
     let data = carrier.variant("Data", [item.ty()])?;
@@ -32,7 +32,7 @@ pub fn module() -> NativeResult<NativeModule> {
         implementation.trait_impl(
             standard
                 .protocol(Protocol::FromResidual)
-                .apply([residual.clone()]),
+                .apply([residual.clone()])?,
             |methods| {
                 let stop = stop.clone();
                 let none = none.clone();
@@ -47,7 +47,7 @@ pub fn module() -> NativeResult<NativeModule> {
                 )
             },
         )?;
-        implementation.trait_impl(standard.protocol(Protocol::Try).apply([]), |methods| {
+        implementation.trait_impl(standard.protocol(Protocol::Try).apply([])?, |methods| {
             methods.associated_type("Output", item)?;
             methods.associated_type("Residual", residual.clone())?;
             let from_data = data.clone();

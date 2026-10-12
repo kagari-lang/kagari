@@ -1,11 +1,15 @@
 #![cfg(feature = "source")]
+use kagari_bytecode::program::{identity, verify_program};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_embed::{
     BytecodeArtifact,
     engine::{EngineConfig, KagariEngine},
+    error::EmbeddingError,
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -17,7 +21,9 @@ fn execute(source: &str) {
             Default::default(),
         )
         .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
@@ -160,7 +166,10 @@ fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
                 Default::default(),
             )
             .unwrap();
-        let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let artifact = BytecodeArtifact::from_bytes(
+            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
+        .unwrap();
         let prepared =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
@@ -188,7 +197,6 @@ fn documented_custom_carrier_and_control_flow_execute() {
 
 #[test]
 fn invalid_protocols_and_residuals_fail_during_analysis() {
-    use kagari_embed::error::EmbeddingError;
     let prefix = "use core::ops::{Try,FromResidual,ControlFlow}; use core::convert::Infallible; ";
     for (source, code) in [
         (
@@ -234,7 +242,6 @@ fn invalid_protocols_and_residuals_fail_during_analysis() {
 
 #[test]
 fn executable_from_adapters_reject_forged_source_types_and_targets() {
-    use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -244,6 +251,17 @@ fn executable_from_adapters_reject_forged_source_types_and_targets() {
             Default::default(),
         )
         .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let table = identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &table).unwrap();
     for mutation in 0..3 {
         let mut program = artifact.program.clone();
         let function = program
@@ -257,7 +275,8 @@ fn executable_from_adapters_reject_forged_source_types_and_targets() {
                     .protocol_adapter
                     .as_ref()
                     .is_some_and(|required| {
-                        Protocol::from_id(&required.interface.declaration) == Some(Protocol::From)
+                        Protocol::from_definition(&required.interface.declaration, &table)
+                            == Some(Protocol::From)
                     })
             })
             .expect("a checked numeric From adapter");
@@ -270,10 +289,16 @@ fn executable_from_adapters_reject_forged_source_types_and_targets() {
         match mutation {
             0 => required.interface.arguments[0] = Ty::Builtin(BuiltinType::String),
             1 => required.receiver = Ty::Builtin(BuiltinType::Bool),
-            _ => required.member.path.last_mut().unwrap().name = "branch".into(),
+            _ => {
+                let parent = table.parent(required.member).unwrap().unwrap();
+                let segment = table.resolve(required.member).unwrap().last().unwrap();
+                required.member = context
+                    .intern_child(parent, segment.kind, "branch", segment.occurrence)
+                    .unwrap();
+            }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default()).is_err(),
+            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
             "forged adapter {mutation}"
         );
     }

@@ -7,9 +7,11 @@ mod support;
 mod library;
 #[path = "../support/native_provider.rs"]
 mod provider;
-use contracts::{alter_bindings, altered_binding};
+use contracts::alter_bindings;
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::{
+    map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
+};
 use kagari_contract::types::PublicItem;
 use kagari_embed::{
     context::ExecutionContext,
@@ -349,4 +351,31 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
     }
     assert!(finished);
     assert!(cancelled > 20);
+}
+
+/// Forge a binding at its authoring boundary without changing the declaration it claims to implement.
+fn altered_binding(context: &DefinitionContext, id: DefinitionId, change: usize) -> DefinitionId {
+    let definitions = context.snapshot();
+    let view = definitions.resolve(id).unwrap();
+    let mut owner = view.module().clone();
+    if change == 0 {
+        owner.package.0.push_str("-unknown");
+    }
+    let mut parent = context.intern_root(&owner).unwrap();
+    let segments: Vec<_> = view.segments().collect();
+    for (index, segment) in segments.iter().enumerate() {
+        let name = if index + 1 == segments.len() && change != 0 {
+            if change == 1 {
+                format!("{}-unknown", segment.name)
+            } else {
+                "$foundation_list_new".to_owned()
+            }
+        } else {
+            segment.name.to_owned()
+        };
+        parent = context
+            .intern_child(parent, segment.kind, &name, segment.occurrence)
+            .unwrap();
+    }
+    parent
 }

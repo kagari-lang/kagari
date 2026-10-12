@@ -1,7 +1,7 @@
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, NativeImportId},
     module::CallableTarget,
-    program::{BytecodeProgram, verify_program},
+    program::{BytecodeProgram, identity, verify_program},
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
@@ -365,6 +365,12 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
         .import_into(&definitions, &Default::default())
         .unwrap()
         .into_records();
+    let table = identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        &definitions,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &table).unwrap();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -698,6 +704,12 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
         .import_into(&definitions, &Default::default())
         .unwrap()
         .into_records();
+    let table = identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        &definitions,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &table).unwrap();
     let mut program = artifact.program;
     let other = program.modules[program.root.index()]
         .host_interface

@@ -1,5 +1,6 @@
 //! This same host is exercised by the independent source-free feature consumer.
 use super::provider::FakeIo;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_embed::{
     BytecodeArtifact,
     engine::KagariEngine,
@@ -83,7 +84,11 @@ fn drive(
     Err("task exceeded demo drive bound".into())
 }
 
-pub fn run(engine: KagariEngine, artifact: BytecodeArtifact, io: FakeIo) -> HostResult<()> {
+pub fn run(
+    engine: KagariEngine,
+    artifact: DefinitionMetadata<BytecodeArtifact>,
+    io: FakeIo,
+) -> HostResult<()> {
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())?;
     let mut runtime = engine.runtime(Default::default());

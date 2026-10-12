@@ -2,12 +2,15 @@
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     native_input::PortableMir,
+    program::{identity, verify_program},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_types::ty::Ty;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -61,13 +64,17 @@ fn artifact_bytes() -> &'static [u8] {
                 .compile_to_artifact(source, Default::default())
                 .unwrap();
             fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(&path, artifact.to_bytes().unwrap()).unwrap();
+            fs::write(
+                &path,
+                artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap();
         }
         fs::read(path).expect("generate the target fixture with regenerate_feature_artifact")
     })
 }
 
-fn artifact() -> KbcArtifact {
+fn artifact() -> DefinitionMetadata<KbcArtifact> {
     KbcArtifact::from_bytes(artifact_bytes()).unwrap()
 }
 
@@ -186,44 +193,39 @@ fn source_free_try_carriers_execute_with_selected_residual_calls() {
 
 #[test]
 fn source_free_native_imports_reject_forged_signatures() {
+    let (context, artifact) = editable_artifact();
+    let definitions = context.snapshot();
     for corrupt in 0..3 {
-        let mut program = artifact().program;
+        let mut program = artifact.program.clone();
         let import = program
             .modules
             .iter_mut()
             .flat_map(|module| &mut module.native_imports)
             .find(|import| match corrupt {
                 0 => !import.signature.params.is_empty(),
-                1 => import
-                    .binding
-                    .path
+                1 => definitions
+                    .resolve(import.binding)
+                    .unwrap()
                     .last()
                     .is_some_and(|part| part.name == "$foundation_list_push_fluent"),
                 _ => {
-                    matches!(
-                        import.signature.params.as_slice(),
-                        [kagari_types::ty::Ty::Array(_)]
-                    ) && matches!(
-                        import.signature.result,
-                        kagari_types::ty::Ty::NativeObject(_)
-                    )
+                    matches!(import.signature.params.as_slice(), [Ty::Array(_)])
+                        && matches!(import.signature.result, Ty::NativeObject(_))
                 }
             })
             .unwrap();
         match corrupt {
             0 => import.signature.params.clear(),
             1 => {
-                let kagari_types::ty::Ty::NativeObject(nominal) = &import.signature.params[0]
-                else {
+                let Ty::NativeObject(nominal) = &import.signature.params[0] else {
                     panic!("Vec receiver")
                 };
-                import.signature.params[0] =
-                    kagari_types::ty::Ty::Array(Box::new(nominal.arguments[0].clone()));
+                import.signature.params[0] = Ty::Array(Box::new(nominal.arguments[0].clone()));
             }
             _ => import.signature.params[0] = import.signature.result.clone(),
         }
         assert!(
-            KbcArtifact::from_program(program, Default::default()).is_err(),
+            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
             "forgery {corrupt}"
         );
     }
@@ -231,17 +233,22 @@ fn source_free_native_imports_reject_forged_signatures() {
 
 #[test]
 fn native_payload_interpretation_follows_the_feature_boundary() {
-    let valid = artifact();
+    let (context, valid) = editable_artifact();
     let malformed = KbcArtifact::from_program(
         valid.program,
         ArtifactBuildOptions {
             portable_mir: Some(PortableMir { bytes: vec![0xff] }),
             ..Default::default()
         },
+        &context,
     )
     .unwrap();
     // The envelope is valid in both builds; only native-enabled preparation reads MIR.
-    malformed.validate_for_loader(&Default::default()).unwrap();
+    malformed
+        .validate_for_loader(&Default::default(), &context)
+        .unwrap();
+    let malformed =
+        DefinitionMetadata::checked(context.snapshot(), malformed, &Default::default()).unwrap();
     let result =
         PreparedProgram::from_artifact(malformed, &Default::default(), &Default::default());
     #[cfg(feature = "native")]
@@ -279,7 +286,13 @@ fn portable_fixture_matches_source_emission() {
     let generated = engine(Default::default(), Default::default())
         .compile_to_artifact(source, Default::default())
         .unwrap();
-    assert_eq!(generated.to_bytes().unwrap(), artifact_bytes());
+    assert_eq!(
+        generated
+            .records()
+            .to_bytes(generated.definitions())
+            .unwrap(),
+        artifact_bytes()
+    );
 }
 
 #[cfg(feature = "native")]
@@ -488,29 +501,42 @@ fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
 
 #[test]
 fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
-    let mut artifact = artifact();
+    let (context, mut artifact) = editable_artifact();
+    let definitions = context.snapshot();
     let mut changed = false;
     contracts::alter_bindings(&mut artifact, |id| {
-        if id
-            .path
+        let view = definitions.resolve(*id).unwrap();
+        if view
             .last()
             .is_some_and(|part| part.name == "$foundation_list_sort")
         {
-            id.path.last_mut().unwrap().name = "$foundation_list_sort_by".into();
+            let segment = view.last().unwrap();
+            *id = context
+                .intern_child(
+                    definitions.parent(*id).unwrap().unwrap(),
+                    segment.kind,
+                    "$foundation_list_sort_by",
+                    segment.occurrence,
+                )
+                .unwrap();
         }
     });
+    let definitions = context.snapshot();
     for module in &artifact.program.modules {
         changed |= module.native_imports.iter().any(|import| {
-            import
-                .binding
-                .path
+            definitions
+                .resolve(import.binding)
+                .unwrap()
                 .last()
                 .is_some_and(|part| part.name == "$foundation_list_sort_by")
                 && import.signature.params.len() == 1
         });
     }
     assert!(changed);
-    let artifact = KbcArtifact::from_program(artifact.program, Default::default()).unwrap();
+    let artifact =
+        KbcArtifact::from_program(artifact.program, Default::default(), &context).unwrap();
+    let artifact =
+        DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine(Default::default(), Default::default()).runtime(Default::default());
@@ -552,4 +578,19 @@ fn source_free_converted_residual_keeps_its_original_failure_origin() {
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+}
+
+fn editable_artifact() -> (DefinitionContext, KbcArtifact) {
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let table = identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &table).unwrap();
+    (context, artifact)
 }

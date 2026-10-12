@@ -40,7 +40,11 @@ fn source_free_async_execution_contract() {
             )
             .unwrap();
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, artifact.to_bytes().unwrap()).unwrap();
+        fs::write(
+            &path,
+            artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
+        .unwrap();
     }
     let bytes = fs::read(path).expect("emit the async_tasks example artifact first");
     let artifact = BytecodeArtifact::from_bytes(&bytes).unwrap();

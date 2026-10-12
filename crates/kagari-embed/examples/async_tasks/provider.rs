@@ -30,7 +30,7 @@ impl FakeIo {
         service: &'static str,
         declarations: &DeclarationCatalog,
     ) -> NativeResult<NativeModule> {
-        let mut module = ModuleBuilder::new(service, declarations);
+        let mut module = ModuleBuilder::new(service, declarations)?;
         let io = self.clone();
         module.add_async_function::<(i32,), i32>(
             FunctionSpec::new("request").parameter_names(["input"]),

@@ -34,5 +34,9 @@ fn main() {
         .expect("workspace root");
     let output = workspace.join("target/fixtures/feature_artifact.kbc");
     fs::create_dir_all(output.parent().unwrap()).unwrap();
-    fs::write(output, artifact.to_bytes().unwrap()).unwrap();
+    fs::write(
+        output,
+        artifact.records().to_bytes(artifact.definitions()).unwrap(),
+    )
+    .unwrap();
 }

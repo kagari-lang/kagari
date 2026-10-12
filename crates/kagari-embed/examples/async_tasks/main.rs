@@ -28,7 +28,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         {
             fs::create_dir_all(parent)?;
         }
-        fs::write(destination, artifact.to_bytes()?)?;
+        fs::write(
+            destination,
+            artifact.records().to_bytes(artifact.definitions())?,
+        )?;
         println!("Wrote {}", destination.display());
         Ok(())
     } else {

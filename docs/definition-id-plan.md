@@ -3826,3 +3826,51 @@ path-field mutation and fallible ModuleBuilder use. SI06 owns these consumers an
 fixture regeneration/source-free execution. Offline Host and embedding API consumers,
 remaining examples, the focused negative-fixture audit and lasting documentation
 cleanup remain open. Exhaustive validation remains CI scope.
+
+### SI06 standalone artifacts, async example and Try provider adoption
+
+The portable feature fixture, its emitters and the shared async example preserve
+DefinitionMetadata through encoding, decoding and host execution. Try carrier
+registration propagates construction errors. Forged signatures and binding changes
+retain one context, collect implicit public names and establish a valid baseline
+before testing rejection. The reset-specific forged-binding constructor now belongs
+to native_provider_reset/main.rs; the shared contracts module only walks bindings.
+The two earlier Host negative fixtures also collect names and verify the positive
+baseline after import, completing the focused audit of this turn's direct-verifier
+fixtures without weakening their corruption assertions.
+
+Focused local evidence:
+
+- Five default-feature artifact_features cases pass: source_free_native_imports,
+  structurally_valid_library_binding, real_cranelift_compiles,
+  source_free_try_carriers and native_payload_interpretation. These retain actual
+  Native execution, structural/installed-binding separation and native-input decoding.
+- The shared Try provider's direct dependent target passes native_carriers_link and
+  executable_from_adapters, preserving payload GC and numeric conversion rejection.
+- `uv run python scripts/check_features.py --async-only` passes the 13 production
+  crate dependency checks, ABI/contract build graphs and the independent consumer's
+  single source_free_async_execution_contract. Its generated manifest is outside
+  workspace dev-dependency unification. The artifact-only graph has no source/HIR/
+  syntax/compiler/MIR/codegen/backend dependencies. This is the script's explicitly
+  filtered async mode, not its complete CI feature matrix.
+- The same independent no-default-feature consumer passes five selected additional
+  cases with `cargo test --locked --offline --manifest-path
+  target/architecture-features/Cargo.toml --no-default-features --target-dir target
+  --test artifact_features --message-format=short -- portable_artifact_executes
+  source_free_native_enums source_free_try_carriers structurally_valid_library_binding
+  native_payload_interpretation`. This exercises source-free execution and the
+  no-Native side of the optional MIR payload boundary. Fixture bytes were regenerated
+  by the source emitter at this coherent checkpoint; no format/ABI bump was needed.
+- Both affected Host negative cases pass again with positive controls:
+  invalid_host_associated and host_associated_outputs_are_checked.
+- Clippy passes for artifact_features, native_provider_reset, async_tasks and
+  regenerate_feature_artifact together, and try_protocols/host_interfaces separately.
+  Structure checks 1087 Rust files with zero violations/exceptions; formatting and
+  diff checks pass. Review covers example API ownership, cfg-scoped imports, shared
+  fixture visibility, exact binding changes and independent consumer scope.
+
+The 29 artifact_features diagnostics are resolved. Remaining SI06 integration still
+includes the known offline_nominal and embedding_api consumers, further dependent/
+example audits, any remaining negative-fixture scope controls, and lasting
+architecture/specification documentation with retirement of this plan. No complete
+workspace or feature/backend acceptance is claimed; that matrix remains CI scope.
