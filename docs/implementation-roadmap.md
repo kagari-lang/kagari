@@ -15,39 +15,18 @@ provide lazy adapters, terminal operations and explicit FromIterator collection.
 Collection cursors check structural revisions on reads; retaining or parking a
 cursor does not block source edits.
 The interpreter uses compact values and prepared execution/call/layout contracts.
+Semantic processing uses scoped DefinitionId records from registration and HIR
+through specialization, portable codecs and runtime adoption. Exact paths and
+file-local references stay at their explicit boundaries; verification, retained
+snapshots and generation-pinned execution remain separate contracts. See
+[definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
-
-## Semantic definition IDs
-
-[SI01-SI06](definition-id-plan.md) implement the agreed SA19 design and are active.
-SI01 is complete. Source/HIR, source specialization, MIR verification and bytecode
-assembly now use scoped IDs; SI02-SI04 continue through remaining registration,
-backend and test consumers. This migration precedes native collections.
-HIR, shared type/declaration/Host/contract and executable model representation
-generics are removed. Shared substitution, matching and trait ancestry use fixed
-IDs. KHI, public ABI, MIR and KBC codecs use fixed wire records and explicit scoped
-decoding; semantic models have no direct Serde codec. Common reference/rebinding/
-projection APIs are removed, and SDK emission/preparation retains scoped metadata.
-Remaining SI06 work migrates legacy library-test/example consumers and completes
-focused integration before final documentation cleanup.
-Runtime/VM entrypoints and adoption use fixed IDs with retained-prefix checks;
-selected cross-runtime, reload and Native interface/GC boundaries pass locally.
-Use DefinitionId throughout semantic processing; keep authoring/display paths and
-file-local references at explicit boundaries. Reuse the current definition context,
-immutable snapshots and cross-context imports while removing identity-representation
-generics and whole-record path projections. Preserve separate verification evidence,
-source revision checks and generation-pinned execution.
-
-The plan owns Native declaration adoption, HIR checking/query caches, specialization,
-executable metadata, codecs and runtime adoption. Coordinate module-root ownership
-with SA9 without activating its full module-graph migration. SA18 collection access
-and SA21 Host registration unification remain separate follow-ups.
 
 ## Library-owned native collections
 
-[NC01-NC06](native-collections-plan.md) are queued after SI01-SI06 and unstarted.
-Refresh their API/code inventory after the identity migration. Baseline 9cd90557
-includes the completed Iterable APIs, retained selected-call slots
+[NC01-NC06](native-collections-plan.md) are queued and unstarted.
+Refresh their API/code inventory against the current scoped identity APIs.
+Baseline 9cd90557 includes the completed Iterable APIs, retained selected-call slots
 and Vec/HashMap/HashSet FromIterator implementations.
 
 Libraries should own concrete storage and algorithms; runtime should supply checked
@@ -110,10 +89,9 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 [The review](review.md) owns unresolved SA findings, including inline AST reuse,
 compact module handles, HIR model cleanup, local functions, patterns, collection
-interfaces and host-registration unification; SA19 execution belongs to the
-[definition-ID plan](definition-id-plan.md). Resolved
-namespace/import/default-body/Array work is described by the current specifications
-and reading guides, not retained as review tasks.
+interfaces and host-registration unification. Resolved definition-identity,
+namespace/import/default-body/Array work is described by the current architecture,
+specifications and reading guides, not retained as review tasks.
 
 [Architecture findings](architecture-review-2026-10-03.md#outstanding-findings)
 R1/R2/R5/R7/R8 require current-code confirmation: raw-kind safety, prepared-JIT
@@ -121,9 +99,9 @@ policy, trait-search cancellation/limits, repeated specialization and conservati
 semantic invalidation. Native expansion requires checked call/root/effect contracts
 and actual-native conformance; LLVM remains a separate choice.
 
-Earlier identity measurements identified transient authoring path projections,
-table-index copies on retained-prefix append and normalized metadata copies across
-independent runtimes. Re-measure before optimization; compact IDs alone do not
+Earlier identity measurements predate removal of semantic path projections.
+Re-measure retained-prefix table-index copying and normalized metadata copying
+across independent runtimes before optimization; compact IDs alone do not
 establish whole-module sharing or universal speedups.
 
 HIR model documentation is complete within its scope. The whole-crate

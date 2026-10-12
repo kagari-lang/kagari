@@ -45,7 +45,7 @@ contracts and source-free validation. Migrate affected collection paths end to e
 Generic iteration mechanisms follow the implemented iteration contracts.
 
 Exclude a kgr rewrite of collection algorithms, dynamic-library loading, the full
-SA21 host-registration migration, SA18 collection-access redesign, SA19 identity
+SA21 host-registration migration, SA18 collection-access redesign, further identity
 redesign, new language syntax, a borrow checker, async collections, new collection
 methods and production
 BTreeMap/IndexMap libraries. Small external collection fixtures prove extensibility;
@@ -273,8 +273,8 @@ new speed target or the Lua parity workstream; do not repeatedly run full benchm
 The [Iterable APIs](spec/builtins.md#iteration-protocols) and
 [retained native cursors](spec/standard-declarations.md#sorting-and-lazy-iteration)
 are implemented at this baseline; NC01-NC06 remain queued and unstarted.
-The [definition-ID migration](definition-id-plan.md) precedes this work. Refresh
-NC01 against its completed APIs instead of rebuilding path/ID variants or treating
+Use the current [scoped identity APIs](architecture.md#definition-identity-ownership).
+Refresh NC01 against those APIs instead of rebuilding path/ID variants or treating
 the historical baseline signatures as a compatibility requirement.
 Implementation begins with NC01,
 using the existing retained slots, adapters, terminal consumers and FromIterator

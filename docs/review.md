@@ -479,20 +479,6 @@ witnesses and host borrow/GC cleanup coverage. Measure any claimed memory or spe
 benefit. This entry records the future architectural direction only; code migration
 and specification changes remain deferred.
 
-## SA19 Use DefinitionId throughout semantic models
-
-The agreed design now has an [execution plan](definition-id-plan.md), SI01-SI06.
-Implementation is active (SI01 complete, SI02 in progress). The plan owns scope,
-validation and the progress ledger; the [roadmap](implementation-roadmap.md#semantic-definition-ids)
-places it before native collections.
-
-Semantic records and algorithms will use DefinitionId without identity-representation
-generics. DefinitionPath remains at authoring/display boundaries; portable local
-references remain inside codecs. Reuse existing contexts, snapshots and explicit
-imports, preserving verification, source revisions and pinned runtime generations.
-SA9's full module-graph handle migration and SA21 registration unification remain
-separate. This finding closes only when the implementation is complete.
-
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 
 The requested future direction is to register all Rust-side functions and types
