@@ -438,7 +438,7 @@ consumer's guarantees to its semantic owner:
 | --- | --- |
 | Available read/write operations and parent upcasts | Trait members, explicit implementations and ordinary interface inheritance. |
 | Receiver matching and common branch types | General checked interface/type relationships; preserve valid existing cases and diagnose ambiguity without selecting by a storage tag. |
-| Equality/hash/debug support | Explicit protocol selection and specified defaults, independent of read/write access. |
+| Equality/hash/debug support | Ordinary protocol selection, explicit concrete stdlib Eq/Hash and separate content comparison functions; interface `==` retains receiver equality, while Eq/Hash bounds require evidence. Specified Debug defaults remain independent of read/write access. |
 | Underlying identity through interface wrapping | Interface value representation and object identity semantics, retaining pinned method-table versions. |
 | Native installation and implementation validity | Exact required declaration, entry, layout and witness validation at their existing source-free owners. |
 
@@ -457,27 +457,43 @@ interfaces. SA20 retains a distinct builtin fixed-length Array and separates it
 from Vec and the List interfaces; it does not require deleting that builtin type.
 Choose representation changes only for affected concrete paths;
 operators such as indexed assignment must still select and validate the required
-write operation. Keep generic arguments invariant during this migration and
-preserve the current collection identity-based equality/hashing and one-way
-implicit parent conversions. General variance, structural collection equality,
-new downcasts and a universal object superclass are separate language decisions.
+write operation. Keep generic arguments invariant and implicit parent conversions
+one-way. General variance, new downcasts and a universal object superclass remain
+separate language decisions.
+
+The accepted target uses ordinary protocol selection. Stdlib explicitly provides
+content PartialEq/Eq/Hash for Vec, HashSet and HashMap under their declared bounds;
+object `==` remains available through List/Set/Map interfaces and follows the
+receiver's applicable equality implementation, otherwise object handles. This
+availability alone does not establish Eq/Hash bounds. Explicit library functions
+compare contents across collection implementations. Interface adaptations retain
+receiver comparison and its supplying generation; identity operators remain
+separate. Third-party collections retain their own
+ordinary object equality/hash policy rather than inheriting one from List/Set/Map.
+The [execution plan's accepted rules](collection-interface-plan.md#accepted-collection-equality-hashing-and-identity)
+own the concrete protocol matrix, helper contracts, IEEE floating-point behavior
+and hash-key stability. Builtin Array and ordinary non-collection object defaults
+remain outside this semantic change.
 
 Kotlin's [collection interfaces](https://kotlinlang.org/docs/collections-overview.html)
 provide the reference for method surfaces, parent relationships and val/var
-independence. Kotlin's List covariance and
-[element-based equality](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.collections/-list/)
-differ from Kagari's current contract; this follow-up does not silently adopt them
-or introduce Kotlin/JVM runtime representation requirements.
+independence. Its content rules inform concrete stdlib protocols and explicit
+helpers; interface object equality follows the receiver rather than a universal
+collection content contract. Kagari retains
+invariant arguments, ordinary conditional impls and IEEE float semantics without
+adopting Kotlin/JVM representation or a universal Any model.
 
 When activated, migrate the shared declarations, analysis, checked artifacts and
 runtime consumers coherently and update specifications/model documentation. Reuse
 focused contracts for read/write method and index access, shared alias visibility,
-custom implementations, generic matching, common-interface inference, equality/
-hash identity, interface dispatch and pinned reload. Adapt marker-specific tests
-while retaining meaningful source-free rejection of forged declarations/layouts/
-witnesses and host borrow/GC cleanup coverage. Measure any claimed memory or speed
-benefit. This entry records the future architectural direction only; code migration
-and specification changes remain deferred.
+custom implementations, generic matching, common-interface inference, concrete
+Eq/Hash, explicit content helpers, interface receiver comparison, object identity and
+pinned reload. Adapt marker-specific tests while retaining source-free rejection
+of forged declarations/layouts/witnesses and host borrow/GC cleanup coverage.
+Measure any claimed memory or speed benefit. The active [execution plan](collection-interface-plan.md) owns CI01-CI06
+and execution progress. Execution was authorized on 2026-10-12. The accepted
+semantic change is not yet fully implemented; current-specification updates belong
+to the plan's implementation and handoff checkpoints.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 

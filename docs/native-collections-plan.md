@@ -39,6 +39,16 @@ mutators without freezing objects or introducing borrow syntax. Map/Set interfac
 impose neither hashing nor order; HashMap/HashSet require Eq + Hash on keys/elements.
 Ordered implementations can require Ord instead.
 
+[SA18](collection-interface-plan.md#accepted-collection-equality-hashing-and-identity)
+owns explicit stdlib Eq/Hash for Vec/HashSet/HashMap and the three content comparison
+functions. Object `==` through List/Set/Map retains the receiver's applicable
+equality or object-handle default; this does not by itself establish Eq/Hash bounds.
+Valid ordinary interface calls retain selected protocol evidence. NC reuses those
+implementations and contracts while relocating storage, without changing concrete value hashes or
+reintroducing marker-based protocol privileges. Internal storage hashing remains
+NC-owned. Third-party collections retain their ordinary Eq/Hash choices. NC01
+reconciles its inventory with SA18's implementation status before migration work.
+
 Scope includes collection declarations, public native storage capabilities,
 retained checked calls, collection cursors, host collection adapters, executable
 contracts and source-free validation. Migrate affected collection paths end to end.

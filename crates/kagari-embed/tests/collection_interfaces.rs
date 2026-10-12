@@ -63,9 +63,11 @@ fn user_containers_implement_the_same_storage_independent_contracts() {
     execute(
         r#"use std::collections::{List, MutableList, Set};
 use std::iter::{CollectionCursor};
-use std::ops::{Index};
 
-struct Sequence { val items: Vec<i32> }
+mod storage {
+use std::iter::CollectionCursor;
+use std::ops::Index;
+pub struct Sequence { pub val items: Vec<i32> }
 impl Index<usize> for Sequence {
     type Output = i32;
     fn index(self, index: usize) -> i32 { self.items[index] }
@@ -75,6 +77,8 @@ impl Iterable for Sequence {
     type Iter = CollectionCursor<i32>;
     fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
 }
+}
+use self::storage::Sequence;
 impl List<i32> for Sequence {
     fn len(self) -> usize { self.items.len() }
     fn is_empty(self) -> bool { self.items.is_empty() }

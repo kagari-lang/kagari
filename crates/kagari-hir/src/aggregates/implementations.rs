@@ -103,32 +103,6 @@ impl AggregateCatalog {
         definitions: &DefinitionTable,
         implementation: &ImplementationSignature,
     ) -> Option<&'static str> {
-        if self
-            .trait_(&implementation.trait_type.declaration)
-            .is_some_and(|contract| contract.storage_access.is_some())
-        {
-            return match &implementation.for_type {
-                TypeId::NativeObject(nominal) | TypeId::Struct(nominal) | TypeId::Enum(nominal) => {
-                    (definitions
-                        .resolve(nominal.declaration)
-                        .expect("scoped nominal type")
-                        .module()
-                        != definitions
-                            .resolve(implementation.id)
-                            .expect("scoped implementation")
-                            .module())
-                    .then_some(
-                        "storage interface implementations must belong to their nominal type",
-                    )
-                }
-                TypeId::Array(_) | TypeId::Map { .. } | TypeId::Set(_, _)
-                    if implementation.engine_owned =>
-                {
-                    None
-                }
-                _ => Some("storage interface implementations require declared object storage"),
-            };
-        }
         let adapter = self
             .trait_(&implementation.trait_type.declaration)
             .and_then(|contract| contract.conversion_adapter.as_ref());
@@ -191,24 +165,26 @@ impl AggregateCatalog {
         if protocol.host_implementable() {
             return None;
         }
-        let (TypeId::NativeObject(nominal) | TypeId::Struct(nominal) | TypeId::Enum(nominal)) =
-            &implementation.for_type
-        else {
-            return (!implementation.engine_owned)
-                .then_some("language protocol implementations require a declared nominal type");
-        };
-        if definitions
-            .resolve(nominal.declaration)
-            .expect("scoped nominal type")
-            .module()
-            != definitions
-                .resolve(implementation.id)
-                .expect("scoped implementation")
-                .module()
-        {
-            return Some(
-                "standard protocol implementations must belong to the type's defining module",
-            );
+        match &implementation.for_type {
+            TypeId::NativeObject(nominal) | TypeId::Struct(nominal) | TypeId::Enum(nominal) => {
+                if definitions
+                    .resolve(nominal.declaration)
+                    .expect("scoped nominal type")
+                    .module()
+                    != definitions
+                        .resolve(implementation.id)
+                        .expect("scoped implementation")
+                        .module()
+                {
+                    return Some(
+                        "standard protocol implementations must belong to the type's defining module",
+                    );
+                }
+            }
+            _ if !implementation.engine_owned => {
+                return Some("language protocol implementations require a declared nominal type");
+            }
+            _ => {}
         }
         if !protocol.equality_protocol() {
             return None;

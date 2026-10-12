@@ -5,9 +5,9 @@ use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_contract::types::{InterfaceTable, PublicItem};
 use kagari_types::{declaration::module::ImplDecl, language, language::Protocol, ty::Ty};
 
-/// Native storage/conversion capabilities are installation facts even without calls.
-/// A portable script cannot grant itself identity/storage semantics by forging a
-/// trait record or changing an installed readonly interface into a mutable one.
+/// Installed trait identities retain their exact contracts even without calls.
+/// Ordinary uninstalled traits carry no native authority. Legacy storage and
+/// conversion capabilities still require installation until their owners migrate.
 pub(super) fn validate_installed_traits(
     installed: &DeclarationCatalog,
     module: &BytecodeModule,
@@ -23,8 +23,12 @@ pub(super) fn validate_installed_traits(
         let id = definitions.lookup_root(&module.identity).and_then(|root| {
             definitions.lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
         });
-        if (reserved || contract.storage_access.is_some() || contract.conversion_adapter.is_some())
-            && id.and_then(|id| installed.traits.get_id(id)) != Some(contract)
+        let registered = id.and_then(|id| installed.traits.get_id(id));
+        if (registered.is_some()
+            || reserved
+            || contract.storage_access.is_some()
+            || contract.conversion_adapter.is_some())
+            && registered != Some(contract)
         {
             return Err(RuntimeError::module_validation(
                 "reserved or native trait differs from its installed contract",
@@ -35,10 +39,12 @@ pub(super) fn validate_installed_traits(
         definitions
             .resolve(contract.declaration)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        if (Protocol::from_definition(&contract.declaration, &definitions).is_some()
+        let registered = installed.traits.get_id(contract.declaration);
+        if (registered.is_some()
+            || Protocol::from_definition(&contract.declaration, &definitions).is_some()
             || contract.abi.storage_access.is_some()
             || contract.abi.conversion_adapter.is_some())
-            && installed.traits.get_id(contract.declaration) != Some(&contract.abi)
+            && registered != Some(&contract.abi)
         {
             return Err(RuntimeError::module_validation(
                 "private reserved or native trait lacks an installed contract",

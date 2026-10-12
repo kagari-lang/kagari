@@ -114,8 +114,27 @@ impl Default for NativeRegistry {
 }
 
 impl NativeRegistry {
-    pub(crate) fn validate_installed_traits(&self, module: &BytecodeModule) -> NativeResult<()> {
-        dependencies::validate_installed_traits(&self.catalog, module)
+    /// Validate carried declarations before publication, including unused entries.
+    pub(crate) fn validate_installed_contracts(&self, module: &BytecodeModule) -> NativeResult<()> {
+        dependencies::validate_installed_traits(&self.catalog, module)?;
+        for declaration in &module.native_declarations {
+            let CallableImplementation::Native(binding) = declaration.function.implementation
+            else {
+                return Err(RuntimeError::module_validation(
+                    "native declaration lacks an installed binding",
+                ));
+            };
+            if self
+                .entries
+                .get_id(binding)
+                .is_none_or(|entry| !entry.declarations.contains(declaration))
+            {
+                return Err(RuntimeError::module_validation(
+                    "native declaration differs from its installed contract",
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn install(

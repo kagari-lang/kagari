@@ -5,7 +5,10 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::AssociatedTypeFamily,
+    declaration::{
+        AssociatedTypeFamily, TypeDef, TypeDefKind, native::NativeTypeConstructor,
+        ownership::ReceiverOwners,
+    },
     host_interface::{type_declaration::HostAssociatedTypeBinding, value_type::HostValueType},
     language::{self, Protocol, binding},
     scalar::BuiltinType,
@@ -198,6 +201,61 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
         catalog.holds(&marker, &scalar(), &[], &cancel),
         Err(TypeTransformError::Cancelled)
     );
+}
+
+#[test]
+fn registered_collection_equality_requires_explicit_prerequisites() {
+    let context = proof_context();
+    let cancel = CancellationToken::default();
+    let module = ModuleIdentity::single_file("proof.kgr");
+    let declaration = TypeDef {
+        name: "HashSet".into(),
+        kind: TypeDefKind::Native(NativeTypeConstructor::Set),
+        generic_params: vec![GenericParam {
+            owner: id(&context, DefinitionKind::AssociatedType, "HashSet"),
+            position: 0,
+        }],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    };
+    let owners = ReceiverOwners::from_types([(&module, &declaration)]).unwrap();
+    let receiver = Ty::Set(Box::new(scalar()), CollectionAccess::Mutable);
+    let tables = [Protocol::PartialEq, Protocol::Eq, Protocol::Hash].map(|protocol| {
+        table(
+            &context,
+            protocol.name(),
+            intrinsic::applied(protocol, vec![], &context.snapshot()).unwrap(),
+            receiver.clone(),
+        )
+    });
+    for (indices, valid) in [
+        (&[0][..], true),
+        (&[1][..], false),
+        (&[2][..], false),
+        (&[0, 2][..], false),
+        (&[0, 1, 2][..], true),
+    ] {
+        let catalog = ProofCatalog::new(
+            indices
+                .iter()
+                .map(|index| (&tables[*index]).into())
+                .collect(),
+            vec![],
+            [],
+            [],
+            [],
+            &context.snapshot(),
+            &cancel,
+        )
+        .unwrap();
+        assert_eq!(catalog.overrides_valid(&owners, &cancel).unwrap(), valid);
+        assert!(
+            !catalog
+                .overrides_valid(&Default::default(), &cancel)
+                .unwrap()
+        );
+    }
 }
 
 #[test]

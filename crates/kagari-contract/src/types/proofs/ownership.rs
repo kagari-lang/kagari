@@ -86,21 +86,6 @@ impl ProofCatalog<'_> {
         let Some(interface) = table.interface() else {
             return Ok(false);
         };
-        if self
-            .trait_contract(&interface.declaration)
-            .is_some_and(|contract| contract.storage_access.is_some())
-        {
-            return Ok(match table.receiver() {
-                Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal) => {
-                    self.module(nominal.declaration)? == self.module(*table.declaration())?
-                }
-                Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => {
-                    owners.owner(table.receiver(), &self.definitions).as_ref()
-                        == Some(self.module(*table.declaration())?)
-                }
-                _ => false,
-            });
-        }
         let adapter = self
             .trait_contract(&interface.declaration)
             .and_then(|contract| contract.conversion_adapter.as_ref());
@@ -151,13 +136,9 @@ impl ProofCatalog<'_> {
         if kind.host_implementable() {
             return Ok(true);
         }
-        let (Ty::NativeObject(nominal) | Ty::Struct(nominal) | Ty::Enum(nominal)) =
-            table.receiver()
-        else {
-            return Ok(owners.owner(table.receiver(), &self.definitions).as_ref()
-                == Some(self.module(*table.declaration())?));
-        };
-        if self.module(nominal.declaration)? != self.module(*table.declaration())? {
+        if owners.owner(table.receiver(), &self.definitions).as_ref()
+            != Some(self.module(*table.declaration())?)
+        {
             return Ok(false);
         }
         if !kind.equality_protocol() {

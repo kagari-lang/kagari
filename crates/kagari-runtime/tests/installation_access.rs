@@ -14,7 +14,14 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::HostFunction,
     module::VerifiedProgram,
-    native::{builder::ModuleBuilder, module::NativeModule},
+    native::{
+        binding::NativeResult,
+        builder::ModuleBuilder,
+        context::CallContext,
+        declarations::{FunctionDecl, MethodDecl},
+        module::NativeModule,
+        types::Type,
+    },
     session::ExecutionOptions,
     value::Value,
 };
@@ -22,7 +29,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::TraitDef,
+    declaration::{NativeDeclaration, TraitDef},
     host_interface::{HostFunctionDeclaration, value_type::HostValueType},
 };
 use std::collections::BTreeSet;
@@ -194,6 +201,155 @@ fn storage_capabilities_require_exact_installation_without_native_calls() {
     assert!(
         runtime
             .load_program("private", program(private, true))
+            .is_err()
+    );
+}
+
+#[test]
+fn ordinary_installed_traits_require_exact_contracts_without_calls() {
+    let context = DefinitionContext::new().unwrap();
+    let mut builder = ModuleBuilder::new(
+        "example::plain",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap();
+    let mut interface = builder.define_trait("Read").unwrap();
+    interface
+        .define_method(MethodDecl::instance("read").returns(Type::i32()))
+        .unwrap();
+    interface.finish().unwrap();
+    let installed = builder.finish().unwrap();
+    let declaration = installed
+        .to_declaration()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let contract = declaration.traits[0].clone();
+    let id = declaration
+        .definition(DefinitionKind::Trait, &contract.name, &context.snapshot())
+        .unwrap();
+    let program = |contract: TraitDef, private: bool| {
+        let mut module = BytecodeModule {
+            identity: declaration.identity.clone(),
+            ..Default::default()
+        };
+        if private {
+            module.trait_contracts.push(TraitContract {
+                declaration: id,
+                abi: contract,
+            });
+        } else {
+            module.public_items.push(PublicItem::Trait(contract));
+        }
+        DefinitionMetadata::checked(
+            context.snapshot(),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            },
+            &Default::default(),
+        )
+        .unwrap()
+    };
+    // A plain declaration alone has no native privilege or installation dependency.
+    let mut runtime = Runtime::default();
+    runtime
+        .load_program("plain", program(contract.clone(), false))
+        .unwrap();
+    installed.install(&mut runtime).unwrap();
+    let active = runtime
+        .load_program("registered", program(contract.clone(), false))
+        .unwrap();
+    runtime
+        .load_program("private", program(contract.clone(), true))
+        .unwrap();
+    let mut forged = contract;
+    forged.methods[0].params[0].name = "forged_receiver".into();
+    for private in [false, true] {
+        let candidate = program(forged.clone(), private);
+        VerifiedProgram::new(candidate.clone(), &context).unwrap();
+        assert!(runtime.load_program("forged", candidate.clone()).is_err());
+        assert!(
+            runtime
+                .stage_reload_program(&active, "registered", candidate)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn native_declarations_require_exact_installation_without_calls() {
+    let context = DefinitionContext::new().unwrap();
+    let mut builder = ModuleBuilder::new(
+        "example::unused",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap();
+    let function = builder
+        .define_function(FunctionDecl::new("answer").returns(Type::i32()))
+        .unwrap();
+    builder
+        .bind(function, |_: &mut CallContext<'_>| -> NativeResult<i32> {
+            panic!("declaration validation must not execute native code")
+        })
+        .unwrap();
+    let installed = builder.finish().unwrap();
+    let declaration = installed
+        .to_declaration()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let function = declaration.functions[0].clone();
+    let id = declaration
+        .definition(
+            DefinitionKind::Function,
+            &function.name,
+            &context.snapshot(),
+        )
+        .unwrap();
+    let contract = NativeDeclaration {
+        concrete_result: None,
+        declaration: id,
+        function,
+        callable_requirements: vec![],
+    };
+    let program = |contract: NativeDeclaration| {
+        DefinitionMetadata::checked(
+            context.snapshot(),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule {
+                    identity: declaration.identity.clone(),
+                    native_declarations: vec![contract],
+                    ..Default::default()
+                }],
+            },
+            &Default::default(),
+        )
+        .unwrap()
+    };
+    let mut runtime = Runtime::default();
+    VerifiedProgram::new(program(contract.clone()), &context).unwrap();
+    assert!(
+        runtime
+            .load_program("uninstalled", program(contract.clone()))
+            .is_err()
+    );
+    installed.install(&mut runtime).unwrap();
+    let active = runtime
+        .load_program("registered", program(contract.clone()))
+        .unwrap();
+    let mut forged = contract;
+    forged.function.return_type = Type::bool().abi().clone();
+    VerifiedProgram::new(program(forged.clone()), &context).unwrap();
+    assert!(
+        runtime
+            .load_program("forged", program(forged.clone()))
+            .is_err()
+    );
+    assert!(
+        runtime
+            .stage_reload_program(&active, "registered", program(forged))
             .is_err()
     );
 }
