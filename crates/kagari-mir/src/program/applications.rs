@@ -61,6 +61,13 @@ pub(super) fn validate<'a>(
     for instance in &module.interface_instances {
         validator.types(&instance.arguments)?;
         if let Some(comparison) = &instance.comparison {
+            validator.validate_type(comparison.receiver())?;
+        }
+        if let Some(comparison) = instance
+            .comparison
+            .as_ref()
+            .and_then(|comparison| comparison.selection())
+        {
             validator.bounds(&comparison.conditions)?;
             for fact in &comparison.eligibility {
                 validator.bounds(slice::from_ref(&fact.bound))?;

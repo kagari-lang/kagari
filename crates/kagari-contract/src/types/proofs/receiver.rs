@@ -1,14 +1,39 @@
 //! Authenticate conditional receiver selection without treating it as a bound.
 use crate::{
-    callable::witness::SharedMethodWitness,
+    callable::{receiver::object_receiver_may_overlap, witness::SharedMethodWitness},
     types::proofs::{Budget, ProofCatalog},
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_types::ty::{
-    GenericBound, Ty, matching::match_pattern, substitution::TypeTransformError,
+use kagari_types::{
+    language::Protocol,
+    ty::{GenericBound, Ty, matching::match_pattern, substitution::TypeTransformError},
 };
 
 impl ProofCatalog<'_> {
+    /// Prove identity for every application of this receiver template. A more
+    /// specific explicit header prevents this proof even if it does not match
+    /// the currently symbolic arguments.
+    pub fn receiver_identity_default(
+        &self,
+        receiver: &Ty,
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        let budget = Budget::new(cancel);
+        for implementation in &self.implementations {
+            budget.step(0)?;
+            let Some(pattern) = implementation.pattern() else {
+                continue;
+            };
+            if Protocol::from_definition(&pattern.interface.declaration, &self.definitions)
+                == Some(Protocol::PartialEq)
+                && object_receiver_may_overlap(pattern.receiver, receiver)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// A failed guard permits the object's default only if no other explicit
     /// implementation shape could apply. Keep this proof independent of whether
     /// a particular caller currently satisfies the guarded bounds.
@@ -29,7 +54,7 @@ impl ProofCatalog<'_> {
                 continue;
             }
             if implementation.declaration() != &selected.implementation.declaration
-                && may_share_receiver(pattern.receiver, &selected.requirement.receiver)
+                && object_receiver_may_overlap(pattern.receiver, &selected.requirement.receiver)
             {
                 // Matching one symbolic header is insufficient to prove a
                 // negative result: a more specific header could match later.
@@ -63,22 +88,5 @@ impl ProofCatalog<'_> {
             found = true;
         }
         Ok(found)
-    }
-}
-
-/// Conservative constructor overlap for a conditional comparison certificate.
-/// Rejection does not assert that an implementation is inapplicable.
-fn may_share_receiver(left: &Ty, right: &Ty) -> bool {
-    match (left, right) {
-        (Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Projection { .. }, _)
-        | (_, Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Projection { .. }) => true,
-        (Ty::Struct(left), Ty::Struct(right))
-        | (Ty::NativeObject(left), Ty::NativeObject(right)) => {
-            left.declaration == right.declaration
-        }
-        (Ty::Array(_), Ty::Array(_)) => true,
-        (Ty::Map { access: left, .. }, Ty::Map { access: right, .. })
-        | (Ty::Set(_, left), Ty::Set(_, right)) => left == right,
-        _ => false,
     }
 }

@@ -124,6 +124,7 @@ impl MirModule {
                 instance
                     .comparison
                     .as_ref()
+                    .and_then(|comparison| comparison.selection())
                     .map(|comparison| &comparison.operation)
             }))
             .flat_map(OperationWitness::walk)

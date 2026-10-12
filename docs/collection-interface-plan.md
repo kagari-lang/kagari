@@ -8,7 +8,7 @@ GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-13)
 
-Resume from the CI03 conditional eligibility checkpoint; the progress ledger below
+Resume from the CI03 generic identity-default checkpoint; the progress ledger below
 owns completed changes and their validation evidence. CI01-CI02 are complete and
 CI03 remains active. CI04 has implementation checkpoints but still needs its phase
 acceptance audit; CI05 marker removal and CI06 documentation/final acceptance remain
@@ -26,11 +26,20 @@ retain their checked bound operations even if the selected method body ignores t
 Tuple composition uses the verified shared adapter and exact component operations.
 Comparison-only evidence does not become an ordinary interface capability.
 
+Generic objects with no potentially applicable explicit PartialEq implementation
+now carry an independently verified identity-default certificate for their entire
+receiver template. A mixed-generation generic Bag with no explicit equality now
+compares aliases equal and distinct objects unequal without a closed-view scan.
+This is an internal comparison selection, not a public Object bound or a new trait
+capability.
+
 The next step is to finish the optional-binding coverage audit and retire the
 superseded whole closed-view comparison scan in
-[receiver comparison binding](../crates/kagari-runtime/src/objects/comparison.rs). In
-particular, audit generic objects with no explicit comparison implementation and
-receiver headers specialized to particular type arguments; do not infer a default
+[receiver comparison binding](../crates/kagari-runtime/src/objects/comparison.rs).
+Receiver headers specialized to particular type arguments still need an execution
+audit. The current constructor-overlap proof conservatively refuses an unconditional
+default for such a receiver, even if a particular closed application is ineligible;
+those applications still use selected operation records. Do not infer a default
 from a failed lookup or an unknown condition. The compiler currently emits outcomes
 for demanded candidate implementation bounds, not a blanket protocol dictionary.
 Keep source/contract selection independent from runtime binding to supplying
@@ -1911,3 +1920,52 @@ new re-exports, production globs, deep parent paths, visibility bridges or mixed
 runtime/source policy. Temporary diagnostics were removed. Complete workspace and
 backend validation remains CI-owned and unrun; no currently failing case remains in
 this selected scope.
+
+
+CI03 generic identity-default checkpoint resolves the next whole-view lookup gap.
+The enabled reload fixture uses Bag<(old Local, new Item)> with no explicit Bag
+PartialEq implementation. It initially passed in the old caller but trapped in the
+new one with "interface receiver does not support object comparison". The fixture
+now passes after artifact encode/decode, reload and forced GC, including alias
+identity, distinct-object inequality and generation release. The shared Bag source
+fixture was extracted for reuse with the existing conditional-selection cases.
+
+ReceiverComparison is now an explicit Identity(receiver) or Selected(record)
+contract. The latter owns the prior operation, guards and closed eligibility facts.
+An identity certificate is legal only for an object receiver equal to the table's
+receiver, with in-scope parameters and no potentially overlapping PartialEq header.
+The existing conservative constructor-overlap predicate is shared between compiler
+selection and executable proof; it also continues to authenticate guarded fallback.
+This admits an unconditional generic default without manufacturing an executable
+method, weakening value identity rules or searching runtime implementation headers.
+The runtime consumes this certificate directly and retains its original receiver
+and environment. Selected comparison consumers, wire records, definition mapping,
+MIR/bytecode applications and artifact limits now explicitly handle both variants.
+No compatibility reader or version bump was added.
+
+Source-free evidence coverage rejects a value receiver masquerading as an identity
+certificate, replacement of a guarded explicit comparison by an unconditional
+default, and a purported uniform default for a receiver constructor with a specialized
+PartialEq header. The latter is deliberately conservative: it does not establish
+that every closed application needs that explicit implementation. Execution for
+specialized receiver headers and final retirement of the closed-view scan remain
+CI03 work; CI04's audit, marker removal and documentation handoff remain open.
+
+
+This checkpoint's selected validation passed five cases: generic_reload's new
+shared_collection_comparison_preserves_generic_identity_default, existing
+shared_collection_comparison_retains_a_generic_receiver_selection and
+shared_collection_comparison_preserves_ineligible_content_identity; and
+collection_interfaces' receiver_identity_default_requires_a_uniform_object_template
+and receiver_comparison_evidence_is_checked_without_source. The reload selections
+exercise the new direct default and both existing Selected branches after the enum
+migration; the proof selections cover wire remapping, forged defaults and existing
+guard/fact tampering. Contract/compiler/runtime library Clippy, focused compiler/
+runtime Cargo check, structure, formatting and diff checks passed. Structure checked
+1111 Rust files with no violations or exceptions. Initial compilation required
+correcting the new portable variant's type codec name to the existing WireType;
+there are no carried compilation errors or failing cases in this selected scope.
+Manual review checked variant handling at every consumer, metadata tracing,
+application validation, definition traversal and bounded decoding. No re-export,
+production glob, deep parent path, compatibility bridge or permission surface was
+introduced. Complete workspace/backend validation remains CI-owned and unrun.

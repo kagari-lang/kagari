@@ -3,7 +3,10 @@ use crate::source::lower::{MirLoweringError, abi::checked_bounds, instances::Ins
 use kagari_common::{identity::DefinitionKind, span::Span};
 use kagari_contract::{
     callable::{
-        receiver::{ReceiverComparison, ReceiverEligibility, object_receiver},
+        receiver::{
+            ReceiverComparison, ReceiverEligibility, ReceiverSelection, object_receiver,
+            object_receiver_may_overlap,
+        },
         witness::{OperationWitness, SharedMethodWitness},
     },
     types::ConcreteFunctionIdentity,
@@ -66,7 +69,23 @@ impl InstancePlanner<'_> {
         let candidate = self.receiver_conditions(&required)?;
         let conditions = if conditional {
             let Some(conditions) = candidate.as_ref() else {
-                return Ok(None);
+                // Constructor overlap is deliberately conservative: an explicit
+                // Bag<i32> header rules out an unconditional Bag<T> default.
+                for implementation in self.catalog.implementations() {
+                    self.check()?;
+                    if Protocol::from_definition(
+                        &implementation.trait_type.declaration,
+                        &definitions,
+                    ) == Some(Protocol::PartialEq)
+                        && object_receiver_may_overlap(
+                            &self.encode_type(&implementation.for_type),
+                            &required.receiver,
+                        )
+                    {
+                        return Ok(None);
+                    }
+                }
+                return Ok(Some(ReceiverComparison::Identity(required.receiver)));
             };
             conditions.clone()
         } else {
@@ -83,11 +102,11 @@ impl InstancePlanner<'_> {
         if matches!(operation, OperationWitness::Forward(_)) {
             return Ok(None);
         }
-        Ok(Some(ReceiverComparison {
+        Ok(Some(ReceiverComparison::Selected(ReceiverSelection {
             operation,
             conditions,
             eligibility,
-        }))
+        })))
     }
 
     fn receiver_operation(

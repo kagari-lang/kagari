@@ -86,6 +86,13 @@ pub(super) fn validate(
     for table in &module.interface_tables {
         validator.types(&table.arguments)?;
         if let Some(comparison) = &table.comparison {
+            validator.validate_type(comparison.receiver())?;
+        }
+        if let Some(comparison) = table
+            .comparison
+            .as_ref()
+            .and_then(|comparison| comparison.selection())
+        {
             validator.bounds(&comparison.conditions)?;
             for fact in &comparison.eligibility {
                 validator.bounds(slice::from_ref(&fact.bound))?;

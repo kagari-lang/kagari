@@ -3,7 +3,7 @@ use crate::{
     callable::{
         generic::GenericBody,
         interface::{InterfaceCallContract, TypeNormalization},
-        receiver::{InterfaceInstance, ReceiverComparison, ReceiverEligibility},
+        receiver::{InterfaceInstance, ReceiverComparison, ReceiverEligibility, ReceiverSelection},
         shared::SharedCall,
         witness::{OperationWitness, SharedMethodWitness},
     },
@@ -354,9 +354,48 @@ impl TypeNormalizationRecord {
     }
 }
 
+/// Portable receiver comparison; loading authenticates either selection.
+#[derive(Serialize, Deserialize)]
+pub enum ReceiverComparisonRecord {
+    Identity(WireType),
+    Selected(ReceiverSelectionRecord),
+}
+
+impl ReceiverComparisonRecord {
+    pub fn encode(
+        value: &ReceiverComparison,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(match value {
+            ReceiverComparison::Identity(receiver) => {
+                Self::Identity(WireType::encode(receiver, encoding, cancel)?)
+            }
+            ReceiverComparison::Selected(selected) => {
+                Self::Selected(ReceiverSelectionRecord::encode(selected, encoding, cancel)?)
+            }
+        })
+    }
+
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<ReceiverComparison, DefinitionMappingError> {
+        Ok(match self {
+            Self::Identity(receiver) => {
+                ReceiverComparison::Identity(receiver.decode(decoding, cancel)?)
+            }
+            Self::Selected(selected) => {
+                ReceiverComparison::Selected(selected.decode(decoding, cancel)?)
+            }
+        })
+    }
+}
+
 /// Portable receiver selection. Loading must recheck the carried operation.
 #[derive(Serialize, Deserialize)]
-pub struct ReceiverComparisonRecord {
+pub struct ReceiverSelectionRecord {
     operation: OperationWitnessRecord,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     conditions: Vec<GenericBoundRecord>,
@@ -370,9 +409,9 @@ struct ReceiverEligibilityRecord {
     satisfied: bool,
 }
 
-impl ReceiverComparisonRecord {
+impl ReceiverSelectionRecord {
     pub fn encode(
-        value: &ReceiverComparison,
+        value: &ReceiverSelection,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
     ) -> Result<Self, DefinitionMappingError> {
@@ -400,8 +439,8 @@ impl ReceiverComparisonRecord {
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
-    ) -> Result<ReceiverComparison, DefinitionMappingError> {
-        Ok(ReceiverComparison {
+    ) -> Result<ReceiverSelection, DefinitionMappingError> {
+        Ok(ReceiverSelection {
             operation: self.operation.decode(decoding, cancel)?,
             conditions: self
                 .conditions

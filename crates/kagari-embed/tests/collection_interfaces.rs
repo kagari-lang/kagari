@@ -9,7 +9,7 @@ use kagari_bytecode::{
     program::{identity, verify_program},
 };
 use kagari_common::identity::map::DefinitionContext;
-use kagari_contract::callable::witness::OperationWitness;
+use kagari_contract::callable::{receiver::ReceiverComparison, witness::OperationWitness};
 use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     error::EmbeddingError,
@@ -535,6 +535,58 @@ fn main() -> i32 {
 }
 
 #[test]
+fn receiver_identity_default_requires_a_uniform_object_template() {
+    let engine = KagariEngine::default();
+    let source = r#"
+trait View {}
+struct Bag<T> { val value: T }
+impl<T> View for Bag<T> {}
+trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
+impl Boxer for i32 {}
+fn main() -> View { val boxer: Boxer = 0; boxer.one(true) }
+"#;
+    for specialized in [false, true] {
+        let source = if specialized {
+            format!(
+                "{source}\nimpl PartialEq for Bag<i32> {{ fn eq(self, other: Self) -> bool {{ true }} }}"
+            )
+        } else {
+            source.to_owned()
+        };
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("identity-proof.kgr", source),
+                Default::default(),
+            )
+            .unwrap();
+        let context = DefinitionContext::new().unwrap();
+        let artifact = artifact
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+        let mut program = artifact.program.clone();
+        let comparison = program.modules.iter_mut()
+            .flat_map(|module| &mut module.interface_tables)
+            .filter_map(|table| table.comparison.as_mut())
+            .find(|comparison| if specialized {
+                matches!(comparison.receiver(), Ty::Struct(nominal) if nominal.arguments == [Ty::Builtin(BuiltinType::Bool)])
+            } else {
+                matches!(comparison, ReceiverComparison::Identity(_))
+            })
+            .expect("default receiver comparison");
+        *comparison = ReceiverComparison::Identity(if specialized {
+            comparison.receiver().clone()
+        } else {
+            Ty::Builtin(BuiltinType::I32)
+        });
+        assert!(
+            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            "identity certificates require an object template without a potentially applicable explicit implementation"
+        );
+    }
+}
+
+#[test]
 fn receiver_comparison_evidence_is_checked_without_source() {
     let engine = KagariEngine::default();
     for (source, symbolic, conditional) in [
@@ -609,7 +661,7 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                 .iter_mut()
                 .flat_map(|module| &mut module.interface_tables)
             {
-                let Some(comparison) = &mut table.comparison else {
+                let Some(ReceiverComparison::Selected(comparison)) = &mut table.comparison else {
                     continue;
                 };
                 if comparison.operation.requirement().receiver.is_concrete() == symbolic {
@@ -668,13 +720,33 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
             );
         }
         if conditional {
+            let mut program = artifact.program.clone();
+            let comparison = program
+                .modules
+                .iter_mut()
+                .flat_map(|module| &mut module.interface_tables)
+                .filter_map(|table| table.comparison.as_mut())
+                .find(|comparison| {
+                    comparison
+                        .selection()
+                        .is_some_and(|selected| !selected.conditions.is_empty())
+                })
+                .expect("guarded receiver selection");
+            *comparison = ReceiverComparison::Identity(comparison.receiver().clone());
+            assert!(
+                KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+                "an explicit conditional implementation forbids an unconditional identity certificate"
+            );
             for mutation in 0..4 {
                 let mut program = artifact.program.clone();
                 let comparison = program
                     .modules
                     .iter_mut()
                     .flat_map(|module| &mut module.interface_tables)
-                    .filter_map(|table| table.comparison.as_mut())
+                    .filter_map(|table| match table.comparison.as_mut()? {
+                        ReceiverComparison::Selected(comparison) => Some(comparison),
+                        ReceiverComparison::Identity(_) => None,
+                    })
                     .find(|comparison| !comparison.conditions.is_empty())
                     .expect("conditional comparison guard");
                 match mutation {
@@ -695,7 +767,10 @@ fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
                         .modules
                         .iter_mut()
                         .flat_map(|module| &mut module.interface_tables)
-                        .filter_map(|table| table.comparison.as_mut())
+                        .filter_map(|table| match table.comparison.as_mut()? {
+                            ReceiverComparison::Selected(comparison) => Some(comparison),
+                            ReceiverComparison::Identity(_) => None,
+                        })
                         .find(|comparison| {
                             comparison
                                 .eligibility

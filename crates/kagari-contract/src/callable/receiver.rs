@@ -13,18 +13,87 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::verify::native_bounds_valid,
+    declaration::verify::{native_bounds_valid, types_in_scope},
     language::Protocol,
     ty::{GenericBound, GenericParam, Ty, substitution::TypeTransformError},
 };
 use std::slice;
+
+/// Receiver comparison retained independently of an interface's public bounds.
+/// Identity is an authenticated default for the entire receiver template; it is
+/// not inferred from an unavailable operation or an unsatisfied caller bound.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ReceiverComparison {
+    Identity(Ty),
+    Selected(ReceiverSelection),
+}
+
+impl ReceiverComparison {
+    pub fn receiver(&self) -> &Ty {
+        match self {
+            Self::Identity(receiver) => receiver,
+            Self::Selected(selected) => &selected.operation.requirement().receiver,
+        }
+    }
+
+    pub fn selection(&self) -> Option<&ReceiverSelection> {
+        match self {
+            Self::Identity(_) => None,
+            Self::Selected(selected) => Some(selected),
+        }
+    }
+
+    pub fn valid(
+        &self,
+        receiver: &Ty,
+        catalog: &ProofCatalog<'_>,
+        parameters: &[GenericParam],
+        assumptions: &[GenericBound],
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        match self {
+            Self::Identity(selected) => Ok(selected == receiver
+                && object_receiver(receiver)
+                && types_in_scope([receiver], parameters, cancel, catalog.definitions())
+                && catalog.receiver_identity_default(receiver, cancel)?),
+            Self::Selected(selected) => {
+                selected.valid(receiver, catalog, parameters, assumptions, cancel)
+            }
+        }
+    }
+}
+
+impl RemapDefinitions for ReceiverComparison {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(match self {
+            Self::Identity(receiver) => Self::Identity(receiver.remap_definitions(mapper)?),
+            Self::Selected(selected) => Self::Selected(selected.remap_definitions(mapper)?),
+        })
+    }
+}
+
+impl DefinitionReferences for ReceiverComparison {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        match self {
+            Self::Identity(receiver) => receiver.visit_definition_ids(visit, cancel),
+            Self::Selected(selected) => selected.visit_definition_ids(visit, cancel),
+        }
+    }
+}
 
 /// A selected object comparison, separate from the boxed interface's bounds.
 /// For `val xs: List<i32> = vec`, this carries Vec<i32>'s selected PartialEq
 /// operation. It grants neither Eq nor Hash to List<i32>. Both operands must be
 /// checked against the retained receiver before invoking the operation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReceiverComparison {
+pub struct ReceiverSelection {
     pub operation: OperationWitness,
     /// Exact applicability bounds of a unique explicit receiver implementation.
     /// Empty means unconditional under the interface construction assumptions.
@@ -44,7 +113,7 @@ pub struct ReceiverEligibility {
     pub satisfied: bool,
 }
 
-impl ReceiverComparison {
+impl ReceiverSelection {
     /// Recheck the receiver, canonical equality member and selected operation.
     /// This authenticates selection only; the executable owner must also check
     /// its target and the runtime must retain that owner's generation.
@@ -142,7 +211,7 @@ impl InterfaceInstance {
     }
 }
 
-impl RemapDefinitions for ReceiverComparison {
+impl RemapDefinitions for ReceiverSelection {
     fn remap_definitions(
         &self,
         mapper: &mut DefinitionMapper<'_>,
@@ -168,7 +237,7 @@ impl RemapDefinitions for ReceiverComparison {
     }
 }
 
-impl DefinitionReferences for ReceiverComparison {
+impl DefinitionReferences for ReceiverSelection {
     fn visit_definition_ids(
         &self,
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
@@ -215,5 +284,22 @@ impl DefinitionReferences for InterfaceInstance {
             comparison.visit_definition_ids(visit, cancel)?;
         }
         Ok(())
+    }
+}
+
+/// Conservative constructor overlap for a conditional comparison certificate.
+/// Rejection does not assert that an implementation is inapplicable.
+pub fn object_receiver_may_overlap(left: &Ty, right: &Ty) -> bool {
+    match (left, right) {
+        (Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Projection { .. }, _)
+        | (_, Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Projection { .. }) => true,
+        (Ty::Struct(left), Ty::Struct(right))
+        | (Ty::NativeObject(left), Ty::NativeObject(right)) => {
+            left.declaration == right.declaration
+        }
+        (Ty::Array(_), Ty::Array(_)) => true,
+        (Ty::Map { access: left, .. }, Ty::Map { access: right, .. })
+        | (Ty::Set(_, left), Ty::Set(_, right)) => left == right,
+        _ => false,
     }
 }

@@ -9,7 +9,10 @@ use crate::{
     value::Value,
     value_semantics,
 };
-use kagari_contract::callable::{receiver::object_receiver, witness::OperationWitness};
+use kagari_contract::callable::{
+    receiver::{ReceiverComparison, object_receiver},
+    witness::OperationWitness,
+};
 use kagari_types::ty::Ty;
 use std::slice;
 
@@ -35,9 +38,16 @@ impl Runtime {
             return Ok(None);
         }
         let identity = receiver.identity(&binding.owner).ok_or_else(invalid)?;
+        if matches!(
+            binding.owner.bytecode.interface_tables[binding.table].comparison,
+            Some(ReceiverComparison::Identity(_))
+        ) {
+            return Ok(Some(ReceiverComparisonBinding::Identity));
+        }
         if binding.owner.bytecode.interface_tables[binding.table]
             .comparison
             .as_ref()
+            .and_then(|comparison| comparison.selection())
             .is_some_and(|comparison| {
                 comparison.conditions.is_empty()
                     && matches!(comparison.operation, OperationWitness::SharedMethod(_))
@@ -85,7 +95,11 @@ impl Runtime {
                 if table.declaration != declaration || table.arguments != arguments {
                     continue;
                 }
-                let Some(comparison) = &table.comparison else {
+                let Some(comparison) = table
+                    .comparison
+                    .as_ref()
+                    .and_then(|comparison| comparison.selection())
+                else {
                     continue;
                 };
                 if !comparison.conditions.is_empty() {
@@ -173,7 +187,7 @@ impl Runtime {
             .bytecode
             .interface_tables
             .get(binding.table)
-            .and_then(|table| table.comparison.as_ref())
+            .and_then(|table| table.comparison.as_ref()?.selection())
             .ok_or_else(invalid)?;
         let operations = self.bind_operations_in(
             &binding.owner,

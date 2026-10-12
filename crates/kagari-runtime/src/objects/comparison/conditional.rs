@@ -25,7 +25,10 @@ impl Runtime {
         binding: &InterfaceResultBinding,
         scopes: &[LoadedModule],
     ) -> Result<Option<ReceiverComparisonBinding>, RuntimeError> {
-        let Some(comparison) = &binding.owner.bytecode.interface_tables[binding.table].comparison
+        let Some(comparison) = binding.owner.bytecode.interface_tables[binding.table]
+            .comparison
+            .as_ref()
+            .and_then(|comparison| comparison.selection())
         else {
             return Ok(None);
         };
@@ -153,7 +156,7 @@ impl ComparisonEvidence<'_> {
                     .bytecode
                     .interface_tables
                     .iter()
-                    .filter_map(|table| table.comparison.as_ref())
+                    .filter_map(|table| table.comparison.as_ref()?.selection())
                     .flat_map(|comparison| &comparison.eligibility)
                 {
                     self.step(depth)?;
@@ -314,7 +317,7 @@ impl ComparisonEvidence<'_> {
                             .interface_tables
                             .iter()
                             .filter(|table| table.arguments.iter().all(Ty::is_concrete))
-                            .filter_map(|table| table.comparison.as_ref())
+                            .filter_map(|table| table.comparison.as_ref()?.selection())
                             .filter(|comparison| comparison.conditions.is_empty())
                             .map(|comparison| &comparison.operation),
                     );

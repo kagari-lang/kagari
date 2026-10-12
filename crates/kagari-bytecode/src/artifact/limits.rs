@@ -129,7 +129,10 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         }
     }
     for table in &module.interface_tables {
-        if let Some(comparison) = &table.comparison
+        if let Some(comparison) = table
+            .comparison
+            .as_ref()
+            .and_then(|comparison| comparison.selection())
             && (!add_operations(slice::from_ref(&comparison.operation), &mut add)
                 || !add(comparison.conditions.len())
                 || !add_abi_bounds(&comparison.conditions, &mut add)
@@ -391,6 +394,12 @@ pub(super) fn module_abi_type_limit(
         })
         && module.interface_tables.iter().all(|table| {
             table.comparison.as_ref().is_none_or(|comparison| {
+                if !valid(comparison.receiver()) {
+                    return false;
+                }
+                let Some(comparison) = comparison.selection() else {
+                    return true;
+                };
                 bounds_type_limit(&comparison.conditions)
                     && comparison
                         .eligibility

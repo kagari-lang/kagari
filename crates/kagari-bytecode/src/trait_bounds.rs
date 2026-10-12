@@ -545,8 +545,9 @@ fn linked_bounds_match(
                 &parameters,
                 &table.bounds,
                 &cancel,
-            )? || !callables::witness_valid(&comparison.operation, closure, definitions)
-            {
+            )? || comparison.selection().is_some_and(|selected| {
+                !callables::witness_valid(&selected.operation, closure, definitions)
+            }) {
                 return Ok(false);
             }
         }
