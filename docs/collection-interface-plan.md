@@ -1383,3 +1383,65 @@ and failing; they are not counted as passes. Runtime library Clippy, structure
 checks passed. Structural review found no new public API, re-export, cache or
 runtime selection path. Full workspace and exhaustive backend checks remain CI-owned
 and unrun; CI03 and the overall goal remain incomplete.
+
+CI03 shared receiver operation checkpoint: SharedMethod witnesses now also select
+an ordinary non-generic member on a receiver that contains caller binders, when
+the source catalog proves that implementation without additional assumptions.
+For example, an unconditional PartialEq implementation for Holder<T> can supply
+the operation to same(Holder<T>, Holder<T>) inside a shared generic body. Previously
+lowering emitted Forward even though the caller had no such bound, producing
+InvalidGraph. Source-free proof now checks the ordinary member signature and
+eligibility in the actual parameter/assumption scope, then checks the exact selected
+implementation, substitutions and bounds through the existing table contract.
+The existing generic-member path and wire representation remain in use.
+
+Executing that reproduction exposed a second error: generic == lowering emitted
+primitive value equality instead of invoking the already supplied PartialEq
+operation. Generic protocol lowering now emits the ordinary checked constrained
+member call. Concrete and erased-interface paths retain their existing selection
+rules. The shared-call fixture passes with distinct integer and string arguments;
+ordinary source, decoded artifact and ArtifactJit routes preserve the explicit
+Holder equality instead of object identity.
+
+Interface construction can retain the same proven shared selection. A generic
+Bag<T> with unconditional PartialEq, constructed by an old factory with an old
+Local/new Item tuple parameter, now compares using the retained old Bag operation.
+The enabled shared_collection_comparison_retains_a_generic_receiver_selection case
+first reproduced the missing-comparison trap and now passes, including forced GC
+and old-generation release checks. MIR and bytecode verification retain the
+template's parameter scope separately from its instantiated contract; instantiation
+removes declaration binders and must not erase the scope of symbolic arguments.
+Runtime construction uses this verified selection's existing environment directly;
+comparison resolves its operation requirement in that environment before lookup.
+It does not search for implementations or invoke an incompatible closed target.
+
+The two enabled Vec<(old Local, new Item)> failures remain owned by CI03: Vec's
+conditional element bound and the tuple's component operations still require
+checked structural composition. Unconstrained templates do not receive fabricated
+Forward operations or premature identity defaults. This checkpoint supplies the
+shared receiver foundation, not complete mixed-generation conditional comparison.
+
+Selected validation passed 11 distinct cases: five default_methods cases (shared
+receiver comparison, generic shared member/override, bounded helper forwarding,
+method-local bound operations and forged selections); three collection_interfaces
+cases (concrete content/helpers, nested/float content, source-free receiver
+comparison evidence); and three generic_reload cases (the new shared receiver,
+retained nominal caller and new primitive application). The receiver evidence
+matrix now separately targets shared selections, including out-of-scope binders,
+without relying on an unrelated malformed concrete witness for rejection.
+The expanded shared-method target-removal mutation initially removed no table
+because application binders differ from canonical table binders; it now asserts
+that the named implementation exists and removes its tables before checking
+rejection. All original rejection cases remain exercised.
+
+After changing receiver selection, the two compound Vec cases were rerun with
+the nominal/primitive generation regressions: two passed and the same two failed
+with "interface receiver does not support object comparison". Those failures
+remain enabled and are not counted as passing. Temporary verifier diagnostics
+were removed. Scoped contract/compiler/MIR/bytecode/runtime library Clippy,
+structure (1102 Rust files, zero violations/exceptions), formatting, plan links
+and diff checks passed. Structural review keeps selection at source, eligibility
+and scope proof at the contract owner, and binding at the existing runtime call
+owner. No new witness variant, cache, public re-export, wire revision or runtime
+trait search was added. Exhaustive workspace/backend coverage remains CI-owned
+and unrun; CI03 and CI05-CI06 remain open.

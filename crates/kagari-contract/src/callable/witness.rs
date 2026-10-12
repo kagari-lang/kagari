@@ -34,8 +34,8 @@ pub enum OperationWitness {
     Forward(Box<NativeCallableRequirement>),
 }
 
-/// Select the implementation table once; method-local arguments are supplied by
-/// each checked call into that table's shared entry.
+/// Select the implementation table once, retaining caller-scoped receiver arguments.
+/// Any method-local arguments are supplied by each checked call into the shared entry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedMethodWitness {
     pub requirement: NativeCallableRequirement,

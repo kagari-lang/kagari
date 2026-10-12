@@ -66,34 +66,30 @@ struct OperationScope<'a> {
     environment: Option<TypeEnvironment>,
 }
 
-impl OperationScope<'_> {
-    fn resolve(&self, ty: &Ty) -> Result<Ty, RuntimeError> {
+pub(super) fn resolve_requirement(
+    environment: Option<&TypeEnvironment>,
+    required: &NativeCallableRequirement,
+) -> Result<NativeCallableRequirement, RuntimeError> {
+    let resolve = |ty: &Ty| {
         if ty.is_concrete() {
             return Ok(ty.clone());
         }
-        self.environment
-            .as_ref()
+        environment
             .ok_or_else(|| RuntimeError::module_validation("missing generic call environment"))?
             .types
             .resolve(ty)
-    }
-}
-
-fn resolve_requirement(
-    scope: &OperationScope<'_>,
-    required: &NativeCallableRequirement,
-) -> Result<NativeCallableRequirement, RuntimeError> {
-    let Ty::Trait(interface) = scope.resolve(&Ty::Trait(required.interface.clone()))? else {
+    };
+    let Ty::Trait(interface) = resolve(&Ty::Trait(required.interface.clone()))? else {
         return Err(RuntimeError::module_validation("constraint interface type"));
     };
     Ok(NativeCallableRequirement {
-        receiver: scope.resolve(&required.receiver)?,
+        receiver: resolve(&required.receiver)?,
         interface,
         member: required.member,
         arguments: required
             .arguments
             .iter()
-            .map(|ty| scope.resolve(ty))
+            .map(resolve)
             .collect::<Result<_, _>>()?,
     })
 }
@@ -173,7 +169,7 @@ impl Runtime {
                     self.bind_shared_method(&scope, selected)?
                 }
                 OperationWitness::Forward(required) => {
-                    let required = resolve_requirement(&scope, required)?;
+                    let required = resolve_requirement(scope.environment.as_ref(), required)?;
                     scope
                         .environment
                         .as_ref()
@@ -310,7 +306,7 @@ impl Runtime {
             &selected.implementation,
             scope.environment.clone(),
         )?;
-        let required = resolve_requirement(scope, &selected.requirement)?;
+        let required = resolve_requirement(scope.environment.as_ref(), &selected.requirement)?;
         let group = self.bind_table_operations(&binding)?;
         self.gc
             .operation_group(group)

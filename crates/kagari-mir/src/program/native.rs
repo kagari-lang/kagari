@@ -96,12 +96,19 @@ pub(super) fn validate(
         let Some(comparison) = &instance.comparison else {
             continue;
         };
-        let Some(table) = closure
+        let Some((table, parameters)) = closure
             .iter()
             .flat_map(|module| &module.abi.public_items)
             .find_map(|item| match item {
                 PublicItem::InterfaceTable(table) if table.declaration == instance.declaration => {
-                    table.instantiate(&instance.arguments, &table.generic_params, definitions)
+                    let parameters = if instance.arguments.iter().any(|ty| !ty.is_concrete()) {
+                        table.generic_params.clone()
+                    } else {
+                        vec![]
+                    };
+                    table
+                        .instantiate(&instance.arguments, &parameters, definitions)
+                        .map(|table| (table, parameters))
                 }
                 _ => None,
             })
@@ -111,7 +118,7 @@ pub(super) fn validate(
         if !comparison.valid(
             &table.for_type,
             &catalog,
-            &table.generic_params,
+            &parameters,
             &table.bounds,
             cancel,
         )? {

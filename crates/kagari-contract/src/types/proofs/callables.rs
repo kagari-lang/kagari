@@ -1,6 +1,6 @@
 //! Recheck a concrete trait-member selection against carried implementation facts.
 use crate::{
-    callable::witness::{SharedMethodWitness, is_generic_member},
+    callable::witness::{SharedMethodWitness, is_generic_member, requirement_signature_in_scope},
     effects::EffectSet,
     native_import::{
         callables::{NativeCallableApplication, NativeCallableOrigin},
@@ -76,7 +76,10 @@ impl ProofCatalog<'_> {
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let required = &selected.requirement;
-        if !is_generic_member(required, self) {
+        if !is_generic_member(required, self)
+            && requirement_signature_in_scope(required, self, parameters, assumptions, cancel)?
+                .is_none()
+        {
             return Ok(false);
         }
         let Some(table) = self
@@ -130,8 +133,7 @@ impl ProofCatalog<'_> {
                 cancel,
             )?
             .is_some_and(|method| {
-                !method.generic_params.is_empty()
-                    && !matches!(method.implementation, CallableImplementation::Required)
+                !matches!(method.implementation, CallableImplementation::Required)
             }))
     }
 

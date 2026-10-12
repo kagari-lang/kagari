@@ -510,9 +510,27 @@ fn main() -> i32 {
 #[test]
 fn receiver_comparison_evidence_is_checked_without_source() {
     let engine = KagariEngine::default();
-    for source in [
-        "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }",
-        "use std::collections::List; trait Boxer {fn one<T>(self, value: T) -> List<T> {Vec::from([value])}} impl Boxer for i32 {} fn main() -> bool {val boxer: Boxer = 0; boxer.one(1) == boxer.one(1)}",
+    for (source, shared) in [
+        (
+            "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }",
+            false,
+        ),
+        (
+            "use std::collections::List; trait Boxer {fn one<T>(self, value: T) -> List<T> {Vec::from([value])}} impl Boxer for i32 {} fn main() -> bool {val boxer: Boxer = 0; boxer.one(1) == boxer.one(1)}",
+            false,
+        ),
+        (
+            r#"
+trait View {}
+struct Bag<T> { val value: T }
+impl<T> PartialEq for Bag<T> { fn eq(self, other: Self) -> bool { true } }
+impl<T> View for Bag<T> {}
+trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
+impl Boxer for i32 {}
+fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
+"#,
+            true,
+        ),
     ] {
         let artifact = engine
             .compile_to_artifact(
@@ -531,8 +549,11 @@ fn receiver_comparison_evidence_is_checked_without_source() {
         )
         .unwrap();
         verify_program(&artifact.program, &definitions).unwrap();
-        for mutation in 0..4 {
+        // Generic templates may omit comparison pending closed demands. When a
+        // shared selection is present, its scoped claim must still be checked.
+        for mutation in if shared { 1..5 } else { 0..4 } {
             let mut program = artifact.program.clone();
+            let mut changed = false;
             for table in program
                 .modules
                 .iter_mut()
@@ -541,27 +562,52 @@ fn receiver_comparison_evidence_is_checked_without_source() {
                 let Some(comparison) = &mut table.comparison else {
                     continue;
                 };
+                if matches!(comparison.operation, OperationWitness::SharedMethod(_)) != shared {
+                    continue;
+                }
+                changed = true;
                 match mutation {
                     0 => table.comparison = None,
                     1 => {
-                        let OperationWitness::Selected(call) = &mut comparison.operation else {
-                            panic!("concrete selection");
+                        let required = match &mut comparison.operation {
+                            OperationWitness::Selected(call) => &mut call.requirement,
+                            OperationWitness::SharedMethod(call) => &mut call.requirement,
+                            OperationWitness::Forward(_) => panic!("selected comparison"),
                         };
-                        call.requirement.receiver = Ty::Builtin(BuiltinType::I32);
+                        required.receiver = Ty::Builtin(BuiltinType::I32);
                     }
-                    2 => {
-                        let OperationWitness::Selected(call) = &mut comparison.operation else {
-                            panic!("concrete selection");
-                        };
-                        call.signature.result = Ty::Builtin(BuiltinType::I32);
-                    }
-                    _ => {
+                    2 => match &mut comparison.operation {
+                        OperationWitness::Selected(call) => {
+                            call.signature.result = Ty::Builtin(BuiltinType::I32);
+                        }
+                        OperationWitness::SharedMethod(call) => {
+                            call.implementation
+                                .arguments
+                                .push(Ty::Builtin(BuiltinType::I32));
+                        }
+                        OperationWitness::Forward(_) => panic!("selected comparison"),
+                    },
+                    3 => {
                         comparison.operation = OperationWitness::Forward(Box::new(
                             comparison.operation.requirement().clone(),
                         ))
                     }
+                    _ => {
+                        let OperationWitness::SharedMethod(call) = &mut comparison.operation else {
+                            panic!("shared comparison");
+                        };
+                        let Ty::Parameter { position, .. } = &mut call.implementation.arguments[0]
+                        else {
+                            panic!("shared receiver binder");
+                        };
+                        *position += 1;
+                    }
                 }
             }
+            assert!(
+                changed,
+                "comparison fixture must exercise the intended witness"
+            );
             assert!(
                 KbcArtifact::from_program(program, Default::default(), &context).is_err(),
                 "forged receiver comparison {mutation}"

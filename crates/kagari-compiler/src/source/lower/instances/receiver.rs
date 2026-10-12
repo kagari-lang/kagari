@@ -15,8 +15,7 @@ impl InstancePlanner<'_> {
         span: Span,
     ) -> Result<Option<ReceiverComparison>, MirLoweringError> {
         let ty = self.encode_type(receiver);
-        // Shared templates are prepared from concrete demands before execution.
-        if !object_receiver(&ty) || !ty.is_concrete() {
+        if !object_receiver(&ty) {
             return Ok(None);
         }
         let definitions = self.definitions();
@@ -32,11 +31,15 @@ impl InstancePlanner<'_> {
             member,
             arguments: vec![],
         };
-        let selected = self.select_callables(vec![required], span)?.pop().ok_or(
+        let operation = self.bind_operations(vec![required], span)?.pop().ok_or(
             MirLoweringError::MissingBinding("selected receiver comparison"),
         )?;
-        Ok(Some(ReceiverComparison {
-            operation: OperationWitness::Selected(Box::new(selected)),
-        }))
+        // An unconditional implementation can retain receiver binders in its
+        // checked shared entry. Unproved conditional/default selections still
+        // need concrete demands; an unconstrained template cannot forward them.
+        if matches!(operation, OperationWitness::Forward(_)) {
+            return Ok(None);
+        }
+        Ok(Some(ReceiverComparison { operation }))
     }
 }

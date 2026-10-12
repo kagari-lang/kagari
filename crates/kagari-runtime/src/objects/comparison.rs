@@ -5,10 +5,11 @@ use crate::{
     frame::types::arguments::type_parameter,
     gc::interfaces::InterfaceResultBinding,
     native::context::{ScriptCall, ScriptInvoker},
+    objects::calls::resolve_requirement,
     value::Value,
     value_semantics,
 };
-use kagari_contract::callable::receiver::object_receiver;
+use kagari_contract::callable::{receiver::object_receiver, witness::OperationWitness};
 use kagari_types::ty::Ty;
 use std::slice;
 
@@ -32,6 +33,18 @@ impl Runtime {
             return Ok(None);
         }
         let identity = receiver.identity(&binding.owner).ok_or_else(invalid)?;
+        if binding.owner.bytecode.interface_tables[binding.table]
+            .comparison
+            .as_ref()
+            .is_some_and(|comparison| {
+                matches!(comparison.operation, OperationWitness::SharedMethod(_))
+            })
+        {
+            // The checked selection is valid for this template's binders. Its
+            // active environment retains the actual arguments' supplying owners;
+            // no closed application or new implementation selection is needed.
+            return Ok(Some(binding.clone()));
+        }
         let declaration = binding.owner.bytecode.interface_tables[binding.table].declaration;
         let mut scopes = self
             .construction_scope(&binding.owner, binding.environment.as_ref())?
@@ -151,9 +164,12 @@ impl Runtime {
             binding.environment.clone(),
             slice::from_ref(&comparison.operation),
         )?;
-        let required = comparison.operation.requirement();
+        let required = resolve_requirement(
+            binding.environment.as_ref(),
+            comparison.operation.requirement(),
+        )?;
         let operation = operations
-            .operation(&self.gc, required)
+            .operation(&self.gc, &required)
             .ok_or_else(invalid)?;
         let root = self.root_value(left).ok_or_else(invalid)?;
         let method = RootedInterfaceMethod::from_comparison(

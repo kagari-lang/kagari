@@ -87,16 +87,17 @@ impl InstancePlanner<'_> {
             // A nominal receiver containing binders can still have a selected
             // implementation. Forward only when that table is unavailable.
             if required.arguments.is_empty()
-                && self
-                    .catalog
-                    .trait_method(&required.member)
-                    .is_some_and(|method| {
-                        self.catalog
-                            .trait_(&required.interface.declaration)
-                            .is_some_and(|contract| {
-                                method.generic_params.len() > contract.generic_params.len()
-                            })
-                    })
+                && (!required.receiver.is_concrete()
+                    || self
+                        .catalog
+                        .trait_method(&required.member)
+                        .is_some_and(|method| {
+                            self.catalog
+                                .trait_(&required.interface.declaration)
+                                .is_some_and(|contract| {
+                                    method.generic_params.len() > contract.generic_params.len()
+                                })
+                        }))
             {
                 let invalid =
                     || MirLoweringError::MissingBinding("shared constraint method implementation");

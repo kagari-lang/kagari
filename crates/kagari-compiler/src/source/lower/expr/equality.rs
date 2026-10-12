@@ -161,6 +161,13 @@ impl FunctionLowerer<'_, '_> {
                 "protocol composition exceeds type depth limit",
             ));
         }
+        if matches!(ty, TypeId::Generic(_)) {
+            let interface = protocol.nominal(&self.planner.definitions()).ok_or(
+                MirLoweringError::MissingBinding("generic equality protocol"),
+            )?;
+            let method = self.protocol_method(protocol, 0)?;
+            return self.lower_applied_operator(interface, ty.clone(), &method, args);
+        }
         if protocol == Protocol::PartialEq && matches!(ty, TypeId::Trait(_)) {
             return Ok(self.emit_intrinsic(RuntimePrimitive::ValueEq, args, ValueType::Bool));
         }

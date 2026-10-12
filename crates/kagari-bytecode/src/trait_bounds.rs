@@ -511,18 +511,29 @@ fn linked_bounds_match(
     }
     for linked in &module.interface_tables {
         if let Some(comparison) = &linked.comparison {
-            let Some(table) = module.public_items.iter().find_map(|item| match item {
-                PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                    table.instantiate(&linked.arguments, &table.generic_params, definitions)
-                }
-                _ => None,
-            }) else {
+            let Some((table, parameters)) =
+                module.public_items.iter().find_map(|item| match item {
+                    PublicItem::InterfaceTable(table)
+                        if table.declaration == linked.declaration =>
+                    {
+                        let parameters = if linked.arguments.iter().any(|ty| !ty.is_concrete()) {
+                            table.generic_params.clone()
+                        } else {
+                            vec![]
+                        };
+                        table
+                            .instantiate(&linked.arguments, &parameters, definitions)
+                            .map(|table| (table, parameters))
+                    }
+                    _ => None,
+                })
+            else {
                 return Ok(false);
             };
             if !comparison.valid(
                 &table.for_type,
                 &catalog,
-                &table.generic_params,
+                &parameters,
                 &table.bounds,
                 &cancel,
             )? || !callables::witness_valid(&comparison.operation, closure, definitions)

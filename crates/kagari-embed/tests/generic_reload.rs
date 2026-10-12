@@ -348,6 +348,40 @@ fn shared_collection_identity_does_not_require_a_comparison_application() {
     });
 }
 
+#[test]
+fn shared_collection_comparison_retains_a_generic_receiver_selection() {
+    let source = mixed_generation_collection_source().replace(
+        "Vec::from([(Local {}, value)])",
+        "Bag { items: Vec::from([(Local {}, value)]) }",
+    );
+    let source = format!(
+        r#"
+use std::ops::Index;
+use std::iter::CollectionCursor;
+struct Bag<T> {{ val items: Vec<T> }}
+impl<T> PartialEq for Bag<T> {{ fn eq(self, other: Self) -> bool {{ true }} }}
+impl<T> Index<usize> for Bag<T> {{
+    type Output = T;
+    fn index(self, index: usize) -> T {{ self.items[index] }}
+}}
+impl<T> Iterable for Bag<T> {{
+    type Item = T;
+    type Iter = CollectionCursor<T>;
+    fn iter(self) -> CollectionCursor<T> {{ self.items.iter() }}
+}}
+impl<T> List<T> for Bag<T> {{
+    fn len(self) -> usize {{ self.items.len() }}
+    fn is_empty(self) -> bool {{ self.items.is_empty() }}
+    fn get(self, index: usize) -> Option<T> {{ self.items.get(index) }}
+}}
+{source}
+"#,
+    );
+    assert_shared_collection_comparison_reloading(&source, true, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+}
+
 fn mixed_generation_collection_source() -> String {
     SHARED_COLLECTION_SOURCE
         .replace("struct Item", "struct Local {}\nimpl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }\nstruct Item")
