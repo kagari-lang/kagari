@@ -28,6 +28,7 @@ impl ProofCatalog<'_> {
                 continue;
             }
             match ty {
+                Ty::Trait(_) => return Ok(true),
                 Ty::NativeObject(_)
                 | Ty::Struct(_)
                 | Ty::Enum(_)

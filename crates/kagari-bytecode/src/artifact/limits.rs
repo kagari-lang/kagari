@@ -15,6 +15,7 @@ use kagari_types::{
     declaration::{AssociatedTypeDef, FnDecl, requirement::NativeCallableRequirement},
     ty::{Constraint, GenericBound, Ty},
 };
+use std::slice;
 
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
     lengths
@@ -128,6 +129,11 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         }
     }
     for table in &module.interface_tables {
+        if let Some(comparison) = &table.comparison
+            && !add_operations(slice::from_ref(&comparison.operation), &mut add)
+        {
+            return false;
+        }
         if let Some(view) = &table.view
             && (!add(view.results.len())
                 || !add(view.interface.arguments.len())
@@ -377,7 +383,18 @@ pub(super) fn module_abi_type_limit(
                 })
         })
         && module.interface_tables.iter().all(|table| {
-            table.view.as_ref().is_none_or(|view| {
+            table.comparison.as_ref().is_none_or(|comparison| {
+                module.public_items.iter().any(|item| match item {
+                    PublicItem::InterfaceTable(contract)
+                        if contract.declaration == table.declaration =>
+                    {
+                        comparison
+                            .operation
+                            .structurally_valid(&contract.generic_params, definitions)
+                    }
+                    _ => false,
+                })
+            }) && table.view.as_ref().is_none_or(|view| {
                 valid(&Ty::Trait(view.interface.clone()))
                     && view
                         .results

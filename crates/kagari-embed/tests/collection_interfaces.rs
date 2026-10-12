@@ -3,8 +3,15 @@
 mod execution;
 use execution::Route;
 
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    program::{identity, verify_program},
+};
+use kagari_common::identity::map::DefinitionContext;
+use kagari_contract::callable::witness::OperationWitness;
 use kagari_embed::engine::{EngineConfig, KagariEngine};
 use kagari_source::source::SourceFile;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -94,6 +101,9 @@ impl MutableList<i32> for Sequence {
     fn set(self, index: usize, value: i32) { self.items[index] = value; }
 }
 struct Singleton { val value: f64 }
+impl PartialEq for Singleton {
+    fn eq(self, other: Self) -> bool { self.value == other.value }
+}
 impl Iterable for Singleton {
     type Item = f64;
     type Iter = CollectionCursor<f64>;
@@ -111,14 +121,18 @@ fn main() -> i32 {
     val view: std::collections::List<i32> = source;
     val copy = Vec::from([view[0], view[1]]);
     val copied_view: List<i32> = copy;
+    val other_sequence: List<i32> = Sequence { items: Vec::from([7, 35]) };
+    if !(view == view && view != other_sequence && other_sequence != view) { return 0; }
     if !(list_content_equal(view, copied_view) && list_content_equal(copied_view, view)) { return 0; }
-    if !(!(view === copied_view) && view != copied_view) { return 0; }
+    if !(!(view === copied_view) && view != copied_view && copied_view != view) { return 0; }
     val writable: MutableList<i32> = source;
     writable[0] -= 6;
     if !(copy[0] == 7 && view[0] == 1) { return 0; }
     if !(size(source) == 2usize && size(copy) == 2usize) { return 0; }
     val set: Set<f64> = Singleton { value: 0.5 };
-    if !(set.contains(0.5)) { return 0; }
+    val same_set: Set<f64> = Singleton { value: 0.5 };
+    val different_set: Set<f64> = Singleton { value: 1.0 };
+    if !(set.contains(0.5) && set == same_set && same_set == set && set != different_set) { return 0; }
     first(copy) + copy[1]
 }
 "#,
@@ -164,6 +178,8 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
         "use std::collections::{List, MutableList};\nfn main() { val xs: List<i32> = Vec::from([1]); val ys: MutableList<i32> = xs; }",
         "use std::collections::{Map};\nfn main() { val xs: Map<i32,i32> = Map::new(); }",
         "use std::collections::{HashSet, Set};\nfn main() { val xs: Set<f64> = HashSet::new(); }",
+        "use std::collections::List; use std::hash::Hash; fn main() { val xs: List<i32> = Vec::from([1]); xs.hash(); }",
+        "use std::collections::{List, HashSet}; fn main() { val keys: HashSet<List<i32>> = HashSet::new(); }",
     ] {
         assert!(
             engine
@@ -175,7 +191,7 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
 }
 
 #[test]
-fn view_identity_survives_upcasts_branches_and_hash_storage() {
+fn receiver_identity_survives_upcasts_branches_and_concrete_hash_storage() {
     execute(
         r#"use std::collections::{HashSet, List, MutableList};
 
@@ -189,10 +205,11 @@ fn main() -> i32 {
     val joined = if true { raw } else { read };
     val selected = match 1 { 1 => raw, _ => read };
     if !(raw === read && writable == read && selected === joined) { return 0; }
-    if !(raw.hash() == read.hash()) { return 0; }
-    val views: HashSet<List<Cell>> = HashSet::new();
-    views.insert(read); views.insert(joined); views.insert(selected);
-    if !(views.len() == 1usize) { return 0; }
+    val copy = Vec::from([read[0]]);
+    if !(raw == copy && raw.hash() == copy.hash()) { return 0; }
+    val keys: HashSet<Vec<Cell>> = HashSet::new();
+    keys.insert(raw); keys.insert(copy);
+    if !(keys.len() == 1usize) { return 0; }
     raw[0].value
 }
 "#,
@@ -206,6 +223,7 @@ fn concrete_content_protocols_and_interface_helpers() {
 use std::hash::Hash;
 fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
 fn lists_same<T: PartialEq>(a: Vec<T>, b: Vec<T>) -> bool { a == b }
+fn as_list<T>(xs: Vec<T>) -> List<T> { xs }
 fn main() -> i32 {
     val a = Vec::from([1, 2]);
     val b = Vec::from([1, 2]);
@@ -213,19 +231,19 @@ fn main() -> i32 {
     if a === b || a == Vec::from([2, 1]) { return 2; }
     val al: List<i32> = a;
     val bl: List<i32> = b;
-    if !list_content_equal(al, bl) { return 3; }
+    if !(al == bl && as_list(a) == as_list(b) && same(al, bl) && (al, 1) == (bl, 1) && list_content_equal(al, bl)) { return 3; }
     val s = HashSet::from([1, 2]);
     val t = HashSet::from([2, 1]);
     val sl: Set<i32> = s;
     val tl: Set<i32> = t;
-    if !(s == t && same(s, t) && s.hash() == t.hash() && set_content_equal(sl, tl)) { return 4; }
+    if !(s == t && same(s, t) && s.hash() == t.hash() && sl == tl && set_content_equal(sl, tl)) { return 4; }
     val m: HashMap<i32, i32> = HashMap::new();
     m.insert(1, 10); m.insert(2, 20);
     val n: HashMap<i32, i32> = HashMap::new();
     n.insert(2, 20); n.insert(1, 10);
     val ml: Map<i32, i32> = m;
     val nl: Map<i32, i32> = n;
-    if !(m == n && same(m, n) && m.hash() == n.hash() && map_content_equal(ml, nl)) { return 5; }
+    if !(m == n && same(m, n) && m.hash() == n.hash() && ml == nl && map_content_equal(ml, nl)) { return 5; }
     n.insert(1, 20); n.insert(2, 10);
     if m == n { return 6; }
     42
@@ -249,7 +267,7 @@ fn main() -> i32 {
     val nan = 0.0f32 / 0.0f32;
     val xs = Vec::from([nan]);
     val read: List<f32> = xs;
-    if xs == xs || list_content_equal(read, read) { return 3; }
+    if xs == xs || read == read || list_content_equal(read, read) { return 3; }
     if !(Vec::from([0.0f32]) == Vec::from([-0.0f32])) { return 4; }
     val m: HashMap<i32, f32> = HashMap::new();
     m.insert(1, nan);
@@ -326,4 +344,61 @@ fn main() -> i32 {
 }
 "#,
     );
+}
+
+#[test]
+fn receiver_comparison_evidence_is_checked_without_source() {
+    let artifact = KagariEngine::default()
+        .compile_to_artifact(
+            SourceFile::new("receiver-proof.kgr", "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }"),
+            Default::default(),
+        )
+        .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let definitions = identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &definitions).unwrap();
+    for mutation in 0..4 {
+        let mut program = artifact.program.clone();
+        for table in program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.interface_tables)
+        {
+            let Some(comparison) = &mut table.comparison else {
+                continue;
+            };
+            match mutation {
+                0 => table.comparison = None,
+                1 => {
+                    let OperationWitness::Selected(call) = &mut comparison.operation else {
+                        panic!("concrete selection");
+                    };
+                    call.requirement.receiver = Ty::Builtin(BuiltinType::I32);
+                }
+                2 => {
+                    let OperationWitness::Selected(call) = &mut comparison.operation else {
+                        panic!("concrete selection");
+                    };
+                    call.signature.result = Ty::Builtin(BuiltinType::I32);
+                }
+                _ => {
+                    comparison.operation = OperationWitness::Forward(Box::new(
+                        comparison.operation.requirement().clone(),
+                    ))
+                }
+            }
+        }
+        assert!(
+            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            "forged receiver comparison {mutation}"
+        );
+    }
 }

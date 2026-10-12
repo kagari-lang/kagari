@@ -10,13 +10,16 @@ use kagari_common::{
         table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
-use kagari_contract::types::wire::module::ConcreteFunctionIdentityRecord;
+use kagari_contract::{
+    callable::wire::ReceiverComparisonRecord, types::wire::module::ConcreteFunctionIdentityRecord,
+};
 use kagari_types::{declaration::wire::leaf::NominalTyRecord, ty::wire::WireType};
 use serde::{Deserialize, Serialize};
 
 /// File-local InterfaceTableRecord facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub(in crate::artifact) struct InterfaceTableRecordWire {
+    comparison: Option<ReceiverComparisonRecord>,
     view: Option<InterfaceViewRecordWire>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     arguments: Vec<WireType>,
@@ -37,6 +40,11 @@ impl InterfaceTableRecordWire {
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(Self {
+            comparison: value
+                .comparison
+                .as_ref()
+                .map(|value| ReceiverComparisonRecord::encode(value, encoding, cancel))
+                .transpose()?,
             view: value
                 .view
                 .as_ref()
@@ -72,6 +80,10 @@ impl InterfaceTableRecordWire {
     ) -> Result<InterfaceTableRecord, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceTableRecord {
+            comparison: self
+                .comparison
+                .map(|value| value.decode(decoding, cancel))
+                .transpose()?,
             view: self
                 .view
                 .map(|value| value.decode(decoding, cancel))

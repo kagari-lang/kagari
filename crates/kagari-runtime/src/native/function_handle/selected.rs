@@ -89,7 +89,7 @@ impl PreparedFunction {
         let _session = runtime.begin_pinned_execution(self)?;
         let value = match target.primitive {
             Some(primitive) => runtime
-                .invoke_standard_builtin(&self.owner, primitive, values)
+                .invoke_standard_builtin(&self.owner, primitive, values, cx.invoke_script)
                 .map_err(|error| error.into_runtime_error())?,
             None => cx.invoke_script.ok_or_else(|| {
                 RuntimeError::module_validation("call context has no execution backend")

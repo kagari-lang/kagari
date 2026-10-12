@@ -59,6 +59,18 @@ pub(super) fn validate<'a>(
     validate_layouts(&validator, &module.structures, &module.enumerations, cancel)?;
     for instance in &module.interface_instances {
         validator.types(&instance.arguments)?;
+        if let Some(comparison) = &instance.comparison {
+            let operation = &comparison.operation;
+            let required = operation.requirement();
+            validator.validate_type(&required.receiver)?;
+            validator.trait_application(&required.interface)?;
+            validator.types(&required.arguments)?;
+            if let OperationWitness::Selected(call) = operation {
+                validator.types(&call.instance.arguments)?;
+                validator.types(&call.signature.params)?;
+                validator.validate_type(&call.signature.result)?;
+            }
+        }
     }
     for function in &module.functions {
         validator.types(&function.instance.arguments)?;

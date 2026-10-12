@@ -14,6 +14,7 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::numeric::NumericSignature;
 use kagari_contract::{
+    callable::receiver::object_receiver,
     contracts,
     contracts::RuntimeHelperKind,
     operations,
@@ -458,6 +459,12 @@ pub(super) fn verify_instruction(
                     _ => None,
                 })
                 .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
+            if object_receiver(&table.for_type)
+                && table.for_type.is_concrete()
+                && linked.comparison.is_none()
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
             expect_register_ty(
                 function,
                 *value,

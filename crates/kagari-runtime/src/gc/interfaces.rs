@@ -45,6 +45,8 @@ pub(crate) struct InterfaceParentBinding {
 
 #[derive(Debug)]
 pub(crate) struct InterfaceValueSnapshot {
+    /// Original construction table and generation supplying receiver equality.
+    pub(crate) comparison: Option<InterfaceResultBinding>,
     pub(crate) receiver_operations: MetadataCache<OperationGroupId>,
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) parents: Vec<InterfaceParentBinding>,

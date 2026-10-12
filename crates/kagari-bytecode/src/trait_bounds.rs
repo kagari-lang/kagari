@@ -510,6 +510,26 @@ fn linked_bounds_match(
         }
     }
     for linked in &module.interface_tables {
+        if let Some(comparison) = &linked.comparison {
+            let Some(table) = module.public_items.iter().find_map(|item| match item {
+                PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
+                    table.instantiate(&linked.arguments, &table.generic_params, definitions)
+                }
+                _ => None,
+            }) else {
+                return Ok(false);
+            };
+            if !comparison.valid(
+                &table.for_type,
+                &catalog,
+                &table.generic_params,
+                &table.bounds,
+                &cancel,
+            )? || !callables::witness_valid(&comparison.operation, closure, definitions)
+            {
+                return Ok(false);
+            }
+        }
         if linked.arguments.is_empty() {
             continue;
         }

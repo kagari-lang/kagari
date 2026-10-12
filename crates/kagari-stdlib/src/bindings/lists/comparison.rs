@@ -51,7 +51,9 @@ impl<'call> Comparison<'call> {
     pub(super) fn equal(&self, cx: &mut CallContext<'_>, a: Value, b: Value) -> NativeResult<bool> {
         cx.poll()?;
         let operation = self.operation.ok_or_else(invalid)?;
-        if operation.primitive() == Some(RuntimePrimitive::ValueEq) {
+        if operation.primitive() == Some(RuntimePrimitive::ValueEq)
+            && !matches!((a, b), (Value::Interface(_), _) | (_, Value::Interface(_)))
+        {
             return value_semantics::script_equal(cx.heap(), &a, &b);
         }
         bool::decode(cx.call_values(operation, &[a, b])?)

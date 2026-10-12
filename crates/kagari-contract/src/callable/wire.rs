@@ -3,6 +3,7 @@ use crate::{
     callable::{
         generic::GenericBody,
         interface::{InterfaceCallContract, TypeNormalization},
+        receiver::{InterfaceInstance, ReceiverComparison},
         shared::SharedCall,
         witness::{OperationWitness, SharedMethodWitness},
     },
@@ -368,6 +369,74 @@ impl TypeNormalizationRecord {
         Ok(TypeNormalization {
             source: self.source.decode(decoding, cancel)?,
             result: self.result.decode(decoding, cancel)?,
+        })
+    }
+}
+
+/// Portable receiver selection. Loading must recheck the carried operation.
+#[derive(Serialize, Deserialize)]
+pub struct ReceiverComparisonRecord {
+    operation: OperationWitnessRecord,
+}
+
+impl ReceiverComparisonRecord {
+    pub fn encode(
+        value: &ReceiverComparison,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            operation: OperationWitnessRecord::encode(&value.operation, encoding, cancel)?,
+        })
+    }
+
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<ReceiverComparison, DefinitionMappingError> {
+        Ok(ReceiverComparison {
+            operation: self.operation.decode(decoding, cancel)?,
+        })
+    }
+}
+
+/// A portable interface demand and its separately checked receiver comparison.
+#[derive(Serialize, Deserialize)]
+pub struct InterfaceInstanceRecord {
+    instance: ConcreteFunctionIdentityRecord,
+    comparison: Option<ReceiverComparisonRecord>,
+}
+
+impl InterfaceInstanceRecord {
+    pub fn encode(
+        value: &InterfaceInstance,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            instance: ConcreteFunctionIdentityRecord::encode(&value.identity(), encoding, cancel)?,
+            comparison: value
+                .comparison
+                .as_ref()
+                .map(|value| ReceiverComparisonRecord::encode(value, encoding, cancel))
+                .transpose()?,
+        })
+    }
+
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<InterfaceInstance, DefinitionMappingError> {
+        let instance = self.instance.decode(decoding, cancel)?;
+        Ok(InterfaceInstance {
+            declaration: instance.declaration,
+            arguments: instance.arguments,
+            comparison: self
+                .comparison
+                .map(|value| value.decode(decoding, cancel))
+                .transpose()?,
         })
     }
 }

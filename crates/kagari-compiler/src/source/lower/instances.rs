@@ -11,8 +11,8 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
-    native_import::NativeImport, representation::semantic_representation,
-    types::ConcreteFunctionIdentity,
+    callable::receiver::InterfaceInstance, native_import::NativeImport,
+    representation::semantic_representation, types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
     AnalyzedModule,
@@ -40,6 +40,7 @@ mod callables;
 mod calls;
 mod defaults;
 mod native;
+mod receiver;
 mod results;
 mod shared;
 mod views;
@@ -135,7 +136,7 @@ pub(super) struct InstancePlanner<'a> {
     pub host_types: BTreeSet<DefinitionId>,
     pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
     pub native_targets: Vec<NativeImport>,
-    pub interface_instances: Vec<ConcreteFunctionIdentity>,
+    pub interface_instances: Vec<InterfaceInstance>,
     keys: HashMap<InstanceKey, InstanceId>,
     generic_count: usize,
     interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
@@ -588,7 +589,9 @@ impl<'a> InstancePlanner<'a> {
             if !arguments.is_empty() {
                 self.charge_layout_instance(span)?;
             }
-            self.interface_instances.push(ConcreteFunctionIdentity {
+            let instance_index = self.interface_instances.len();
+            self.interface_instances.push(InterfaceInstance {
+                comparison: None,
                 declaration: *declaration,
                 arguments: arguments.iter().map(lower_type).collect(),
             });
@@ -623,6 +626,8 @@ impl<'a> InstancePlanner<'a> {
                     })
                     .collect();
                 self.require_parent_interfaces(&receiver, &interface, &assumptions, span)?;
+                let comparison = self.receiver_comparison(&receiver, span)?;
+                self.interface_instances[instance_index].comparison = comparison;
             }
             if self.module_identity(*declaration) == *self.module.lowered.source.module_identity()
                 && let Some(contract) = self.catalog.implementation_signature(declaration)

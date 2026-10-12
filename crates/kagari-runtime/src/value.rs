@@ -2,7 +2,6 @@ use crate::{
     gc::{GcHeap, GcObjectKind, HeapObjectId},
     host::{FrameHostBorrowToken, HostRegistryId},
     module::EnumVariantRef,
-    value_semantics,
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
@@ -190,7 +189,7 @@ impl MapKey {
                 return None;
             }
             match value {
-                Value::Interface(_) => pending.push(value_semantics::collection_data(gc, &value)?),
+                Value::Interface(_) => return None,
                 Value::Unit => parts.push(KeyPart::Unit),
                 Value::Bool(v) => parts.push(KeyPart::Bool(v)),
                 Value::I32(v) => parts.push(KeyPart::I32(v)),

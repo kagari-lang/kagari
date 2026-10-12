@@ -7,42 +7,28 @@ use crate::{
     value::{EnumTag, Value},
 };
 
-use kagari_contract::types as abi;
+use kagari_contract::callable::receiver::object_receiver;
 use std::{
     cmp::Ordering,
     fmt,
     fmt::{Error, Write},
 };
 
-/// Collection interface boxes preserve the identity of their underlying object.
-pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
+/// Checked object interface boxes preserve the underlying object's identity.
+pub(crate) fn object_data(gc: &GcHeap, value: &Value) -> Option<Value> {
     let Value::Interface(id) = value else {
         return None;
     };
     let snapshot = gc.interface_snapshot(*id)?;
-    let owner = &snapshot.receiver_table.owner;
-    owner
-        .verified_program()
-        .modules()
-        .iter()
-        .any(|module| {
-            abi::trait_contract(
-                &module.identity,
-                &module.public_items,
-                &module.trait_contracts,
-                &snapshot.interface_type.declaration,
-                owner.definitions(),
-            )
-            .is_some_and(|contract| contract.storage_access.is_some())
-        })
-        .then(|| snapshot.data)
+    snapshot.comparison.as_ref()?;
+    object_receiver(&snapshot.concrete_type).then_some(snapshot.data)
 }
 
 /// Identity is available only for script object categories, never allocation
 /// details of values such as strings, tuples or enums.
 pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
-    let left = collection_data(gc, lhs);
-    let right = collection_data(gc, rhs);
+    let left = object_data(gc, lhs);
+    let right = object_data(gc, rhs);
     let (lhs, rhs) = (left.as_ref().unwrap_or(lhs), right.as_ref().unwrap_or(rhs));
     let object = |value: &Value| match value {
         Value::Struct(id) => Some((*id, GcObjectKind::Struct)),
@@ -70,9 +56,6 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
 }
 
 pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
-    let left = collection_data(gc, lhs);
-    let right = collection_data(gc, rhs);
-    let (lhs, rhs) = (left.as_ref().unwrap_or(lhs), right.as_ref().unwrap_or(rhs));
     let invalid = || {
         RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,

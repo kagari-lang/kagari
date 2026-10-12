@@ -91,7 +91,12 @@ impl<A: IntoKagariArguments, R: FromKagari> PinnedFunction<A, R> {
             encode_arguments(&mut conversion, &self.prepared.signature.params, arguments)?;
         let value = match &self.prepared.target {
             Target::Entry(target) if target.primitive.is_some() => runtime
-                .invoke_standard_builtin(self.owner(), target.primitive.unwrap(), &values)
+                .invoke_standard_builtin(
+                    self.owner(),
+                    target.primitive.unwrap(),
+                    &values,
+                    Some(invoke),
+                )
                 .map_err(|error| error.into_runtime_error())?,
             _ => invoke(
                 runtime,

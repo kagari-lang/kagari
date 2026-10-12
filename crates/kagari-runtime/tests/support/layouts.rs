@@ -79,6 +79,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Valu
                             })),
                         ],
                         interface_tables: vec![InterfaceTableRecord {
+                            comparison: None,
                             parents: vec![],
                             view: None,
                             arguments: Vec::new(),

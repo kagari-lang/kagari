@@ -10,6 +10,7 @@ use kagari_common::{
     identity::{ModuleIdentity, table::DefinitionId},
     span::Span,
 };
+use kagari_contract::callable::receiver::ReceiverComparison;
 use kagari_contract::{
     effects::EffectSet,
     ids::{DebugPointId, FunctionRef},
@@ -129,6 +130,8 @@ impl RootSlotLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceTableRecord {
+    /// Compiler-selected receiver comparison, independent of interface members.
+    pub comparison: Option<ReceiverComparison>,
     /// Optional dynamic surface that hides a concrete associated iterator.
     pub view: Option<InterfaceViewRecord>,
     /// Ordered impl arguments. An empty record for a generic template retains

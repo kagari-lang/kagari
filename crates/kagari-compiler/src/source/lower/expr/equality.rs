@@ -29,6 +29,7 @@ impl FunctionLowerer<'_, '_> {
                 ));
             }
             match &ty {
+                TypeId::Trait(_) => return Ok(true),
                 TypeId::NativeObject(_)
                 | TypeId::Struct(_)
                 | TypeId::Enum(_)
@@ -159,6 +160,9 @@ impl FunctionLowerer<'_, '_> {
             return Err(MirLoweringError::UnsupportedExpr(
                 "protocol composition exceeds type depth limit",
             ));
+        }
+        if protocol == Protocol::PartialEq && matches!(ty, TypeId::Trait(_)) {
+            return Ok(self.emit_intrinsic(RuntimePrimitive::ValueEq, args, ValueType::Bool));
         }
         let result_ty = if protocol == Protocol::PartialEq {
             ValueType::Bool

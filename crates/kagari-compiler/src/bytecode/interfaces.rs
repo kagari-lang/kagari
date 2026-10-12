@@ -60,9 +60,12 @@ pub(super) fn interface_instances(
             }),
             _ => None,
         });
-    let demands = owners
-        .iter()
-        .flat_map(|owner| owner.interface_instances.iter().cloned());
+    let demands = owners.iter().flat_map(|owner| {
+        owner
+            .interface_instances
+            .iter()
+            .map(|instance| instance.identity())
+    });
     for mut instance in allocations.chain(demands) {
         if ir
             .definitions()
@@ -315,7 +318,20 @@ pub(super) fn collect_interface_tables(
                     }
                 }
             }
+            // Selection belongs to this table's checked dependency closure. A caller
+            // can have an equivalent adapter in a different, unretained module.
+            let comparison = ir
+                .interface_instances
+                .iter()
+                .find_map(|demand| {
+                    (demand.declaration == instance.declaration
+                        && demand.arguments == instance.arguments)
+                        .then_some(demand.comparison.as_ref())
+                        .flatten()
+                })
+                .cloned();
             Ok(InterfaceTableRecord {
+                comparison,
                 parents: vec![],
                 view: None,
                 declaration: instance.declaration,

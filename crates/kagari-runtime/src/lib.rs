@@ -22,7 +22,7 @@ use crate::{
         staging::StagedProgram,
     },
     native::{
-        callable::PreparedClosure, completion::CompletionRegistry,
+        callable::PreparedClosure, completion::CompletionRegistry, context::ScriptInvoker,
         function_handle::cache::FunctionCache, interfaces::binding::InterfaceCache,
         objects::cache::BindingCache, registry::NativeRegistry,
     },
@@ -733,13 +733,29 @@ impl Runtime {
             .map_err(ReflectionError::into_write_error)
     }
 
+    /// Invoke a checked primitive, retaining the selected receiver for interface equality.
+    /// Interface equality may synchronously enter script code through `invoke`; callers
+    /// must release frame and heap borrows before this call. A missing backend for such
+    /// a comparison is a validation error. Primitive value operations need no backend.
     pub fn invoke_standard_builtin(
         &self,
         owner: &LoadedModule,
         intrinsic: RuntimePrimitive,
         args: &[value::Value],
+        invoke: Option<ScriptInvoker>,
     ) -> Result<value::Value, BuiltinError> {
         self.resources().ensure_execution_allowed()?;
+        if intrinsic == RuntimePrimitive::ValueEq
+            && let [left, right] = args
+            && matches!(
+                (left, right),
+                (value::Value::Interface(_), _) | (_, value::Value::Interface(_))
+            )
+        {
+            return self
+                .compare_interface_values(*left, *right, invoke)
+                .map_err(Into::into);
+        }
         let value = builtin::invoke_standard(self, owner, intrinsic, args)?;
         Ok(value)
     }

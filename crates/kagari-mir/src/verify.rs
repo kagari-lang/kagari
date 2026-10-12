@@ -211,7 +211,7 @@ pub(crate) fn verify_with_budget(
     let mut interfaces = HashSet::new();
     for instance in &module.interface_instances {
         context.check_cancel()?;
-        if !interfaces.insert(instance)
+        if !interfaces.insert(instance.identity())
             || !instance.arguments.iter().enumerate().all(|(position, ty)| {
                 ty.is_concrete()
                     || matches!(ty, Ty::Parameter { owner, position: index }

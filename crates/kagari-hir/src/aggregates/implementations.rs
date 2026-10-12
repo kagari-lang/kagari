@@ -271,7 +271,7 @@ impl AggregateCatalog {
             && self
                 .trait_(&interface.declaration)
                 .is_some_and(|contract| contract.storage_access.is_some())
-            && (protocol.equality_protocol() || protocol == Protocol::Debug)
+            && matches!(protocol, Protocol::PartialEq | Protocol::Debug)
         {
             return Ok(true);
         }

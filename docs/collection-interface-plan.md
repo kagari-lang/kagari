@@ -41,8 +41,9 @@ handles. Interface adaptation preserves this behavior. Explicit library function
 compare contents through collection interfaces, including across concrete
 implementations. `===`/`!==` always compare object identity. Availability of object
 comparison does not by itself establish Eq/Hash bounds or hash-key eligibility. These
-are target rules, not implemented behavior. Current specifications remain the
-baseline until implementation and documentation handoff are complete.
+are the target rules; implemented paths and remaining acceptance are distinguished
+in the progress ledger. Current specifications remain the baseline until
+implementation and documentation handoff are complete.
 
 The task includes declaration/model/wire consumers, source analysis, executable
 proofs, verification, linking, runtime view semantics and their documentation.
@@ -76,7 +77,7 @@ not a complete list of all callers.
 | Receiver matching | [shared matching](../crates/kagari-types/src/ty/matching.rs), [contract matching](../crates/kagari-contract/src/types/matching.rs), [HIR inference](../crates/kagari-hir/src/typeck/inference.rs) | Invariant implementation substitution and checked interface relationships. Current matching permits outer access weakening for a readonly marker or Index/Iterable; relocate necessary host adaptation explicitly rather than deleting its validation. |
 | Common types and operand compatibility | [storage views](../crates/kagari-hir/src/aggregates/storage.rs), [body checking](../crates/kagari-hir/src/typeck/body.rs), [operators](../crates/kagari-hir/src/typeck/body/operators.rs) | Applied interface candidates from valid implementations and parent closures. Current concrete candidates are engine-owned and filtered by the readonly marker. |
 | Protocol eligibility and member surfaces | [HIR implementations](../crates/kagari-hir/src/aggregates/implementations.rs), [language semantics](../crates/kagari-hir/src/language/semantics.rs), [members](../crates/kagari-hir/src/typeck/members.rs), [source-free proofs](../crates/kagari-contract/src/types/proofs/structural.rs) | Checked protocol/default evidence independent of read/write classification; HIR and executable proofs must agree. |
-| Interface identity/equality/hash/format | [runtime value semantics](../crates/kagari-runtime/src/value_semantics.rs) and its callers | Preserve receiver identity for identity operators and explicit selected protocols for valid ordinary calls. Interface object equality follows the receiver; Eq/Hash bounds still require evidence. Currently collection_data scans retained program trait declarations for the marker before unwrapping an interface. |
+| Interface identity/equality/hash/format | [runtime value semantics](../crates/kagari-runtime/src/value_semantics.rs) and its callers | Preserve receiver identity for identity operators and explicit selected protocols for valid ordinary calls. Interface object equality follows the receiver; Eq/Hash bounds still require evidence. CI03 replaces the runtime marker scan with checked receiver-comparison evidence retained in the interface snapshot. |
 | Implementation ownership | [HIR override checks](../crates/kagari-hir/src/aggregates/implementations.rs), [contract ownership](../crates/kagari-contract/src/types/proofs/ownership.rs), [receiver owners](../crates/kagari-types/src/declaration/ownership.rs) | Ordinary coherence/receiver ownership and explicit native/builtin registration authority. Removing the marker must not create uncontrolled downstream overrides. |
 | Installation without calls | [installed trait checks](../crates/kagari-runtime/src/native/registry/dependencies.rs), [installation tests](../crates/kagari-runtime/tests/installation_access.rs) | Exact installed declaration/layout/witness requirements, including private records and modules with no native calls. An untrusted artifact cannot grant authority through a copied name or provenance flag. |
 | Writable indexing and verification | [places](../crates/kagari-hir/src/typeck/body/places.rs), [compiler lowering](../crates/kagari-compiler/src/source/lower/expr.rs), [bytecode access](../crates/kagari-bytecode/src/access.rs) | Selected checked write operations and receiver evidence. Source checking and source-free verification reject the same upgrades and unauthorized writes. |
@@ -706,12 +707,12 @@ from key Eq, a non-greedy augmenting path, swapped arguments and a missing full 
 Its first run had a fixture parser error from a struct literal in an if condition;
 using a local lookup key fixed it.
 
-The retained legacy test `view_identity_survives_upcasts_branches_and_hash_storage`
-currently fails in Source (I32(0), expected I32(42)): concrete Vec hashing is now
-content-based while interface hashing still uses the old identity grant. CI03 owns
-migration of this superseded test together with retained receiver comparison and
-removal of the plain-interface Eq/Hash grant. This is a known intermediate behavior
-failure, not CI03 acceptance; do not rerun unchanged until that path is repaired.
+The legacy interface-hash test has been migrated to
+`receiver_identity_survives_upcasts_branches_and_concrete_hash_storage`. It now
+checks retained identity through upcasts/joins and concrete Vec content hashing
+and key deduplication. Plain List hashing and HashSet<List<i32>> are rejected;
+operator availability does not provide Eq/Hash. The earlier I32(0) failure is
+resolved, with source/artifact routes passing at the receiver-comparison checkpoint.
 
 Direct generic helper calls such as `list_content_equal(vec_a, vec_b)` expose an
 existing first-argument coercion gap: inference discovers T but fails to install the
@@ -719,10 +720,11 @@ interface adaptation for the first argument. CI04 owns the inference/coercion re
 and direct-call acceptance; current CI03 fixtures use explicitly typed interface
 variables to exercise the accepted executable path. A fixture-only `HashMap::from`
 call was replaced with the existing new/insert API.
-Retained interface receiver comparison and separation of operator availability from
-Eq/Hash proofs are not yet implemented; CI03 remains incomplete. The next CI03 step
-must also check legacy readonly builtin Map/Set host descriptors against the concrete
-protocol selection while keeping NC storage migration out of scope.
+Concrete interface receiver comparison and the separation from Eq/Hash are now
+implemented as described below. CI03 remains incomplete: shared generic construction,
+native result adapters and legacy readonly builtin Map/Set host
+descriptors still require acceptance against concrete protocol selection. Keep NC
+storage migration out of scope.
 
 The directly affected script/enum composition regression
 `cargo test -p kagari-embed --test standard_traits
@@ -736,6 +738,70 @@ with their existing owners. Callback mutation/depth/cancellation and retained-ge
 acceptance remain pending with the rest of CI03; full workspace/backend checks remain CI-owned.
 `cargo test -p kagari-runtime --test installation_access` passed all 6 tests after
 the callback dependency change, retaining the ordinary/private/no-call installation
-checks. This buildable CI03 stdlib checkpoint carries the one named legacy-interface
-behavior failure above; it does not complete the phase.
+checks. The initial stdlib checkpoint carried the legacy-interface behavior failure resolved
+above; neither that checkpoint nor the receiver-comparison checkpoint completes CI03.
 Current semantic specifications remain unchanged until their implementation checkpoint.
+
+
+CI03 receiver-comparison checkpoint: compiler interface demands now carry a checked
+PartialEq operation for concrete object receivers, including eligible default
+adapters. MIR and bytecode encode/remap/visit that evidence, validate its requirement,
+receiver, type applications and executable target, and retain the target dependency.
+A concrete object MakeInterface without comparison evidence is rejected. Each table
+uses its own module's checked selection, rather than borrowing an equivalent adapter
+from another caller's dependency closure. Interface snapshots retain the supplying
+table, generation and type environment as traced metadata; parent upcasts preserve
+that original binding. Runtime equality checks the actual receiver types before
+calling the retained operation, uses handles for different concrete receiver types,
+and invokes compatible operations with both self and other rooted. It performs no
+live trait search. Identity uses checked object categories without a collection-marker
+scan; ordinary interface values no longer enter the implicit hash-key fast path.
+
+The first execution reruns exposed a missing self argument and a VM frame borrow
+held across the new callback. Supplying both checked arguments and releasing the
+frame borrow before synchronous reentry resolved those failures. The custom-container
+case then exposed selecting a caller-local adapter for a foreign table; using the
+table owner's demand resolved its source-free target validation failure. A remaining
+HIR method-candidate grant allowed List.hash even after bound proofs were removed;
+that candidate grant is now restricted to PartialEq/Debug. The malformed-artifact
+fixture initially used a whole-context definition snapshot rather than the program's
+collected identity table (InvalidPublicAbi); it now checks the original and mutations
+in the same collected program scope.
+
+`cargo test -p kagari-embed --test collection_interfaces --no-fail-fast` passed all
+8 cases before the additional artifact test. The subsequent `receiver_` filter passed
+both identity/upcast/key behavior and the new source-free evidence test (missing
+selection, wrong receiver, wrong result, and unproved forwarding). The expanded
+`user_containers` case passed explicit script comparison, eligible identity defaults,
+foreign-module tables and mixed receiver types in both operand orders. Concrete
+interface equality, ordinary generic boxing, tuple composition and NaN self-comparison
+passed across Source/Artifact/ArtifactJit, with forced collection enabled. These route
+names alone do not prove native machine-code execution.
+
+Remaining CI03 acceptance: symbolic shared-template construction currently omits
+comparison and must obtain checked concrete selection before comparison; ordinary
+monomorphized generic boxing has passed. Check native result conversion, explicit
+protocol-bound interface calls, callback mutation/traps/depth/cancellation, and readonly builtin Map/Set host descriptors. Static collection
+operator eligibility still uses the old marker pending its CI04/CI05 migration; the
+runtime comparison path no longer does. Do not mark CI03 complete from the concrete
+coverage above. The CI04 direct-helper first-argument coercion gap remains unchanged.
+
+`cargo test -p kagari-vm --lib execution::interfaces` passed all 23 selected interface
+construction/call/generation/root/trap regression cases. `cargo test -p kagari-runtime
+--lib value_semantics` passed both enum/identity/IEEE contract cases. The new
+`cargo test -p kagari-embed --test generic_reload
+interface_comparison_retains_its_receiver_generation_in_a_new_caller` passed after
+artifact round-trip and forced collection: a newly loaded caller invokes old receiver
+equality for a retained interface and new equality for a fresh one; dropping all
+roots releases the old runtime-value retention. This establishes comparison-specific
+supplying-generation retention, not merely ordinary method retention.
+
+Receiver-comparison checkpoint validation also passed scoped Clippy
+(`cargo clippy -p kagari-compiler -p kagari-runtime -p kagari-vm -p kagari-stdlib
+--lib -- -D warnings`), structure checks (1093 files, no violations or exceptions),
+formatting, local plan links and `git diff --check`. Clippy first caught a redundant
+clone of interface demands; removing it resolved the finding. Structural review
+kept selection/validation at compiler/contract owners and checked invocation at
+runtime, with no new re-exports, production globs or LOC exceptions. The selected
+regressions cover the changed equality and interface boundaries; full workspace
+and exhaustive feature/backend validation remain CI-owned and were not run locally.

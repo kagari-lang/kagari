@@ -366,7 +366,7 @@ pub fn intrinsic_holds(
                     catalog
                         .trait_(&interface.declaration)
                         .is_some_and(|contract| contract.storage_access.is_some())
-                }) && protocol != Protocol::Display => {}
+                }) && matches!(protocol, Protocol::PartialEq | Protocol::Debug) => {}
             TypeId::Enum(_) | TypeId::Host(_) if protocol == Protocol::Debug => {}
             TypeId::NativeObject(_)
             | TypeId::Struct(_)

@@ -531,9 +531,10 @@ impl<'a> Executor<'a> {
         dst: Option<Register>,
         args: Vec<Value>,
     ) -> Result<(), VmError> {
+        let owner = self.current_loaded()?;
         let value = self
             .runtime
-            .invoke_standard_builtin(self.current_frame()?.loaded(), intrinsic, &args)
+            .invoke_standard_builtin(&owner, intrinsic, &args, Some(invoke_script))
             .map_err(VmError::from)?;
         if let Some(dst) = dst {
             self.current_frame_mut()?

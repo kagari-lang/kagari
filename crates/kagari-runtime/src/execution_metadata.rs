@@ -264,6 +264,9 @@ impl<'a> MetadataTrace<'a> {
                         .push(MetadataEdge::InterfaceView(self.interfaces.get(id)?));
                 }
                 MetadataEdge::InterfaceView(snapshot) => {
+                    if let Some(comparison) = &snapshot.comparison {
+                        self.pending.push(MetadataEdge::Binding(comparison));
+                    }
                     self.values.push(&snapshot.data);
                     self.pending
                         .push(MetadataEdge::Program(&snapshot.implementation));

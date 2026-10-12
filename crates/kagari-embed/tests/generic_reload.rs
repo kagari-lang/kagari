@@ -2,7 +2,7 @@
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine};
-use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
+use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
@@ -214,6 +214,80 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
         );
     }
     drop((root, fresh_root, stopped_root, fresh_stopped_root));
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(old_key)
+            .runtime_values,
+        0
+    );
+}
+
+#[test]
+fn interface_comparison_retains_its_receiver_generation_in_a_new_caller() {
+    let source = r#"
+use std::collections::Set;
+use std::iter::CollectionCursor;
+struct Bag { val value: i32 }
+impl PartialEq for Bag { fn eq(self, other: Self) -> bool { true } }
+impl Iterable for Bag {
+    type Item = i32;
+    type Iter = CollectionCursor<i32>;
+    fn iter(self) -> CollectionCursor<i32> { Vec::from([self.value]).iter() }
+}
+impl Set<i32> for Bag {
+    fn len(self) -> usize { 1usize }
+    fn is_empty(self) -> bool { false }
+    fn contains(self, value: i32) -> bool { self.value == value }
+}
+trait Probe { fn same(self, a: Set<i32>, b: Set<i32>) -> bool; }
+struct Checker {}
+impl Probe for Checker { fn same(self, a: Set<i32>, b: Set<i32>) -> bool { a == b } }
+fn make() -> Set<i32> { Bag { value: 42 } }
+fn probe() -> Probe { Checker {} }
+"#;
+    let engine = KagariEngine::default();
+    let original = prepare(&engine, source);
+    let replacement = prepare(&engine, &source.replace("bool { true }", "bool { false }"));
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = Runtime::new(config);
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    let old = runtime.load_program("receiver-reload", original).unwrap();
+    let old_key = old.key();
+    let vm = Vm::new(runtime);
+    let saved = vm.execute(&old, "make").unwrap().return_value;
+    let current = vm
+        .reload_program(&old, "receiver-reload", replacement)
+        .unwrap();
+    drop(old);
+    vm.runtime().collect_garbage().unwrap();
+    assert!(vm.runtime().modules().loaded(old_key).is_some());
+    let fresh = vm.execute(&current, "make").unwrap().return_value;
+    let probe = vm.execute(&current, "probe").unwrap().return_value;
+    let contract = current
+        .bytecode
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Probe")
+        .unwrap();
+    let method =
+        ModuleDecl::method_id(contract.declaration, "same", current.definitions()).unwrap();
+    for (root, expected) in [(&saved, true), (&fresh, false)] {
+        let value = root.value(vm.runtime().gc()).unwrap();
+        assert_eq!(
+            vm.invoke_interface_method(
+                &probe.value(vm.runtime().gc()).unwrap(),
+                &method,
+                &[value, value]
+            )
+            .unwrap(),
+            Value::Bool(expected)
+        );
+    }
+    drop((saved, fresh, probe));
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(

@@ -56,14 +56,9 @@ pub(crate) fn interfaces(
             .is_some_and(|contract| contract.storage_access.is_some())
         {
             bounds.extend(
-                [
-                    Protocol::PartialEq,
-                    Protocol::Eq,
-                    Protocol::Hash,
-                    Protocol::Debug,
-                ]
-                .into_iter()
-                .filter_map(|kind| kind.nominal(definitions)),
+                [Protocol::PartialEq, Protocol::Debug]
+                    .into_iter()
+                    .filter_map(|kind| kind.nominal(definitions)),
             );
         }
         add_iterator_view(definitions, aggregates, ty, &mut bounds);

@@ -92,6 +92,32 @@ pub(super) fn validate(
     if !catalog.overrides_valid(&owners, cancel)? {
         return Ok(false);
     }
+    for instance in &caller.interface_instances {
+        let Some(comparison) = &instance.comparison else {
+            continue;
+        };
+        let Some(table) = closure
+            .iter()
+            .flat_map(|module| &module.abi.public_items)
+            .find_map(|item| match item {
+                PublicItem::InterfaceTable(table) if table.declaration == instance.declaration => {
+                    table.instantiate(&instance.arguments, &table.generic_params, definitions)
+                }
+                _ => None,
+            })
+        else {
+            return Ok(false);
+        };
+        if !comparison.valid(
+            &table.for_type,
+            &catalog,
+            &table.generic_params,
+            &table.bounds,
+            cancel,
+        )? {
+            return Ok(false);
+        }
+    }
     for function in &caller.functions {
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             if let Instruction::MakeInterface {
@@ -284,7 +310,12 @@ fn native_slots_valid(
             }
             _ => None,
         });
-    for instance in base.chain(module.interface_instances.iter().cloned()) {
+    for instance in base.chain(
+        module
+            .interface_instances
+            .iter()
+            .map(|instance| instance.identity()),
+    ) {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         if definitions
             .resolve(instance.declaration)

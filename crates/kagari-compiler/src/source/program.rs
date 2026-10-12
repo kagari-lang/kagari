@@ -230,8 +230,7 @@ pub fn lower_program_to_mir(
             module
                 .interface_instances
                 .iter()
-                .cloned()
-                .map(|instance| (&module.identity, instance))
+                .map(|instance| (&module.identity, instance.identity()))
         });
         for (caller, instance) in allocations.chain(demands) {
             let implementation = &instance.declaration;

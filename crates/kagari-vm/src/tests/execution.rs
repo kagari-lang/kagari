@@ -236,6 +236,7 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
         })),
     ];
     module.interface_tables = vec![InterfaceTableRecord {
+        comparison: None,
         parents: vec![],
         view: None,
         arguments: Vec::new(),

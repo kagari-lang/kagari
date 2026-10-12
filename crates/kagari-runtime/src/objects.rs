@@ -34,6 +34,7 @@ use kagari_types::{
 use std::{cell::Ref, slice};
 mod application;
 mod calls;
+mod comparison;
 pub(crate) mod invocation;
 pub(crate) mod method;
 mod method_view;
@@ -310,18 +311,20 @@ impl Runtime {
                 return_type: method.return_type.clone(),
             }));
         }
+        let receiver_table = InterfaceResultBinding {
+            owner: implementation.clone(),
+            table: table_index,
+            arguments: template
+                .generic_params
+                .iter()
+                .map(|parameter| parameter.as_type())
+                .collect(),
+            environment: environment.clone(),
+        };
         Ok(InterfaceValueSnapshot {
+            comparison: linked.comparison.as_ref().map(|_| receiver_table.clone()),
             receiver_operations: MetadataCache::new(),
-            receiver_table: InterfaceResultBinding {
-                owner: implementation.clone(),
-                table: table_index,
-                arguments: template
-                    .generic_params
-                    .iter()
-                    .map(|parameter| parameter.as_type())
-                    .collect(),
-                environment: environment.clone(),
-            },
+            receiver_table,
             parents: linked
                 .parents
                 .iter()
@@ -421,10 +424,11 @@ impl Runtime {
             return Ok(*prepared);
         }
         let binding = parent.binding.clone();
+        let comparison = snapshot.comparison.clone();
         let data = snapshot.data;
         let use_view = parent.view;
         drop(snapshot);
-        let prepared = self.prepare_interface_snapshot(
+        let mut prepared = self.prepare_interface_snapshot(
             &binding.owner,
             binding.table,
             &self.type_arguments(
@@ -438,6 +442,7 @@ impl Runtime {
             data,
             use_view,
         )?;
+        prepared.comparison = comparison;
         self.validate_interface_receiver(&prepared)?;
         self.validate_metadata(MetadataEdge::InterfaceView(&prepared))?;
         let prepared = self.gc.alloc_interface_snapshot(prepared)?;

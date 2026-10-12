@@ -20,6 +20,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
+    callable::wire::InterfaceInstanceRecord,
     effects::EffectSet,
     layout::wire::{EnumLayoutRecord, StructLayoutRecord},
     native_import::wire::NativeImportRecord,
@@ -35,7 +36,7 @@ pub(crate) struct MirModuleRecord {
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     native_targets: Vec<NativeImportRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-    interface_instances: Vec<ConcreteFunctionIdentityRecord>,
+    interface_instances: Vec<InterfaceInstanceRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     host_types: Vec<WireHostTypeDeclaration>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
@@ -71,7 +72,7 @@ impl MirModuleRecord {
             interface_instances: value
                 .interface_instances
                 .iter()
-                .map(|value| ConcreteFunctionIdentityRecord::encode(value, encoding, cancel))
+                .map(|value| InterfaceInstanceRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             host_types: value
                 .host_types
