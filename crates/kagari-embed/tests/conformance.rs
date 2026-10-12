@@ -3,6 +3,7 @@ use kagari_bytecode::artifact::{
     DependencyFingerprint,
 };
 use kagari_embed::{
+    BytecodeArtifact,
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
     program::{PreparedProgram, ProgramPreparationError},
@@ -11,14 +12,16 @@ use kagari_embed::{
 use kagari_runtime::value_semantics::script_equal;
 
 use {
-    kagari_common::identity::{ModuleIdentity, PackageId},
-    kagari_source::source::SourceFile,
+    kagari_common::identity::{
+        ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+    },
+    kagari_source::{source::SourceFile, source_database::SourceLayer},
 };
 
 use kagari_runtime::value::Value;
 
 fn exact_compatibility(
-    artifact: &kagari_embed::BytecodeArtifact,
+    artifact: &BytecodeArtifact,
     identity: ModuleIdentity,
 ) -> ArtifactCompatibility {
     ArtifactCompatibility {
@@ -49,7 +52,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .set_source(
             "pkg://gameplay/math.kgr",
             "pub fn value() -> i32 { 42 }".into(),
-            kagari_source::source_database::SourceLayer::Base,
+            SourceLayer::Base,
         )
         .unwrap();
     let checked = engine
@@ -73,16 +76,20 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .expect("checked module should emit bytecode");
 
     assert_eq!(checked.module_identity(), &identity);
-    assert_eq!(artifact.header.module_identity, identity);
-    assert_eq!(artifact.verification.loader.module_identity, identity);
+    assert_eq!(artifact.records().header.module_identity, identity);
+    assert_eq!(
+        artifact.records().verification.loader.module_identity,
+        identity
+    );
     let mut expected_dependencies: Vec<_> = artifact
+        .records()
         .program
         .modules
         .iter()
         .filter(|module| module.identity != identity)
         .map(|module| DependencyFingerprint {
             module_id: module.identity.clone(),
-            fingerprint: ArtifactFingerprint::of_serialized(module),
+            fingerprint: ArtifactFingerprint::of_module(module, artifact.definitions()).unwrap(),
         })
         .collect();
     expected_dependencies.sort_by(|left, right| left.module_id.cmp(&right.module_id));
@@ -92,17 +99,26 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
             .any(|dependency| { dependency.module_id == dependency_identity })
     );
     assert_eq!(
-        artifact.verification.loader.dependency_fingerprints,
+        artifact
+            .records()
+            .verification
+            .loader
+            .dependency_fingerprints,
         expected_dependencies
     );
     assert_eq!(
-        artifact.verification.host_interface_fingerprint,
-        ArtifactFingerprint::of_program_hosts(&artifact.program)
+        artifact.records().verification.host_interface_fingerprint,
+        ArtifactFingerprint::of_program_hosts(&artifact.records().program, artifact.definitions())
+            .unwrap()
     );
 
-    let compatibility = exact_compatibility(&artifact, identity.clone());
+    let compatibility = exact_compatibility(artifact.records(), identity.clone());
+    let definitions = DefinitionContext::new().unwrap();
     artifact
-        .validate_for_loader(&compatibility)
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .records()
+        .validate_for_loader(&compatibility, &definitions)
         .expect("artifact should satisfy exact loader compatibility");
 
     let context = ExecutionContext::default();
@@ -135,8 +151,10 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
             ArtifactOptions::default(),
         )
         .expect("source should compile to an artifact");
-    let mut incompatible = artifact.clone();
+    let (definitions, mut incompatible) = artifact.into_parts();
     incompatible.header.runtime_helper_abi_version = "wrong-helper-abi".to_owned();
+    let incompatible =
+        DefinitionMetadata::checked(definitions, incompatible, &Default::default()).unwrap();
 
     let runtime = engine.runtime(ExecutionContext::default());
     let error =
@@ -248,8 +266,9 @@ pub fn main() -> usize {
             ArtifactOptions::default(),
         )
         .expect("second standard artifact should compile");
-    let mut invalid = second.clone();
+    let (definitions, mut invalid) = second.clone().into_parts();
     invalid.header.runtime_helper_abi_version = "wrong-helper-abi".to_owned();
+    let invalid = DefinitionMetadata::checked(definitions, invalid, &Default::default()).unwrap();
 
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime

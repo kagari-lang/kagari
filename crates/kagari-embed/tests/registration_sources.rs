@@ -1,7 +1,9 @@
 #![cfg(feature = "source")]
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_embed::{
-    context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
+    context::ExecutionContext,
+    engine::{KagariEngine, builder::KagariEngineBuilder},
+    error::EmbeddingError,
     program::PreparedProgram,
 };
 use kagari_runtime::{
@@ -32,7 +34,7 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 fn typed_registration_preserves_parameter_and_return_docs_in_materialized_navigation() {
     let cache = Cache::new();
     let mut builder = KagariEngine::builder().unwrap();
-    let mut module = ModuleBuilder::new("application::typed", builder.declarations());
+    let mut module = ModuleBuilder::new("application::typed", builder.declarations()).unwrap();
     module.documentation("# Text tools\n\nOwned Unicode text conversions.");
     module
         .add_function(
@@ -132,18 +134,15 @@ impl NativePayload for Payload {
     }
 }
 
-fn application(
-    builder: &kagari_embed::engine::builder::KagariEngineBuilder,
-    doc: &str,
-) -> NativeModule {
-    let mut module = ModuleBuilder::new("application::api", builder.declarations());
+fn application(builder: &KagariEngineBuilder, doc: &str) -> NativeModule {
+    let mut module = ModuleBuilder::new("application::api", builder.declarations()).unwrap();
     module.documentation(doc);
-    let mut ty = module.define_type("Opaque");
+    let mut ty = module.define_type("Opaque").unwrap();
     ty.documentation(DOC);
     ty.native_storage(NativeStorage::payload::<Payload>())
         .unwrap();
     ty.finish().unwrap();
-    let mut trait_ = module.define_trait("Describe");
+    let mut trait_ = module.define_trait("Describe").unwrap();
     trait_.documentation(DOC);
     trait_
         .define_method(

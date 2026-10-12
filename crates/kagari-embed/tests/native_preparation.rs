@@ -1,4 +1,5 @@
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use std::{
     ffi::c_void,
     sync::{
@@ -289,7 +290,7 @@ fn cancellation_discards_compilation_results_and_can_be_retried() {
 #[test]
 fn mismatched_artifact_native_input_is_rejected_before_loading() {
     let engine = KagariEngine::default();
-    let mut artifact = engine
+    let artifact = engine
         .compile_to_artifact(SourceFile::new("a", "fn main() {}"), Default::default())
         .unwrap();
     let other = engine
@@ -299,14 +300,22 @@ fn mismatched_artifact_native_input_is_rejected_before_loading() {
         )
         .unwrap();
     // Construct a valid envelope with independently supplied compiler input.
-    artifact = KbcArtifact::from_program(
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records();
+    let artifact = KbcArtifact::from_program(
         artifact.program,
         ArtifactBuildOptions {
-            portable_mir: other.portable_mir,
+            portable_mir: other.into_records().portable_mir,
             ..Default::default()
         },
+        &definitions,
     )
     .unwrap();
+    let artifact =
+        DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap();
     assert!(matches!(
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()),
         Err(ProgramPreparationError::NativeInput(_))

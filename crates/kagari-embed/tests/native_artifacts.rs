@@ -2,6 +2,7 @@ use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     native_input::PortableMir,
 };
+use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::native_input::verify_native_input;
 use kagari_embed::{
     context::ExecutionContext,
@@ -39,8 +40,16 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
                 },
             )
             .unwrap();
-        let artifact = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-        let verified = artifact.clone().into_verified(&Default::default()).unwrap();
+        let artifact =
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap();
+        let definitions = DefinitionContext::new().unwrap();
+        let verified = artifact
+            .import_into(&definitions, &Default::default())
+            .unwrap()
+            .into_records()
+            .into_verified(&Default::default(), &definitions)
+            .unwrap();
         match native_input {
             NativeInputExport::PortableMir => {
                 verify_native_input(
@@ -50,7 +59,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
                 )
                 .unwrap();
             }
-            NativeInputExport::BytecodeOnly => assert!(artifact.portable_mir.is_none()),
+            NativeInputExport::BytecodeOnly => assert!(artifact.records().portable_mir.is_none()),
         }
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());

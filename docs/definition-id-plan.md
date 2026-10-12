@@ -3949,3 +3949,26 @@ associated_constants (7), native_preparation (4), native_artifacts (3), and neve
 SI06 owns their scoped artifact construction, semantic query and registration repairs.
 No package-wide tests were run. Remaining example/dependent audits and final lasting
 documentation transfer/plan retirement remain required; full acceptance stays in CI.
+
+### SI06 native conformance and registration-source consumers
+
+Native artifact and conformance fixtures retain scoped records through codecs and
+loader adoption. Dependency and Host fingerprints use canonical identity-aware
+encoders, and header corruption retains its original table. The mismatched native
+payload case deliberately combines independently encoded MIR with a valid bytecode
+envelope. Registration fixtures use fallible builders, and never-returning fixtures
+retain codec scope.
+
+Nine selected cases pass: three conformance identity/ABI/reload contracts; two
+native export/rejected-reload contracts; mismatched native input rejection; typed
+registration navigation; unchanged documentation and old snapshot targets; and
+early return preserving generic call and side-effect behavior. Scoped Clippy for
+all five targets passes. Structure checks 1087 Rust files with zero violations and
+exceptions; formatting and diff checks pass. Review confirms snapshot provenance,
+canonical fingerprints, unchanged negative assertions and ordinary imports.
+
+This resolves the conformance, native_artifacts, native_preparation,
+registration_sources and never diagnostics from the previous baseline. Remaining
+known consumers are source_modules, enum_payloads, operator_traits and
+associated_constants; dependent/example audits and final documentation retirement
+remain SI06 work. Exhaustive workspace/feature/backend validation remains CI scope.
