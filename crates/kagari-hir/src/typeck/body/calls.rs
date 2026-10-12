@@ -444,28 +444,15 @@ impl<'a> BodyChecker<'a> {
                                 .trait_bounds_for(actual, env)
                                 .iter()
                                 .any(|bound| bound.satisfies_for(&trait_type, actual)),
-                            _ => match self.aggregates.implementation_count(
-                                self.declarations.definitions(),
-                                &trait_type,
-                                actual,
-                            ) + usize::from(
-                                self.declarations.hosts.implements(&trait_type, actual),
-                            ) {
-                                0 => {
-                                    Protocol::from_definition(
-                                        &trait_type.declaration,
-                                        self.declarations.definitions(),
-                                    )
-                                    .is_none()
-                                        && self.type_table.implements(
-                                            self.declarations.definitions(),
-                                            &trait_type,
-                                            actual,
-                                        )
-                                }
-                                1 => true,
-                                _ => false,
-                            },
+                            _ => {
+                                self.aggregates.implementation_count(
+                                    self.declarations.definitions(),
+                                    &trait_type,
+                                    actual,
+                                ) + usize::from(
+                                    self.declarations.hosts.implements(&trait_type, actual),
+                                ) == 1
+                            }
                         };
                         if !satisfied && !actual.is_unresolved() {
                             let trait_name = self

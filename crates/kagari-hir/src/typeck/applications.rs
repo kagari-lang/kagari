@@ -12,7 +12,7 @@ use crate::{
         check::{self, MethodComparison},
         constraints::{self, type_satisfies_standard_constraint},
         families,
-        table::{ConstraintTarget, TypeTable},
+        table::ConstraintTarget,
     },
     types::{TypeId, TypeSubstitution},
 };
@@ -34,7 +34,6 @@ pub(super) struct ApplicationContext<'a> {
     pub definitions: &'a DefinitionTable,
     pub catalog: &'a AggregateCatalog,
     pub hosts: &'a HostDeclarations,
-    pub table: &'a TypeTable,
 }
 
 pub(super) fn validate(
@@ -49,7 +48,6 @@ pub(super) fn validate(
         definitions,
         catalog,
         hosts,
-        table,
     } = context;
     let expanded = catalog
         .expanded_bounds(bounds, cancel)
@@ -257,13 +255,8 @@ pub(super) fn validate(
                                                     applied.clone(),
                                                 ))
                                             }),
-                                        _ => match catalog.implementation_count(definitions, &applied, actual)
-                                            + usize::from(hosts.implements(&applied, actual))
-                                        {
-                                            0 => Protocol::from_definition(&applied.declaration, definitions).is_none() && table.implements(definitions, &applied, actual),
-                                            1 => true,
-                                            _ => false,
-                                        },
+                                        _ => catalog.implementation_count(definitions, &applied, actual)
+                                            + usize::from(hosts.implements(&applied, actual)) == 1,
                                     };
                                     if !satisfied {
                                         diagnostics.push(
@@ -374,14 +367,7 @@ pub(crate) fn validate_signatures(
     cancel: &CancellationToken,
 ) {
     let definitions = declarations.definitions();
-    families::validate(
-        lowered,
-        declarations,
-        signatures,
-        catalog,
-        diagnostics,
-        cancel,
-    );
+    families::validate(lowered, declarations, catalog, diagnostics, cancel);
     for function in signatures.functions() {
         if cancel.check().is_err() {
             return;
@@ -401,7 +387,6 @@ pub(crate) fn validate_signatures(
                     definitions,
                     catalog,
                     hosts: &declarations.hosts,
-                    table: signatures.type_table(),
                 },
                 &parameter.ty,
                 &function.bounds,
@@ -424,7 +409,6 @@ pub(crate) fn validate_signatures(
                 definitions,
                 catalog,
                 hosts: &declarations.hosts,
-                table: signatures.type_table(),
             },
             &function.return_type,
             &function.bounds,
@@ -455,7 +439,6 @@ pub(crate) fn validate_signatures(
                 definitions,
                 catalog,
                 hosts: &declarations.hosts,
-                table: signatures.type_table(),
             },
             &TypeId::Trait(instance.clone()),
             &available,
@@ -557,7 +540,6 @@ pub(crate) fn validate_signatures(
                     definitions,
                     catalog,
                     hosts: &declarations.hosts,
-                    table: signatures.type_table(),
                 },
                 &field.ty,
                 &structure.bounds,
@@ -581,7 +563,6 @@ pub(crate) fn validate_signatures(
                         definitions,
                         catalog,
                         hosts: &declarations.hosts,
-                        table: signatures.type_table(),
                     },
                     payload,
                     &enumeration.bounds,

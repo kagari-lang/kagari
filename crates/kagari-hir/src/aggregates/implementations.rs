@@ -883,7 +883,23 @@ impl AggregateCatalog {
                             }) {
                                 continue;
                             }
-                            if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b| matches!(b, ConstraintTarget::Trait(t) if t.satisfies(&required)))) { continue; }
+                            if required.arguments.is_empty()
+                                && required.associated_types.is_empty()
+                                && let Some(protocol) = Protocol::from_definition(
+                                    &required.declaration,
+                                    budget.definitions,
+                                )
+                                && protocol.equality_protocol()
+                            {
+                                // Equality defaults depend on declarations:
+                                // enums inspect payloads and object overrides
+                                // can suppress identity Eq/Hash. A catalog-free
+                                // intrinsic answer cannot establish this bound.
+                                if self.standard_holds(protocol, &actual, visiting, budget)? {
+                                    continue;
+                                }
+                                return Ok(false);
+                            }
                             if traits::intrinsic_applies(
                                 budget.definitions,
                                 &required,

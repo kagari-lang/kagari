@@ -10,7 +10,10 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::callable::witness::OperationWitness;
-use kagari_embed::engine::{EngineConfig, KagariEngine};
+use kagari_embed::{
+    engine::{EngineConfig, KagariEngine},
+    error::EmbeddingError,
+};
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -448,6 +451,30 @@ fn main() -> i32 {
                 .compile_to_artifact(SourceFile::new("rejected.kgr", source), Default::default())
                 .is_err(),
             "{source}"
+        );
+    }
+    for (bound, declarations, value) in [
+        (
+            "PartialEq",
+            "trait Opaque {} impl Opaque for i32 {} enum Item { Value(Opaque) } fn item() -> Item { val value: Opaque = 1; Item::Value(value) }",
+            "item()",
+        ),
+        ("Eq", "", "Vec::from([0.0f32])"),
+    ] {
+        let source = format!(
+            "{declarations}\ntrait Marker {{}} struct Wrapped<T> {{ val value: T }} impl<T: {bound}> Marker for Wrapped<T> {{}} fn require<T: Marker>(value: T) {{}} fn main() {{ require(Wrapped {{ value: ({value}, 1) }}); }}"
+        );
+        let result = engine.compile_to_artifact(
+            SourceFile::new("nested-bound.kgr", source),
+            Default::default(),
+        );
+        let Err(EmbeddingError::Diagnostics { diagnostics }) = result else {
+            panic!("nested {bound} failure must be rejected by source checking");
+        };
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")
         );
     }
 }

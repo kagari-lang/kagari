@@ -844,7 +844,6 @@ impl<'a> BodyChecker<'a> {
                 definitions: self.declarations.definitions(),
                 catalog: self.aggregates,
                 hosts: &self.declarations.hosts,
-                table: self.type_table,
             },
             &ty,
             &env.generic_bounds,

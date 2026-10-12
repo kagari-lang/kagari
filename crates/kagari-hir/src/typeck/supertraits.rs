@@ -105,7 +105,6 @@ pub(crate) fn validate(
                         definitions: declarations.definitions(),
                         catalog,
                         hosts: &declarations.hosts,
-                        table,
                     },
                     &TypeId::Trait(parent.clone()),
                     &assumptions,

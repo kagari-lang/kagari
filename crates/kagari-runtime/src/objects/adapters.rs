@@ -6,15 +6,23 @@ use crate::{
         applications::MethodApplication, groups::OperationId, operation::BoundOperation,
     },
     frame::types::{
-        EnvironmentRecord, TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
+        EnvironmentRecord, TypeEnvironment,
+        arguments::ScopedSignature,
+        compatibility::{TypeIdentity, TypeView},
     },
     module::LoadedModule,
     objects::calls::resolve_requirement,
 };
-use kagari_bytecode::module::CallableTarget;
+use kagari_bytecode::module::{BytecodeFunction, CallableTarget};
 use kagari_contract::callable::adapter::SharedAdapterWitness;
-use kagari_types::callable::Signature;
+use kagari_types::{callable::Signature, declaration::requirement::NativeCallableRequirement};
 use std::{slice, sync::Arc};
+
+pub(super) struct AdapterApplication {
+    pub(super) environment: EnvironmentRecord,
+    pub(super) requirement: NativeCallableRequirement,
+    pub(super) receiver_identity: Arc<TypeIdentity>,
+}
 
 impl Runtime {
     pub(super) fn bind_shared_adapter(
@@ -57,15 +65,50 @@ impl Runtime {
         )?;
         applied.constructions = self.construction_scope(caller, environment.as_ref())?;
         applied.extend_operations(operations);
-        let applied = self.alloc_environment(applied)?;
+        let requirement = resolve_requirement(environment.as_ref(), &adapter.requirement)?;
+        let receiver_identity = Arc::new(
+            TypeView::new(
+                &adapter.requirement.receiver,
+                caller,
+                environment.as_ref().map(|env| env.types.as_ref()),
+            )
+            .identity()
+            .ok_or_else(invalid)?,
+        );
+        self.bind_adapter_application(
+            &owner,
+            target,
+            AdapterApplication {
+                environment: applied,
+                requirement,
+                receiver_identity,
+            },
+        )
+    }
+
+    /// Instantiate a verified structural body with separately bound component
+    /// operations. The caller has authenticated every supplied component.
+    pub(super) fn bind_adapter_application(
+        &self,
+        owner: &LoadedModule,
+        target: &BytecodeFunction,
+        application: AdapterApplication,
+    ) -> Result<OperationId, RuntimeError> {
+        let invalid = || RuntimeError::module_validation("structural operation application");
+        let AdapterApplication {
+            environment,
+            requirement,
+            receiver_identity,
+        } = application;
+        let applied = self.alloc_environment(environment)?;
         let parameters = (0..target.metadata.params.len())
             .map(|index| target.metadata.semantic.params.get(&index).cloned())
             .collect::<Option<Vec<_>>>()
             .ok_or_else(invalid)?;
-        let params = self.type_arguments(&owner, Some(applied.types.clone()), &parameters)?;
+        let params = self.type_arguments(owner, Some(applied.types.clone()), &parameters)?;
         let result = self
             .type_arguments(
-                &owner,
+                owner,
                 Some(applied.types.clone()),
                 slice::from_ref(
                     target
@@ -91,17 +134,7 @@ impl Runtime {
             environment: Some(applied),
             result_adapter: None,
         })?;
-        let requirement = resolve_requirement(environment.as_ref(), &adapter.requirement)?;
         let target = CallableTarget::Script(target.id);
-        let receiver_identity = Arc::new(
-            TypeView::new(
-                &adapter.requirement.receiver,
-                caller,
-                environment.as_ref().map(|env| env.types.as_ref()),
-            )
-            .identity()
-            .ok_or_else(invalid)?,
-        );
         self.gc.alloc_bound_operation(BoundOperation {
             receiver_identity,
             application: Some(application),
@@ -110,7 +143,7 @@ impl Runtime {
             requirement,
             slot: 0,
             primitive: None,
-            owner,
+            owner: owner.clone(),
             target,
             signature,
         })

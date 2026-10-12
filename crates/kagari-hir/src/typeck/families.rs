@@ -6,9 +6,7 @@ use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     declarations::Declarations,
     lower::LoweredModule,
-    typeck::{
-        ModuleSignatures, constraints::type_satisfies_standard_constraint, table::ConstraintTarget,
-    },
+    typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
     types::{TypeId, TypeSubstitution},
 };
 
@@ -20,7 +18,6 @@ use {
 pub(super) fn validate(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    signatures: &ModuleSignatures,
     catalog: &AggregateCatalog,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
@@ -107,7 +104,6 @@ pub(super) fn validate(
                     definitions: declarations.definitions(),
                     catalog,
                     hosts: &declarations.hosts,
-                    table: signatures.type_table(),
                 },
                 &family.value,
                 &available,

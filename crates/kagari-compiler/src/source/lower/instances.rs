@@ -322,6 +322,7 @@ impl<'a> InstancePlanner<'a> {
             ty,
             span,
             None,
+            false,
         )
     }
 
@@ -331,6 +332,7 @@ impl<'a> InstancePlanner<'a> {
         ty: &TypeId,
         interface: &NominalType,
         span: Span,
+        shared_tuple: bool,
     ) -> Result<InstanceId, MirLoweringError> {
         let parent = self.module.lowered.module.functions.first().ok_or(
             MirLoweringError::MissingBinding("protocol adapter source context"),
@@ -346,6 +348,7 @@ impl<'a> InstancePlanner<'a> {
             span,
             (protocol.iteration() || matches!(protocol, Protocol::Fn | Protocol::From))
                 .then_some(interface),
+            shared_tuple,
         )
     }
 
@@ -356,12 +359,13 @@ impl<'a> InstancePlanner<'a> {
         ty: &TypeId,
         span: Span,
         interface: Option<&NominalType>,
+        shared_tuple: bool,
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
         let (origin, function, substitution) = context;
         let arity = match ty {
             TypeId::Tuple(items)
-                if !ty.is_concrete()
+                if (shared_tuple || !ty.is_concrete())
                     && matches!(protocol, Protocol::PartialEq | Protocol::Hash) =>
             {
                 Some(items.len())
@@ -400,6 +404,22 @@ impl<'a> InstancePlanner<'a> {
             .as_ref()
             .map(|arguments| TypeId::Tuple(arguments.clone()))
             .unwrap_or_else(|| ty.clone());
+        // A shared adapter owns its binders even when first requested by a
+        // concrete call. Its body must not depend on the requester's binders.
+        let substitution = shared_arguments
+            .as_ref()
+            .map(|arguments| {
+                arguments
+                    .iter()
+                    .map(|argument| {
+                        let TypeId::Generic(parameter) = argument else {
+                            unreachable!("canonical tuple adapter parameter");
+                        };
+                        (parameter.clone(), argument.clone())
+                    })
+                    .collect()
+            })
+            .unwrap_or(substitution);
         let key = InstanceKey {
             declaration,
             arguments: shared_arguments.unwrap_or_else(|| {

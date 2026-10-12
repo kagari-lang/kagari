@@ -13,6 +13,8 @@ use kagari_contract::callable::{receiver::object_receiver, witness::OperationWit
 use kagari_types::ty::Ty;
 use std::slice;
 
+mod conditional;
+
 impl Runtime {
     pub(super) fn receiver_comparison_binding(
         &self,
@@ -66,6 +68,9 @@ impl Runtime {
                 }
                 pending.push(argument.parameter(self, &binding.owner, index)?);
             }
+        }
+        if let Some(binding) = self.bind_conditional_comparison(binding, &scopes)? {
+            return Ok(Some(binding));
         }
         // Only exact, prechecked applications of this implementation are eligible.
         // Structural Ty equality alone loses the generation supplying a nominal

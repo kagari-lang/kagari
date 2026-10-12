@@ -8,49 +8,51 @@ GitHub CI acceptance is recorded separately.
 
 ## Execution handoff (2026-10-13)
 
-Resume from the CI03 guarded receiver-selection checkpoint; the progress ledger below owns
+Resume from the CI03 positive conditional-composition checkpoint; the progress ledger below owns
 completed changes and their validation evidence. CI01-CI02 are complete and CI03
 remains active. CI04 has implementation checkpoints but still needs its phase
 acceptance audit; CI05 marker removal and CI06 documentation/final acceptance
 remain open. Do not restart completed migrations or treat partial CI04 work as
 completion of the overall plan.
 
-The next implementation step is checked conditional operation composition for
-`Vec<(old Local, new Item)>` across reload. Retain the old Local operation and the
-new Item operation independently. Reuse the checked shared receiver selections
-from `93909724`; whole closed-application lookup cannot supply this mixed tuple.
-The shared tuple adapter checkpoint now proves independently supplied component
-operations through ordinary bounded shared calls, including mixed-generation
-Local/Item execution. Reuse that body/proof rather than generating a second tuple
-comparison algorithm. Receiver-bound operation composition also supports bounded
-`same(Vec<(Local, T)>)` and Hash calls. Reuse the SharedMethodWitness dependencies
-and the native import's own checked binding path. Conditional receiver comparison
-still needs optional evidence when the interface factory has no element protocol
-bound: explicit negative eligibility must remain distinct from absent evidence;
-absence cannot authorize identity fallback.
-Guarded selections now carry the exact substituted implementation bounds through
-lowering, wire encoding and independent verification. Runtime deliberately does
-not execute those selections until their actual eligibility and operations are
-supplied. This is metadata/proof completion, not completion of conditional dispatch.
-Keep operation selection and structural adapter proof in compiler/contract
-owners, with runtime binding to the actual arguments' supplying generations.
-Do not add runtime trait search or substitute layout equality for generation
-identity.
+The positive conditional-composition path now passes both mixed-generation
+`Vec<(old Local, new Item)>` cases, including same-nominal old/new Local arguments.
+Runtime binds independently checked positive operations by exact TypeIdentity and
+reuses the verified generic tuple adapter; it never searches implementation headers
+or the live module store. Concrete tuple witnesses now use that same shared body.
+Guarded selections still carry their exact substituted implementation bounds through
+lowering, wire encoding and independent verification. Comparison-only operation
+bindings do not become capabilities of ordinary interface calls.
 
-The two enabled reproductions currently fail with
-"interface receiver does not support object comparison":
+The next implementation step is explicit eligibility evidence for negative and
+methodless conditions. Missing operations must remain distinct from a verified
+negative result; Eq cannot be established merely by finding a PartialEq callable.
+Keep compiler/contract selection and validation separate from runtime binding to
+each type argument's supplying generation. Retire the superseded whole closed-view
+comparison scan when this conditional binding path is complete.
+
+The enabled negative-boundary reproduction now compiles and fails at runtime in
+the new caller with "interface receiver does not support object comparison":
 
 ```text
-cargo test -p kagari-embed --test generic_reload shared_collection_comparison_composes -- --nocapture
+cargo test -p kagari-embed --test generic_reload shared_collection_comparison_preserves_ineligible -- --nocapture
 ```
 
-They separately cover the retained Local operation and the new Item operation.
-The latest checkpoints extend shared tuple and conditional receiver operations to
-checked component evidence and fix same-nominal mixed-generation selection; exact validation and earlier
-evidence are recorded in the ledger. Continue
-with affected tests and lightweight checks, leaving the exhaustive workspace and
-backend matrix to CI. These two failures and the remaining phase work must be
-resolved before declaring completion.
+It constructs Vec<(old Local, new Item)> where Item is an enum containing an ordinary
+Opaque interface without PartialEq. Expected equality is the eligible object's
+identity default: an alias compares equal, a distinct collection does not. The old
+caller succeeds; the mixed-generation new caller lacks a negative certificate.
+Consider retaining checked bound outcomes with the concrete comparison applications
+that already supply positive selections, with independent source-free validation and
+exact argument identities; do not infer a negative result from failed lookup.
+
+The first attempt at this fixture exposed catalog-free equality eligibility during
+conditional implementation selection, then a weaker local-table fallback in final
+source checks. Both bypasses are removed. The aggregate catalog owns completed
+conditional bounds, including enum payloads and explicit object overrides. Local
+signature recovery remains staged; it cannot override final aggregate rejection.
+Focused positive execution, source rejection and source-free proof checks are
+recorded below. CI03 and the remaining phases are not complete.
 
 The user settled the interface identity contract after reviewing the Object-bound
 proposal: do not introduce a public Object bound. Ordinary interfaces permit
@@ -1807,3 +1809,55 @@ visibility bridge or handwritten include. The new proof module owns conditional
 selection authentication; runtime binding remains a separate unfinished step.
 CI03, CI04's acceptance audit and CI05-CI06 remain open. Complete workspace and
 backend validation remains CI-owned and unrun.
+
+
+CI03 positive conditional-composition checkpoint resolves the two recorded
+unbounded mixed-generation collection comparison failures. Conditional PartialEq
+guards bind exact closed selections retained by construction programs and type
+argument suppliers. Only independently validated closed records are eligible;
+runtime compares full type/provenance identity before binding. For a tuple without
+a whole closed selection, it binds its components to the already verified generic
+adapter body. Preparation has a shared finite work/depth limit. Missing evidence
+remains unresolved, not false; methodless and other constraint certificates remain
+pending. The resulting operation environment belongs only to the comparison binding,
+not ordinary interface dispatch. Existing operation/application owners trace and
+release its supplying generations.
+
+Compiler tuple operation witnesses now use the shared adapter for concrete as well
+as symbolic nonempty tuples. The first compilation exposed that adapters requested
+by concrete callers inherited an empty substitution; adapters now initialize their
+own canonical binders independently of the requesting function. Runtime's adapter
+application helper is shared by explicit witnesses and conditional composition; no
+second tuple comparison body or metadata cache was added. The expanded new-argument
+reload case also supplies a new Local alongside the old Local, exercising identical
+nominal spellings with separate operations. Temporary diagnostics were removed.
+
+The new ineligible-content reload case initially failed lowering with
+MissingBinding("checked callable requirement") for Item.PartialEq. The implementation
+matcher had admitted a tuple's enum via a catalog-free intrinsic shortcut without
+inspecting its payload. Equality constraints now use the existing bounded catalog
+proof before any intrinsic fallback. A nested conditional Marker bound then exposed
+a second bypass: final call/application validation retried a local TypeTable after
+the aggregate catalog rejected the implementation. Those retries and the now-unused
+ApplicationContext table dependency are removed. Final aggregate proof owns this
+answer; source tests require KG_TYPE_GENERIC_BOUND_NOT_SATISFIED for an enum with an
+Opaque payload and for a tuple containing Vec<f32> under Eq. The negative reload
+fixture now reaches its intended runtime failure at epoch 2; CI03 owns this remaining
+failure. It stays enabled, with the exact reproduction in the handoff above.
+
+Selected validation passed twelve distinct cases: three generic_reload composition/
+shared-adapter cases; two default_methods shared receiver/tuple cases; three
+collection_interfaces concrete content, source-free receiver proof and nested/float
+content cases; and four HIR trait identity/imported bound cases. Reload cases check
+forced GC, root release and retirement; content execution uses source, decoded
+artifact and ArtifactJit routes. The nested source assertions initially exposed the
+local-table bypass and pass after its removal. The negative reload case is a known
+failure, not part of the passing count. Scoped HIR/compiler/runtime library Clippy,
+structure, formatting and diff checks passed after local cleanup. Structure checked
+1111 Rust files with no violations or exceptions. Manual review found no new
+re-export, production glob, deep parent traversal or compatibility bridge. The
+runtime preparation helper is shared with ordinary adapter binding; comparison
+evidence lookup only inspects validated selections and canonical component bounds,
+with existing operation owners retaining execution metadata. Its final canonical
+bound restriction was followed by passing both formerly failing composition cases.
+Complete workspace/backend validation remains CI-owned and unrun.

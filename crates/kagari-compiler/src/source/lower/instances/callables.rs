@@ -103,8 +103,7 @@ impl InstancePlanner<'_> {
         let mut operations = vec![];
         for mut required in requirements {
             required = self.normalize_callable_requirement(required)?;
-            if !required.receiver.is_concrete()
-                && matches!(required.receiver, Ty::Tuple(_))
+            if matches!(&required.receiver, Ty::Tuple(items) if !items.is_empty())
                 && let Some(protocol @ (Protocol::PartialEq | Protocol::Hash)) =
                     Protocol::from_definition(&required.interface.declaration, &self.definitions())
             {
@@ -113,6 +112,7 @@ impl InstancePlanner<'_> {
                     &raise_type(&required.receiver),
                     &raise_nominal_type(&required.interface),
                     span,
+                    true,
                 )?;
                 let call = self.tuple_protocol_call(function, required.clone(), span)?;
                 operations.push(OperationWitness::SharedAdapter(Box::new(
@@ -345,8 +345,13 @@ impl InstancePlanner<'_> {
                     )
                     .map_err(|_| invalid())?
                     .ok_or_else(invalid)?;
-                let id =
-                    self.enqueue_selected_protocol(application.kind, &receiver, &interface, span)?;
+                let id = self.enqueue_selected_protocol(
+                    application.kind,
+                    &receiver,
+                    &interface,
+                    span,
+                    false,
+                )?;
                 let instance = self.instances[id.index()].key.lower(
                     self.catalog,
                     self.options,

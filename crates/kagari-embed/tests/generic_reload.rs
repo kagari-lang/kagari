@@ -333,6 +333,28 @@ fn shared_collection_comparison_composes_the_new_argument_operation() {
     assert_shared_collection_comparison_reloading(&source, false, |source| {
         source.replace("bool { true }", "bool { false }")
     });
+    let same_nominal = source
+        .replace("Item { value: 1 }", "Local {}")
+        .replace("Item { value: 2 }", "Local {}");
+    assert_shared_collection_comparison_reloading(&same_nominal, false, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+}
+
+#[test]
+fn shared_collection_comparison_preserves_ineligible_content_identity() {
+    let source = mixed_generation_collection_source()
+        .replace(
+            "struct Item { val value: i32 }\nimpl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }",
+            "trait Opaque {}\nimpl Opaque for i32 {}\nenum Item { Value(Opaque) }",
+        )
+        .replace(
+            "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
+            "val value: Opaque = 1;\n        val a = factory.one(Item::Value(value));\n        val b = factory.one(Item::Value(value));\n        a == a && !(a == b)",
+        );
+    assert_shared_collection_comparison_reloading(&source, true, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
 }
 
 #[test]
