@@ -112,34 +112,26 @@ impl Runtime {
             .arguments
             .clone();
         let arguments = self.resolve_type_arguments(implementation, &arguments)?;
-        self.make_interface_applied(implementation, table_index, &arguments, data)
+        self.make_interface_applied(implementation, table_index, &arguments, None, data)
     }
 
-    /// Instantiate a verified table using the allocating frame's type arguments.
+    /// Instantiate a verified table using the allocating frame's type arguments
+    /// and retained construction applications. A shared caller supplies its environment.
     pub fn make_interface_applied(
         &self,
         implementation: &LoadedModule,
         table_index: usize,
         arguments: &[TypeArgument],
+        construction_environment: Option<&TypeEnvironment>,
         data: Value,
     ) -> Result<Value, RuntimeError> {
-        self.make_interface_view(implementation, table_index, arguments, data, false)
-    }
-
-    fn make_interface_view(
-        &self,
-        implementation: &LoadedModule,
-        table_index: usize,
-        arguments: &[TypeArgument],
-        data: value::Value,
-        use_view: bool,
-    ) -> Result<value::Value, RuntimeError> {
         let snapshot = self.prepare_interface_snapshot(
             implementation,
             table_index,
             arguments,
+            construction_environment,
             data,
-            use_view,
+            false,
         )?;
         self.publish_interface(snapshot)
     }
@@ -149,6 +141,7 @@ impl Runtime {
         implementation: &LoadedModule,
         table_index: usize,
         arguments: &[TypeArgument],
+        construction_environment: Option<&TypeEnvironment>,
         data: Value,
         use_view: bool,
     ) -> Result<InterfaceValueSnapshot, RuntimeError> {
@@ -188,11 +181,14 @@ impl Runtime {
         let environment = if template.generic_params.is_empty() {
             None
         } else {
-            Some(self.alloc_environment(EnvironmentRecord::new(
+            let mut environment = EnvironmentRecord::new(
                 self.definition_context(),
                 template.generic_params.clone(),
                 arguments.to_vec(),
-            )?)?)
+            )?;
+            environment.constructions =
+                self.construction_scope(implementation, construction_environment)?;
+            Some(self.alloc_environment(environment)?)
         };
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in template.generic_params.iter().zip(&concrete_arguments) {
@@ -444,6 +440,7 @@ impl Runtime {
                     .map(|environment| environment.types.clone()),
                 &binding.arguments,
             )?,
+            binding.environment.as_ref(),
             data,
             use_view,
         )?;
@@ -862,7 +859,13 @@ impl Runtime {
                     .map(|environment| environment.types.clone()),
                 &adapter.arguments,
             )?;
-            self.make_interface_applied(&adapter.owner, adapter.table, &arguments, result)
+            self.make_interface_applied(
+                &adapter.owner,
+                adapter.table,
+                &arguments,
+                adapter.environment.as_ref(),
+                result,
+            )
         } else {
             Ok(result)
         }

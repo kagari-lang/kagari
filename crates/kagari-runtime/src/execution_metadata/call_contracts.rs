@@ -43,6 +43,7 @@ impl ScopedInterfaceCall {
 
     pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
         self.operations.trace_metadata(pending);
+        self.arguments.constructions.trace(pending);
         pending.extend(self.operation.map(MetadataEdge::Operation));
     }
 }
@@ -111,10 +112,11 @@ impl Runtime {
         } else {
             None
         };
-        let arguments = ApplicationArguments::new(
+        let mut arguments = ApplicationArguments::new(
             owner,
             self.type_arguments(owner, types, &contract.arguments)?,
         )?;
+        arguments.constructions = self.construction_scope(owner, environment.as_ref())?;
         let operations = self.bind_operations_in(owner, environment, &contract.operations)?;
         let prepared = Arc::new(ScopedInterfaceCall {
             interface,

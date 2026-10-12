@@ -907,3 +907,60 @@ review found no new public API, re-export, import glob or duplicated semantic
 implementation. Receiver application preparation remains runtime-owned and uses
 existing checked construction records and type provenance. This checkpoint does
 not complete CI03 or the active goal.
+
+
+CI03 construction-scope checkpoint: reloading Probe to first call an old
+Boxer.one<T> with f32 reproduced `interface receiver does not support object
+comparison`. Primitive type arguments have no nominal layout origin, so nominal
+provenance alone cannot locate the caller's newly checked List<f32> application.
+Shared execution environments now retain a finite construction scope containing
+the supplying checked programs. Shared calls, interface method applications,
+selected native callbacks and native result adapters forward it; closures retain
+it through their existing environment. Application cache keys include its program
+identities, and executable metadata tracing retains its program edges. Exact
+receiver identity is still checked when selecting the already verified table
+application; no live trait search, source lookup or runtime specialization is added.
+
+The allocating frame passes its environment to make_interface_applied, and native
+result conversion does the same. This changes that unpublished Rust method's
+signature to accept Option<&TypeEnvironment>; its script/native consumers were
+updated together and the obsolete single-use make_interface_view wrapper was
+removed. Environment handles retain owner/generation validation. Borrowed frame
+access ends before interface allocation. No artifact/ABI identifier was bumped.
+
+Both shared_collection_comparison reload cases passed with their shared method
+now creating a closure that calls a generic helper before constructing List<T>.
+They cover old/new nominal callbacks and a primitive application absent from the
+old program, forced GC, and final root/object/version release. The 5
+objects::application::tests passed for receiver-independent caching, version
+separation, abandoned providers, bounded retention and reclamation. The selected
+native_provider_reset concrete_native_results_construct_declared_interfaces_in_generic_calls
+case passed, including its decoded native generic result comparisons. These checks
+close the newly introduced primitive application failure; compound receivers with
+nominal components from different generations still need distinct evidence.
+
+CI03 helper-argument completion: direct list_content_equal(Vec, Vec),
+set_content_equal(HashSet, HashSet) and map_content_equal(HashMap, HashMap) calls
+reproduced ArgumentTypeMismatch on the first argument after successfully inferring
+the element types. HIR now completes unselected expression-boundary conversions
+after collecting generic substitutions, without inferring arguments again or
+replacing an existing selected conversion. The collection_interfaces target passed
+all 10 cases with direct concrete helper calls, mixed concrete/interface operands,
+and custom Sequence/Vec arguments in both orders. Its existing explicit-interface
+and independent content/identity assertions remain. The 3 selected
+shared_generic_method default_methods regressions also passed. General inference
+when only custom implementations supply the type, common-interface joins, and
+replacement of marker-filtered candidate discovery remain CI04 work.
+
+CI03 remains open for compound supplying-generation construction and readonly
+host comparison/protocol admission. The constructor application graph and exact
+record reuse must not be treated as proof of arbitrary mixed-version composition.
+CI04-CI06 remain pending; the helper argument repair is the conversion requirement
+already owned by CI03, not completion of ordinary interface relationship inference.
+
+Runtime/VM/HIR library Clippy, structure (1098 Rust files, no violations or
+exceptions), formatting, local plan links and diff checks passed. Review found
+no new re-exports, production globs, compatibility entrypoints or LOC exceptions.
+Construction provenance belongs to executable environments, while immutable type
+provenance still owns nominal identity; the two are not conflated. Full workspace
+and exhaustive backend validation remain CI-owned.

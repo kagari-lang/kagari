@@ -2,6 +2,7 @@
 pub mod arguments;
 pub(crate) mod bindings;
 pub(crate) mod compatibility;
+pub(crate) mod construction;
 pub(crate) mod operations;
 use crate::{
     error::RuntimeError,
@@ -11,7 +12,8 @@ use crate::{
         groups::{OperationGroupId, OperationId},
     },
     frame::types::{
-        arguments::TypeArgument, bindings::TypeBindings, operations::OperationBindings,
+        arguments::TypeArgument, bindings::TypeBindings, construction::ConstructionScope,
+        operations::OperationBindings,
     },
     gc::GcHeap,
 };
@@ -25,6 +27,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub(crate) struct EnvironmentRecord {
     pub(crate) types: Arc<TypeBindings>,
+    pub(crate) constructions: ConstructionScope,
     parent: Option<EnvironmentId>,
     operations: OperationBindings,
 }
@@ -35,6 +38,7 @@ impl EnvironmentRecord {
             pending.push(MetadataEdge::Environment(*parent));
         }
         self.operations.trace_metadata(pending);
+        self.constructions.trace(pending);
     }
 
     pub(crate) fn new(
@@ -46,6 +50,7 @@ impl EnvironmentRecord {
             types: Arc::new(TypeBindings::new(definitions, parameters, arguments)?),
             parent: None,
             operations: OperationBindings::default(),
+            constructions: ConstructionScope::default(),
         })
     }
 

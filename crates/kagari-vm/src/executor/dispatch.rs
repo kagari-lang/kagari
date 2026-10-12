@@ -329,9 +329,16 @@ impl<'a> Executor<'a> {
                 let loaded = self.current_loaded()?.member(module).ok_or(
                     VmError::UnsupportedInstruction("invalid interface module slot"),
                 )?;
+                let environment = self.current_frame()?.environment();
                 let interface = self
                     .runtime
-                    .make_interface_applied(&loaded, implementation.index(), &arguments, receiver)
+                    .make_interface_applied(
+                        &loaded,
+                        implementation.index(),
+                        &arguments,
+                        environment.as_ref(),
+                        receiver,
+                    )
                     .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?
                     .write_register(self.runtime, dst, interface)?;

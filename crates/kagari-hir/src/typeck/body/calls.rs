@@ -737,13 +737,13 @@ impl<'a> BodyChecker<'a> {
         bounds: &GenericBounds,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
-        let mut parameters = parameters.fuse();
+        let parameters = parameters.collect::<Vec<_>>();
         let mut actual = Vec::new();
-        for argument in args {
+        for (index, argument) in args.iter().enumerate() {
             if self.cancel.check().is_err() {
                 break;
             }
-            let parameter = parameters.next();
+            let parameter = parameters.get(index).cloned();
             let callable = parameter
                 .as_ref()
                 .and_then(|parameter| bounds.get(parameter))
@@ -815,6 +815,25 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             actual.push((*argument, ty));
+        }
+        // An earlier argument can supply the type that makes its own interface
+        // target concrete, or a later argument can supply it. Finish these
+        // conversions after collecting substitutions, without inferring any
+        // expression again or replacing an already selected conversion.
+        if !generics.is_empty() {
+            for ((argument, ty), parameter) in actual.iter_mut().zip(&parameters) {
+                if self.cancel.check().is_err() {
+                    break;
+                }
+                if self.type_table.interface_coercion(*argument).is_some() {
+                    continue;
+                }
+                let expected = self.aggregates.normalize_type(
+                    self.declarations.definitions(),
+                    &parameter.argument_context(substitution, generics),
+                );
+                *ty = self.apply_interface_coercion(*argument, ty.clone(), Some(&expected), env);
+            }
         }
         actual
     }

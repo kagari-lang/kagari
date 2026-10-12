@@ -8,6 +8,7 @@ use crate::{
     frame::types::{
         arguments::TypeArgument,
         compatibility::TypeIdentity,
+        construction::ConstructionScope,
         operations::{OperationBindings, OperationSegment},
     },
     module::{LoadedModule, ModuleKey},
@@ -38,6 +39,7 @@ pub(crate) struct InterfaceMethodIdentity {
 pub(crate) struct ApplicationArguments {
     values: Vec<TypeArgument>,
     identities: Arc<[Arc<TypeIdentity>]>,
+    pub(crate) constructions: ConstructionScope,
 }
 
 impl ApplicationArguments {
@@ -57,7 +59,11 @@ impl ApplicationArguments {
                     .ok_or_else(|| RuntimeError::module_validation("application type identity"))
             })
             .collect::<Result<_, _>>()?;
-        Ok(Self { values, identities })
+        Ok(Self {
+            values,
+            identities,
+            constructions: ConstructionScope::new(owner),
+        })
     }
 }
 
@@ -73,6 +79,7 @@ pub(crate) struct AdapterIdentity {
 pub(crate) struct ApplicationKey {
     method: MethodIdentity,
     arguments: Arc<[Arc<TypeIdentity>]>,
+    constructions: Vec<ModuleKey>,
     receiver_operations: Option<OperationGroupId>,
     operations: Option<Arc<Vec<OperationSegment>>>,
 }
@@ -87,6 +94,7 @@ impl ApplicationKey {
         Self {
             method,
             arguments: arguments.identities.clone(),
+            constructions: arguments.constructions.identity(),
             receiver_operations,
             operations: operations.identity(),
         }

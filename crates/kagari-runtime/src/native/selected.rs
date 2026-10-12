@@ -40,6 +40,12 @@ impl LinkedCallable {
                 generic.parameters.clone(),
                 arguments,
             )?;
+            let mut constructions = runtime.construction_scope(caller, Some(caller_environment))?;
+            constructions.extend(
+                &runtime
+                    .construction_scope(&operation.owner, generic.receiver_environment.as_ref())?,
+            );
+            binders.constructions = constructions.clone();
             binders.include(generic.receiver_environment.clone())?;
             let binders = runtime.alloc_environment(binders)?;
             let environment = if generic.entry_parameters.is_empty() {
@@ -54,6 +60,7 @@ impl LinkedCallable {
                         &generic.entry_arguments,
                     )?,
                 )?;
+                environment.constructions = constructions;
                 if let Some(group) = runtime.bind_receiver_operations(
                     &operation.owner,
                     operation.target,

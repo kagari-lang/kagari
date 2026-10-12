@@ -77,7 +77,7 @@ impl Runtime {
         } else {
             let prepared = self.prepare_method_application(
                 &method,
-                arguments.values(),
+                arguments,
                 operations,
                 receiver_operations,
             )?;
@@ -92,7 +92,7 @@ impl Runtime {
     fn prepare_method_application(
         &self,
         method: &MethodInvocation,
-        arguments: &[TypeArgument],
+        arguments: &ApplicationArguments,
         operations: OperationBindings,
         receiver_operations: Option<OperationGroupId>,
     ) -> Result<MethodApplication, RuntimeError> {
@@ -102,8 +102,12 @@ impl Runtime {
         let mut binders = EnvironmentRecord::new(
             self.definition_context(),
             view.type_parameters().to_vec(),
-            arguments.to_vec(),
+            arguments.values().to_vec(),
         )?;
+        let mut constructions =
+            self.construction_scope(view.implementation(), view.receiver_environment())?;
+        constructions.extend(&arguments.constructions);
+        binders.constructions = constructions.clone();
         binders.include(view.receiver_environment().cloned())?;
         if let Some(group) = receiver_operations {
             binders.add_receiver(&self.gc, group)?;
@@ -155,6 +159,7 @@ impl Runtime {
                     view.entry_arguments(),
                 )?,
             )?;
+            environment.constructions = constructions;
             if let Some(group) = receiver_operations {
                 environment.add_receiver(&self.gc, group)?;
             }

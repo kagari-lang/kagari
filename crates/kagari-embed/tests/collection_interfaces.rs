@@ -124,6 +124,7 @@ fn main() -> i32 {
     val other_sequence: List<i32> = Sequence { items: Vec::from([7, 35]) };
     if !(view == view && view != other_sequence && other_sequence != view) { return 0; }
     if !(list_content_equal(view, copied_view) && list_content_equal(copied_view, view)) { return 0; }
+    if !(list_content_equal(source, copy) && list_content_equal(copy, source)) { return 0; }
     if !(!(view === copied_view) && view != copied_view && copied_view != view) { return 0; }
     val writable: MutableList<i32> = source;
     writable[0] -= 6;
@@ -236,11 +237,13 @@ fn main() -> i32 {
     val al: List<i32> = a;
     val bl: List<i32> = b;
     if !(al == bl && as_list(a) == as_list(b) && same(al, bl) && (al, 1) == (bl, 1) && list_content_equal(al, bl)) { return 3; }
+    if !(list_content_equal(a, b) && list_content_equal(a, bl) && list_content_equal(al, b)) { return 8; }
     val s = HashSet::from([1, 2]);
     val t = HashSet::from([2, 1]);
     val sl: Set<i32> = s;
     val tl: Set<i32> = t;
     if !(s == t && same(s, t) && s.hash() == t.hash() && sl == tl && set_content_equal(sl, tl)) { return 4; }
+    if !set_content_equal(s, t) { return 9; }
     val m: HashMap<i32, i32> = HashMap::new();
     m.insert(1, 10); m.insert(2, 20);
     val n: HashMap<i32, i32> = HashMap::new();
@@ -248,6 +251,7 @@ fn main() -> i32 {
     val ml: Map<i32, i32> = m;
     val nl: Map<i32, i32> = n;
     if !(m == n && same(m, n) && m.hash() == n.hash() && ml == nl && map_content_equal(ml, nl)) { return 5; }
+    if !map_content_equal(m, n) { return 10; }
     n.insert(1, 20); n.insert(2, 10);
     if m == n { return 6; }
     42

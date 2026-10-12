@@ -17,6 +17,7 @@ pub(crate) struct LinkedResultAdapter {
     table: usize,
     arguments: Vec<Ty>,
     applied: Option<Vec<TypeArgument>>,
+    environment: Option<TypeEnvironment>,
 }
 
 impl LinkedResultAdapter {
@@ -39,6 +40,7 @@ impl LinkedResultAdapter {
             table,
             arguments: adapter.implementation.arguments.clone(),
             applied: None,
+            environment: None,
         }))
     }
 
@@ -54,6 +56,7 @@ impl LinkedResultAdapter {
                 Some(environment.types.clone()),
                 &self.arguments,
             )?),
+            environment: Some(environment),
             ..self.clone()
         })
     }
@@ -78,6 +81,12 @@ impl LinkedResultAdapter {
         let implementation = owner
             .member(self.owner)
             .ok_or_else(|| RuntimeError::module_validation("native result owner"))?;
-        runtime.make_interface_applied(&implementation, self.table, arguments, value)
+        runtime.make_interface_applied(
+            &implementation,
+            self.table,
+            arguments,
+            self.environment.as_ref(),
+            value,
+        )
     }
 }

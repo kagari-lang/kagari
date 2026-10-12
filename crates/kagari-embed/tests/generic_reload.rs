@@ -302,12 +302,31 @@ fn probe() -> Probe { Checker {} }
 
 #[test]
 fn shared_collection_comparison_retains_the_callers_nominal_generation() {
+    assert_shared_collection_comparison_reloading(|source| {
+        source.replace("bool { true }", "bool { false }")
+    });
+}
+
+#[test]
+fn shared_collection_comparison_accepts_new_primitive_applications_after_reload() {
+    assert_shared_collection_comparison_reloading(|source| {
+        source
+            .replace("Item { value: 1 }", "0.0f32 / 0.0f32")
+            .replace("Item { value: 2 }", "0.0f32 / 0.0f32")
+    });
+}
+
+fn assert_shared_collection_comparison_reloading(replacement: impl FnOnce(&str) -> String) {
     let source = r#"
 use std::collections::List;
 struct Item { val value: i32 }
 impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
+fn pack<T>(value: T) -> List<T> { Vec::from([value]) }
 trait Boxer {
-    fn one<T>(self, value: T) -> List<T> { Vec::from([value]) }
+    fn one<T>(self, value: T) -> List<T> {
+        val make = || pack(value);
+        make()
+    }
 }
 struct Factory {}
 impl Boxer for Factory {}
@@ -323,7 +342,7 @@ fn probe() -> Probe { Checker {} }
 "#;
     let engine = KagariEngine::default();
     let original = prepare(&engine, source);
-    let replacement = prepare(&engine, &source.replace("bool { true }", "bool { false }"));
+    let replacement = prepare(&engine, &replacement(source));
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);

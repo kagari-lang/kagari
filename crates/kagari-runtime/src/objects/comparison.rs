@@ -33,7 +33,10 @@ impl Runtime {
         }
         let identity = receiver.identity(&binding.owner).ok_or_else(invalid)?;
         let declaration = binding.owner.bytecode.interface_tables[binding.table].declaration;
-        let mut scopes = vec![binding.owner.clone()];
+        let mut scopes = self
+            .construction_scope(&binding.owner, binding.environment.as_ref())?
+            .programs()
+            .to_vec();
         let mut pending = vec![receiver];
         while let Some(argument) = pending.pop() {
             if let Some(owner) = argument.supplying_owner()

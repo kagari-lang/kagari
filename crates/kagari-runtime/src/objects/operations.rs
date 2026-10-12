@@ -95,11 +95,14 @@ impl Runtime {
                 continue;
             }
             visited.push(key);
-            let environment = self.alloc_environment(EnvironmentRecord::new(
+            let mut environment = EnvironmentRecord::new(
                 self.definition_context(),
                 template.generic_params.clone(),
                 arguments,
-            )?)?;
+            )?;
+            environment.constructions =
+                self.construction_scope(owner, binding.environment.as_ref())?;
+            let environment = self.alloc_environment(environment)?;
             let receiver = environment.types.resolve(&template.for_type)?;
             let Ty::Trait(interface) = environment.types.resolve(&template.trait_type)? else {
                 return Err(invalid());
