@@ -205,6 +205,70 @@ fn main() { val values = Vec::from([1, 2]); inspect(values); }
 }
 
 #[test]
+fn boxed_interface_dispatch_requires_an_interface_value_without_collection_markers() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "ordinary-interface-receiver.kgr",
+                r#"
+trait Reader { fn read(self) -> i32; }
+pub fn inspect(value: Reader) -> i32 { value.read() }
+fn main() -> i32 { 42 }
+"#,
+            ),
+            Default::default(),
+        )
+        .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let artifact = artifact.import_into(&context, &Default::default()).unwrap();
+    identity::collect(
+        &artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .collect::<Vec<_>>(),
+        &context,
+    )
+    .unwrap();
+    verify_program(&artifact.records().program, &context.snapshot()).unwrap();
+    let mut program = artifact.records().program.clone();
+    let root = program.root.index();
+    let function = program.modules[root]
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "inspect")
+        .unwrap();
+    let original = function.metadata.semantic.params[&0].clone();
+    let replacement = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32)]);
+    let semantic = &mut function.metadata.semantic;
+    for ty in semantic
+        .params
+        .values_mut()
+        .chain(semantic.locals.values_mut())
+        .chain(semantic.registers.values_mut())
+    {
+        if *ty == original {
+            *ty = replacement.clone();
+        }
+    }
+    let declaration = program.modules[root]
+        .public_items
+        .iter_mut()
+        .find_map(|item| match item {
+            PublicItem::Function(function) if function.name == "inspect" => Some(function),
+            _ => None,
+        })
+        .unwrap();
+    declaration.params[0].ty = replacement;
+    assert!(
+        verify_program(&program, &context.snapshot()).is_err(),
+        "a raw heap value cannot satisfy boxed-interface dispatch by sharing its physical representation"
+    );
+}
+
+#[test]
 fn host_results_preserve_collection_families_through_artifacts_and_binding_checks() {
     let definitions = DefinitionContext::new().unwrap();
     let declaration = HostFunctionDeclaration::new(

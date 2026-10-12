@@ -11,7 +11,6 @@ use {
         declaration::{
             AssociatedTypeFamily, FnDecl, TraitDef, module::ImplDecl, verify::types_in_scope,
         },
-        language::Protocol,
         ty::{
             GenericBound, GenericParam, NominalTy, Ty,
             matching::ImplementationPattern,
@@ -82,14 +81,8 @@ impl<'a> Implementation<'a> {
         }
     }
 
-    pub(super) fn pattern(
-        &self,
-        contract: Option<&TraitDef>,
-        definitions: &DefinitionTable,
-    ) -> Option<ImplementationPattern<'a>> {
+    pub(super) fn pattern(&self) -> Option<ImplementationPattern<'a>> {
         Some(ImplementationPattern {
-            protocol: Protocol::from_definition(&self.interface()?.declaration, definitions),
-            storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: self.parameters(),
             receiver: self.receiver(),
             interface: self.interface()?,

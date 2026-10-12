@@ -255,8 +255,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     declared.implementation = CallableImplementation::Script;
     declared.method_policy.override_allowed = false;
@@ -265,8 +264,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     declared.method_policy.override_allowed = true;
     assert!(same_method_contract(
@@ -274,8 +272,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     declared.implementation = CallableImplementation::Required;
     let original_param = implemented.params[0].ty.clone();
@@ -288,8 +285,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     implemented.params[0].ty = original_param;
     declared.bounds.push(GenericBound {
@@ -313,8 +309,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     implemented.bounds[0].constraints.clear();
     assert!(!same_method_contract(
@@ -322,8 +317,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     let marker = owner(&context, &module, DefinitionKind::Trait, "Marker");
     let applied = |parameter_owner| {
@@ -343,8 +337,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     let Constraint::Trait(instance) = &mut implemented.bounds[0].constraints[0] else {
         unreachable!()
@@ -355,8 +348,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
 }
 
@@ -430,8 +422,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         &implemented,
         &view,
         &table,
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     let normalize = |ty: &Ty| {
         normalize_projections(
@@ -439,14 +430,6 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
             &|interface, receiver, member, arguments| {
                 projection_output(
                     ImplementationPattern {
-                        protocol: match &dependency.trait_type {
-                            Ty::Trait(interface) => Protocol::from_definition(
-                                &interface.declaration,
-                                &context.snapshot(),
-                            ),
-                            _ => None,
-                        },
-                        storage_access: None,
                         parameters: &dependency.generic_params,
                         receiver: &dependency.for_type,
                         interface: match &dependency.trait_type {

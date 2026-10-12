@@ -5,7 +5,6 @@ use kagari_contract::callable::witness::OperationWitness;
 use kagari_hir::types::{TypeId, semantic::raise_type};
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
-    language::Protocol,
     ty::{
         GenericParam, Ty,
         matching::{ImplementationPattern, match_pattern},
@@ -32,7 +31,6 @@ impl InstancePlanner<'_> {
             return Ok(None);
         }
         let invalid = || MirLoweringError::MissingBinding("shared operation candidate");
-        let definitions = self.definitions();
         let mut selected = None;
         for (index, implementation) in self.catalog.implementations().enumerate() {
             if index >= 100_000 {
@@ -53,8 +51,6 @@ impl InstancePlanner<'_> {
                     parameters: &parameters,
                     receiver: &receiver,
                     interface: &interface,
-                    protocol: Protocol::from_definition(&interface.declaration, &definitions),
-                    storage_access: None,
                 },
                 &required.interface,
                 &required.receiver,

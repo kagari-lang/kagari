@@ -1,8 +1,6 @@
 //! Match checked implementation templates against a requested executable contract.
 use crate::{
-    collection::CollectionAccess,
     declaration::AssociatedTypeFamily,
-    language::Protocol,
     ty::{
         GenericParam, NominalTy, Ty,
         substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
@@ -16,9 +14,6 @@ pub struct ImplementationPattern<'a> {
     pub parameters: &'a [GenericParam],
     pub receiver: &'a Ty,
     pub interface: &'a NominalTy,
-    /// Language role resolved by the owner of the interface identity.
-    pub protocol: Option<Protocol>,
-    pub storage_access: Option<CollectionAccess>,
 }
 
 impl Copy for ImplementationPattern<'_> {}

@@ -14,7 +14,6 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
     operations::IterOp,
     standard::RuntimePrimitive as S,
-    types as abi,
     types::{PublicItem, inherent::executable_signature_matches},
 };
 use kagari_types::{
@@ -805,15 +804,9 @@ pub(super) fn verify(
                                     {
                                         return Err(invalid());
                                     }
-                                } else if abi::trait_contract(
-                                    &owner.identity,
-                                    &owner.public_items,
-                                    &owner.trait_contracts,
-                                    &interface.declaration,
-                                    definitions,
-                                )
-                                .is_some_and(|declaration| declaration.storage_access.is_some())
-                                {
+                                } else {
+                                    // Boxed dispatch requires a checked interface value for
+                                    // every trait, independently of storage or library roles.
                                     return Err(invalid());
                                 }
                             }

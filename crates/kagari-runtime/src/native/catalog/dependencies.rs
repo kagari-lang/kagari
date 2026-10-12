@@ -10,7 +10,6 @@ use kagari_common::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
-    language::Protocol,
     ty::{
         Constraint, GenericBound, NominalTy, Ty,
         matching::{ImplementationPattern, match_pattern},
@@ -280,14 +279,6 @@ impl DeclarationCatalog {
                         };
                         if match_pattern(
                             ImplementationPattern {
-                                protocol: Protocol::from_definition(
-                                    &implemented.declaration,
-                                    &definitions,
-                                ),
-                                storage_access: self
-                                    .traits
-                                    .get_id(implemented.declaration)
-                                    .and_then(|contract| contract.storage_access),
                                 parameters: &implementation.generic_params,
                                 receiver: &implementation.for_type,
                                 interface: implemented,

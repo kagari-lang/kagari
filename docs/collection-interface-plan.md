@@ -48,6 +48,22 @@ with affected tests and lightweight checks, leaving the exhaustive workspace and
 backend matrix to CI. These two failures and the remaining phase work must be
 resolved before declaring completion.
 
+The user settled the interface identity contract after reviewing the Object-bound
+proposal: do not introduce a public Object bound. Ordinary interfaces permit
+identity operators under the existing operand compatibility rules. Statically
+known value types are rejected by source checking; an interface hiding a value
+receiver traps at runtime. Both operands are evaluated left to right, once, and
+completed effects survive the trap. Only actual object receivers have identity;
+interface wrapper allocation never does. Invalid handles still trap. This explicitly
+extends identity operations to ordinary interfaces and supersedes the earlier
+collection-only admission restriction. It does not extend Eq/Hash or change receiver
+PartialEq selection. Any, downcasts and reflection remain outside this plan.
+
+Runtime identity_equal already checks the actual category and unwraps checked
+interface snapshots; reuse that owner. Replace marker-based source admission with
+ordinary interface admission, delete the dead storage-view category discovery and
+cover ordinary object views, boxed value rejection and evaluation/trap ordering.
+
 ## Outcome and bounded scope
 
 Make trait members, checked implementations and ordinary inheritance determine
@@ -100,8 +116,9 @@ Separate work remains separate:
   storage. This plan owns the explicit comparison/hash implementations and three
   content comparison functions below; NC reuses them rather than reauthoring policy.
 - SA21 owns Host/Native registration unification and any new borrowed input/return API.
-- Variance, downcasts, a universal object superclass, new syntax and unrelated
-  interface identity operations are outside this task.
+- Variance, downcasts, Any, a universal object superclass, new syntax and reflection
+  changes are outside this task. Ordinary-interface identity operations are included
+  by the explicit user decision above.
 - Builtin Array remains fixed-length and separate from Vec/List. No new Array-to-List
   conversion or MutableList implementation is introduced. Its identity-based
   equality/hash, ordinary non-collection Struct defaults and scalar floating-point
@@ -316,7 +333,9 @@ Move marker-owned identity/Debug guarantees to their checked semantic/executable
 owners, specifying authoring authority, receiver categories, parent adaptation,
 GC tracing and generation lifetime. Never infer privileges from read/write access,
 arbitrary boxing, method spelling or an unchecked artifact flag. Scalar/tuple/enum
-boxes and unrelated interfaces must not incidentally gain identity operators.
+boxes must not acquire object identity. Ordinary interfaces admit identity operators
+under the accepted runtime category check; value receivers trap, including aliases
+of the same interface wrapper.
 
 Exit evidence covers concrete content protocols versus object identity, helper
 comparisons across implementations, receiver equality through interfaces, ordinary
@@ -1654,3 +1673,44 @@ and feature/backend validation remains CI-owned and unrun.
 Final local review restricted receiver dependency inheritance to selected operation
 invocations; ordinary interface snapshots do not expose unrelated lexical witnesses.
 The shared tuple/collection execution case passed again after that restriction.
+
+
+CI04/CI05 exact-matching and boxed-dispatch cleanup: ImplementationPattern no
+longer carries storage_access or Protocol. Both fields were dead after exact header
+matching replaced privileged receiver weakening. Contract proof patterns, native
+obligation closure and compiler symbolic operation selection now pass only actual
+parameters, receiver and interface. Redundant contract/definition-table parameters
+were removed from the matcher and method-contract comparison; all callers were
+updated directly. The access test retains the four declared/requested combinations
+and nested invariance, repeated-binder, associated-family and cancellation coverage.
+It no longer repeats equivalent assertions under three obsolete marker values or
+loads the stdlib merely to attach an unused marker to a pattern.
+
+An independent source-free boundary defect was reproduced: changing an ordinary
+Reader receiver from an interface to a raw tuple, consistently updating its public
+function contract and semantic slots while preserving the physical heap layout,
+was accepted by verify_program. The boxed-interface call check had required an
+interface fact only for collection-marked traits. It now requires a checked
+interface value and permitted ancestry for every boxed interface dispatch. Explicit
+operation-receiver calls retain their separate checked contract. The new rejection
+case first needed ordinary identity collection before the baseline verified
+(InvalidPublicAbi was a fixture setup error); with a valid baseline, the forged
+program was demonstrably accepted before the fix and rejected afterward.
+
+This cleanup removes one live marker consumer and the obsolete matching model;
+it does not remove TraitDef/HIR marker fields while their identity/Debug consumers
+remain. The user subsequently selected ordinary interface admission with runtime rejection
+of hidden value receivers, as recorded in the handoff; no Object bound is added. CI03's two conditional comparison failures,
+CI04 phase acceptance and the rest of CI05-CI06 remain open. No conditional absence
+is reinterpreted as proof of an identity fallback.
+
+Selected validation for this checkpoint passed twelve distinct cases: seven contract
+matching/method-contract cases; two collection_interfaces custom-container/iterator
+adaptation cases; two collection_access boxed-receiver/access-forgery cases; and
+one default_methods shared generic-member case. The last three execution cases
+were completed after the interruption rather than inferred from launched commands.
+Scoped types/contract/bytecode/compiler/runtime library Clippy passed during this
+checkpoint; bytecode Clippy was repeated after its unused import was removed.
+Structure checked 1109 Rust files with zero violations/exceptions; formatting and
+diff checks passed. No new re-export, production glob, deep parent traversal or
+visibility bridge was introduced. Exhaustive workspace/backend checks remain CI-owned.

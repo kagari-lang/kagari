@@ -208,14 +208,7 @@ impl ProofCatalog<'_> {
         for table in &self.implementations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             let Some(bindings) = match_pattern(
-                table
-                    .pattern(
-                        table
-                            .interface()
-                            .and_then(|interface| self.trait_contract(&interface.declaration)),
-                        &self.definitions,
-                    )
-                    .ok_or(TypeTransformError::InvalidContract)?,
+                table.pattern().ok_or(TypeTransformError::InvalidContract)?,
                 &requirement.interface,
                 &requirement.receiver,
                 cancel,

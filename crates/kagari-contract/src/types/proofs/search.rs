@@ -348,12 +348,7 @@ impl ProofCatalog<'_> {
                 budget.step(depth)?;
                 let Some(substitution) = match_pattern(
                     implementation
-                        .pattern(
-                            implementation
-                                .interface()
-                                .and_then(|interface| self.trait_contract(&interface.declaration)),
-                            &self.definitions,
-                        )
+                        .pattern()
                         .ok_or(TypeTransformError::InvalidContract)?,
                     interface,
                     receiver,

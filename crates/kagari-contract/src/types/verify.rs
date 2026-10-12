@@ -14,7 +14,6 @@ use kagari_types::declaration::verify::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, TraitDef, TypeDefKind, ownership::ReceiverOwners},
-    language::Protocol,
     ty::{
         Constraint, GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
@@ -337,14 +336,7 @@ pub fn interface_contract_matches(
             cancel.check().is_ok()
                 && interface.methods.iter().any(|declared| {
                     declared.name == method.name
-                        && same_method_contract(
-                            declared,
-                            method,
-                            instance,
-                            table,
-                            cancel,
-                            definitions,
-                        )
+                        && same_method_contract(declared, method, instance, table, cancel)
                         && matched.insert(&declared.name)
                 })
         })
@@ -481,7 +473,6 @@ fn same_method_contract(
     instance: &NominalTy,
     table: &InterfaceTable,
     cancel: &CancellationToken,
-    definitions: &DefinitionTable,
 ) -> bool {
     if declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
@@ -497,8 +488,6 @@ fn same_method_contract(
                 };
                 projection_output(
                     ImplementationPattern {
-                        protocol: Protocol::from_definition(&implemented.declaration, definitions),
-                        storage_access: None,
                         parameters: &table.generic_params,
                         receiver: &table.for_type,
                         interface: implemented,

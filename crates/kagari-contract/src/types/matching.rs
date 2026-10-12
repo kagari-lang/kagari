@@ -1,31 +1,23 @@
 //! Match a checked executable interface table through shared semantic rules.
 use crate::types::InterfaceTable;
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
-use kagari_types::{
-    declaration::TraitDef,
-    language::Protocol,
-    ty::{
-        NominalTy, Ty,
-        matching::{ImplementationPattern, match_pattern},
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
+use kagari_common::cancellation::CancellationToken;
+use kagari_types::ty::{
+    NominalTy, Ty,
+    matching::{ImplementationPattern, match_pattern},
+    substitution::{TypeSubstitution, TypeTransformError},
 };
 
 pub fn match_implementation<'a>(
     table: &'a InterfaceTable,
-    contract: Option<&TraitDef>,
     interface: &'a NominalTy,
     receiver: &'a Ty,
     cancel: &CancellationToken,
-    definitions: &DefinitionTable,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let Ty::Trait(implemented) = &table.trait_type else {
         return Err(TypeTransformError::InvalidContract);
     };
     match_pattern(
         ImplementationPattern {
-            protocol: Protocol::from_definition(&implemented.declaration, definitions),
-            storage_access: contract.and_then(|contract| contract.storage_access),
             parameters: &table.generic_params,
             receiver: &table.for_type,
             interface: implemented,
@@ -42,7 +34,6 @@ mod tests {
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
     };
-    use kagari_stdlib::{catalog, namespaces};
     use kagari_types::{
         collection::CollectionAccess,
         declaration::AssociatedTypeFamily,
@@ -67,22 +58,8 @@ mod tests {
     }
 
     #[test]
-    fn implementation_receivers_match_exact_access_independent_of_trait_markers() {
+    fn implementation_receivers_preserve_exact_access_and_nested_invariance() {
         let context = DefinitionContext::new().unwrap();
-        let catalog = catalog::shared()
-            .unwrap()
-            .into_iter()
-            .find(|module| module.records().identity == namespaces::module("std", "collections"))
-            .unwrap()
-            .import_into(&context, &CancellationToken::default())
-            .unwrap();
-        let mut contract = catalog
-            .records()
-            .traits
-            .iter()
-            .find(|contract| contract.name == "Set")
-            .unwrap()
-            .clone();
         let integer = Ty::Builtin(BuiltinType::I32);
         let parameter = GenericParam {
             owner: id(&context, DefinitionKind::Impl, ""),
@@ -103,32 +80,19 @@ mod tests {
             host_bridge: false,
         };
         let cancel = CancellationToken::default();
-        for marker in [
-            None,
-            Some(CollectionAccess::Mutable),
-            Some(CollectionAccess::ReadOnly),
-        ] {
-            contract.storage_access = marker;
-            for declared in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
-                table.for_type = Ty::Set(Box::new(parameter.as_type()), declared);
-                for requested in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
-                    let receiver = Ty::Set(Box::new(integer.clone()), requested);
-                    assert_eq!(
-                        match_implementation(
-                            &table,
-                            Some(&contract),
-                            &interface,
-                            &receiver,
-                            &cancel,
-                            &context.snapshot()
-                        )
+        for declared in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
+            table.for_type = Ty::Set(Box::new(parameter.as_type()), declared);
+            for requested in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
+                let receiver = Ty::Set(Box::new(integer.clone()), requested);
+                assert_eq!(
+                    match_implementation(&table, &interface, &receiver, &cancel)
                         .unwrap()
                         .is_some(),
-                        declared == requested
-                    );
-                }
+                    declared == requested
+                );
             }
         }
+
         // Nested generic arguments must also keep their exact access descriptor.
         let mutable = Ty::Set(Box::new(integer.clone()), CollectionAccess::Mutable);
         let readonly = Ty::Set(Box::new(integer), CollectionAccess::ReadOnly);
@@ -136,16 +100,9 @@ mod tests {
         table.for_type = Ty::Set(Box::new(mutable), CollectionAccess::ReadOnly);
         let nested = Ty::Set(Box::new(readonly), CollectionAccess::ReadOnly);
         assert!(
-            match_implementation(
-                &table,
-                Some(&contract),
-                &interface,
-                &nested,
-                &cancel,
-                &context.snapshot()
-            )
-            .unwrap()
-            .is_none()
+            match_implementation(&table, &interface, &nested, &cancel)
+                .unwrap()
+                .is_none()
         );
     }
 
@@ -198,38 +155,19 @@ mod tests {
         let cancel = CancellationToken::default();
         let receiver = Ty::Tuple(vec![integer.clone(), integer.clone()]);
         assert!(
-            match_implementation(
-                &table,
-                None,
-                &interface,
-                &receiver,
-                &cancel,
-                &context.snapshot()
-            )
-            .unwrap()
-            .is_some()
+            match_implementation(&table, &interface, &receiver, &cancel)
+                .unwrap()
+                .is_some()
         );
         let mismatch = Ty::Tuple(vec![integer.clone(), boolean.clone()]);
         assert!(
-            match_implementation(
-                &table,
-                None,
-                &interface,
-                &mismatch,
-                &cancel,
-                &context.snapshot()
-            )
-            .unwrap()
-            .is_none()
+            match_implementation(&table, &interface, &mismatch, &cancel)
+                .unwrap()
+                .is_none()
         );
         assert_eq!(
             projection_output(
                 ImplementationPattern {
-                    protocol: Protocol::from_definition(
-                        &interface.declaration,
-                        &context.snapshot()
-                    ),
-                    storage_access: None,
                     parameters: &table.generic_params,
                     receiver: &table.for_type,
                     interface: match &table.trait_type {
@@ -249,14 +187,7 @@ mod tests {
         );
         cancel.cancel();
         assert!(matches!(
-            match_implementation(
-                &table,
-                None,
-                &interface,
-                &receiver,
-                &cancel,
-                &context.snapshot()
-            ),
+            match_implementation(&table, &interface, &receiver, &cancel),
             Err(TypeTransformError::Cancelled)
         ));
     }

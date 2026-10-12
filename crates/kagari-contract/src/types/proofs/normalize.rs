@@ -85,12 +85,7 @@ impl ProofCatalog<'_> {
                     budget.step(depth)?;
                     if let Some(output) = projection_output(
                         implementation
-                            .pattern(
-                                implementation.interface().and_then(|interface| {
-                                    self.trait_contract(&interface.declaration)
-                                }),
-                                &self.definitions,
-                            )
+                            .pattern()
                             .ok_or(TypeTransformError::InvalidContract)?,
                         implementation.families(),
                         interface,

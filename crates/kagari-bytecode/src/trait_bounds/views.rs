@@ -184,14 +184,7 @@ fn select(
             let Some(template) = template(owner, linked) else {
                 return Err(invalid);
             };
-            let Some(substitution) = match_implementation(
-                template,
-                contract(&header.declaration, closure, definitions),
-                &header,
-                receiver,
-                cancel,
-                definitions,
-            )?
+            let Some(substitution) = match_implementation(template, &header, receiver, cancel)?
             else {
                 continue;
             };
