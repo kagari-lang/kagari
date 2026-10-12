@@ -492,7 +492,15 @@ impl RemapDefinitions for TypeTable {
                 self.place_index_writes.len(),
                 self.place_index_writes
                     .iter()
-                    .map(|(key, value)| Ok((*(key), (value).remap_definitions(mapper)?))),
+                    .map(|(key, (interface, method))| {
+                        Ok((
+                            *key,
+                            (
+                                interface.remap_definitions(mapper)?,
+                                mapper.reference(method)?,
+                            ),
+                        ))
+                    }),
             )?,
             struct_inits: map_hash_entries(
                 self.struct_inits.len(),
@@ -643,8 +651,9 @@ impl DefinitionReferences for TypeTable {
         for value0 in self.place_indexes.values() {
             (value0).visit_definition_ids(visit, cancel)?;
         }
-        for value0 in self.place_index_writes.values() {
-            (value0).visit_definition_ids(visit, cancel)?;
+        for (interface, method) in self.place_index_writes.values() {
+            interface.visit_definition_ids(visit, cancel)?;
+            visit(method)?;
         }
         for value0 in self.struct_inits.values() {
             (value0).visit_definition_ids(visit, cancel)?;

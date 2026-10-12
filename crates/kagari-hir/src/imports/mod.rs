@@ -9,14 +9,12 @@ use crate::{
     lower::LoweredModule,
     resolver::{resolved::ResolvedName, table::NameTable},
 };
-use kagari_common::identity::{ModuleIdentity, PackageId, table::DefinitionId};
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, FileSpan, Revision},
 };
-use kagari_types::{
-    collection::CollectionAccess, declaration::names::NameNamespace, visibility::Visibility,
-};
+use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
@@ -376,8 +374,6 @@ pub struct ModuleImportFacts {
     pub diagnostics: Vec<Diagnostic>,
     /// Deduplicated module dependencies used for reachability and cache checks.
     pub dependencies: Vec<ModuleIdentity>,
-    /// Installed array-interface definitions by collection access policy.
-    pub(crate) array_interfaces: BTreeMap<CollectionAccess, DefinitionId>,
 }
 
 /// A logical module graph node pointing to its source revision and import facts.

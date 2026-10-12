@@ -91,8 +91,6 @@ pub struct LoweredModule {
     pub(crate) native_package_alias: Option<String>,
     /// Whether this registered unit contributes implicit prelude bindings.
     pub(crate) native_prelude: bool,
-    /// Registered array bridge interface identities indexed by access policy.
-    pub(crate) native_array_interfaces: BTreeMap<CollectionAccess, DefinitionId>,
     /// Authoritative installed trait contracts indexed by scoped definition identity.
     pub(crate) registered_traits: BTreeMap<DefinitionId, TraitDef>,
     /// Validated native declaration records retained alongside their generated source view.
@@ -274,7 +272,6 @@ pub(crate) fn lower_module_controlled(
         native_package_alias: None,
         native_prelude: false,
         native_dependencies: Vec::new(),
-        native_array_interfaces: BTreeMap::new(),
         registered_traits: BTreeMap::new(),
         registered_declarations: vec![],
         native_readonly_types: HashSet::new(),

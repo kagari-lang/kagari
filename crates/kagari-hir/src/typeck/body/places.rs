@@ -4,7 +4,6 @@
 
 use crate::{
     aggregates::FieldSignature,
-    builtin::array_bridge,
     hir::{
         expr::ExprKind,
         ids::{ExprId, PlaceId},
@@ -14,9 +13,9 @@ use crate::{
     typeck::{
         BodyTypeEnv, body::BodyChecker, completion, scalar::ScalarValue, ty::display_type_id,
     },
-    types::TypeId,
+    types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, table::DefinitionId};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     collection::CollectionAccess,
@@ -80,32 +79,16 @@ impl<'a> BodyChecker<'a> {
                     self.type_table.insert_place(place_id, base_ty.clone());
                     return Some(base_ty);
                 }
-                if let Some(item) = array_bridge::list_item(&base_ty, self.declarations) {
-                    self.type_table.insert_place(place_id, item.clone());
-                    self.checked_index_type(*index, &base_ty, &index_ty, *index);
-                    return (array_bridge::writable_list(&base_ty, self.declarations)
-                        && index_ty == TypeId::Builtin(BuiltinType::USize))
-                    .then(|| item.clone());
-                }
                 if !matches!(base_ty, TypeId::Array(_) | TypeId::Tuple(_)) {
-                    let writable =
-                        self.trait_bounds_for(&base_ty, env)
-                            .into_iter()
-                            .find(|bound| {
-                                array_bridge::writable_list(
-                                    &TypeId::Trait(bound.clone()),
-                                    self.declarations,
-                                )
-                            })?;
                     let mut requested = self.aggregates.language_trait(Protocol::Index)?;
                     requested.arguments.push(index_ty.clone());
                     let (read, item) = self.select_operator(&base_ty, requested, env)?;
-                    if index_ty != TypeId::Builtin(BuiltinType::USize) {
-                        return None;
-                    }
                     self.type_table.insert_place_index(place_id, read);
-                    self.type_table.insert_place_index_write(place_id, writable);
                     self.type_table.insert_place(place_id, item.clone());
+                    let (write, method) =
+                        self.select_index_write(&base_ty, &index_ty, &item, env)?;
+                    self.type_table
+                        .insert_place_index_write(place_id, write, method);
                     return Some(item);
                 }
                 let ty = self.resolve_index_type(*index, &base_ty);
@@ -119,11 +102,7 @@ impl<'a> BodyChecker<'a> {
                 if matches!(base_ty, TypeId::Tuple(_)) {
                     self.resolve_assignment_target_type(*base, env)?;
                 }
-                if base_ty.collection_access() == Some(CollectionAccess::ReadOnly) {
-                    None
-                } else {
-                    ty
-                }
+                ty
             }
         };
 
@@ -132,6 +111,61 @@ impl<'a> BodyChecker<'a> {
         }
 
         ty
+    }
+
+    /// Preserve the installed list assignment spelling as a checked method call.
+    /// Index reads are general; a coincidentally named `set` on another interface
+    /// does not acquire assignment syntax or native storage authority.
+    fn select_index_write(
+        &self,
+        receiver: &TypeId,
+        index: &TypeId,
+        item: &TypeId,
+        env: &BodyTypeEnv,
+    ) -> Option<(NominalType, DefinitionId)> {
+        let definitions = self.declarations.definitions();
+        let module = definitions.lookup_root(&ModuleIdentity {
+            package: PackageId("std".into()),
+            path: vec!["collections".into()],
+        })?;
+        let owner = definitions.lookup_child(module, DefinitionKind::Trait, "MutableList", 0)?;
+        let member = definitions.lookup_child(owner, DefinitionKind::Method, "set", 0)?;
+        let mut candidates = self
+            .trait_bounds_for(receiver, env)
+            .into_iter()
+            .filter(|bound| {
+                bound.declaration == owner && bound.arguments.as_slice() == [item.clone()]
+            });
+        let interface = candidates.next()?;
+        if candidates.next().is_some() {
+            return None;
+        }
+        let contract = self.aggregates.trait_(&owner)?;
+        let method = self.aggregates.trait_method(&member)?;
+        if method.generic_params != contract.generic_params
+            || method.bounds.values().any(|bounds| !bounds.is_empty())
+        {
+            return None;
+        }
+        let mut substitution: TypeSubstitution = contract
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(interface.arguments.iter().cloned())
+            .collect();
+        substitution.insert_receiver(owner, receiver.clone());
+        let apply = |ty: &TypeId| {
+            self.aggregates.normalize_type(
+                definitions,
+                &ty.instantiate(&substitution)
+                    .with_associated_types(&interface, receiver),
+            )
+        };
+        let parameters: Vec<_> = method.params.iter().map(|param| apply(&param.ty)).collect();
+        (parameters == [receiver.clone(), index.clone(), item.clone()]
+            && *index == TypeId::Builtin(BuiltinType::USize)
+            && apply(&method.return_type) == TypeId::Builtin(BuiltinType::Unit))
+        .then_some((interface, member))
     }
 
     pub(super) fn resolve_readable_place_type(
@@ -206,7 +240,7 @@ impl<'a> BodyChecker<'a> {
                     self.type_table.insert_place_index(place_id, interface);
                     Some(result)
                 } else {
-                    self.checked_index_type(*index, &base_ty, &index_ty, *index)
+                    self.checked_index_type(*index, &base_ty, &index_ty, *index, env)
                 }
             }
         };
@@ -273,11 +307,11 @@ impl<'a> BodyChecker<'a> {
                 let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
-                if array_bridge::list_item(&base_ty, self.declarations).is_some()
-                    && !array_bridge::writable_list(&base_ty, self.declarations)
-                    || base_ty.collection_access() == Some(CollectionAccess::ReadOnly)
+                if base_ty.collection_access() == Some(CollectionAccess::ReadOnly)
+                    || (self.type_table.place_index(place_id).is_some()
+                        && self.type_table.place_index_write(place_id).is_none())
                 {
-                    "read-only collection cannot be modified; writable collection access is required".to_string()
+                    "indexed assignment requires an applicable write operation".to_string()
                 } else if self.resolve_index_type(*index, &base_ty).is_none() {
                     "indexed value is not assignable".to_string()
                 } else {
@@ -417,6 +451,7 @@ impl<'a> BodyChecker<'a> {
         receiver: &TypeId,
         index_ty: &TypeId,
         site: ExprId,
+        env: &BodyTypeEnv,
     ) -> Option<TypeId> {
         let result = self.resolve_index_type(index, receiver);
         if result.is_none()
@@ -430,12 +465,22 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.source_map.expr_span(site)),
             );
         }
-        // An invalid index does not erase an array's known element contract.
+        // An invalid index does not erase an array's or unique Index result contract.
         // Keep the diagnostic above, but let downstream member queries recover.
         // A tuple still needs a valid constant index to select a member.
         result.or_else(|| match receiver {
             TypeId::Array(element) => Some((**element).clone()),
-            _ => array_bridge::list_item(receiver, self.declarations).cloned(),
+            _ => {
+                let index = Protocol::Index.definition(self.declarations.definitions())?;
+                let mut outputs = self
+                    .trait_bounds_for(receiver, env)
+                    .into_iter()
+                    .filter(|interface| interface.declaration == index)
+                    .filter_map(|interface| self.select_operator(receiver, interface, env))
+                    .map(|(_, output)| output);
+                let output = outputs.next()?;
+                outputs.next().is_none().then_some(output)
+            }
         })
     }
 
@@ -469,12 +514,6 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         match receiver {
-            TypeId::Trait(_)
-                if self.type_table.expr_type(index_expr)?
-                    == TypeId::Builtin(BuiltinType::USize) =>
-            {
-                array_bridge::list_item(receiver, self.declarations).cloned()
-            }
             TypeId::Array(element) => Some((**element).clone()),
             TypeId::Tuple(elements) => self
                 .tuple_index(index_expr)

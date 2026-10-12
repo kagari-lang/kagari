@@ -1277,3 +1277,67 @@ view/result links at bytecode linking. No runtime trait search, executable code
 specialization, new cache, public re-export, compatibility reader or format revision
 was added. Full workspace and exhaustive feature/backend acceptance remain CI-owned
 and unrun locally. The unrelated roadmap working-tree edit is excluded.
+
+
+CI04 indexing checkpoint: assignment now uses the ordinary checked
+Index result and records the applied write interface together with the exact
+setter method identity in TypeTable. Source lowering consumes that pair through
+ordinary applied method lowering for concrete, generic and interface receivers.
+The separate InterfaceIndex path and compiler-side collection/member discovery
+were deleted. Readonly element access remains a read and does not grant container
+writeback; builtin Array element context and intrinsic mutation remain separate.
+
+The existing bounded assignment spelling resolves the symbolic declaration
+std::collections::MutableList.set in the retained definition table, then requires
+an applicable ordinary implementation/parent and validates the substituted setter
+parameters/result and absence of additional method bounds. This is only the source
+syntax binding: arbitrary same-named traits/methods gain no indexing privilege,
+and native storage grants no method or write authority. Index reads and recovery
+use ordinary Index contracts. A malformed index retains a unique checked result
+for tooling while its diagnostic still prevents code generation.
+
+Deleted array_interfaces/native_array_interfaces discovery and all copies from
+native import, lowering, imports, declarations and identity/cache visitors. The
+old native-storage/access-marker discovery no longer participates in indexing.
+The renderer/adoption tests retain scoped declaration/navigation checks; assertions
+about the deleted private discovery table were removed. The Array bridge now owns
+only intrinsic element context. TypeTable setter identities are remapped/visited
+alongside their applied interface, preserving scoped identity validation.
+
+The initial affected run passed 16 cases and failed 3 legitimate write cases with
+KG_TYPE_INVALID_ASSIGNMENT_TARGET. The new signature guard incorrectly treated a
+generic parameter's empty constraint-list entry as a method bound and expected
+unit to use the tuple representation instead of HIR Builtin(Unit). Both guards now
+match the actual declaration model; all three failing cases passed in focused
+reruns. No assertion or verifier was weakened, and temporary diagnostic output was
+removed. The custom-container fixture now covers generic element replacement and
+an inherited writable interface, while the rejection matrix covers an unrelated
+same-named MutableList/set declaration. Remaining focused evidence follows below.
+CI03's mixed-generation comparison failure remains independently outstanding;
+CI05 marker/protocol cleanup and CI06 handoff remain open.
+
+
+Final selected evidence for the indexing checkpoint: 30 distinct tests passed.
+The 19 collection_interfaces/collection_access cases completed across the initial
+16 passes and the three repaired cases; no failed case is hidden by filtering.
+After adding ordinary Index error recovery, both readonly rejection matrices
+passed again. The 5 selected HIR cases cover partial-index recovery, receiver/index
+completion, provider adoption and canonical native navigation. The 5 selected
+operator_traits cases cover readonly object results, rejected replacement/immutable
+writes, once-only left-to-right evaluation, actual integer arguments and checked
+native Index dispatch. The fixed_arrays_preserve_aliases_and_explicit_constructors_copy_storage
+case covers builtin Array separation and generic/concrete target capture before
+index/RHS alias rebinding. Existing Source/Artifact/ArtifactJit assertions and GC
+checks remain intact.
+
+Removed the unreachable access-flag branch after place checking has already
+restricted the receiver to Array/Tuple: TypeId::collection_access only describes
+host/storage Map/Set. The remaining place diagnostic may describe that host boundary;
+it does not authorize writes. HIR/compiler library Clippy, structure (1102 Rust
+files, no violations or exceptions), formatting, plan links and diff checks passed.
+Structural review confirmed ordinary checked read/write calls, exact setter identity
+mapping, no compiler member search, no new runtime policy/cache, no re-exports and
+no ABI/wire version change. The unpublished HIR helper/getter/visitor surface changes
+replace their old consumers directly. Source-free validators remain unchanged and
+the forged-access case passed. Full workspace/feature/backend coverage remains
+CI-owned; CI03 and CI05-CI06 work is not claimed complete.

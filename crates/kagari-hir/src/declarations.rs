@@ -1,8 +1,5 @@
 //! Declaration and binding identities owned by one semantic analysis.
-use kagari_types::{
-    collection::CollectionAccess, declaration::names::NameNamespace, host_interface,
-    language::role::LangRole,
-};
+use kagari_types::{declaration::names::NameNamespace, host_interface, language::role::LangRole};
 
 use crate::{
     hir::{
@@ -10,7 +7,7 @@ use crate::{
         item::{Item, behavior::GenericParam, function::FunctionKind},
     },
     host::HostDeclarations,
-    imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog, types::ImportedTypes},
+    imports::{SourceItem, catalog::NamespaceCatalog, types::ImportedTypes},
     lower::LoweredModule,
     native::NativeTypeKind,
     resolver::{
@@ -106,15 +103,12 @@ pub struct Declaration {
 pub struct Declarations {
     /// Validated language-role identities used by ordinary syntax and protocol checking.
     pub(crate) language_items: BTreeMap<LangRole, DefinitionId>,
-    /// Installed array protocol bridge declarations, when available.
-    pub(crate) array_interfaces: BTreeMap<CollectionAccess, DefinitionId>,
     /// Type/variant projections selected by this module's resolved imports.
     pub(crate) imported_types: ImportedTypes,
     /// Module-level name table used to resolve declaration references.
     pub(crate) names: Arc<NameTable>,
     /// Shared registered host declaration inputs.
     pub(crate) hosts: Arc<HostDeclarations>,
-    imports: Arc<ModuleImportFacts>,
     catalog: Arc<NamespaceCatalog>,
     analysis: AnalysisId,
     definitions: DefinitionTable,
@@ -162,11 +156,9 @@ impl Declarations {
         );
         Self {
             language_items: BTreeMap::new(),
-            array_interfaces: names.imports.array_interfaces.clone(),
             imported_types: Default::default(),
             names: names.items.clone(),
             hosts: names.hosts.clone(),
-            imports: names.imports.clone(),
             catalog: names.catalog.clone(),
             analysis,
             definitions: context.snapshot(),

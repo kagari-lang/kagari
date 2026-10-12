@@ -44,7 +44,7 @@ pub(crate) fn adopt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::native::{paths::array_interfaces, render::declaration_source};
+    use crate::native::render::declaration_source;
     use kagari_common::identity::{DefinitionKind, ModuleIdentity, scoped::DefinitionReferences};
     use kagari_stdlib::catalog;
 
@@ -81,9 +81,6 @@ mod tests {
                 declaration_source(adopted_module, &adopted).unwrap().text,
             );
         }
-        let interfaces =
-            array_interfaces(adopted.iter().map(|module| module.records()), &retained).unwrap();
-        assert_eq!(interfaces.len(), 2);
         let again = adopt(&providers, &context, &cancel).unwrap();
         assert_eq!(retained.len(), again[0].definitions().len());
         let references = |module: &DefinitionMetadata<ModuleDecl>| {

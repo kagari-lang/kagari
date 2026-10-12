@@ -204,7 +204,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 let index_ty = self.infer_expr_type(*index, env);
                 let expected = base_ty.as_ref().and_then(|base_ty| {
-                    self.checked_index_type(*index, base_ty, &index_ty, *index)
+                    self.checked_index_type(*index, base_ty, &index_ty, *index, env)
                 });
                 self.check_reflection_assignment_value(*value, expected.as_ref(), env);
                 Some(base_ty.unwrap_or(TypeId::Unknown))

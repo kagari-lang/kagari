@@ -243,6 +243,9 @@ impl MutableList<i32> for Sequence {
     fn clear(self) { self.items.clear(); }
     fn set(self, index: usize, value: i32) { self.items[index] = value; }
 }
+trait Writable: MutableList<i32> {}
+impl Writable for Sequence {}
+fn replace<T, C: MutableList<T>>(xs: C, value: T) { xs[0] = value; }
 struct Singleton { val value: f64 }
 impl PartialEq for Singleton {
     fn eq(self, other: Self) -> bool { self.value == other.value }
@@ -274,6 +277,9 @@ fn main() -> i32 {
     if !(!(view === copied_view) && view != copied_view && copied_view != view) { return 0; }
     val writable: MutableList<i32> = source;
     writable[0] -= 6;
+    replace(source, 9);
+    val child: Writable = source;
+    child[0] -= 8;
     if !(copy[0] == 7 && view[0] == 1) { return 0; }
     if !(size(source) == 2usize && size(copy) == 2usize) { return 0; }
     val set: Set<f64> = Singleton { value: 0.5 };
@@ -327,6 +333,7 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
         "use std::collections::{HashSet, Set};\nfn main() { val xs: Set<f64> = HashSet::new(); }",
         "use std::collections::List; use std::hash::Hash; fn main() { val xs: List<i32> = Vec::from([1]); xs.hash(); }",
         "use std::collections::{List, HashSet}; fn main() { val keys: HashSet<List<i32>> = HashSet::new(); }",
+        "trait MutableList: std::ops::Index<usize, Output = i32> { fn set(self, index: usize, value: i32); } fn edit(xs: MutableList) { xs[0] = 2; }",
     ] {
         assert!(
             engine

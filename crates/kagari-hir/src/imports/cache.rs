@@ -25,8 +25,7 @@ impl ModuleImportFacts {
             (LookupOutcome::Resolved(a), LookupOutcome::Resolved(b)) => target_eq(a, b),
             _ => a == b,
         };
-        self.array_interfaces == other.array_interfaces
-            && self.diagnostics.is_empty()
+        self.diagnostics.is_empty()
             && other.diagnostics.is_empty()
             && self.dependencies == other.dependencies
             && self.directives.len() == other.directives.len()

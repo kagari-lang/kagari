@@ -1,10 +1,8 @@
 use super::*;
-use crate::native::paths::array_interfaces;
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::catalog;
 use kagari_syntax::parser::parse_declarations;
-use kagari_types::collection::CollectionAccess;
 
 #[test]
 fn native_views_preserve_canonical_text_and_scoped_navigation() {
@@ -12,23 +10,6 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
     let right = catalog::declarations().unwrap();
     let right = right.into_iter().map(Arc::new).collect::<Vec<_>>();
     assert_ne!(left[0].definitions().id(), right[0].definitions().id());
-    for providers in [&left, &right] {
-        let records = providers
-            .iter()
-            .map(|provider| Arc::new(provider.records().clone()))
-            .collect::<Vec<_>>();
-        let definitions = providers[0].definitions();
-        let interfaces = array_interfaces(records.iter().map(Arc::as_ref), definitions).unwrap();
-        for (access, name) in [
-            (CollectionAccess::ReadOnly, "List"),
-            (CollectionAccess::Mutable, "MutableList"),
-        ] {
-            let id = interfaces.get(&access).unwrap();
-            assert_eq!(definitions.resolve(*id).unwrap().last().unwrap().name, name);
-        }
-        let foreign = DefinitionContext::new().unwrap().snapshot();
-        assert!(array_interfaces(records.iter().map(Arc::as_ref), &foreign).is_err());
-    }
     for (left_module, right_module) in left.iter().zip(&right) {
         let left_source = declaration_source(left_module, &left).unwrap();
         let right_source = declaration_source(right_module, &right).unwrap();

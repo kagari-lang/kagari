@@ -236,7 +236,7 @@ impl BodyChecker<'_> {
                     return result;
                 }
             }
-            self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id)
+            self.checked_index_type(*index, &receiver_ty, &index_ty, expr_id, env)
                 .unwrap_or(TypeId::Error)
         } else {
             TypeId::Unknown

@@ -1,25 +1,17 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::DefinitionKind;
-use kagari_contract::{
-    callable::interface::InterfaceCallContract, numeric::NumericOperation, operations::BinaryOp,
-};
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{numeric::NumericOperation, operations::BinaryOp};
 use kagari_hir::{
-    builtin::array_bridge,
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
-    language::semantics::ProtocolSemantics,
     resolver::resolved::ResolvedName,
     types::{NominalType, TypeId},
 };
 use kagari_mir::{
     ids::LocalId,
-    instruction::{AggregateFieldRef, CallTarget, Instruction, MirValue, PathRef, ValueBuffer},
+    instruction::{AggregateFieldRef, Instruction, MirValue, PathRef, ValueBuffer},
 };
-use kagari_types::{
-    language::Protocol,
-    scalar::BuiltinType,
-    ty::{NominalTy, Ty},
-};
+use kagari_types::{language::Protocol, ty::Ty};
 use std::ops::ControlFlow;
 
 pub(super) struct PreparedPlace {
@@ -48,12 +40,7 @@ enum ProjectionKind {
         index: MirValue,
         receiver: TypeId,
         read: NominalType,
-        write: NominalType,
-    },
-    InterfaceIndex {
-        index: MirValue,
-        read: NominalTy,
-        write: Option<NominalTy>,
+        write: (NominalType, DefinitionId),
     },
 }
 
@@ -214,57 +201,12 @@ impl FunctionLowerer<'_, '_> {
                         self.function.debug.source_span,
                     )?
                     .remove(0);
-                if let Some(item) = array_bridge::list_item(&receiver, &self.analyzed.declarations)
-                {
-                    let mut read = Protocol::Index
-                        .nominal(&self.planner.definitions())
-                        .expect("registered protocol identity");
-                    read.arguments.push(TypeId::Builtin(BuiltinType::USize));
-                    read.associated_types.insert(
-                        self.planner
-                            .definitions()
-                            .lookup_child(
-                                read.declaration,
-                                DefinitionKind::AssociatedType,
-                                "Output",
-                                0,
-                            )
-                            .expect("registered associated member"),
-                        item.clone(),
-                    );
-                    let write =
-                        if array_bridge::writable_list(&receiver, &self.analyzed.declarations) {
-                            let write = array_bridge::list_interface(
-                                item.clone(),
-                                true,
-                                &self.analyzed.declarations,
-                            )
-                            .expect("checked writable array interface");
-                            Some(self.planner.encode_nominal(&write))
-                        } else {
-                            None
-                        };
-                    let index = self.lower_expr(index)?;
-                    if self.current_block_terminated() {
-                        return Ok(None);
-                    }
-                    place.projections.push(Projection {
-                        kind: ProjectionKind::InterfaceIndex {
-                            index,
-                            read: self.planner.encode_nominal(&read),
-                            write,
-                        },
-                        ty: self.place_type(id)?,
-                        tuple_base: false,
-                    });
-                    return Ok(Some(place));
-                }
                 if let Some(write) = self
                     .analyzed
                     .typed
                     .type_table
                     .place_index_write(id)
-                    .cloned()
+                    .map(|(interface, method)| (interface.clone(), *method))
                 {
                     let read = self
                         .analyzed
@@ -454,41 +396,13 @@ impl FunctionLowerer<'_, '_> {
                     write,
                     ..
                 } => {
-                    let method = self
-                        .planner
-                        .catalog
-                        .trait_(&write.declaration)
-                        .and_then(|contract| {
-                            contract.methods.iter().find(|method| method.name == "set")
-                        })
-                        .ok_or(MirLoweringError::MissingBinding("checked list setter"))?
-                        .id;
-                    self.lower_applied_operator(write, receiver, &method, &[base, index, result])?;
-                }
-                ProjectionKind::InterfaceIndex { index, write, .. } => {
-                    let interface =
-                        write.ok_or(MirLoweringError::MissingBinding("writable list interface"))?;
-                    let slot = self
-                        .planner
-                        .catalog
-                        .trait_(&interface.declaration)
-                        .and_then(|contract| {
-                            contract.methods.iter().find(|method| method.name == "set")
-                        })
-                        .ok_or(MirLoweringError::MissingBinding("checked list setter"))?
-                        .slot;
-                    self.emit(Instruction::Call {
-                        dst: None,
-                        callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
-                            normalizations: vec![],
-                            receiver: None,
-                            operations: vec![],
-                            arguments: vec![],
-                            interface,
-                            method_slot: slot as u32,
-                        })),
-                        args: [base, index, result].into_iter().collect(),
-                    });
+                    let (interface, method) = write;
+                    self.lower_applied_operator(
+                        interface,
+                        receiver,
+                        &method,
+                        &[base, index, result],
+                    )?;
                 }
                 ProjectionKind::Index(index) => self.emit(Instruction::WriteAggregateIndex {
                     base,
@@ -544,19 +458,6 @@ impl FunctionLowerer<'_, '_> {
         let dst = self.alloc_temp(projection.ty);
         match &projection.kind {
             ProjectionKind::AppliedIndex { .. } => unreachable!("handled applied projection"),
-            ProjectionKind::InterfaceIndex { index, read, .. } => self.emit(Instruction::Call {
-                dst: Some(dst),
-                callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
-                    normalizations: vec![],
-                    receiver: None,
-                    operations: vec![],
-                    arguments: vec![],
-                    interface: read.clone(),
-                    method_slot: 0,
-                })),
-                args: [base, *index].into_iter().collect(),
-            }),
-
             ProjectionKind::Field(field) => self.emit(Instruction::ReadAggregateField {
                 dst,
                 base,

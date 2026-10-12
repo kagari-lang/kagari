@@ -17,10 +17,6 @@ impl DefinitionReferences for LoweredModule {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for id in self.native_array_interfaces.values() {
-            check_cancel(cancel)?;
-            visit(id)?;
-        }
         for (id, value) in &self.registered_traits {
             check_cancel(cancel)?;
             visit(id)?;

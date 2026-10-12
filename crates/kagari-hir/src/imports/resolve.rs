@@ -73,11 +73,6 @@ pub(super) fn resolve_imports(
     let mut names = (*base.namespaces[&NamespaceId::Module(unit.clone())].names).clone();
     let mut result = ModuleImportFacts::default();
     let mut dependencies = BTreeSet::from_iter(module.native_dependencies.iter().cloned());
-    for source in *sources {
-        result
-            .array_interfaces
-            .extend(source.native_array_interfaces.clone());
-    }
     for (slot, import) in module.module.imports.iter().enumerate() {
         cancel.check()?;
         let id = DirectiveId {

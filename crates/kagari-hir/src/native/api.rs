@@ -7,7 +7,7 @@ use crate::{
     lower::{LoweredModule, lower_module_controlled},
     native::{
         NativeBinding, NativeTypeKind,
-        paths::{array_interfaces, module_path},
+        paths::module_path,
         render::{DeclarationSource, declaration_source},
     },
 };
@@ -105,10 +105,6 @@ pub(crate) fn import_source(
         .enumerate()
         .map(|(slot, name)| (slot, name.namespace))
         .collect();
-    lowered.native_array_interfaces = array_interfaces(
-        providers.iter().map(|provider| provider.records()),
-        definitions,
-    )?;
     lowered.registered_traits = definition
         .traits
         .iter()

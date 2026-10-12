@@ -211,7 +211,7 @@ pub struct TypeTable {
     expr_fields: HashMap<ExprId, DefinitionId>,
     place_fields: HashMap<PlaceId, DefinitionId>,
     place_indexes: HashMap<PlaceId, NominalType>,
-    place_index_writes: HashMap<PlaceId, NominalType>,
+    place_index_writes: HashMap<PlaceId, (NominalType, DefinitionId)>,
     struct_inits: HashMap<ExprId, ResolvedStructInit>,
     enum_constructors: HashMap<ExprId, ResolvedEnumConstructor>,
     exprs: HashMap<ExprId, TypeId>,
@@ -309,8 +309,13 @@ impl TypeTable {
         self.place_indexes.insert(id, interface);
     }
 
-    pub(crate) fn insert_place_index_write(&mut self, id: PlaceId, interface: NominalType) {
-        self.place_index_writes.insert(id, interface);
+    pub(crate) fn insert_place_index_write(
+        &mut self,
+        id: PlaceId,
+        interface: NominalType,
+        method: DefinitionId,
+    ) {
+        self.place_index_writes.insert(id, (interface, method));
     }
 
     /// Records/replaces the selected associated constant under the matching node ID.
@@ -1096,13 +1101,16 @@ impl TypeTable {
         self.protocol_receivers.get(&id)
     }
 
-    /// Returns the recorded index-mutation interface, or `None` when no such fact was recorded.
+    /// Returns the checked Index interface used to read a place.
     pub fn place_index(&self, id: PlaceId) -> Option<&NominalType> {
         self.place_indexes.get(&id)
     }
 
-    pub fn place_index_write(&self, id: PlaceId) -> Option<&NominalType> {
-        self.place_index_writes.get(&id)
+    /// Returns the checked applied write interface and exact setter method identity.
+    pub fn place_index_write(&self, id: PlaceId) -> Option<(&NominalType, &DefinitionId)> {
+        self.place_index_writes
+            .get(&id)
+            .map(|(interface, method)| (interface, method))
     }
 
     /// Returns the recorded associated family binders and bounds, or `None` when no such fact was recorded.

@@ -85,16 +85,11 @@ impl DefinitionReferences for Declarations {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for id in self.array_interfaces.values() {
-            check_cancel(cancel)?;
-            visit(id)?;
-        }
         for id in self.language_items.values() {
             check_cancel(cancel)?;
             visit(id)?;
         }
         self.hosts.visit_definition_ids(visit, cancel)?;
-        self.imports.visit_definition_ids(visit, cancel)?;
         self.imported_types.visit_definition_ids(visit, cancel)?;
         for value0 in self.targets.values() {
             (value0).visit_definition_ids(visit, cancel)?;

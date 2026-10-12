@@ -118,6 +118,16 @@ fn indexing_partial_composites_preserves_the_selected_member() {
             TypeId::Error,
             true,
         ),
+        (
+            "fn bad(value: std::collections::List<i32>) { value[true]; }",
+            TypeId::Builtin(BuiltinType::I32),
+            true,
+        ),
+        (
+            "trait Reader: std::ops::Index<usize, Output = i32> {} fn bad(value: Reader) { value[true]; }",
+            TypeId::Builtin(BuiltinType::I32),
+            true,
+        ),
     ] {
         let source = SourceFile::new("index-recovery.kgr", text);
         let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())

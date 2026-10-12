@@ -1,6 +1,6 @@
 //! Bounded syntax/helper bridges and intrinsic scalar capabilities; ordinary libraries remain registered inputs.
 
-pub mod array_bridge;
+pub(crate) mod array_bridge;
 pub mod surface;
 
 /// Small compiler-recognized helper surface; ordinary library functions use registered declarations.
