@@ -3874,3 +3874,24 @@ includes the known offline_nominal and embedding_api consumers, further dependen
 example audits, any remaining negative-fixture scope controls, and lasting
 architecture/specification documentation with retirement of this plan. No complete
 workspace or feature/backend acceptance is claimed; that matrix remains CI scope.
+
+### SI06 embedding API Host paths and rejected reloads
+
+The embedding API fixtures retain scoped artifacts from compilation, explicitly
+register hand-authored Player/field/function identities, and publish Host path
+segments with the receiving runtime's definition snapshot. Hand-built bytecode is
+constructed in its own retained context. ABI-header corruption extracts records
+without execution evidence and retains the original identity table.
+
+Five focused embedding_api cases pass: failed_reload_validation,
+reload_rejects_typed_path, both installed_host_path cases and
+installed_host_and_reflection. They preserve rejected-reload epochs/counts,
+path-fingerprint validation, declared read/write access and installed reflection.
+`cargo clippy -p kagari-embed --test embedding_api --message-format=short --
+-D warnings` passes. Structure checks 1087 Rust files with zero violations/exceptions;
+formatting and diff checks pass. Review confirms runtime versus authoring scope
+ownership, unchanged assertions, normal imports and no new exports.
+
+The known embedding_api diagnostics are resolved. offline_nominal and the remaining
+consumer/example audit, negative-fixture verification controls and final lasting
+documentation transfer/plan retirement remain SI06 work; exhaustive checks remain CI.

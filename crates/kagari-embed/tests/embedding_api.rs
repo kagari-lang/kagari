@@ -11,6 +11,9 @@ use kagari_bytecode::{
     },
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{
+    ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+};
 use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
 use kagari_embed::{
     BytecodeArtifact,
@@ -24,14 +27,17 @@ use kagari_runtime::value_semantics::script_equal;
 use kagari_runtime::{
     host::{
         HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptor,
-        HostPathDescriptorId, HostPathDescriptorRegistration, HostPathSegmentRegistration,
-        HostSchemaEpoch, HostTypeRegistration,
+        HostPathDescriptorId, HostPathDescriptorRegistration, HostSchemaEpoch,
+        HostTypeRegistration, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface,
+    path::HostPathSegmentDeclaration,
+    standard_log,
     type_declaration::{
         HostFieldDeclaration, HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership,
         PathAccess,
@@ -43,7 +49,7 @@ fn compile_artifact(
     engine: &KagariEngine,
     name: &str,
     source: &str,
-) -> kagari_embed::BytecodeArtifact {
+) -> DefinitionMetadata<BytecodeArtifact> {
     engine
         .compile_to_artifact(SourceFile::new(name, source), ArtifactOptions::default())
         .expect("source should compile")
@@ -67,7 +73,19 @@ fn register_embedding_host_path_runtime(
             ..TypeRegistration::new("i32", TypeKind::Primitive)
         })
         .unwrap();
-    let host_type = HostTypeRegistration::new(player_type_declaration(), "game.Player");
+    let definitions = DefinitionContext::new().unwrap();
+    let player = player_type_declaration(&definitions);
+    let make = HostFunctionDeclaration::new(
+        &definitions,
+        "host.player",
+        vec![],
+        HostValueType::Opaque(player.id),
+    )
+    .unwrap();
+    let host_type = HostTypeRegistration::new(
+        DefinitionMetadata::checked(definitions.snapshot(), player, &Default::default()).unwrap(),
+        "game.Player",
+    );
     let player_id = runtime.register_host_type(host_type).unwrap();
     let root = runtime
         .runtime_mut()
@@ -75,11 +93,7 @@ fn register_embedding_host_path_runtime(
         .unwrap();
     runtime
         .register_host_function(HostFunction::new(
-            kagari_types::host_interface::HostFunctionDeclaration::new(
-                "host.player",
-                vec![],
-                HostValueType::opaque("game.Player"),
-            ),
+            DefinitionMetadata::checked(definitions.snapshot(), make, &Default::default()).unwrap(),
             move |cx, _| Ok(cx.runtime().gc().alloc_host_root(root).unwrap()),
         ))
         .unwrap();
@@ -94,16 +108,15 @@ fn register_embedding_host_path_runtime(
         .iter()
         .find(|field| field.name == "hp")
         .unwrap()
-        .id
-        .clone();
+        .id;
+    let path_definitions = runtime.runtime().host().definitions();
     let descriptor_id = runtime
         .runtime_mut()
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: path_definitions,
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentRegistration::Field {
-                declaration: hp_declaration,
-            }],
+            segments: vec![HostPathSegmentDeclaration::Field(hp_declaration)],
             access: path_access,
             schema_epoch: HostSchemaEpoch::new(0),
         })
@@ -118,7 +131,7 @@ fn register_embedding_host_path_runtime(
                 .with_read(|_, _| Ok(Value::I32(10)))
                 .with_prepare_write(|_, _, record| {
                     if matches!(record.new_value, Value::I32(_)) {
-                        Ok(kagari_runtime::host::PreparedHostPathWrite::new(|| {}))
+                        Ok(PreparedHostPathWrite::new(|| {}))
                     } else {
                         Err(HostError::new("hp expects i32"))
                     }
@@ -136,14 +149,23 @@ fn host_path_artifact(
     registers: Vec<ValueType>,
     return_type: ValueType,
     constants: Vec<ConstantOperand>,
-) -> BytecodeArtifact {
+) -> DefinitionMetadata<BytecodeArtifact> {
+    let definitions = DefinitionContext::new().unwrap();
+    let player = player_type_declaration(&definitions);
+    let make = HostFunctionDeclaration::new(
+        &definitions,
+        "host.player",
+        vec![],
+        HostValueType::Opaque(player.id),
+    )
+    .unwrap();
     let metadata = FunctionMetadata {
         return_type,
         roots: RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
-    KbcArtifact::from_program(
+    let artifact = KbcArtifact::from_program(
         BytecodeProgram {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
@@ -156,17 +178,11 @@ fn host_path_artifact(
                         }
                     )
                 }) {
-                    vec![NativeImport::from_host(
-                        &kagari_types::host_interface::HostFunctionDeclaration::new(
-                            "host.player",
-                            vec![],
-                            HostValueType::opaque("game.Player"),
-                        ),
-                    )]
+                    vec![NativeImport::from_host(&make)]
                 } else {
                     vec![]
                 },
-                host_interface: kagari_types::host_interface::HostInterface {
+                host_interface: HostInterface {
                     paths: vec![],
                     types: if instructions.iter().any(|instruction| {
                         matches!(
@@ -177,7 +193,7 @@ fn host_path_artifact(
                             }
                         )
                     }) {
-                        vec![player_type_declaration()]
+                        vec![player.clone()]
                     } else {
                         Vec::new()
                     },
@@ -190,16 +206,12 @@ fn host_path_artifact(
                             }
                         )
                     }) {
-                        vec![kagari_types::host_interface::HostFunctionDeclaration::new(
-                            "host.player",
-                            vec![],
-                            HostValueType::opaque("game.Player"),
-                        )]
+                        vec![make.clone()]
                     } else {
                         vec![]
                     },
                 },
-                identity: kagari_common::identity::ModuleIdentity::single_file(source_name),
+                identity: ModuleIdentity::single_file(source_name),
                 source_name: source_name.to_owned(),
                 module_slots: vec![],
                 constants,
@@ -234,8 +246,10 @@ fn host_path_artifact(
             }],
         },
         ArtifactBuildOptions::default(),
+        &definitions,
     )
-    .unwrap()
+    .unwrap();
+    DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap()
 }
 
 #[test]
@@ -390,8 +404,11 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
     let first = compile_artifact(&engine, "reload.kgr", "fn main() -> i32 { 1 }");
-    let mut candidate = compile_artifact(&engine, "reload.kgr", "fn main() -> i32 { 2 }");
+    let candidate = compile_artifact(&engine, "reload.kgr", "fn main() -> i32 { 2 }");
+    let (definitions, mut candidate) = candidate.into_parts();
     candidate.header.runtime_abi_version = "wrong-runtime-abi".to_owned();
+    let candidate =
+        DefinitionMetadata::checked(definitions, candidate, &Default::default()).unwrap();
 
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
@@ -656,10 +673,9 @@ fn installed_host_and_reflection_helpers_are_available() {
         .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
     runtime
-        .register_host_function(HostFunction::new(
-            kagari_types::host_interface::standard_log().unwrap(),
-            |_, _| Ok(Value::Unit),
-        ))
+        .register_host_function(HostFunction::new(standard_log().unwrap(), |_, _| {
+            Ok(Value::Unit)
+        }))
         .unwrap();
     let print_module = runtime
         .load_program(
@@ -712,11 +728,12 @@ fn installed_host_and_reflection_helpers_are_available() {
     );
 }
 
-fn player_type_declaration() -> HostTypeDeclaration {
-    let mut declaration = HostTypeDeclaration::new("game.Player");
+fn player_type_declaration(definitions: &DefinitionContext) -> HostTypeDeclaration {
+    let mut declaration = HostTypeDeclaration::new(definitions, "game.Player").unwrap();
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
+    let mut hp =
+        HostFieldDeclaration::new(definitions, declaration.id, "hp", HostValueType::I32).unwrap();
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     declaration.fields.push(hp);
