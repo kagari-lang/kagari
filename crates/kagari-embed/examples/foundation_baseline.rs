@@ -1,5 +1,6 @@
 //! Reproducible foundation throughput and code-sharing baseline.
 //! Run with `cargo run --release -p kagari-embed --example foundation_baseline`.
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use std::{hint::black_box, sync::Arc, time::Instant};
 
 use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
@@ -67,8 +68,15 @@ fn main() {
             ArtifactOptions::default(),
         )
         .unwrap();
-    let code_image_bytes = artifact.to_bytes().unwrap().len();
-    let verified = VerifiedProgram::new(artifact.program).unwrap();
+    let code_image_bytes = artifact
+        .records()
+        .to_bytes(artifact.definitions())
+        .unwrap()
+        .len();
+    let definitions = DefinitionContext::new().unwrap();
+    let (table, records) = artifact.into_parts();
+    let program = DefinitionMetadata::checked(table, records.program, &Default::default()).unwrap();
+    let verified = VerifiedProgram::new(program, &definitions).unwrap();
     let mut first_runtime = standard_runtime();
     let mut second_runtime = standard_runtime();
     let first_loaded = first_runtime

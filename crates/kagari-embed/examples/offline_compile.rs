@@ -2,7 +2,7 @@
 
 use kagari_bytecode::artifact::{ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION};
 
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_embed::{
     BytecodeArtifact,
     engine::{KagariEngine, source::ArtifactOptions},
@@ -23,49 +23,52 @@ use kagari_types::host_interface::{
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut player = HostTypeDeclaration::new("demo.Player");
+    let definitions = DefinitionContext::new()?;
+    let mut player = HostTypeDeclaration::new(&definitions, "demo.Player")?;
     player.ownership = HostTypeOwnership::HostRoot;
     player.path_access = PathAccess::ReadWrite;
     player.fields.push(HostFieldDeclaration::new(
-        &player.id,
+        &definitions,
+        player.id,
         "score",
         HostValueType::I32,
-    ));
+    )?);
     player.fields[0].path_access = PathAccess::ReadWrite;
     player.fields[0].writable = true;
     let mut scores = HostFieldDeclaration::new(
-        &player.id,
+        &definitions,
+        player.id,
         "scores",
         HostValueType::Array(Box::new(HostValueType::I32)),
-    );
+    )?;
     scores.path_access = PathAccess::ReadOnly;
     player.fields.push(scores);
     player.documentation =
         "Host-owned player metadata, available without business services.".into();
     player.methods.push(HostMethodDeclaration::new(
-        &player.id,
+        &definitions,
+        player.id,
         "read_score",
         vec![],
         HostValueType::I32,
-    ));
-    let mut child = HostTypeDeclaration::new("demo.Child");
-    let mut child_score = HostFieldDeclaration::new(&child.id, "score", HostValueType::I32);
+    )?);
+    let mut child = HostTypeDeclaration::new(&definitions, "demo.Child")?;
+    let mut child_score =
+        HostFieldDeclaration::new(&definitions, child.id, "score", HostValueType::I32)?;
     child_score.path_access = PathAccess::ReadOnly;
     child.fields.push(child_score.clone());
     let path_declaration = HostPathDeclaration {
-        root: player.id.clone(),
-        segments: vec![HostPathSegmentDeclaration::Field(
-            player.fields[0].id.clone(),
-        )],
+        root: player.id,
+        segments: vec![HostPathSegmentDeclaration::Field(player.fields[0].id)],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
     };
     let index_declaration = HostPathDeclaration {
-        root: player.id.clone(),
+        root: player.id,
         segments: vec![HostPathSegmentDeclaration::Index(
             HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Opaque(player.id.clone()),
+                collection: HostValueType::Opaque(player.id),
                 index: HostValueType::I32,
                 result: HostValueType::I32,
                 access: PathAccess::ReadOnly,
@@ -75,9 +78,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         schema_epoch: 0,
     };
     let field_index_declaration = HostPathDeclaration {
-        root: player.id.clone(),
+        root: player.id,
         segments: vec![
-            HostPathSegmentDeclaration::Field(player.fields[1].id.clone()),
+            HostPathSegmentDeclaration::Field(player.fields[1].id),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
                 collection: HostValueType::Array(Box::new(HostValueType::I32)),
@@ -90,28 +93,28 @@ fn main() -> Result<(), Box<dyn Error>> {
         schema_epoch: 0,
     };
     let nested_declaration = HostPathDeclaration {
-        root: player.id.clone(),
+        root: player.id,
         segments: vec![
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Opaque(player.id.clone()),
+                collection: HostValueType::Opaque(player.id),
                 index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id.clone()),
+                result: HostValueType::Opaque(child.id),
                 access: PathAccess::ReadOnly,
             }),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 1,
-                collection: HostValueType::Opaque(child.id.clone()),
+                collection: HostValueType::Opaque(child.id),
                 index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id.clone()),
+                result: HostValueType::Opaque(child.id),
                 access: PathAccess::ReadOnly,
             }),
             HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
                 name: "selected".into(),
-                result: HostValueType::Opaque(child.id.clone()),
+                result: HostValueType::Opaque(child.id),
                 access: PathAccess::ReadOnly,
             }),
-            HostPathSegmentDeclaration::Field(child_score.id.clone()),
+            HostPathSegmentDeclaration::Field(child_score.id),
         ],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
@@ -125,6 +128,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ],
         types: vec![player, child],
         functions: vec![HostFunctionDeclaration::new(
+            &definitions,
             "demo.echo",
             vec![HostParameter {
                 name: "value".into(),
@@ -132,31 +136,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                 passing: HostPassingStyle::Owned,
             }],
             HostValueType::Array(Box::new(HostValueType::I32)),
-        )],
+        )?],
     };
     // A build process may read these bytes from the binding provider's interface file.
-    let offline_bytes = declarations.to_bytes()?;
+    let offline_bytes = declarations.to_bytes(&definitions.snapshot())?;
     let offline = HostInterface::from_bytes(&offline_bytes)?;
     let player_type = offline
+        .records()
         .types
         .iter()
         .find(|ty| ty.symbol == "demo.Player")
         .expect("player declaration");
     let path = offline
+        .records()
         .paths
         .iter()
         .find(|path| {
             path.root == player_type.id
-                && path.segments
-                    == [HostPathSegmentDeclaration::Field(
-                        player_type.fields[0].id.clone(),
-                    )]
+                && path.segments == [HostPathSegmentDeclaration::Field(player_type.fields[0].id)]
         })
         .expect("declared score field path")
-        .contract(&offline)?;
+        .contract(offline.records(), offline.definitions())?;
     println!(
         "offline field path fingerprint: {:016x}",
-        path.fingerprint()?
+        path.fingerprint(offline.definitions())?
     );
     println!(
         "offline member: {}.{}",
@@ -247,6 +250,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .emit_bytecode(&checked, ArtifactOptions::default())
         .expect("emit checked program");
     let function_records: usize = artifact
+        .records()
         .program
         .modules
         .iter()
@@ -254,6 +258,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .sum();
     assert_eq!(
         artifact
+            .records()
             .tables
             .sections
             .iter()
@@ -266,27 +271,38 @@ fn main() -> Result<(), Box<dyn Error>> {
         "artifact function directory matches {} executable records",
         function_records
     );
-    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes()?)?;
-    decoded.validate_for_loader(&Default::default())?;
-    assert_eq!(decoded.header.format_version, KBC_ARTIFACT_FORMAT_VERSION);
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions())?)?;
+    let decoded = decoded.import_into(&definitions, &Default::default())?;
+    decoded
+        .records()
+        .validate_for_loader(&Default::default(), &definitions)?;
     assert_eq!(
-        decoded.header.module_identity,
-        decoded.program.modules[decoded.program.root.index()].identity
+        decoded.records().header.format_version,
+        KBC_ARTIFACT_FORMAT_VERSION
     );
-    assert_eq!(decoded.tables.sections, artifact.tables.sections);
+    assert_eq!(
+        decoded.records().header.module_identity,
+        decoded.records().program.modules[decoded.records().program.root.index()].identity
+    );
+    assert_eq!(
+        decoded.records().tables.sections,
+        artifact.records().tables.sections
+    );
     println!(
         "bounded artifact decoding retained {} modules and the checked section directory",
-        decoded.program.modules.len()
+        decoded.records().program.modules.len()
     );
     println!(
         "compiled {} required host function; artifact is {} bytes",
-        artifact.program.modules[artifact.program.root.index()]
+        artifact.records().program.modules[artifact.records().program.root.index()]
             .host_interface
             .functions
             .len(),
-        artifact.to_bytes()?.len()
+        artifact.records().to_bytes(artifact.definitions())?.len()
     );
-    let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
+    let required =
+        &artifact.records().program.modules[artifact.records().program.root.index()].host_interface;
     assert_eq!(required.types.len(), 2);
     assert_eq!(required.paths.len(), 4);
     println!(

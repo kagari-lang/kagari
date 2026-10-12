@@ -7,6 +7,7 @@ mod memory;
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
 use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::{native_links::build_native_links, source::lower::lower_to_mir};
 use kagari_contract::native::NativeCompilationProduct;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
@@ -100,7 +101,7 @@ fn main() {
     );
     let checked = analyze_source(
         &SourceFile::new("baseline.kgr", SOURCE),
-        foundation_catalog::shared(),
+        foundation_catalog::shared().unwrap(),
     )
     .expect("installed declaration analysis")
     .into_codegen()
@@ -122,17 +123,30 @@ fn main() {
     let artifact = engine
         .compile_to_artifact(SourceFile::new("baseline.kgr", SOURCE), Default::default())
         .unwrap();
-    let bytes = artifact.to_bytes().unwrap();
-    let bytecode_only =
-        KbcArtifact::from_program(artifact.program.clone(), ArtifactBuildOptions::default())
-            .unwrap()
-            .to_bytes()
-            .unwrap();
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    let bytecode_only = KbcArtifact::from_program(
+        artifact.records().program.clone(),
+        ArtifactBuildOptions::default(),
+        &definitions,
+    )
+    .unwrap()
+    .to_bytes(&definitions.snapshot())
+    .unwrap();
     println!(
         "artifact_bytes={} bytecode_only_bytes={} portable_mir_payload_bytes={}",
         bytes.len(),
         bytecode_only.len(),
-        artifact.portable_mir.as_ref().unwrap().bytes.len()
+        artifact
+            .records()
+            .portable_mir
+            .as_ref()
+            .unwrap()
+            .bytes
+            .len()
     );
     sample(
         || {

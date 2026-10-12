@@ -1,4 +1,5 @@
 //! Identity migration measurements; compile and allocator passes are separate.
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_runtime::{
     Runtime, module::VerifiedProgram, native::module::NativeModule, value::Value,
@@ -135,9 +136,19 @@ fn main() {
             )
             .unwrap()
     });
-    println!("artifact_bytes={}", artifact.to_bytes().unwrap().len());
+    println!(
+        "artifact_bytes={}",
+        artifact
+            .records()
+            .to_bytes(artifact.definitions())
+            .unwrap()
+            .len()
+    );
+    let definitions = DefinitionContext::new().unwrap();
+    let (table, records) = artifact.into_parts();
+    let program = DefinitionMetadata::checked(table, records.program, &Default::default()).unwrap();
     let verified = measure("verified_program", || {
-        VerifiedProgram::new(artifact.program.clone()).unwrap()
+        VerifiedProgram::new(program.clone(), &definitions).unwrap()
     });
     drop(measure("runtime_creation", Runtime::default));
     let (first_runtime, first) =

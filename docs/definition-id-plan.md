@@ -4033,3 +4033,36 @@ writes were removed. No performance improvement is claimed.
 The source_snapshots failure is resolved. Example API migration is in progress;
 remaining dependent audits, negative-fixture review and final documentation transfer/
 plan retirement remain SI06 work. Exhaustive CI acceptance has not run locally.
+
+### SI06 public examples and signature navigation
+
+All eight previously failing examples now retain identity scope through declaration
+registration, artifact codecs and executable verification; nominal query comparison
+uses IDs directly. Measurement examples compile against the current APIs, without
+new timing or performance claims. Host example declarations retain their authoring
+snapshot independently of decoded interface and runtime adoption scopes.
+
+Five examples execute successfully: offline_compile, host_interfaces, host_reentry,
+typed_native and source_queries. The first run exposed two stale navigation paths.
+Signature Host lookup now selects only the terminal type name, matching complete
+analysis; the existing Host facade/snapshot test covers qualifiers, separators,
+terminal boundaries and the selected ID at both query stages, and passes. The editor
+example's invalid-array recovery scenario now uses actual `[Point]`, preserving its
+field/navigation and diagnostic assertions. Its old `Vec<Point>` spelling described
+the former intrinsic array model; extending error recovery for arbitrary Native
+Index implementations is outside this migration.
+
+`cargo clippy -p kagari-hir --lib -p kagari-embed --examples --message-format=short
+-- -D warnings` passes. Structure checks 1087 Rust files with zero violations and
+exceptions; formatting/diff checks pass. Review covers direct registration errors,
+query span ownership, no added exports and preservation of example assertions.
+
+The 104 example diagnostics are resolved. A final path-boundary audit found a
+remaining internal runtime path chain: InherentMember retains a DefinitionPath,
+method/collection-constructor discovery rebuilds paths, and EntryEvidence compares
+paths for already-adopted program IDs. SI06 will keep paths only at explicit public
+query inputs and migrate retained member/evidence selection to IDs in the loaded
+program scope. Generation/borrow/type-argument evidence must stay unchanged. Other
+observed runtime path inputs are explicit lookup/authoring boundaries; compiler
+DefinitionPathSegment usage identifies registered children, not a second semantic
+model. Final boundary audit and documentation retirement remain outstanding.

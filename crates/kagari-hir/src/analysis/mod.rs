@@ -647,7 +647,10 @@ fn type_reference_target_at(
         .min_by_key(|(_, span)| span.end - span.start)?;
     let type_id = lowered.source_map.type_id(index);
     let resolved = table.type_ref(type_id)?;
-    let name_span = if matches!(resolved.target, Some(TypeTarget::AssociatedType(_))) {
+    let name_span = if matches!(
+        resolved.target,
+        Some(TypeTarget::AssociatedType(_) | TypeTarget::Host(_))
+    ) {
         lowered.source_map.type_terminal_span(type_id)
     } else {
         lowered.source_map.type_name_span(type_id)

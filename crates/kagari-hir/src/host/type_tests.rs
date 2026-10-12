@@ -228,6 +228,11 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
     assert!(file.host_type_at(qualifier).is_none());
     assert!(file.host_type_at(qualifier + "facade".len()).is_none());
     assert!(file.host_type_at(offset + "Object".len()).is_none());
+    let signature = old.signature_snapshot().file(root).unwrap();
+    assert_eq!(signature.host_type_at(offset).unwrap().id, id);
+    assert!(signature.host_type_at(qualifier).is_none());
+    assert!(signature.host_type_at(qualifier + "facade".len()).is_none());
+    assert!(signature.host_type_at(offset + "Object".len()).is_none());
     assert!(file.host_type_at(offset).unwrap().documentation.is_empty());
     assert_eq!(
         new.file(root)

@@ -43,7 +43,7 @@ fn main() {
         )
         .unwrap();
     // Resolve the entry against this artifact before registering the callback.
-    let make = artifact.program.modules[artifact.program.root.index()]
+    let make = artifact.records().program.modules[artifact.records().program.root.index()]
         .functions
         .iter()
         .find(|f| f.name == "make")

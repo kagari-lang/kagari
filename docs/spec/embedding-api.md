@@ -54,7 +54,8 @@ body-independent tools; their results cannot be passed to code generation.
 checked signature type names, including imported source types. It does not
 offer body-reference navigation before that body has been analyzed.
 `FileSignatures::host_type_at(byte_offset)` returns the checked offline host
-declaration for a signature type name. Host declarations have no synthetic
+declaration for the terminal name of a signature type; module qualifiers and
+separators do not select the Host type. Host declarations have no synthetic
 source location; this query reads the interface catalog without registration.
 Full `analyze` and compilation enforce the same language semantics.
 

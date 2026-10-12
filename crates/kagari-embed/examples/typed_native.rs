@@ -7,7 +7,7 @@ use kagari_source::source::SourceFile;
 
 fn main() {
     let mut builder = KagariEngine::builder().unwrap();
-    let mut text = ModuleBuilder::new("application::text", builder.declarations());
+    let mut text = ModuleBuilder::new("application::text", builder.declarations()).unwrap();
     text.documentation("# Text utilities\n\nApplication-owned Unicode text functions.");
     text.add_function(
         FunctionSpec::new("split")

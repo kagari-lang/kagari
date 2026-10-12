@@ -40,8 +40,9 @@ fn main() -> kagari_embed::CompileResult<()> {
     )?;
     // An erroneous neighbor does not prevent navigation in the correct function.
     let text = "struct Point { var x: i32 }\r\nfn bad() { missing() }\r\nfn good(value: i32) -> i32 { val answer = value + 1; answer }\r\nfn read(p: Point) -> i32 { p.x }\r\ntrait Show { fn show(self) -> i32; }\r\nfn inspect<T: Show>(value: T) -> i32 { value.show() }\r\nenum Mode { Ready, Running(Point, [String]) }\r\nfn mode(p: Point) -> Mode { Mode::Running(p, [\"active\"]) }";
+    // Invalid array indices retain the known element type for editor recovery.
     let text = &format!(
-        "{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}\r\nimpl Show for Point {{ fn show(self) -> i32 {{ self.x }} }}\r\nfn broken_target(p: Point) {{ missing[p.x] = 1; p.x = 2; }}\r\nfn readonly_target(p: Point) {{ p = Point {{ x: 2 }}; }}\r\nfn broken_index(items: Vec<Point>) {{ items[true].x; items[true].x = 1; }}"
+        "{text}\r\nfn kind(p: Point) -> String {{ type_of(p) }}\r\nimpl Show for Point {{ fn show(self) -> i32 {{ self.x }} }}\r\nfn broken_target(p: Point) {{ missing[p.x] = 1; p.x = 2; }}\r\nfn readonly_target(p: Point) {{ p = Point {{ x: 2 }}; }}\r\nfn broken_index(items: [Point]) {{ items[true].x; items[true].x = 1; }}"
     );
     let file = engine.set_source(source_name, text.into(), SourceLayer::Overlay)?;
     // Declaration discovery does not resolve bodies or evaluate constants.
@@ -291,12 +292,7 @@ fn main() -> kagari_embed::CompileResult<()> {
     };
     assert_eq!(
         point_type.id,
-        kagari_hir::declarations::DeclarationId::Definition(
-            analysis
-                .definitions()
-                .lookup(&definition.declaration)
-                .unwrap()
-        )
+        DeclarationId::Definition(definition.declaration)
     );
     assert!(definition.arguments.is_empty());
     println!("nominal type -> {nominal:?}");

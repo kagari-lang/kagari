@@ -2,7 +2,10 @@
 //! Run with `cargo run -p kagari-embed --example host_interfaces`.
 
 use {
-    kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment},
+    kagari_common::identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, map::DefinitionContext,
+        metadata::DefinitionMetadata,
+    },
     kagari_source::source_database::SourceLayer,
     kagari_types::host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
@@ -27,22 +30,13 @@ use kagari_runtime::{
 
 const SOURCE: &str = include_str!("../../../examples/host-interfaces.kgr");
 
-fn member(owner: &DefinitionPath, kind: DefinitionKind, name: &str) -> DefinitionPath {
-    let mut id = owner.clone();
-    id.path.push(DefinitionPathSegment {
-        kind,
-        name: name.into(),
-        occurrence: 0,
-    });
-    id
-}
-
 fn compile_offline() -> (
     KagariEngine,
-    BytecodeArtifact,
-    HostTypeDeclaration,
-    HostFunctionDeclaration,
+    DefinitionMetadata<BytecodeArtifact>,
+    DefinitionMetadata<HostTypeDeclaration>,
+    DefinitionMetadata<HostFunctionDeclaration>,
 ) {
+    let definitions = DefinitionContext::new().unwrap();
     let engine = KagariEngine::default();
     let file = engine
         .set_source("mem://host-interface", SOURCE.into(), SourceLayer::Base)
@@ -60,11 +54,13 @@ fn compile_offline() -> (
             occurrence: 0,
         }],
     };
-    let mut host = HostTypeDeclaration::new("demo.Counter");
+    let trait_id = definitions.intern(&trait_id).unwrap();
+    let mut host = HostTypeDeclaration::new(&definitions, "demo.Counter").unwrap();
     host.ownership = HostTypeOwnership::HostRoot;
     host.path_access = PathAccess::ReadOnly;
     let method = HostMethodDeclaration::new(
-        &host.id,
+        &definitions,
+        host.id,
         "read",
         vec![HostParameter {
             name: "amount".into(),
@@ -72,37 +68,52 @@ fn compile_offline() -> (
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     let mut implementation = HostTraitImplementationDeclaration::new(
-        trait_id.clone(),
+        trait_id,
         vec![],
         vec![HostTraitMethodBinding {
-            trait_method: member(&trait_id, DefinitionKind::Method, "read"),
-            host_method: method.id.clone(),
+            trait_method: definitions
+                .intern_child(trait_id, DefinitionKind::Method, "read", 0)
+                .unwrap(),
+            host_method: method.id,
         }],
     );
     implementation
         .associated_types
         .push(HostAssociatedTypeBinding {
-            declaration: member(&trait_id, DefinitionKind::AssociatedType, "Item"),
+            declaration: definitions
+                .intern_child(trait_id, DefinitionKind::AssociatedType, "Item", 0)
+                .unwrap(),
             ty: HostValueType::I32,
         });
     host.trait_implementations.push(implementation);
     host.methods.push(method);
-    let make =
-        HostFunctionDeclaration::new("demo.make", vec![], HostValueType::Opaque(host.id.clone()));
+    let make = HostFunctionDeclaration::new(
+        &definitions,
+        "demo.make",
+        vec![],
+        HostValueType::Opaque(host.id),
+    )
+    .unwrap();
     let interface = HostInterface {
         types: vec![host.clone()],
         functions: vec![make.clone()],
         paths: vec![],
     };
     // Reading these declarations does not register any runtime callback.
-    let interface = HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap();
+    let interface =
+        HostInterface::from_bytes(&interface.to_bytes(&definitions.snapshot()).unwrap()).unwrap();
     engine.set_host_interface(interface).unwrap();
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let host =
+        DefinitionMetadata::checked(definitions.snapshot(), host, &Default::default()).unwrap();
+    let make =
+        DefinitionMetadata::checked(definitions.snapshot(), make, &Default::default()).unwrap();
     (engine, artifact, host, make)
 }
 
@@ -139,10 +150,13 @@ fn main() {
         .unwrap();
     runtime
         .register_host_function(
-            HostFunction::method(&host, &host.methods[0].id, |_, args| Ok(args[1])).unwrap(),
+            HostFunction::method(&host, host.records().methods[0].id, |_, args| Ok(args[1]))
+                .unwrap(),
         )
         .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
