@@ -3,18 +3,25 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, value::Value};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn main() {
     let mut runtime = Runtime::default();
+    let context = DefinitionContext::new().unwrap();
     let owner = runtime
         .load_program(
             "arrays",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            },
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
 

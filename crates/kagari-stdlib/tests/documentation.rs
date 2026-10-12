@@ -10,11 +10,13 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
     let providers: Vec<_> = modules()
         .unwrap()
         .iter()
-        .map(|module| Arc::new(module.to_declaration().unwrap()))
+        .map(|module| Arc::new(module.to_declaration()))
         .collect();
     let mut examples = BTreeSet::new();
     let mut traits = 0;
-    for module in &providers {
+    for provider in &providers {
+        let module = provider.records();
+        let definitions = provider.definitions();
         assert!(
             !module.module_documentation.is_empty(),
             "{}",
@@ -22,11 +24,15 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
         );
         for contract in &module.traits {
             traits += 1;
-            let owner = module.definition(DefinitionKind::Trait, &contract.name);
+            let owner = module
+                .definition(DefinitionKind::Trait, &contract.name, definitions)
+                .unwrap();
             assert!(module.documentation[&owner].contains("```kgr"), "{owner:?}");
             for method in &contract.methods {
                 assert!(
-                    !module.documentation[&ModuleDecl::method_id(&owner, &method.name)].is_empty()
+                    !module.documentation
+                        [&ModuleDecl::method_id(owner, &method.name, definitions).unwrap()]
+                        .is_empty()
                 );
             }
             for member in &contract.associated_types {

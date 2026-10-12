@@ -3,6 +3,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{Runtime, value::Value};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -12,13 +13,19 @@ fn main() {
     println!("repeat,objects,live_mark_ns,dead_sweep_ns,reclaimed_units");
     for repeat in 0..5 {
         let mut runtime = Runtime::default();
+        let context = DefinitionContext::new().unwrap();
         let owner = runtime
             .load_program(
                 "arrays",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
+                DefinitionMetadata::checked(
+                    context.snapshot(),
+                    BytecodeProgram {
+                        root: ModuleRef::new(0),
+                        modules: vec![BytecodeModule::default()],
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
             )
             .unwrap();
         // A typed array of scalar arrays makes the graph shape and storage cost explicit.

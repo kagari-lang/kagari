@@ -1,5 +1,5 @@
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_runtime::{
     Runtime,
@@ -16,27 +16,25 @@ use kagari_types::host_interface::{
 };
 
 fn main() {
-    let mut counter = HostTypeDeclaration::new("demo.Counter");
-    let method = HostMethodDeclaration::new(&counter.id, "read", vec![], HostValueType::I32);
+    let context = DefinitionContext::new().unwrap();
+    let mut counter = HostTypeDeclaration::new(&context, "demo.Counter").unwrap();
+    let method =
+        HostMethodDeclaration::new(&context, counter.id, "read", vec![], HostValueType::I32)
+            .unwrap();
     counter.methods.push(method.clone());
 
-    let trait_id = DefinitionPath {
-        module: ModuleIdentity {
+    let module = context
+        .intern_root(&ModuleIdentity {
             package: PackageId("demo".into()),
             path: vec!["api".into()],
-        },
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: "Readable".into(),
-            occurrence: 0,
-        }],
-    };
-    let mut trait_method = trait_id.clone();
-    trait_method.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: "get".into(),
-        occurrence: 0,
-    });
+        })
+        .unwrap();
+    let trait_id = context
+        .intern_child(module, DefinitionKind::Trait, "Readable", 0)
+        .unwrap();
+    let trait_method = context
+        .intern_child(trait_id, DefinitionKind::Method, "get", 0)
+        .unwrap();
     counter
         .trait_implementations
         .push(HostTraitImplementationDeclaration::new(
@@ -44,7 +42,7 @@ fn main() {
             vec![],
             vec![HostTraitMethodBinding {
                 trait_method,
-                host_method: method.id.clone(),
+                host_method: method.id,
             }],
         ));
 
@@ -53,20 +51,28 @@ fn main() {
         types: vec![counter.clone()],
         functions: vec![],
     };
-    let offline = HostInterface::from_bytes(&offline.to_bytes().unwrap()).unwrap();
+    let offline =
+        HostInterface::from_bytes(&offline.to_bytes(&context.snapshot()).unwrap()).unwrap();
+    let counter =
+        DefinitionMetadata::checked(context.snapshot(), counter, &Default::default()).unwrap();
     let mut runtime = Runtime::default();
     runtime
         .register_host_type(HostTypeRegistration::new(counter.clone(), "Counter"))
         .unwrap();
     runtime
         .register_host_function(
-            HostFunction::method(&counter, &method.id, |_, _| Ok(Value::I32(42))).unwrap(),
+            HostFunction::method(&counter, method.id, |_, _| Ok(Value::I32(42))).unwrap(),
         )
         .unwrap();
-    runtime.host().link_interface(&offline).unwrap();
+    runtime
+        .host()
+        .link_interface(offline.records(), offline.definitions())
+        .unwrap();
     println!(
         "linked {} trait implementation with {} method",
-        offline.types[0].trait_implementations.len(),
-        offline.types[0].trait_implementations[0].methods.len()
+        offline.records().types[0].trait_implementations.len(),
+        offline.records().types[0].trait_implementations[0]
+            .methods
+            .len()
     );
 }

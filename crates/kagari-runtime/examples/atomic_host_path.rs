@@ -1,29 +1,26 @@
-//! Prepare a host update and reject a full dirty ledger before touching the field.
+//! Prepare host updates and reject readonly writes before touching the field.
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use std::sync::{
     Arc,
     atomic::{AtomicI32, Ordering},
 };
 
-use kagari_types::{
-    host_interface,
-    host_interface::{
-        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    },
+use kagari_types::host_interface::{
+    path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+    type_declaration::{HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess},
+    value_type::HostValueType,
 };
 
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     host::{
-        HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
-        HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration, PreparedHostPathWrite,
+        HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration, HostSchemaEpoch,
+        HostTypeRegistration, PreparedHostPathWrite,
     },
     resource::RuntimeLimits,
     value::Value,
 };
-use kagari_types::host_interface::type_declaration::{HostTypeOwnership, PathAccess};
 
 fn main() {
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -32,29 +29,36 @@ fn main() {
         },
         ..Default::default()
     });
-    let mut player = HostTypeRegistration::new(HostTypeDeclaration::new("game.Player"), "Player");
+    let context = DefinitionContext::new().unwrap();
     // Nominal identity can differ from the export label and is shared with
     // offline host signatures; registration does not derive identity from slots.
-    player.declaration.id = host_interface::host_type_identity("game.PlayerState");
-    player.declaration.ownership = HostTypeOwnership::HostRoot;
-    player.declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = HostFieldDeclaration::new(&player.declaration.id, "hp", HostValueType::I32);
+    let mut player = HostTypeDeclaration::new(&context, "game.PlayerState").unwrap();
+    player.ownership = HostTypeOwnership::HostRoot;
+    player.path_access = PathAccess::ReadWrite;
+    let mut hp = HostFieldDeclaration::new(&context, player.id, "hp", HostValueType::I32).unwrap();
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
-    let hp_declaration = hp.id.clone();
-    player.declaration.fields.push(hp);
+    let hp_declaration = hp.id;
+    player.fields.push(hp);
 
     let path_declaration = HostPathDeclaration {
-        root: player.declaration.id.clone(),
+        root: player.id,
         segments: vec![HostPathSegmentDeclaration::Field(hp_declaration)],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
     };
-    let player = runtime.register_host_type(player).unwrap();
+    let player =
+        DefinitionMetadata::checked(context.snapshot(), player, &Default::default()).unwrap();
+    let player = runtime
+        .register_host_type(HostTypeRegistration::new(player, "Player"))
+        .unwrap();
     let scalar = runtime.types().get(player).unwrap().fields[0].ty;
     let root = runtime
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
         .unwrap();
+    let path_declaration =
+        DefinitionMetadata::checked(context.snapshot(), path_declaration, &Default::default())
+            .unwrap();
     let path = runtime.register_host_path(&path_declaration).unwrap();
     let hp = Arc::new(AtomicI32::new(10));
     let read_hp = hp.clone();
@@ -81,15 +85,16 @@ fn main() {
         .unwrap();
     let preview = runtime
         .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: context.snapshot(),
             root_type: player,
             result_type: scalar,
-            segments: vec![HostPathSegmentRegistration::Virtual {
-                declaration: HostVirtualSegmentDeclaration {
+            segments: vec![HostPathSegmentDeclaration::Virtual(
+                HostVirtualSegmentDeclaration {
                     name: "hp_preview".into(),
                     result: HostValueType::I32,
                     access: PathAccess::ReadOnly,
                 },
-            }],
+            )],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
         })
