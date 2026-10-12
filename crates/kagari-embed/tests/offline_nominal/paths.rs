@@ -1,8 +1,11 @@
 use super::*;
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
-use kagari_runtime::host::HostPathAdapter;
-use kagari_types::host_interface::path::HostPathSegmentDeclaration;
+use kagari_runtime::host::{HostError, HostPathAdapter, PreparedHostPathWrite};
+use kagari_types::host_interface::path::{
+    HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+    HostVirtualSegmentDeclaration,
+};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -10,17 +13,22 @@ use std::sync::{
 
 #[test]
 fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
-    use kagari_types::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
-    let mut declarations = interface();
+    let definitions = DefinitionContext::new().unwrap();
+    let mut declarations = interface(&definitions);
     declarations.types[0].fields[0].path_access = PathAccess::ReadOnly;
-    let mut count =
-        HostFieldDeclaration::new(&declarations.types[1].id, "count", HostValueType::I32);
+    let mut count = HostFieldDeclaration::new(
+        &definitions,
+        declarations.types[1].id,
+        "count",
+        HostValueType::I32,
+    )
+    .unwrap();
     count.path_access = PathAccess::ReadOnly;
     let path = HostPathDeclaration {
-        root: declarations.types[0].id.clone(),
+        root: declarations.types[0].id,
         segments: vec![
-            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id.clone()),
-            HostPathSegmentDeclaration::Field(count.id.clone()),
+            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id),
+            HostPathSegmentDeclaration::Field(count.id),
         ],
         access: PathAccess::ReadOnly,
         schema_epoch: 7,
@@ -28,7 +36,9 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
     declarations.types[1].fields.push(count);
     declarations.paths.push(path.clone());
     let engine = KagariEngine::default();
-    engine.set_host_interface(declarations.clone()).unwrap();
+    engine
+        .set_host_interface(scoped(&definitions, declarations.clone()))
+        .unwrap();
 
     let artifact = engine
         .compile_to_artifact(
@@ -39,12 +49,15 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             Default::default(),
         )
         .unwrap();
-    let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
+    let artifact = adopt_artifact(&definitions, artifact);
+    let required =
+        &artifact.records().program.modules[artifact.records().program.root.index()].host_interface;
     assert_eq!(required.paths, vec![path.clone()]);
     assert_eq!(required.types.len(), 2);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
         } else {
             artifact.clone()
         };
@@ -62,7 +75,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 declarations.types[..2]
                     .iter()
                     .cloned()
-                    .map(|ty| HostTypeRegistration::new(ty, "Object"))
+                    .map(|ty| HostTypeRegistration::new(scoped(&definitions, ty), "Object"))
                     .collect(),
             )
             .unwrap();
@@ -74,7 +87,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(
-                declarations.functions[0].clone(),
+                scoped(&definitions, declarations.functions[0].clone()),
                 move |cx, _| {
                     calls.lock().unwrap().push("root");
                     Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
@@ -95,7 +108,10 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 .is_err()
         );
         assert!(trace.lock().unwrap().is_empty());
-        let descriptor = runtime.runtime_mut().register_host_path(&path).unwrap();
+        let descriptor = runtime
+            .runtime_mut()
+            .register_host_path(&scoped(&definitions, path.clone()))
+            .unwrap();
         let calls = trace.clone();
         runtime
             .runtime_mut()
@@ -115,7 +131,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -155,65 +171,68 @@ fn source_host_field_index_paths_skip_intermediate_reads() {
 
 #[test]
 fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
-    use kagari_runtime::host::{HostError, HostPathAdapter, PreparedHostPathWrite};
-    use kagari_types::host_interface::{
-        path::{
-            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-            HostVirtualSegmentDeclaration,
-        },
-        type_declaration::PathAccess,
-    };
-
-    let mut player = HostTypeDeclaration::new("game.Player");
+    let definitions = DefinitionContext::new().unwrap();
+    let mut player = HostTypeDeclaration::new(&definitions, "game.Player").unwrap();
     player.ownership = HostTypeOwnership::HostRoot;
     player.path_access = PathAccess::ReadWrite;
-    let mut child = HostTypeDeclaration::new("game.Child");
-    let mut score = HostFieldDeclaration::new(&child.id, "score", HostValueType::I32);
+    let mut child = HostTypeDeclaration::new(&definitions, "game.Child").unwrap();
+    let mut score =
+        HostFieldDeclaration::new(&definitions, child.id, "score", HostValueType::I32).unwrap();
     score.path_access = PathAccess::ReadWrite;
     score.writable = true;
     child.fields.push(score.clone());
     let make = HostFunctionDeclaration::new(
+        &definitions,
         "game.make",
         vec![],
-        HostValueType::Opaque(player.id.clone()),
-    );
-    let first = HostFunctionDeclaration::new("game.first", vec![], HostValueType::I32);
-    let second = HostFunctionDeclaration::new("game.second", vec![], HostValueType::I32);
-    let rhs = HostFunctionDeclaration::new("game.rhs", vec![], HostValueType::I32);
+        HostValueType::Opaque(player.id),
+    )
+    .unwrap();
+    let first =
+        HostFunctionDeclaration::new(&definitions, "game.first", vec![], HostValueType::I32)
+            .unwrap();
+    let second =
+        HostFunctionDeclaration::new(&definitions, "game.second", vec![], HostValueType::I32)
+            .unwrap();
+    let rhs =
+        HostFunctionDeclaration::new(&definitions, "game.rhs", vec![], HostValueType::I32).unwrap();
     let path = HostPathDeclaration {
-        root: player.id.clone(),
+        root: player.id,
         segments: vec![
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 1,
-                collection: HostValueType::Opaque(player.id.clone()),
+                collection: HostValueType::Opaque(player.id),
                 index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id.clone()),
+                result: HostValueType::Opaque(child.id),
                 access: PathAccess::ReadWrite,
             }),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Opaque(child.id.clone()),
+                collection: HostValueType::Opaque(child.id),
                 index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id.clone()),
+                result: HostValueType::Opaque(child.id),
                 access: PathAccess::ReadWrite,
             }),
             HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
                 name: "selected".into(),
-                result: HostValueType::Opaque(child.id.clone()),
+                result: HostValueType::Opaque(child.id),
                 access: PathAccess::ReadWrite,
             }),
-            HostPathSegmentDeclaration::Field(score.id.clone()),
+            HostPathSegmentDeclaration::Field(score.id),
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
     };
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface {
-            paths: vec![path.clone()],
-            types: vec![player.clone(), child.clone()],
-            functions: vec![make.clone(), first.clone(), second.clone(), rhs.clone()],
-        })
+        .set_host_interface(scoped(
+            &definitions,
+            HostInterface {
+                paths: vec![path.clone()],
+                types: vec![player.clone(), child.clone()],
+                functions: vec![make.clone(), first.clone(), second.clone(), rhs.clone()],
+            },
+        ))
         .unwrap();
 
     let artifact = engine
@@ -228,7 +247,8 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
         } else {
             artifact.clone()
         };
@@ -243,8 +263,8 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         let mut runtime = engine.runtime(context.clone());
         let ids = runtime
             .register_host_types(vec![
-                HostTypeRegistration::new(player.clone(), "Player"),
-                HostTypeRegistration::new(child.clone(), "Child"),
+                HostTypeRegistration::new(scoped(&definitions, player.clone()), "Player"),
+                HostTypeRegistration::new(scoped(&definitions, child.clone()), "Child"),
             ])
             .unwrap();
         let root = runtime
@@ -255,10 +275,13 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         let state = Arc::new(AtomicI32::new(10));
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
-                calls.lock().unwrap().push("make");
-                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-            }))
+            .register_host_function(HostFunction::new(
+                scoped(&definitions, make.clone()),
+                move |cx, _| {
+                    calls.lock().unwrap().push("make");
+                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+                },
+            ))
             .unwrap();
         for (declaration, label, result) in [
             (first.clone(), "first", 1),
@@ -267,13 +290,19 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         ] {
             let calls = trace.clone();
             runtime
-                .register_host_function(HostFunction::new(declaration, move |_, _| {
-                    calls.lock().unwrap().push(label);
-                    Ok(Value::I32(result))
-                }))
+                .register_host_function(HostFunction::new(
+                    scoped(&definitions, declaration),
+                    move |_, _| {
+                        calls.lock().unwrap().push(label);
+                        Ok(Value::I32(result))
+                    },
+                ))
                 .unwrap();
         }
-        let descriptor = runtime.runtime_mut().register_host_path(&path).unwrap();
+        let descriptor = runtime
+            .runtime_mut()
+            .register_host_path(&scoped(&definitions, path.clone()))
+            .unwrap();
         let (reads, value) = (trace.clone(), state.clone());
         let (writes, target) = (trace.clone(), state.clone());
         runtime
@@ -314,7 +343,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -348,32 +377,39 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
 
 #[test]
 fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_failure() {
-    use kagari_runtime::host::{HostError, PreparedHostPathWrite};
-    use kagari_types::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
+    let definitions = DefinitionContext::new().unwrap();
 
-    let mut declarations = interface();
+    let mut declarations = interface(&definitions);
     declarations.types[0].path_access = PathAccess::ReadWrite;
     declarations.types[0].fields[0].path_access = PathAccess::ReadWrite;
     declarations.types[0].fields[0].writable = true;
-    let mut count =
-        HostFieldDeclaration::new(&declarations.types[1].id, "count", HostValueType::I32);
+    let mut count = HostFieldDeclaration::new(
+        &definitions,
+        declarations.types[1].id,
+        "count",
+        HostValueType::I32,
+    )
+    .unwrap();
     count.path_access = PathAccess::ReadWrite;
     count.writable = true;
     let path = HostPathDeclaration {
-        root: declarations.types[0].id.clone(),
+        root: declarations.types[0].id,
         segments: vec![
-            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id.clone()),
-            HostPathSegmentDeclaration::Field(count.id.clone()),
+            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id),
+            HostPathSegmentDeclaration::Field(count.id),
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
     };
     declarations.types[1].fields.push(count);
     declarations.paths.push(path.clone());
-    let rhs = HostFunctionDeclaration::new("left.rhs", vec![], HostValueType::I32);
+    let rhs =
+        HostFunctionDeclaration::new(&definitions, "left.rhs", vec![], HostValueType::I32).unwrap();
     declarations.functions.push(rhs.clone());
     let engine = KagariEngine::default();
-    engine.set_host_interface(declarations.clone()).unwrap();
+    engine
+        .set_host_interface(scoped(&definitions, declarations.clone()))
+        .unwrap();
 
     for rebind in [false, true] {
         for (op, rhs_value, after_rhs, deleted, expected) in [
@@ -400,7 +436,10 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                 .unwrap();
             for (encoded, jit) in [(false, false), (true, false), (true, true)] {
                 let artifact = if encoded {
-                    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+                    KbcArtifact::from_bytes(
+                        &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+                    )
+                    .unwrap()
                 } else {
                     artifact.clone()
                 };
@@ -418,7 +457,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                         declarations.types[..2]
                             .iter()
                             .cloned()
-                            .map(|ty| HostTypeRegistration::new(ty, "Object"))
+                            .map(|ty| HostTypeRegistration::new(scoped(&definitions, ty), "Object"))
                             .collect(),
                     )
                     .unwrap();
@@ -437,7 +476,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                 let root_calls = AtomicUsize::new(0);
                 runtime
                     .register_host_function(HostFunction::new(
-                        declarations.functions[0].clone(),
+                        scoped(&definitions, declarations.functions[0].clone()),
                         move |cx, _| {
                             calls.lock().unwrap().push("root");
                             let first = root_calls.fetch_add(1, Ordering::SeqCst) == 0;
@@ -451,14 +490,20 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     .unwrap();
                 let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
                 runtime
-                    .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
-                        calls.lock().unwrap().push("rhs");
-                        value.store(after_rhs, Ordering::SeqCst);
-                        absent.store(deleted, Ordering::SeqCst);
-                        Ok(Value::I32(rhs_value))
-                    }))
+                    .register_host_function(HostFunction::new(
+                        scoped(&definitions, rhs.clone()),
+                        move |_, _| {
+                            calls.lock().unwrap().push("rhs");
+                            value.store(after_rhs, Ordering::SeqCst);
+                            absent.store(deleted, Ordering::SeqCst);
+                            Ok(Value::I32(rhs_value))
+                        },
+                    ))
                     .unwrap();
-                let descriptor = runtime.runtime_mut().register_host_path(&path).unwrap();
+                let descriptor = runtime
+                    .runtime_mut()
+                    .register_host_path(&scoped(&definitions, path.clone()))
+                    .unwrap();
                 let (reads, value, absent) = (trace.clone(), state.clone(), removed.clone());
                 let (writes, target) = (trace.clone(), state.clone());
                 runtime
@@ -498,8 +543,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     .load_program(&loaded_program, Default::default())
                     .unwrap();
                 let result = if jit {
-                    let mut backend =
-                        kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+                    let mut backend = CraneliftBackend::for_host().unwrap();
                     let prepared = runtime
                         .prepare_native(
                             &loaded_program,

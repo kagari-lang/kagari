@@ -3895,3 +3895,32 @@ ownership, unchanged assertions, normal imports and no new exports.
 The known embedding_api diagnostics are resolved. offline_nominal and the remaining
 consumer/example audit, negative-fixture verification controls and final lasting
 documentation transfer/plan retirement remain SI06 work; exhaustive checks remain CI.
+
+### SI06 offline nominal Host contracts
+
+Offline Host fixtures author declarations/paths/methods in an explicit context and
+publish scoped metadata at analysis, registration and codec boundaries. Required
+compiled declarations are imported into the author's context only for equality
+assertions; the imported artifact collects implicit names and verifies its valid
+baseline. Trait-path authoring ends at registration, and extra-method negative
+inputs register a new scoped child. Runtime loading and decoded routes retain their
+own ordinary adoption boundaries.
+
+Eleven selected offline_nominal cases pass (one redundant bare-index route remains
+CI scope): signature navigation; declared-method call order and exclusive receiver
+reentry rejection; source Host handles; annotation-only dependencies; callback
+publication; script/Host trait signature validation; bound-method execution; field
+chains; field-index and multi-index/virtual paths; and completed RHS effects with
+write commit/trap ordering. Existing source, encoded and JIT route assertions are
+preserved. Scoped target Clippy passes, structure checks 1087 Rust files with zero
+violations/exceptions, and formatting/diff checks pass. Review covers snapshot timing,
+comparison normalization, untouched assertions, test-only globs and ordinary imports.
+
+The previous 225 offline_nominal diagnostics are resolved. The next
+`cargo clippy -p kagari-embed --lib --tests --message-format=short -- -D warnings`
+attempt reaches eight additional consumers with 34 old-API diagnostics:
+generic_associated_types (11), numeric_operations (10), error_traces (5),
+callable_traits (4), and library_namespaces/array_operations/string_methods/
+type_inference (one each). SI06 owns these artifact and fixture consumers, remaining
+example/dependent audits and final documentation cleanup. No package-wide tests ran;
+exhaustive validation remains CI scope.

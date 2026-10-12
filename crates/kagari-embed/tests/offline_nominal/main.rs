@@ -1,6 +1,11 @@
-use kagari_bytecode::artifact::KbcArtifact;
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    program::{identity, verify_program},
+};
+use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
+    map::DefinitionContext, metadata::DefinitionMetadata, scoped::DefinitionReferences,
 };
 use kagari_embed::{
     context::{ExecutionContext, JitPolicy},
@@ -8,12 +13,17 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::{
-    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    host::{
+        HostError, HostFunction, HostObjectId, HostPathAdapter, HostSchemaEpoch,
+        HostTypeRegistration, PreparedHostPathWrite,
+    },
+    metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::host_interface::{
     HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+    path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
     type_declaration::{
         HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
         HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
@@ -25,69 +35,80 @@ use std::sync::{
     atomic::{AtomicI32, Ordering},
 };
 
-fn interface() -> HostInterface {
-    let related = HostTypeDeclaration::new("right.Item");
-    let mut item = HostTypeDeclaration::new("left.Item");
+fn interface(definitions: &DefinitionContext) -> HostInterface {
+    let related = HostTypeDeclaration::new(definitions, "right.Item").unwrap();
+    let mut item = HostTypeDeclaration::new(definitions, "left.Item").unwrap();
     item.ownership = HostTypeOwnership::HostRoot;
     item.path_access = PathAccess::ReadOnly;
-    item.fields.push(HostFieldDeclaration::new(
-        &item.id,
-        "related",
-        HostValueType::Opaque(related.id.clone()),
-    ));
-    let make =
-        HostFunctionDeclaration::new("left.make", vec![], HostValueType::Opaque(item.id.clone()));
+    item.fields.push(
+        HostFieldDeclaration::new(
+            definitions,
+            item.id,
+            "related",
+            HostValueType::Opaque(related.id),
+        )
+        .unwrap(),
+    );
+    let make = HostFunctionDeclaration::new(
+        definitions,
+        "left.make",
+        vec![],
+        HostValueType::Opaque(item.id),
+    )
+    .unwrap();
     let take = HostFunctionDeclaration::new(
+        definitions,
         "left.take",
         vec![HostParameter {
             name: "value".into(),
-            ty: HostValueType::Opaque(item.id.clone()),
+            ty: HostValueType::Opaque(item.id),
             passing: HostPassingStyle::SharedBorrow,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     HostInterface {
         paths: vec![],
-        types: vec![item, related, HostTypeDeclaration::new("unused.Other")],
+        types: vec![
+            item,
+            related,
+            HostTypeDeclaration::new(definitions, "unused.Other").unwrap(),
+        ],
         functions: vec![make, take],
     }
 }
 
 fn assert_source_index_path(field_prefix: bool) {
-    use kagari_runtime::{
-        host::{HostError, HostPathAdapter, PreparedHostPathWrite},
-        metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-    };
-    use kagari_types::host_interface::{
-        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::PathAccess,
-    };
-
-    let mut player = HostTypeDeclaration::new("game.Player");
+    let definitions = DefinitionContext::new().unwrap();
+    let mut player = HostTypeDeclaration::new(&definitions, "game.Player").unwrap();
     player.ownership = HostTypeOwnership::HostRoot;
     player.path_access = PathAccess::ReadWrite;
     let collection = if field_prefix {
         let ty = HostValueType::Array(Box::new(HostValueType::I32));
-        let mut field = HostFieldDeclaration::new(&player.id, "scores", ty.clone());
+        let mut field =
+            HostFieldDeclaration::new(&definitions, player.id, "scores", ty.clone()).unwrap();
         field.path_access = PathAccess::ReadWrite;
         field.writable = true;
         player.fields.push(field);
         ty
     } else {
-        HostValueType::Opaque(player.id.clone())
+        HostValueType::Opaque(player.id)
     };
     let make = HostFunctionDeclaration::new(
+        &definitions,
         "game.make",
         vec![],
-        HostValueType::Opaque(player.id.clone()),
-    );
-    let index = HostFunctionDeclaration::new("game.index", vec![], HostValueType::I32);
-    let rhs = HostFunctionDeclaration::new("game.rhs", vec![], HostValueType::I32);
+        HostValueType::Opaque(player.id),
+    )
+    .unwrap();
+    let index =
+        HostFunctionDeclaration::new(&definitions, "game.index", vec![], HostValueType::I32)
+            .unwrap();
+    let rhs =
+        HostFunctionDeclaration::new(&definitions, "game.rhs", vec![], HostValueType::I32).unwrap();
     let mut segments = Vec::new();
     if field_prefix {
-        segments.push(HostPathSegmentDeclaration::Field(
-            player.fields[0].id.clone(),
-        ));
+        segments.push(HostPathSegmentDeclaration::Field(player.fields[0].id));
     }
     segments.push(HostPathSegmentDeclaration::Index(
         HostIndexSegmentDeclaration {
@@ -99,7 +120,7 @@ fn assert_source_index_path(field_prefix: bool) {
         },
     ));
     let path = HostPathDeclaration {
-        root: player.id.clone(),
+        root: player.id,
         segments,
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
@@ -110,7 +131,9 @@ fn assert_source_index_path(field_prefix: bool) {
         functions: vec![make.clone(), index.clone(), rhs.clone()],
     };
     let engine = KagariEngine::default();
-    engine.set_host_interface(declarations).unwrap();
+    engine
+        .set_host_interface(scoped(&definitions, declarations))
+        .unwrap();
 
     let prefix = if field_prefix { ".scores" } else { "" };
     let source = SourceFile::new(
@@ -135,7 +158,8 @@ fn assert_source_index_path(field_prefix: bool) {
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
         } else {
             artifact.clone()
         };
@@ -149,7 +173,10 @@ fn assert_source_index_path(field_prefix: bool) {
         };
         let mut runtime = engine.runtime(context.clone());
         let player_id = runtime
-            .register_host_type(HostTypeRegistration::new(player.clone(), "Player"))
+            .register_host_type(HostTypeRegistration::new(
+                scoped(&definitions, player.clone()),
+                "Player",
+            ))
             .unwrap();
         if runtime.runtime().types().id_by_name("i32").is_none() {
             runtime
@@ -169,26 +196,38 @@ fn assert_source_index_path(field_prefix: bool) {
         let state = Arc::new(AtomicI32::new(10));
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
-                calls.lock().unwrap().push("make");
-                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-            }))
+            .register_host_function(HostFunction::new(
+                scoped(&definitions, make.clone()),
+                move |cx, _| {
+                    calls.lock().unwrap().push("make");
+                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+                },
+            ))
             .unwrap();
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(index.clone(), move |_, _| {
-                calls.lock().unwrap().push("index");
-                Ok(Value::I32(1))
-            }))
+            .register_host_function(HostFunction::new(
+                scoped(&definitions, index.clone()),
+                move |_, _| {
+                    calls.lock().unwrap().push("index");
+                    Ok(Value::I32(1))
+                },
+            ))
             .unwrap();
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
-                calls.lock().unwrap().push("rhs");
-                Ok(Value::I32(2))
-            }))
+            .register_host_function(HostFunction::new(
+                scoped(&definitions, rhs.clone()),
+                move |_, _| {
+                    calls.lock().unwrap().push("rhs");
+                    Ok(Value::I32(2))
+                },
+            ))
             .unwrap();
-        let descriptor = runtime.runtime_mut().register_host_path(&path).unwrap();
+        let descriptor = runtime
+            .runtime_mut()
+            .register_host_path(&scoped(&definitions, path.clone()))
+            .unwrap();
         let (reads, value) = (trace.clone(), state.clone());
         let (writes, target) = (trace.clone(), state.clone());
         runtime
@@ -223,7 +262,7 @@ fn assert_source_index_path(field_prefix: bool) {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -256,3 +295,28 @@ fn assert_source_index_path(field_prefix: bool) {
 mod handles;
 mod paths;
 mod traits;
+
+fn scoped<T: DefinitionReferences>(
+    definitions: &DefinitionContext,
+    records: T,
+) -> DefinitionMetadata<T> {
+    DefinitionMetadata::checked(definitions.snapshot(), records, &Default::default()).unwrap()
+}
+
+/// Normalize expected and compiled declarations only where the fixture compares them.
+fn adopt_artifact(
+    definitions: &DefinitionContext,
+    artifact: DefinitionMetadata<KbcArtifact>,
+) -> DefinitionMetadata<KbcArtifact> {
+    let artifact = artifact
+        .import_into(definitions, &Default::default())
+        .unwrap()
+        .into_records();
+    identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        definitions,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &definitions.snapshot()).unwrap();
+    scoped(definitions, artifact)
+}

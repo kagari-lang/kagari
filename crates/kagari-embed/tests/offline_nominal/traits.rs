@@ -1,5 +1,6 @@
 use super::*;
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_contract::types::PublicItem;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_types::host_interface::type_declaration::PathAccess;
@@ -7,8 +8,11 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn artifact_host_trait_table_requires_callback_before_publication() {
-    let mut counter = HostTypeDeclaration::new("demo.Counter");
-    let method = HostMethodDeclaration::new(&counter.id, "read", vec![], HostValueType::I32);
+    let definitions = DefinitionContext::new().unwrap();
+    let mut counter = HostTypeDeclaration::new(&definitions, "demo.Counter").unwrap();
+    let method =
+        HostMethodDeclaration::new(&definitions, counter.id, "read", vec![], HostValueType::I32)
+            .unwrap();
     counter.methods.push(method.clone());
     let trait_id = DefinitionPath {
         module: ModuleIdentity {
@@ -27,6 +31,8 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
         name: "get".into(),
         occurrence: 0,
     });
+    let trait_id = definitions.intern(&trait_id).unwrap();
+    let trait_method = definitions.intern(&trait_method).unwrap();
     counter
         .trait_implementations
         .push(HostTraitImplementationDeclaration::new(
@@ -34,16 +40,19 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
             vec![],
             vec![HostTraitMethodBinding {
                 trait_method,
-                host_method: method.id.clone(),
+                host_method: method.id,
             }],
         ));
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface {
-            paths: vec![],
-            types: vec![counter.clone()],
-            functions: vec![],
-        })
+        .set_host_interface(scoped(
+            &definitions,
+            HostInterface {
+                paths: vec![],
+                types: vec![counter.clone()],
+                functions: vec![],
+            },
+        ))
         .unwrap();
     let artifact = engine
         .compile_to_artifact(
@@ -55,8 +64,12 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
             ArtifactOptions::default(),
         )
         .unwrap();
-    let encoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    let required = &encoded.program.modules[encoded.program.root.index()].host_interface;
+    let encoded =
+        KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
+    let encoded = adopt_artifact(&definitions, encoded);
+    let required =
+        &encoded.records().program.modules[encoded.records().program.root.index()].host_interface;
     assert_eq!(
         required.types[0].trait_implementations,
         counter.trait_implementations
@@ -66,7 +79,10 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
     };
     let mut runtime = engine.runtime(context);
     runtime
-        .register_host_type(HostTypeRegistration::new(counter.clone(), "Counter"))
+        .register_host_type(HostTypeRegistration::new(
+            scoped(&definitions, counter.clone()),
+            "Counter",
+        ))
         .unwrap();
     assert!(
         runtime
@@ -83,7 +99,10 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
     );
     runtime
         .register_host_function(
-            HostFunction::method(&counter, &method.id, |_, _| Ok(Value::I32(42))).unwrap(),
+            HostFunction::method(&scoped(&definitions, counter.clone()), method.id, |_, _| {
+                Ok(Value::I32(42))
+            })
+            .unwrap(),
         )
         .unwrap();
     runtime
@@ -97,6 +116,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
 
 #[test]
 fn host_trait_table_is_checked_against_script_trait_signatures() {
+    let definitions = DefinitionContext::new().unwrap();
     let engine = KagariEngine::default();
     let path = "mem://host-trait-contract";
     let source = "use std::hash::{Hash};\ntrait Readable<T: Eq + Hash> { fn get(self, amount: T) -> T; } use demo::Counter; fn accept(value: Counter) {}";
@@ -123,9 +143,12 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
         name: "get".into(),
         occurrence: 0,
     });
-    let mut host = HostTypeDeclaration::new("demo.Counter");
+    let trait_id = definitions.intern(&trait_id).unwrap();
+    let trait_method = definitions.intern(&trait_method).unwrap();
+    let mut host = HostTypeDeclaration::new(&definitions, "demo.Counter").unwrap();
     let method = HostMethodDeclaration::new(
-        &host.id,
+        &definitions,
+        host.id,
         "read",
         vec![HostParameter {
             name: "amount".into(),
@@ -133,7 +156,8 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     host.methods.push(method.clone());
     host.trait_implementations
         .push(HostTraitImplementationDeclaration::new(
@@ -146,11 +170,14 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
         ));
     let install = |host: HostTypeDeclaration| {
         engine
-            .set_host_interface(HostInterface {
-                paths: vec![],
-                types: vec![host],
-                functions: vec![],
-            })
+            .set_host_interface(scoped(
+                &definitions,
+                HostInterface {
+                    paths: vec![],
+                    types: vec![host],
+                    functions: vec![],
+                },
+            ))
             .unwrap();
         engine
             .signatures(engine.source_snapshot(), &Default::default())
@@ -202,7 +229,16 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
 
     let mut extra = host.clone();
     let mut extra_method = extra.trait_implementations[0].methods[0].clone();
-    extra_method.trait_method.path.last_mut().unwrap().name = "extra".into();
+    let table = definitions.snapshot();
+    let parent = table.parent(extra_method.trait_method).unwrap().unwrap();
+    let segment = table
+        .resolve(extra_method.trait_method)
+        .unwrap()
+        .last()
+        .unwrap();
+    extra_method.trait_method = definitions
+        .intern_child(parent, segment.kind, "extra", segment.occurrence)
+        .unwrap();
     extra.trait_implementations[0].methods.push(extra_method);
     assert!(install(extra).iter().any(|diagnostic| matches!(
         &diagnostic.kind,
@@ -233,6 +269,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
 
 #[test]
 fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
+    let definitions = DefinitionContext::new().unwrap();
     let engine = KagariEngine::default();
     let file = engine
         .set_source(
@@ -260,19 +297,25 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         name: "get".into(),
         occurrence: 0,
     });
-    let mut host = HostTypeDeclaration::new("demo.Counter");
+    let trait_id = definitions.intern(&trait_id).unwrap();
+    let trait_method = definitions.intern(&trait_method).unwrap();
+    let mut host = HostTypeDeclaration::new(&definitions, "demo.Counter").unwrap();
     host.ownership = HostTypeOwnership::HostRoot;
     host.path_access = PathAccess::ReadOnly;
-    let number = HostMethodDeclaration::new(&host.id, "number", vec![], HostValueType::I32);
-    let flag = HostMethodDeclaration::new(&host.id, "flag", vec![], HostValueType::Bool);
+    let number =
+        HostMethodDeclaration::new(&definitions, host.id, "number", vec![], HostValueType::I32)
+            .unwrap();
+    let flag =
+        HostMethodDeclaration::new(&definitions, host.id, "flag", vec![], HostValueType::Bool)
+            .unwrap();
     host.methods.extend([number.clone(), flag.clone()]);
     host.trait_implementations
         .push(HostTraitImplementationDeclaration::new(
-            trait_id.clone(),
+            trait_id,
             vec![HostValueType::I32],
             vec![HostTraitMethodBinding {
-                trait_method: trait_method.clone(),
-                host_method: number.id.clone(),
+                trait_method,
+                host_method: number.id,
             }],
         ));
     host.trait_implementations
@@ -281,34 +324,42 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             vec![HostValueType::Bool],
             vec![HostTraitMethodBinding {
                 trait_method,
-                host_method: flag.id.clone(),
+                host_method: flag.id,
             }],
         ));
-    let make =
-        HostFunctionDeclaration::new("demo.make", vec![], HostValueType::Opaque(host.id.clone()));
+    let make = HostFunctionDeclaration::new(
+        &definitions,
+        "demo.make",
+        vec![],
+        HostValueType::Opaque(host.id),
+    )
+    .unwrap();
     let interface = HostInterface {
         paths: vec![],
         types: vec![host.clone()],
         functions: vec![make.clone()],
     };
-    engine.set_host_interface(interface).unwrap();
+    engine
+        .set_host_interface(scoped(&definitions, interface))
+        .unwrap();
 
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    let executable = &artifact.program.modules[artifact.program.root.index()];
+    let executable = &artifact.records().program.modules[artifact.records().program.root.index()];
     assert_eq!(executable.trait_contracts.len(), 1);
     assert_eq!(executable.trait_contracts[0].abi.name, "Readable");
     assert!(
         !executable
             .public_items
             .iter()
-            .any(|item| matches!(item, kagari_contract::types::PublicItem::Trait(_)))
+            .any(|item| matches!(item, PublicItem::Trait(_)))
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
         } else {
             artifact.clone()
         };
@@ -322,7 +373,10 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         };
         let mut runtime = engine.runtime(context.clone());
         let host_id = runtime
-            .register_host_type(HostTypeRegistration::new(host.clone(), "Counter"))
+            .register_host_type(HostTypeRegistration::new(
+                scoped(&definitions, host.clone()),
+                "Counter",
+            ))
             .unwrap();
         let root = runtime
             .runtime_mut()
@@ -331,30 +385,41 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let trace = calls.clone();
         runtime
-            .register_host_function(HostFunction::new(make.clone(), move |cx, _| {
-                trace.lock().unwrap().push("make");
-                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-            }))
+            .register_host_function(HostFunction::new(
+                scoped(&definitions, make.clone()),
+                move |cx, _| {
+                    trace.lock().unwrap().push("make");
+                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+                },
+            ))
             .unwrap();
         let trace = calls.clone();
         runtime
             .register_host_function(
-                HostFunction::method(&host, &number.id, move |_, args| {
-                    trace.lock().unwrap().push("number");
-                    assert!(matches!(args, [Value::HostRoot(_)]));
-                    Ok(Value::I32(42))
-                })
+                HostFunction::method(
+                    &scoped(&definitions, host.clone()),
+                    number.id,
+                    move |_, args| {
+                        trace.lock().unwrap().push("number");
+                        assert!(matches!(args, [Value::HostRoot(_)]));
+                        Ok(Value::I32(42))
+                    },
+                )
                 .unwrap(),
             )
             .unwrap();
         let trace = calls.clone();
         runtime
             .register_host_function(
-                HostFunction::method(&host, &flag.id, move |_, args| {
-                    trace.lock().unwrap().push("flag");
-                    assert!(matches!(args, [Value::HostRoot(_)]));
-                    Ok(Value::Bool(true))
-                })
+                HostFunction::method(
+                    &scoped(&definitions, host.clone()),
+                    flag.id,
+                    move |_, args| {
+                        trace.lock().unwrap().push("flag");
+                        assert!(matches!(args, [Value::HostRoot(_)]));
+                        Ok(Value::Bool(true))
+                    },
+                )
                 .unwrap(),
             )
             .unwrap();
@@ -365,7 +430,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -420,11 +485,14 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     let mut unimplemented = host;
     unimplemented.trait_implementations.clear();
     engine
-        .set_host_interface(HostInterface {
-            paths: vec![],
-            types: vec![unimplemented],
-            functions: vec![make],
-        })
+        .set_host_interface(scoped(
+            &definitions,
+            HostInterface {
+                paths: vec![],
+                types: vec![unimplemented],
+                functions: vec![make],
+            },
+        ))
         .unwrap();
     let error = engine
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())

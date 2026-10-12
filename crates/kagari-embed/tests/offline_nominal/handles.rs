@@ -1,7 +1,9 @@
 use super::*;
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
-use kagari_contract::representation::semantic_representation;
+use kagari_contract::{representation::semantic_representation, types::PublicItem};
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
+use kagari_types::ty::Ty;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicI32, Ordering},
@@ -9,8 +11,11 @@ use std::sync::{
 
 #[test]
 fn offline_host_type_navigation_is_available_from_signature_query() {
+    let definitions = DefinitionContext::new().unwrap();
     let engine = KagariEngine::default();
-    engine.set_host_interface(interface()).unwrap();
+    engine
+        .set_host_interface(scoped(&definitions, interface(&definitions)))
+        .unwrap();
     let text = "// 中文 😀\r\nuse left::Item; fn accept(value: Item) -> Item { value }";
     let file = engine
         .set_source("mem://host-signature", text.into(), SourceLayer::Base)
@@ -39,10 +44,11 @@ fn offline_host_type_navigation_is_available_from_signature_query() {
 
 #[test]
 fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once() {
-    use kagari_types::host_interface::type_declaration::HostMethodDeclaration;
-    let mut interface = interface();
+    let definitions = DefinitionContext::new().unwrap();
+    let mut interface = interface(&definitions);
     let mut method = HostMethodDeclaration::new(
-        &interface.types[0].id,
+        &definitions,
+        interface.types[0].id,
         "add",
         vec![HostParameter {
             name: "amount".into(),
@@ -50,16 +56,20 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     method.receiver = HostPassingStyle::UniqueBorrow;
     method.effects.may_mutate_host_state = true;
 
-    let method_id = method.id.clone();
+    let method_id = method.id;
     interface.types[0].methods.push(method);
-    let rhs = HostFunctionDeclaration::new("left.rhs", vec![], HostValueType::I32);
+    let rhs =
+        HostFunctionDeclaration::new(&definitions, "left.rhs", vec![], HostValueType::I32).unwrap();
     interface.functions.push(rhs.clone());
     let engine = KagariEngine::default();
-    engine.set_host_interface(interface.clone()).unwrap();
+    engine
+        .set_host_interface(scoped(&definitions, interface.clone()))
+        .unwrap();
 
     let artifact = engine
         .compile_to_artifact(
@@ -70,7 +80,9 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             Default::default(),
         )
         .unwrap();
-    let required = &artifact.program.modules[artifact.program.root.index()].host_interface;
+    let artifact = adopt_artifact(&definitions, artifact);
+    let required =
+        &artifact.records().program.modules[artifact.records().program.root.index()].host_interface;
     let call = required
         .functions
         .iter()
@@ -78,11 +90,14 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         .unwrap();
     assert_eq!(
         call,
-        &interface.types[0].method_contract(&method_id).unwrap()
+        &interface.types[0]
+            .method_contract(&method_id, &definitions.snapshot())
+            .unwrap()
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
         } else {
             artifact.clone()
         };
@@ -100,7 +115,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 interface.types[..2]
                     .iter()
                     .cloned()
-                    .map(|ty| HostTypeRegistration::new(ty, "Object"))
+                    .map(|ty| HostTypeRegistration::new(scoped(&definitions, ty), "Object"))
                     .collect(),
             )
             .unwrap();
@@ -112,7 +127,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(
-                interface.functions[0].clone(),
+                scoped(&definitions, interface.functions[0].clone()),
                 move |cx, _| {
                     calls.lock().unwrap().push("receiver");
                     Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
@@ -121,10 +136,13 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             .unwrap();
         let calls = trace.clone();
         runtime
-            .register_host_function(HostFunction::new(rhs.clone(), move |_, _| {
-                calls.lock().unwrap().push("argument");
-                Ok(Value::I32(2))
-            }))
+            .register_host_function(HostFunction::new(
+                scoped(&definitions, rhs.clone()),
+                move |_, _| {
+                    calls.lock().unwrap().push("argument");
+                    Ok(Value::I32(2))
+                },
+            ))
             .unwrap();
         assert!(
             runtime
@@ -140,13 +158,16 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 .is_err()
         );
         assert!(trace.lock().unwrap().is_empty());
-        let mut wrong = interface.types[0].method_contract(&method_id).unwrap();
+        let mut wrong = interface.types[0]
+            .method_contract(&method_id, &definitions.snapshot())
+            .unwrap();
         wrong.params[0].passing = HostPassingStyle::Owned;
         assert!(
             runtime
-                .register_host_function(HostFunction::new(wrong, |_, _| panic!(
-                    "invalid member binding"
-                )))
+                .register_host_function(HostFunction::new(
+                    scoped(&definitions, wrong),
+                    |_, _| panic!("invalid member binding")
+                ))
                 .is_err()
         );
         let total = Arc::new(AtomicI32::new(40));
@@ -154,22 +175,26 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let calls = trace.clone();
         runtime
             .register_host_function(
-                HostFunction::method(&interface.types[0], &method_id, move |context, args| {
-                    calls.lock().unwrap().push("method");
-                    assert!(
-                        context
-                            .runtime()
-                            .invoke_host("left.Item.add", args)
-                            .is_err(),
-                        "the receiver's exclusive lease prevents recursive access"
-                    );
-                    let Value::I32(amount) = args[1] else {
-                        panic!("checked parameter")
-                    };
-                    state.fetch_add(amount, Ordering::SeqCst);
-                    context.runtime().collect_garbage().unwrap();
-                    Ok(Value::I32(state.load(Ordering::SeqCst)))
-                })
+                HostFunction::method(
+                    &scoped(&definitions, interface.types[0].clone()),
+                    method_id,
+                    move |context, args| {
+                        calls.lock().unwrap().push("method");
+                        assert!(
+                            context
+                                .runtime()
+                                .invoke_host("left.Item.add", args)
+                                .is_err(),
+                            "the receiver's exclusive lease prevents recursive access"
+                        );
+                        let Value::I32(amount) = args[1] else {
+                            panic!("checked parameter")
+                        };
+                        state.fetch_add(amount, Ordering::SeqCst);
+                        context.runtime().collect_garbage().unwrap();
+                        Ok(Value::I32(state.load(Ordering::SeqCst)))
+                    },
+                )
                 .unwrap(),
             )
             .unwrap();
@@ -179,8 +204,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let mut backend =
-            jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
+        let mut backend = jit.then(|| CraneliftBackend::for_host().unwrap());
         for expected in [42, 44] {
             let result = if let Some(backend) = &mut backend {
                 let prepared = runtime
@@ -217,38 +241,41 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
 
 #[test]
 fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
-    let interface = interface();
+    let definitions = DefinitionContext::new().unwrap();
+    let interface = interface(&definitions);
     let engine = KagariEngine::default();
     engine
-        .set_host_interface(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
+        .set_host_interface(
+            HostInterface::from_bytes(&interface.to_bytes(&definitions.snapshot()).unwrap())
+                .unwrap(),
+        )
         .unwrap();
 
     let artifact = engine.compile_to_artifact(
         SourceFile::new("nominal.kgr", "use left::Item; use left as api; pub fn pass(value: Item) -> api::Item { value } fn id<T>(value: T) -> T { value } fn main() -> i32 { val value: Item = api::make(); api::take(pass(id(value))) }"),
          ArtifactOptions::default(),
     ).unwrap();
-    let module = &artifact.program.modules[artifact.program.root.index()];
+    let artifact = adopt_artifact(&definitions, artifact);
+    let module = &artifact.records().program.modules[artifact.records().program.root.index()];
     assert_eq!(module.host_interface.types, interface.types[..2]);
-    let kagari_contract::types::PublicItem::Function(pass) = &module.public_items[0] else {
+    let PublicItem::Function(pass) = &module.public_items[0] else {
         panic!("public pass")
     };
-    assert_eq!(
-        pass.return_type,
-        kagari_types::ty::Ty::Host(interface.types[0].id.clone())
-    );
+    assert_eq!(pass.return_type, Ty::Host(interface.types[0].id));
     assert_eq!(
         semantic_representation(&pass.return_type),
-        kagari_abi::representation::ValueType::HostHandle
+        ValueType::HostHandle
     );
-    let mut invalid = artifact.program.clone();
-    invalid.modules[artifact.program.root.index()]
+    let mut invalid = artifact.records().program.clone();
+    invalid.modules[artifact.records().program.root.index()]
         .host_interface
         .types
         .clear();
-    assert!(KbcArtifact::from_program(invalid, Default::default()).is_err());
+    assert!(KbcArtifact::from_program(invalid, Default::default(), &definitions).is_err());
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
         } else {
             artifact.clone()
         };
@@ -266,7 +293,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
                 interface.types[..2]
                     .iter()
                     .cloned()
-                    .map(|ty| HostTypeRegistration::new(ty, "Object"))
+                    .map(|ty| HostTypeRegistration::new(scoped(&definitions, ty), "Object"))
                     .collect(),
             )
             .unwrap();
@@ -278,7 +305,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(
-                interface.functions[0].clone(),
+                scoped(&definitions, interface.functions[0].clone()),
                 move |cx, _| {
                     calls.lock().unwrap().push("make");
                     Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
@@ -288,7 +315,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         let calls = trace.clone();
         runtime
             .register_host_function(HostFunction::new(
-                interface.functions[1].clone(),
+                scoped(&definitions, interface.functions[1].clone()),
                 move |context, args| {
                     calls.lock().unwrap().push("take");
                     assert!(matches!(args[0], Value::HostRoot(_)));
@@ -305,7 +332,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             .unwrap();
         assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -335,9 +362,12 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
 
 #[test]
 fn annotation_only_host_dependencies_are_verified_and_linked() {
+    let definitions = DefinitionContext::new().unwrap();
     let engine = KagariEngine::default();
-    let interface = interface();
-    engine.set_host_interface(interface.clone()).unwrap();
+    let interface = interface(&definitions);
+    engine
+        .set_host_interface(scoped(&definitions, interface.clone()))
+        .unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -347,7 +377,8 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
             Default::default(),
         )
         .unwrap();
-    let module = &artifact.program.modules[artifact.program.root.index()];
+    let artifact = adopt_artifact(&definitions, artifact);
+    let module = &artifact.records().program.modules[artifact.records().program.root.index()];
     assert!(module.host_interface.functions.is_empty());
     assert_eq!(module.host_interface.types.len(), 2);
     let mut runtime = engine.runtime(Default::default());
@@ -369,7 +400,7 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
             interface.types[..2]
                 .iter()
                 .cloned()
-                .map(|ty| HostTypeRegistration::new(ty, "Object"))
+                .map(|ty| HostTypeRegistration::new(scoped(&definitions, ty), "Object"))
                 .collect(),
         )
         .unwrap();
@@ -388,10 +419,10 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
             .expect("retained execution result"),
         Value::I32(7)
     );
-    let mut invalid = artifact.program;
+    let mut invalid = artifact.into_records().program;
     invalid.modules[invalid.root.index()]
         .host_interface
         .types
         .clear();
-    assert!(verify_program(&invalid).is_err());
+    assert!(verify_program(&invalid, &definitions.snapshot()).is_err());
 }
