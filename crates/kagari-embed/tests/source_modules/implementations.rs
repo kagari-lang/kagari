@@ -1,10 +1,13 @@
 use super::*;
 use kagari_bytecode::{
     artifact::{ArtifactValidationError, KbcArtifact},
-    program::verify_program,
+    program::{identity, verify_program},
     verifier::BytecodeVerificationError,
 };
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_contract::types::PublicItem;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layouts() {
@@ -23,6 +26,7 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
     );
     let artifact = compile(&engine, root);
     let mut user_modules: Vec<_> = artifact
+        .records()
         .program
         .modules
         .iter()
@@ -33,16 +37,23 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
     assert_eq!(user_modules, ["left", "right", "root", "shared"]);
     assert!(
         artifact
+            .records()
             .program
             .modules
             .iter()
             .any(|module| module.identity.package == PackageId("kagari-core".into()))
     );
     assert_eq!(
-        artifact.verification.dependency_fingerprints.len(),
-        artifact.program.modules.len() - 1
+        artifact
+            .records()
+            .verification
+            .dependency_fingerprints
+            .len(),
+        artifact.records().program.modules.len() - 1
     );
-    let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let encoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     for artifact in [artifact, encoded] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
@@ -90,7 +101,9 @@ fn main() -> i32 {
 "#,
     );
     let artifact = compile(&engine, root);
-    let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let encoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     for artifact in [artifact, encoded] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
@@ -128,31 +141,48 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
     let mut context = ExecutionContext::default();
 
     let artifact = compile(&engine, root);
-    let mut wrong_contract = artifact.program.clone();
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    let table = identity::collect(
+        &artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .collect::<Vec<_>>(),
+        &definitions,
+    )
+    .unwrap();
+    verify_program(&artifact.records().program, &table).unwrap();
+    let mut wrong_contract = artifact.records().program.clone();
     let api = wrong_contract
         .modules
         .iter_mut()
         .find(|module| module.identity.path == ["api"])
         .unwrap();
     let method = api.public_items.iter_mut().find_map(|item| match item {
-        kagari_contract::types::PublicItem::Trait(interface) => interface.methods.first_mut(),
+        PublicItem::Trait(interface) => interface.methods.first_mut(),
         _ => None,
     });
-    method.unwrap().return_type =
-        kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::Bool);
+    method.unwrap().return_type = Ty::Builtin(BuiltinType::Bool);
     assert!(matches!(
-        verify_program(&wrong_contract),
+        verify_program(&wrong_contract, &table),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     assert!(matches!(
-        KbcArtifact::from_program(wrong_contract, Default::default()),
+        KbcArtifact::from_program(wrong_contract, Default::default(), &definitions),
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::InvalidInterfaceTable
         ))
     ));
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -169,7 +199,7 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -217,7 +247,10 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
     let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -234,7 +267,7 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -282,7 +315,10 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
     let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -299,7 +335,7 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -490,7 +526,10 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
     let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -507,7 +546,7 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -648,7 +687,10 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
     let artifact = compile(&engine, root);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -665,7 +707,7 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
                     &loaded_program,
@@ -714,7 +756,9 @@ fn public_generic_inherent_members_execute_across_source_and_artifact_modules() 
     "#,
     );
     let artifact = compile(&engine, root);
-    let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let encoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     for artifact in [artifact, encoded] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());

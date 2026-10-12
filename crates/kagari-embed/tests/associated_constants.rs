@@ -1,3 +1,5 @@
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -5,7 +7,8 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
-use kagari_source::source::SourceFile;
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_types::{declaration::AssociatedConstDef, scalar::BuiltinType, ty::Ty};
 
 fn execute(source: &str) {
     let engine = KagariEngine::default();
@@ -14,7 +17,10 @@ fn execute(source: &str) {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -152,10 +158,6 @@ fn main() -> i32 { get(Holder { value: true }) + Holder<i32>::VALUE - 42 }
 
 #[test]
 fn imported_defaults_keep_the_trait_module_constant_resolution() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = KagariEngine::default();
     let mut root = None;
     for (name, source) in [
@@ -189,7 +191,9 @@ fn imported_defaults_keep_the_trait_module_constant_resolution() {
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
@@ -210,9 +214,15 @@ fn imported_defaults_keep_the_trait_module_constant_resolution() {
 
 #[test]
 fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
-    use kagari_contract::types::PublicItem;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("constants.kgr", "pub trait Limit { const VALUE: i32; } struct Number {} impl Limit for Number { const VALUE: i32 = 42; } fn main() -> i32 { Number::VALUE }"),  Default::default()).unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records();
+    BytecodeArtifact::from_program(artifact.program.clone(), Default::default(), &definitions)
+        .unwrap();
     for mutation in 0..4 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -253,10 +263,16 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
                 table.associated_consts[0].value = "const-v1:i32:2147483648".into();
             }
         }
-        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+        assert!(BytecodeArtifact::from_program(program, Default::default(), &definitions).is_err());
     }
     let dynamic = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self) -> i32; } struct Number {} impl Read for Number { fn read(self) -> i32 { 42 } } fn main() -> i32 { val x: Read = Number {}; x.read() }"),  Default::default()).unwrap();
-    let mut program = dynamic.program.clone();
+    let dynamic = dynamic
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records();
+    BytecodeArtifact::from_program(dynamic.program.clone(), Default::default(), &definitions)
+        .unwrap();
+    let mut program = dynamic.program;
     let module = &mut program.modules[program.root.index()];
     let identity = module
         .public_items
@@ -265,10 +281,10 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
             let PublicItem::InterfaceTable(table) = item else {
                 return None;
             };
-            let kagari_types::ty::Ty::Trait(interface) = &table.trait_type else {
+            let Ty::Trait(interface) = &table.trait_type else {
                 return None;
             };
-            Some(interface.declaration.clone())
+            Some(interface.declaration)
         })
         .unwrap();
     let record = module
@@ -282,12 +298,12 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
             }
         })
         .unwrap();
-    record
-        .associated_consts
-        .push(kagari_types::declaration::AssociatedConstDef {
-            declaration: kagari_common::identity::associated_const_id(&identity, "VALUE"),
-            ty: kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-            default_value: Some("const-v1:i32:42".into()),
-        });
-    assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
+    record.associated_consts.push(AssociatedConstDef {
+        declaration: definitions
+            .intern_child(identity, DefinitionKind::Const, "VALUE", 0)
+            .unwrap(),
+        ty: Ty::Builtin(BuiltinType::I32),
+        default_value: Some("const-v1:i32:42".into()),
+    });
+    assert!(BytecodeArtifact::from_program(program, Default::default(), &definitions).is_err());
 }

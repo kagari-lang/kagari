@@ -1,5 +1,10 @@
 mod support;
-use kagari_bytecode::program::verify_program;
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, CallTarget},
+    program::{identity, verify_program},
+};
+use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
+use kagari_contract::types::PublicItem;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -8,8 +13,8 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
-use kagari_source::source::SourceFile;
-use kagari_types::language as standard_traits;
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_types::{language::Protocol, ty::Ty};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -23,7 +28,10 @@ fn execute(source: &str) {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -296,10 +304,6 @@ fn array_index_methods_use_the_actual_integer_argument() {
 
 #[test]
 fn imported_generic_operators_keep_the_defining_implementation() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     for downstream_override in [false, true] {
         let engine = KagariEngine::default();
         let model = r#"use std::ops::{Add, Index};
@@ -343,7 +347,10 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
         let artifact = engine
             .emit_bytecode(&checked.unwrap(), Default::default())
             .unwrap();
-        let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let artifact = BytecodeArtifact::from_bytes(
+            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
+        .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -366,10 +373,6 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
 
 #[test]
 fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
-    use {
-        kagari_contract::types::PublicItem,
-        kagari_types::{language::Protocol, ty::Ty},
-    };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -384,13 +387,35 @@ fn main()->i32 {Number{value:20}+22}
             Default::default(),
         )
         .unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records();
+    let identity_table = identity::collect(
+        &artifact.program.modules.iter().collect::<Vec<_>>(),
+        &definitions,
+    )
+    .unwrap();
+    verify_program(&artifact.program, &identity_table).unwrap();
     for corrupt_input in [false, true] {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
-        let table=module.public_items.iter_mut().find_map(|item| match item {
-            PublicItem::InterfaceTable(table) if matches!(&table.trait_type,Ty::Trait(t) if t.declaration==standard_traits::identity(Protocol::Add))=>Some(table),
-            _=>None,
-        }).unwrap();
+        let table = module
+            .public_items
+            .iter_mut()
+            .find_map(|item| {
+                let PublicItem::InterfaceTable(table) = item else {
+                    return None;
+                };
+                let Ty::Trait(interface) = &table.trait_type else {
+                    return None;
+                };
+                (Protocol::from_definition(&interface.declaration, &identity_table)
+                    == Some(Protocol::Add))
+                .then_some(table)
+            })
+            .unwrap();
         let Ty::Trait(interface) = &mut table.trait_type else {
             unreachable!()
         };
@@ -399,13 +424,12 @@ fn main()->i32 {Number{value:20}+22}
         } else {
             interface.associated_types.clear();
         }
-        assert!(verify_program(&program).is_err());
+        assert!(verify_program(&program, &identity_table).is_err());
     }
 }
 
 #[test]
 fn arithmetic_stays_direct_and_indexing_uses_its_checked_native_binding() {
-    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -417,7 +441,7 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
             Default::default(),
         )
         .unwrap();
-    let module = &artifact.program.modules[artifact.program.root.index()];
+    let module = &artifact.records().program.modules[artifact.records().program.root.index()];
     let main = module
         .functions
         .iter()
@@ -436,9 +460,11 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
         panic!("native Index binding")
     };
     assert_eq!(
-        module.native_imports[index.index()]
-            .binding
-            .path
+        artifact
+            .definitions()
+            .resolve(module.native_imports[index.index()].binding)
+            .unwrap()
+            .segments()
             .last()
             .unwrap()
             .name,
@@ -469,7 +495,9 @@ fn main()->i32 {Number{value:42}+1}
             Default::default(),
         )
         .unwrap();
-    let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =

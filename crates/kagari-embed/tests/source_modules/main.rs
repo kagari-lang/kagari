@@ -1,14 +1,18 @@
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, PackageId},
+    identity::{ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata},
 };
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
 };
 use kagari_runtime::value::Value;
 use kagari_source::{identity::FileId, source_database::SourceLayer};
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+    value_type::HostValueType,
+};
 
-fn compile(engine: &KagariEngine, root: FileId) -> BytecodeArtifact {
+fn compile(engine: &KagariEngine, root: FileId) -> DefinitionMetadata<BytecodeArtifact> {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap();
@@ -33,16 +37,14 @@ fn insert(engine: &KagariEngine, name: &str, text: &str) -> FileId {
 
 fn host_fixture() -> (
     KagariEngine,
-    BytecodeArtifact,
+    DefinitionMetadata<BytecodeArtifact>,
     ExecutionContext,
-    kagari_types::host_interface::HostFunctionDeclaration,
+    DefinitionMetadata<HostFunctionDeclaration>,
 ) {
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        value_type::HostValueType,
-    };
     let engine = KagariEngine::default();
+    let definitions = DefinitionContext::new().unwrap();
     let declaration = HostFunctionDeclaration::new(
+        &definitions,
         "trace.record",
         vec![HostParameter {
             name: "value".into(),
@@ -50,13 +52,21 @@ fn host_fixture() -> (
             passing: HostPassingStyle::Owned,
         }],
         HostValueType::I32,
-    );
+    )
+    .unwrap();
     engine
-        .set_host_interface(HostInterface {
-            paths: vec![],
-            types: Vec::new(),
-            functions: vec![declaration.clone()],
-        })
+        .set_host_interface(
+            DefinitionMetadata::checked(
+                definitions.snapshot(),
+                HostInterface {
+                    paths: vec![],
+                    types: Vec::new(),
+                    functions: vec![declaration.clone()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
         .unwrap();
     insert(
         &engine,
@@ -82,6 +92,9 @@ fn host_fixture() -> (
         ..Default::default()
     };
     let artifact = compile(&engine, root);
+    let declaration =
+        DefinitionMetadata::checked(definitions.snapshot(), declaration, &Default::default())
+            .unwrap();
     (engine, artifact, context, declaration)
 }
 

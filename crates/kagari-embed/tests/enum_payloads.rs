@@ -1,18 +1,27 @@
 use kagari_bytecode::instruction::EnumId;
+use kagari_common::identity::{
+    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+};
 use kagari_contract::types::PublicItem;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
-use kagari_runtime::module::LoadedModule;
-use kagari_source::source::SourceFile;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_runtime::{
+    error::RuntimeErrorKind,
+    module::{EnumVariantRef, LoadedModule},
+    reflection,
+    value::{EnumTag, Value},
+    value_semantics::script_equal,
+};
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
 
-fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
+fn compile(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeArtifact> {
     let checked = engine
         .compile_source(SourceFile::new("memory://events.kgr", source))
         .unwrap();
     engine.emit_bytecode(&checked, Default::default()).unwrap()
 }
 
-fn variant(module: &LoadedModule, name: &str) -> kagari_runtime::module::EnumVariantRef {
+fn variant(module: &LoadedModule, name: &str) -> EnumVariantRef {
     let slot = module
         .bytecode
         .enumerations
@@ -34,12 +43,6 @@ fn variant(module: &LoadedModule, name: &str) -> kagari_runtime::module::EnumVar
 
 #[test]
 fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
-    use kagari_runtime::{
-        error::RuntimeErrorKind,
-        reflection,
-        value::{EnumTag, Value},
-        value_semantics::script_equal,
-    };
     let engine = KagariEngine::default();
     let mut runtime = engine.runtime(Default::default());
     let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, [i32]) } fn main() -> Option { Option::Some(42) }";
@@ -85,9 +88,10 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
                 .runtime()
                 .resolve_type_arguments(
                     &loaded,
-                    &[kagari_types::language::binding::option(
-                        kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-                    )],
+                    &[
+                        binding::option(loaded.definitions(), Ty::Builtin(BuiltinType::I32))
+                            .unwrap(),
+                    ],
                 )
                 .unwrap()[0],
             "Some",
@@ -209,10 +213,6 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
 
 #[test]
 fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = KagariEngine::default();
     for (name, value) in [("left", 7), ("right", 9)] {
         let path = format!("memory://{name}.kgr");
@@ -231,7 +231,9 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
         &engine,
         "use pkg::left; use pkg::right; fn main() -> bool { left::make() == left::Event::Data(7) && right::make() == right::Event::Data(9) }",
     );
-    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime
         .load_program(
@@ -247,7 +249,7 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
             .return_value
             .value(runtime.runtime().gc())
             .expect("retained execution result"),
-        kagari_runtime::value::Value::Bool(true)
+        Value::Bool(true)
     );
 }
 
@@ -257,7 +259,11 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     let mut runtime = engine.runtime(Default::default());
     let source = "struct Point { val x: i32 } pub enum Event { Empty, Data(Point, (i32, [String])) } fn main() -> i32 { 42 }";
     let original = compile(&engine, source);
-    let module = &original.program.modules[original.program.root.index()];
+    let definitions = DefinitionContext::new().unwrap();
+    let original = original
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    let module = &original.records().program.modules[original.records().program.root.index()];
     let variant = module
         .public_items
         .iter()
@@ -266,9 +272,12 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
             _ => None,
         })
         .unwrap();
-    assert!(
-        matches!(&variant.payload[0], Ty::Struct(id) if id.declaration.module == module.identity && id.declaration.path[0].name == "Point")
-    );
+    let Ty::Struct(point) = &variant.payload[0] else {
+        panic!("nominal payload")
+    };
+    let point = original.definitions().resolve(point.declaration).unwrap();
+    assert_eq!(point.module(), &module.identity);
+    assert_eq!(point.segments().next().unwrap().name, "Point");
     let Ty::Tuple(payload) = &variant.payload[1] else {
         panic!("tuple payload")
     };
@@ -277,10 +286,18 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         payload[1],
         Ty::Array(Box::new(Ty::Builtin(BuiltinType::String)))
     );
-    let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
-    decoded.validate_for_loader(&Default::default()).unwrap();
+    let decoded =
+        BytecodeArtifact::from_bytes(&original.records().to_bytes(original.definitions()).unwrap())
+            .unwrap();
+    let decoded = decoded
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    decoded
+        .records()
+        .validate_for_loader(&Default::default(), &definitions)
+        .unwrap();
     assert_eq!(
-        decoded.program.modules[decoded.program.root.index()].public_items,
+        decoded.records().program.modules[decoded.records().program.root.index()].public_items,
         module.public_items
     );
     let loaded = runtime
@@ -295,8 +312,8 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         &source.replace("(i32, [String])", "(i64, [String])"),
     );
     assert_ne!(
-        original.verification.public_abi_fingerprints,
-        changed.verification.public_abi_fingerprints
+        original.records().verification.public_abi_fingerprints,
+        changed.records().verification.public_abi_fingerprints
     );
     let before = runtime.runtime().modules().loaded_count();
     let error = runtime
@@ -326,8 +343,8 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     );
     let body_edit = compile(&engine, &source.replace("{ 42 }", "{ 43 }"));
     assert_eq!(
-        original.verification.public_abi_fingerprints,
-        body_edit.verification.public_abi_fingerprints
+        original.records().verification.public_abi_fingerprints,
+        body_edit.records().verification.public_abi_fingerprints
     );
     assert!(
         runtime
@@ -343,17 +360,13 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
             )
             .is_ok()
     );
-    let mut old_format = original;
+    let (definitions, mut old_format) = original.into_parts();
     old_format.header.format_version = 11;
-    assert!(BytecodeArtifact::from_bytes(&old_format.to_bytes().unwrap()).is_err());
+    assert!(BytecodeArtifact::from_bytes(&old_format.to_bytes(&definitions).unwrap()).is_err());
 }
 
 #[test]
 fn same_spelled_payload_types_from_different_modules_have_different_abi() {
-    use {
-        kagari_common::identity::{ModuleIdentity, PackageId},
-        kagari_source::source_database::SourceLayer,
-    };
     let engine = KagariEngine::default();
     for name in ["left", "right"] {
         let path = format!("memory://{name}.kgr");
@@ -383,7 +396,7 @@ fn same_spelled_payload_types_from_different_modules_have_different_abi() {
         "use pkg::right::Point; pub enum Event { Data(Point) } fn main() -> i32 { 1 }",
     );
     assert_ne!(
-        a.verification.public_abi_fingerprints,
-        b.verification.public_abi_fingerprints
+        a.records().verification.public_abi_fingerprints,
+        b.records().verification.public_abi_fingerprints
     );
 }

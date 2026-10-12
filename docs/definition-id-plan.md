@@ -3972,3 +3972,37 @@ registration_sources and never diagnostics from the previous baseline. Remaining
 known consumers are source_modules, enum_payloads, operator_traits and
 associated_constants; dependent/example audits and final documentation retirement
 remain SI06 work. Exhaustive workspace/feature/backend validation remains CI scope.
+
+### SI06 enum, operator and source-module consumers
+
+Enum, operator and associated-constant fixtures retain scoped artifacts and query
+borrowed identity views. Enum roundtrip comparisons normalize both records into one
+context. Negative operator/constant fixtures verify the unchanged baseline; newly
+forged associated constants register an explicit child. Source-module helpers return
+scoped artifacts and Host declarations; malformed programs retain identity scope
+through encoding, and imported trait-contract negatives retain exact verifier errors.
+
+Fifteen selected cases pass: four enum payload/version/ABI contracts; operator input/
+output rejection and operand evaluation order; imported constant defaults and forged
+constant contracts; source-module Host traces, dependency binding admission, pinned
+old calls, malformed publication, applied/generic trait dispatch and public reexports.
+The enum ABI and operator negative cases also pass after readability cleanup. Scoped
+Clippy passes for these targets. Structure checks 1087 Rust files with zero violations
+and exceptions, and formatting/diff checks pass for this checkpoint. Review covers
+normal imports (test-only parent globs remain), exact scope provenance, positive
+controls and preserved source/encoded/native route assertions.
+
+All preceding 110 diagnostics are resolved. A subsequent embed library/test-target
+check reached nine source_snapshots codec/access errors; their API repair now allows
+`cargo clippy -p kagari-embed --lib --tests --message-format=short -- -D warnings`
+to pass. Its three selected tests pass module rebinding and overlay sharing, but
+`reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis` fails byte
+identity. SI06 must diagnose canonical fresh/reused emission without weakening that
+assertion. No package-wide test suite was run.
+
+The example audit (`cargo clippy -p kagari-embed --examples --message-format=short --
+-D warnings`) reports 104 old-API diagnostics in offline_compile (61), host_interfaces
+(25), architecture_baseline (6), typed_native/foundation_baseline/definition_pipeline
+(3 each), host_reentry (2), and source_queries (1). SI06 owns these consumers, the
+snapshot byte mismatch, remaining dependent audits and final documentation cleanup;
+exhaustive workspace/feature/backend acceptance remains CI scope.

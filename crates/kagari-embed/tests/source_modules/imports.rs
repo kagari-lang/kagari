@@ -20,7 +20,10 @@ fn public_source_glob_reexports_members_through_artifacts() {
     let artifact = compile(&engine, root);
     for (encoded, native) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap()
         } else {
             artifact.clone()
         };
@@ -119,7 +122,8 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
     let artifact = compile(&engine, root);
     for artifact in [
         artifact.clone(),
-        BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap(),
     ] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());

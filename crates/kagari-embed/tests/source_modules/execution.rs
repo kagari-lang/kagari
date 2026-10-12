@@ -1,8 +1,17 @@
 use super::*;
-use kagari_runtime::session::TraceValue;
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, CallTarget},
+    module::BytecodeModule,
+    program::ModuleRef,
+};
+use kagari_contract::ids::FunctionRef;
+use kagari_runtime::{host::HostFunction, module::ModuleEpochRetention, session::TraceValue};
 
 use kagari_embed::program::PreparedProgram;
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 #[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
@@ -38,12 +47,14 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
     context.tracing_enabled = true;
     context.inputs.unix_time_millis = 31_415;
     context.inputs.random_seed = 27;
-    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
     let mut traces = Vec::new();
     for artifact in [artifact, decoded] {
         let mut runtime = engine.runtime(context.clone());
         runtime
-            .register_host_function(kagari_runtime::host::HostFunction::new(
+            .register_host_function(HostFunction::new(
                 declaration.clone(),
                 |_, args| Ok(args[0]),
             ))
@@ -86,7 +97,6 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
 
 #[test]
 fn dependency_bindings_are_checked_before_execution() {
-    use std::sync::{Arc, Mutex};
     let (engine, _, context, declaration) = host_fixture();
     let root = insert(
         &engine,
@@ -95,7 +105,7 @@ fn dependency_bindings_are_checked_before_execution() {
     );
     let artifact = compile(&engine, root);
     assert!(
-        artifact.program.modules[artifact.program.root.index()]
+        artifact.records().program.modules[artifact.records().program.root.index()]
             .host_interface
             .functions
             .is_empty()
@@ -118,13 +128,10 @@ fn dependency_bindings_are_checked_before_execution() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let recorded = calls.clone();
     runtime
-        .register_host_function(kagari_runtime::host::HostFunction::new(
-            declaration,
-            move |_, args| {
-                recorded.lock().unwrap().push(args[0]);
-                Ok(args[0])
-            },
-        ))
+        .register_host_function(HostFunction::new(declaration, move |_, args| {
+            recorded.lock().unwrap().push(args[0]);
+            Ok(args[0])
+        }))
         .unwrap();
     let loaded_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
@@ -162,9 +169,12 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
         artifacts.push(compile(&engine, root));
     }
     for encoded in [false, true] {
-        let prepare = |artifact: &BytecodeArtifact| {
+        let prepare = |artifact: &DefinitionMetadata<BytecodeArtifact>| {
             let artifact = if encoded {
-                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+                BytecodeArtifact::from_bytes(
+                    &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+                )
+                .unwrap()
             } else {
                 artifact.clone()
             };
@@ -198,7 +208,6 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
 
 #[test]
 fn old_program_calls_keep_their_dependency_versions_after_reload() {
-    use kagari_runtime::module::ModuleEpochRetention;
     let engine = KagariEngine::default();
     insert(&engine, "dependency", "pub fn value() -> i32 { 1 }");
     let root = insert(
@@ -294,12 +303,6 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
 
 #[test]
 fn malformed_programs_are_rejected_before_any_member_is_published() {
-    use kagari_bytecode::{
-        instruction::{BytecodeInstruction, CallTarget},
-        module::BytecodeModule,
-        program::ModuleRef,
-    };
-    use kagari_contract::ids::FunctionRef;
     let engine = KagariEngine::default();
     insert(
         &engine,
@@ -312,7 +315,17 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         "use pkg::dependency::number; fn main() -> i32 { number(42) }",
     );
     let artifact = compile(&engine, root);
-    let program = &artifact.program;
+    let definitions = DefinitionContext::new().unwrap();
+    let artifact = artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap();
+    BytecodeArtifact::from_program(
+        artifact.records().program.clone(),
+        Default::default(),
+        &definitions,
+    )
+    .unwrap();
+    let program = &artifact.records().program;
     let dependency = ModuleRef::new(
         program
             .modules
@@ -377,10 +390,12 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
     }
     let mut runtime = engine.runtime(ExecutionContext::default());
     for bad in malformed {
-        assert!(BytecodeArtifact::from_program(bad.clone(), Default::default()).is_err());
-        let mut corrupted = artifact.clone();
+        assert!(
+            BytecodeArtifact::from_program(bad.clone(), Default::default(), &definitions).is_err()
+        );
+        let mut corrupted = artifact.records().clone();
         corrupted.program = bad;
-        let encoded = corrupted.to_bytes().unwrap();
+        let encoded = corrupted.to_bytes(artifact.definitions()).unwrap();
         let decoded = BytecodeArtifact::from_bytes(&encoded).unwrap();
         assert!(
             PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
