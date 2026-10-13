@@ -1335,7 +1335,7 @@ fall back before entry. Failures after entry never restart interpretation.
 Wider native support needs a concrete call/result/status ABI, real native-root
 publication, checked cross-module targets and conservative call effects. Logical
 stack-map schemas alone do not establish GC integration. The outstanding
-[architecture review](architecture-review-2026-10-03.md#native-expansion-gates)
+[architecture review](review.md#native-expansion-gates)
 records those gates. See [JIT](spec/jit.md) and [backend contract](spec/codegen-backend.md).
 
 ## Contract and common responsibility cleanup

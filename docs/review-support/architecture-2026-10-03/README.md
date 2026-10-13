@@ -1,6 +1,6 @@
 # Architecture review probes
 
-Companion sources for the [2026-10-03 review](../../architecture-review-2026-10-03.md),
+Companion sources for the [2026-10-03 measurements](../../performance-baseline.md#architecture-review-measurements-2026-10-03),
 written against commit `9581f5ad2a754911d1edb92eb35e957a18d7b5df`.
 They are a separate workspace, not production dependencies or correctness tests.
 Run the commands below from the reviewed repository root. Build first; run
@@ -63,7 +63,7 @@ not be subtracted from the differently instrumented and scoped
 Record the commit, toolchain, machine, profile, features, cache state and other
 machine activity. Preserve per-process medians and ranges; do not hide noisy
 runs. Keep raw logs in `target/architecture-review/` and durable conclusions in
-the review report. The original measurements used the same sources staged under
+the performance document. The original measurements used the same sources staged under
 `target/architecture-review/interface_probe/`; the durable companion uses a
 distinct package name, formatting and an ignored output directory for generated
 workloads. The measured regions are unchanged.

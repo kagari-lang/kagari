@@ -1,7 +1,7 @@
 # Performance Measurements
 
-This page retains measurements needed for the open test-cost and interpreter
-performance work. Each result applies to its recorded revision and environment,
+This page retains measurements needed for the open test-cost, interpreter
+performance and architecture follow-up work. Each result applies to its recorded revision and environment,
 not automatically to current HEAD. Superseded checkpoint reports live in Git
 history; compiler, startup and execution measurements remain separate.
 
@@ -570,3 +570,121 @@ cargo test --release -p kagari-runtime --lib --features execution-diagnostics di
 The sampling commands require macOS; use a suitable platform profiler elsewhere.
 Keep allocation counters and profiling separate from ordinary throughput runs.
 These are targeted measurement commands, not a full-suite validation requirement.
+
+## Architecture review measurements, 2026-10-03
+
+These historical measurements cover committed baseline
+`9581f5ad2a754911d1edb92eb35e957a18d7b5df`. They preserve the evidence behind
+[architecture review follow-ups](review.md#architecture-findings),
+not current startup, allocation or interface-dispatch costs. Later work changed
+interface descriptors, registration sharing and verification reuse; consult the
+[current architecture](architecture.md) and newer measurements above before
+selecting an optimization. The consolidation's source audit is recorded in the
+review; no new measurement was performed and these numbers were not refreshed.
+
+### Environment and method
+
+- Baseline above; Apple M1 Max / MacBookPro18,2, 32 GiB RAM, 10 logical CPUs,
+  macOS 26.6.2 (25G83), `aarch64-apple-darwin`.
+- Rust 1.98.1 (`48a229cea`, LLVM 22.1.8), Cargo 1.98.1; Cranelift 0.132.0 from
+  the baseline lockfile. Workspace dev/test O1 profiles with debug information,
+  default target directory and Cargo parallelism; default SDK source/native features.
+- The isolated worktree initially needed compilation. Timed runs then used warm
+  prebuilt executables, serially, with compilation excluded. The desktop was not
+  reserved from user/OS activity. One brief standalone frontend harness compilation
+  may overlap the first baseline process; it was never executed. New probe runs
+  had no competing review build/test jobs.
+- Three independent processes per original benchmark/probe. Table centers labeled
+  median-of-medians summarize the three within-process medians, not confidence
+  intervals. Foundation call means and single edit timings are stated separately.
+  Ranges below expose variability rather than silently discarding slow runs.
+- `architecture_baseline` uses an atomic counting allocator; the interface probe
+  uses a thread-local counting allocator. Both perturb timings. The startup split
+  and foundation baseline use ordinary allocation. Never subtract differently
+  instrumented/scoped timings as an exact cost decomposition.
+- No successful sampling profile was captured during this review. Code inspection
+  identifies mechanisms, but does not provide per-function CPU percentages. No
+  release-mode, cross-machine or historical-regression claim is made.
+
+### Existing architecture baseline: `fn main() -> i32 { 40 + 2 }`
+
+| Interval | Samples per process | Median of process medians | Range of process medians |
+| --- | ---: | ---: | ---: |
+| Fresh engine + source-to-artifact | 21 | 432.671 ms | 427.760–439.009 ms |
+| Decode + native-input preparation/verification | 101 | 208.602 ms | 207.840–210.570 ms |
+| Fresh runtime + shared-program link + disposal | 101 | 247.197 ms | 241.197–254.334 ms |
+| Native compilation | 21 | 97.750 µs | 97.167–100.292 µs |
+| Cached native preparation and installation | 101 | 1.750 µs | 1.709–1.833 µs |
+| SDK interpreter call | 10,001 | 1.500 µs | 1.500–1.583 µs |
+| SDK native call, actual `Native` asserted | 10,001 | 1.834 µs | 1.833–1.917 µs |
+
+The tiny native entry does less useful work than its entry machinery; these numbers
+do not predict loop or application speedups. Compilation/preparation and execution
+are distinct intervals. Fresh-engine compilation is cold with respect to that
+engine's analysis state, not a cold OS/registry cache.
+
+Artifact bytes: **505,550**, with **267,717** for the bytecode-only artifact and
+**237,805** in portable MIR. The remaining difference includes envelope metadata.
+The startup probe uses a different source filename and therefore reports **505,536**
+total bytes and **237,799** MIR bytes; source identities affect encoded size.
+
+| Live runtimes | Shared prepared program: retained requested Rust heap bytes | Independently prepared programs: retained bytes |
+| ---: | ---: | ---: |
+| 1 | 11,782,678 | 11,782,678 |
+| 8 | 65,612,636 | 94,261,424 |
+| 32 | 250,172,492 | 377,045,696 |
+
+These include retained prepared programs, runtimes and links. They exclude RSS,
+allocator overhead and executable page mappings. The result demonstrates useful
+program sharing and substantial independent per-runtime cost at the same time.
+
+### Construction versus linking: separate System-allocator probe
+
+One warmup and eleven samples per process; fresh runtime each sample, shared
+prepared program. Engine creation, compilation, preparation, validation execution
+and all drops are outside both timers.
+
+| Interval | Run 1 median | Run 2 median | Run 3 median |
+| --- | ---: | ---: | ---: |
+| `engine.runtime(default_context)` | 239.872 ms | 239.077 ms | 234.404 ms |
+| `runtime.load_program(shared_program)` | 0.658 ms | 0.656 ms | 0.643 ms |
+
+The root module has one function/four instructions and no native imports of its own.
+The foundation module carries 53 imports at this baseline. All are linked;
+linking remains small beside construction in this workload.
+
+### Interface width: identical selected method, 1,000 interpreted calls
+
+Five warmups and 21 samples per width/process. Each sample includes SDK execution,
+one interface construction, 1,000 calls and return-report creation; preparation,
+linking and report destruction are excluded. Every result is checked as `1,000`,
+and bytecode is checked to retain dynamic interface dispatch.
+
+| Methods in interface | Allocation calls per sample, excluding realloc | Median cumulative requested bytes, same median in all runs | Median of process medians | Range of process medians |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 75,099 | 3,931,475 | 6.181 ms | 6.021–11.254 ms |
+| 8 | 243,358 | 13,718,643 | 12.060 ms | 11.952–15.805 ms |
+| 32 | 820,246 | 47,460,629 | 31.936 ms | 31.906–58.759 ms |
+
+Allocation counts are stable across processes; this column counts `alloc` and
+`alloc_zeroed`. Additional reallocations vary from 1–2, 9–10 and 35–36 per sample
+for widths 1, 8 and 32 respectively; their requested sizes are included in bytes.
+The table reports byte medians, not identical byte counts for every sample.
+Timings show appreciable variability on an unreserved desktop; a width
+32 process had a 102.6 ms maximum sample. Allocation counts and the inspected clone
+path are the stronger evidence. Bytes are cumulative requests, not retained/peak
+memory. The test includes one width-dependent construction, so it is not an exact
+per-instruction allocation attribution or a before/after optimization comparison.
+
+### Architecture measurement reproduction and limits
+
+[Companion probes](review-support/architecture-2026-10-03/README.md) retain the
+standalone workloads. From the recorded baseline, build the architecture_baseline
+and foundation_baseline examples, then execute prebuilt binaries serially in
+three independent processes. Raw logs under target/architecture-review are
+disposable; baseline, environment and scope remain recorded above.
+
+The original review ran 515 focused tests and dependency/structure checks, not
+full workspace tests/Clippy or the complete feature matrix. Successful checks
+are not a soundness proof. New implementation acceptance belongs to the roadmap;
+these retained measurements introduce no additional active phase sequence.

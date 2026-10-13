@@ -28,8 +28,8 @@ behavior; queued designs do not imply implemented APIs.
 - [Test preparation and execution](testing.md).
 - [Performance measurements](performance-baseline.md) and
   [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
-- [Open review findings](review.md) and
-  [architecture findings requiring confirmation](architecture-review-2026-10-03.md#outstanding-findings).
+- [Repository and architecture review](review.md): unresolved findings and native
+  expansion requirements, with historical measurements linked at their owner.
 
 ## Queued work
 

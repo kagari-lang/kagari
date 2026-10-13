@@ -4,9 +4,25 @@ Keep ongoing repository review findings in this document rather than creating
 dated review files. Entries record observed behavior and possible follow-ups;
 they do not activate implementation work.
 
-Only unresolved findings remain here; identifiers stay stable when resolved
-entries are removed. Current contracts live in the specifications and architecture.
-CI status belongs to the roadmap, independently of implementation completion.
+This is the single review queue for unresolved findings and scoped follow-ups.
+SA identifiers retain the repository review numbering; R identifiers retain the
+architecture review numbering. Neither series is renumbered when resolved entries
+are removed. Current contracts live in the specifications and architecture; CI
+status and activation belong to the [roadmap](implementation-roadmap.md).
+
+- [Repository findings](#sa1-inline-modules-are-parsed-again): unresolved SA entries.
+- [Architecture findings](#architecture-findings): retained R findings checked
+  against the current implementation; validation limits are recorded below.
+- [Native expansion gates](#native-expansion-gates): requirements for future native
+  coverage, not defects caused by the intentionally limited backend.
+- Historical timings, allocation data and reproduction details are retained under
+  [performance measurements](performance-baseline.md#architecture-review-measurements-2026-10-03).
+
+The consolidation audit inspected code and existing tests at `b71e0cdd`; it did
+not rerun behavior tests or performance probes. The remaining SA entries still
+have their described representation or missing feature. Test preparation progress
+and pending measurements belong to the [existing task](test-preparation-plan.md),
+not a separate review finding. Reconfirm affected behavior when activating a task.
 
 ## SA1 Inline modules are parsed again
 
@@ -20,18 +36,6 @@ Consider lowering existing `ModuleBlock::items()` with an independent child
 context. Preserve module ownership, visibility, stable child identities, original
 UTF-8/CRLF offsets and diagnostic attribution. Reuse the existing inline-module
 navigation tests. Keep declaration, signature and body checking separate.
-
-## SA7 Routine fixes trigger expensive aggregate test suites
-
-[Repository policy](../AGENTS.md#verification-and-tooling) limits local checks to
-affected contracts and a small regression set; complete suites belong to CI.
-The [test-cost audit](performance-baseline.md#workspace-test-cost-audit-2026-10-11)
-identifies expensive SDK/VM/HIR targets and repeated preparation for investigation.
-Optimization is deferred; confirm current costs before changing an owner.
-
-The numeric fixtures already share compilation while keeping independent runtime
-routes and successful calls after traps. Further work should reuse immutable setup
-where safe and preserve cases requiring fresh snapshots or mutable runtimes.
 
 ## SA9 Module paths are copied into internal graph keys and references
 
@@ -72,9 +76,9 @@ Apply the same separation in Kagari: portable `ModuleIdentity` at boundaries,
 shared identity data in the context, compact handles inside the graph. This does
 not require introducing Rust's crate model or adopting its arena lifetimes.
 
-Keep this a separate follow-up from SA8 and SA2/SA3. Measure graph build allocations
-and time before/after on the same module workload, separating compilation time;
-reuse identity/snapshot and import tests for focused validation. Code migration is
+Keep this follow-up separate from completed identity and namespace work. Measure
+graph build allocations and time before/after on the same module workload,
+separating compilation time; reuse identity/snapshot and import tests for focused validation. Code migration is
 not activated by this review.
 
 ## SA11 HIR declarations and ADT members carry container-derived identities
@@ -560,7 +564,10 @@ implementation, specifications and roadmap phase activation remain deferred.
 
 ## SA22 Generic bounds do not supply interface construction witnesses
 
-The current checker rejects this conversion with KG_TYPE_RETURN_TYPE_MISMATCH:
+The current coercion path requires a selected construction witness; the retained
+[typing test](../crates/kagari-hir/src/tests/typeck/traits.rs) expects rejection of
+bound-only erasure to `std::fmt::Debug`. The original minimal reproduction was
+rejected with KG_TYPE_RETURN_TYPE_MISMATCH:
 
 ```text
 trait Child {}
@@ -582,3 +589,101 @@ generations. Validate scalar and object receivers, parent adaptation, cancellati
 forged/missing witnesses and reload. Do not infer an object upper bound from an
 arbitrary trait or bypass conversion checks. This is a recorded existing limitation,
 not an activated feature, Any/downcast design or part of host registration unification.
+
+## Architecture findings
+
+These IDs originated in the 2026-10-03 review of
+`9581f5ad2a754911d1edb92eb35e957a18d7b5df`. Source inspection at `b71e0cdd`
+confirms the mechanisms below remain; the old report's resolved findings and
+superseded implementation details are not retained as tasks. This is not a fresh
+runtime reproduction, cancellation stress test or performance measurement.
+
+| ID | Current finding | Focused follow-up and acceptance |
+| --- | --- | --- |
+| R1 / P1 | Safe public `KagariLanguage::kind_from_raw` still uses unchecked `u16`-to-`SyntaxKind` transmute; the public green-tree wrapper also performs no kind validation. | Validate raw kinds before constructing the enum. Cover valid round trips and invalid-input rejection through the public API. The audit did not execute an invalid discriminant. |
+| R2 / P2 | SDK `execute_prepared` passes `context.runtime_options()` but does not consult `context.jit_policy`; those runtime options contain no JIT selection policy. The native path can proceed despite `Disabled`, contrary to the documented fallback rule. | Enforce the [JIT policy contract](spec/jit.md#preparation-and-fallback) consistently across preparation and execution; assert actual native/interpreter reports under enabled/disabled contexts. No fallback after entry. |
+| R5 / P2 | `implementation_method` still creates a default cancellation token with maximal search/depth bounds and discards search errors; `implementation_count` uses the same unbounded/default-cancellation wrapper pattern. | Propagate the caller's fallible search context. Cover pre-cancelled queries and tiny depth/candidate limits. No source hang was reproduced by this audit. |
+| R7 / P2 | `lower_program_to_mir` still loops over all authoring modules for each new specialization-request round. | Measure a bounded generic chain/fan-out before choosing an instance work queue or input-keyed reuse. Preserve foreign defaults/witnesses, compilation limits and final verification. Current scaling cost is unmeasured. |
+| R8 / P2 | Body reuse compares imported functions using derived equality, including source/navigation identity; aggregate equality also compares inherent methods with their source sites. Signature-preserving edits can therefore prevent semantic reuse. | Separate semantic contracts from navigation identities. Validate signature-preserving versus contract-changing dependency edits without dropping source revision/arena validation. This is conservative invalidation, not evidence of a stale result. |
+
+Evidence owners:
+
+- R1: [syntax conversion](../crates/kagari-syntax/src/syntax_node.rs).
+- R2: [SDK execution](../crates/kagari-embed/src/runtime.rs),
+  [context options](../crates/kagari-embed/src/context.rs),
+  [native dispatch](../crates/kagari-vm/src/vm/native.rs) and
+  [SDK native tests](../crates/kagari-embed/tests/cranelift_preparation.rs).
+- R5: [trait searches](../crates/kagari-hir/src/aggregates/implementations.rs).
+- R7: [program lowering](../crates/kagari-compiler/src/source/program.rs).
+- R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),
+  [imported functions](../crates/kagari-hir/src/imports/functions.rs),
+  [source identities](../crates/kagari-hir/src/imports/mod.rs) and
+  [aggregate equality](../crates/kagari-hir/src/aggregates/mod.rs).
+
+These findings remain review items, not automatically activated tasks or new
+prerequisites for unrelated work.
+
+## Artifact reachability follow-up
+
+Whether executable artifacts should prune unreachable contracts remains an open
+question separate from completed registration-sharing work. Review artifact
+construction and verified dependency closure ownership before proposing pruning;
+measure artifact size and preparation costs on a current baseline. Preserve
+source-free validation, declared native contracts and generation-pinned dependencies.
+Historical startup costs do not establish the benefit of this change.
+
+## Native expansion gates
+
+The mechanism inventory below comes from the same 2026-10-03 baseline and needs
+current-code confirmation before implementation. The acceptance requirements are
+future expansion constraints, not a new active phase sequence.
+
+The narrow scalar backend is intentional. The following gates apply when adding
+calls, GC-bearing values, compiled callbacks or optimizations that depend on callee/memory facts. Wider scalar arithmetic and
+scalar locals/control flow can progress independently with appropriate trap and
+polling semantics. These are not bugs caused merely by lacking a larger backend.
+
+| Gate | Boundary observed at the reviewed baseline | Required decision and evidence |
+| --- | --- | --- |
+| General calls and values | [native_call.rs](../crates/kagari-abi/src/native_call.rs) transports runtime/result/status for zero arguments and Unit/Bool/i32 results | Define argument/result representation, helper calls, error propagation and cleanup once for both native backends |
+| Native GC roots | [native.rs](../crates/kagari-contract/src/native.rs), logical stack-map declarations, records logical Register/Local locations; no runtime physical map reader was found | Choose a shadow-root protocol or real physical frame/PC/location maps; prove objects survive collecting helpers, returned allocation, reentry and traps |
+| Verified cross-module calls | [codegen/lib.rs](../crates/kagari-codegen/src/lib.rs) accepts a module seal; full binding proofs live in `VerifiedMirProgram` | Pass program-scoped verified target bindings or a typed runtime trampoline; backends must not redo name/type resolution |
+| Effect interpretation | Script calls carry `calls`/`may_trap`, not transitive allocation/write facts | Treat calls as conservative memory/GC barriers or compute conservative graph summaries before emitting LLVM `readonly`/`readnone`-style assumptions |
+| Tier-neutral callbacks | Synchronous `ScriptInvoker` selected the interpreter | Preserve pinned generation, captures, argument/result checks, shared call depth/cancellation, observers and trap origins when selecting compiled callbacks |
+| Code lifetime and hot reload | Installed handles retain exact versions and their dependency closure | Extend dependency assumptions to direct calls, inlining and module/SCC compilation units; reclaim code only when its owners and retained dependencies permit it |
+
+At the reviewed baseline, the poll helper recorded a logical offset and invoked
+ordinary registered-root GC; it did not publish native stack roots. Cranelift rejected heap-bearing
+slots and emitted empty root maps for its accepted subset. Do not mistake the logical
+metadata schema for completed GC integration.
+
+Effect caution is similarly forward-looking. In
+[instruction.rs](../crates/kagari-mir/src/instruction.rs), reviewed script calls
+used `EffectSet::call`; [effects.rs](../crates/kagari-contract/src/effects.rs)
+set only `calls` and `may_trap`. A callee can still allocate and mutate.
+The reviewed constant propagation treated calls as barriers and dead-code
+elimination required an empty effect set, so no miscompile was demonstrated. Individual
+false effect bits must not become absence proofs in a future optimizer.
+
+Recommended order: establish calls/roots and tier-neutral runtime services with
+Cranelift, grow the semantic conformance matrix, then implement LLVM against the
+same checked contract. Keep LLVM lowering and optimization local to that backend.
+MIR need not become LLVM IR, and an additional SSA IR is justified only by concrete
+optimization requirements. Simple baseline native compilation and optimizing
+compilation may use different strategies without duplicating language semantics.
+
+For each newly accepted native feature, use the same semantic cases through source,
+serialized artifact, interpreter and **asserted actual native execution**. Tests
+that successfully fall back do not establish native coverage. The important rows
+are checked overflow/trap order; left-to-right once-only effects; nested calls and
+call-depth failure; objects live across collection/reentry; cleanup after traps and
+cancellation; old callbacks/interfaces surviving reload; and observer-triggered
+pre-entry fallback. Add differential generated-program testing only within the
+supported subset, with reproducible seeds and finite bounds.
+
+Keep recoverable HIR distinct from checked executable types. Readonly collection
+interfaces do not prove frozen storage, noalias or an exclusive native borrow;
+use the current [collection contracts](spec/collection-access.md) rather than
+historical type spellings. Preserve once-only evaluation, trap order, completed
+effects and pinned generations. The [contract/common responsibility review](architecture.md#contract-and-common-responsibility-cleanup)
+remains separate; renaming a mixed crate alone does not fix ownership.

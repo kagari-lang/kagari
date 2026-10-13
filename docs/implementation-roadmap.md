@@ -88,17 +88,19 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ## Open review and documentation work
 
-[The review](review.md) owns unresolved SA findings, including inline AST reuse,
-compact module handles, HIR model cleanup, local functions, patterns, collection
-interfaces and host-registration unification. Resolved definition-identity,
+[The consolidated review](review.md) owns unresolved SA and R findings. SA entries
+include inline AST reuse, compact module handles, HIR model cleanup, local
+functions, patterns, generic interface construction and host-registration unification. Resolved definition-identity,
 namespace/import/default-body/Array work is described by the current architecture,
 specifications and reading guides, not retained as review tasks.
 
-[Architecture findings](architecture-review-2026-10-03.md#outstanding-findings)
-R1/R2/R5/R7/R8 require current-code confirmation: raw-kind safety, prepared-JIT
-policy, trait-search cancellation/limits, repeated specialization and conservative
-semantic invalidation. Native expansion requires checked call/root/effect contracts
-and actual-native conformance; LLVM remains a separate choice.
+[Architecture findings](review.md#architecture-findings)
+R1/R2/R5/R7/R8 remain supported by source inspection at `b71e0cdd`: raw-kind
+safety, prepared-JIT policy, trait-search cancellation/limits, repeated
+specialization and conservative semantic invalidation. Behavioral reproduction
+and performance measurement remain task-specific follow-ups. Native expansion
+requires checked call/root/effect contracts and actual-native conformance; LLVM
+remains a separate choice.
 
 Earlier identity measurements predate removal of semantic path projections.
 Re-measure retained-prefix table-index copying and normalized metadata copying
@@ -187,10 +189,10 @@ Important ordering constraints and limits:
 - SA21 returns borrowed from inputs, persistent borrow records and explicit release
   remain an optional later extension. They require a separate bounded lifecycle
   decision and are not prerequisites for the initial registration/input migration.
-- [SA7](review.md#sa7-routine-fixes-trigger-expensive-aggregate-test-suites) applies
-  throughout: use focused tests now and reuse already implemented preparation.
-  Coordinate any further preparation changes with the existing
-  [test preparation task](test-preparation-plan.md), not a second implementation.
+- [Focused validation policy](../AGENTS.md#verification-and-tooling) applies
+  throughout: reuse already implemented preparation. Coordinate any further
+  preparation changes with the existing [test preparation task](test-preparation-plan.md),
+  not a second implementation.
   Measure its finite changed scope after the relevant owners stabilize; do not
   postpone acceptance until every queued review feature is implemented or promise
   unmeasured speedups.
