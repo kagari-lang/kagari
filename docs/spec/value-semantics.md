@@ -3,14 +3,6 @@
 This is the authoritative v1 contract for observable value behavior. Physical
 allocation, Rust `Clone`/`PartialEq`, and backend choices do not define semantics.
 
-**Comparison migration status:** [the accepted comparison design](#accepted-comparison-design)
-defines the agreed replacement for equality defaults and identity eligibility.
-It is not implemented yet. Other comparison descriptions below document the
-current implementation until that migration; they do not override the accepted
-design. [SA26](../review.md#sa26-implement-the-accepted-equality-and-identity-design)
-records the follow-up; [TI03](../trait-interface-comparison-plan.md#ti03-replace-equality-and-identity-selection-end-to-end)
-owns implementation and acceptance.
-
 ## Values and identity
 
 Scalars, strings, tuples, and enums (including Option and Result) have value
@@ -35,19 +27,17 @@ this does not make host borrow tokens or path views valid heap payloads. See the
 [host interface contract](traits.md#host-associated-outputs-and-interfaces).
 
 [Equality and hashing](#equality-and-hashing) defines explicit protocol selection
-and type-specific defaults. Without overrides, scalars and strings compare by
-value, tuples by corresponding members, enums by nominal type, variant and
-corresponding members, and mutable objects by identity. Composite defaults use
-the selected member implementations. Interface values and host handles/path
-views do not support general equality.
+and conditional builtin/library implementations. User Structs and enums require
+explicit implementations; object identity alone supplies no equality or hashing.
+Tuple and core enum protocols compose the selected member implementations.
+Interface boxing supplies no comparison capabilities.
 
-Default enum comparison uses declaration identity, applied type arguments and
+Core enum comparison uses declaration identity, applied type arguments and
 variant identity; adding or reordering private variants in a later execution
 version does not change comparison of an existing variant with the same members.
 Floating-point equality follows IEEE comparisons (`NaN != NaN`, `-0 == +0`).
 Map and Set keys require `Eq + Hash` and trace retained keys as well as values.
-Default object identity is unaffected by content mutation; custom equality/hash
-requires the user to preserve equality-relevant state while keys are stored.
+Authors must preserve equality-relevant state while keys are stored.
 See [standard protocols](builtins.md#collection-types).
 
 Structural edits through an alias commit and invalidate existing native collection
@@ -72,9 +62,8 @@ patterns. A literal pattern must have the scrutinee's type.
 
 ## Accepted comparison design
 
-Status: accepted on 2026-10-13; implementation is pending. This decision changes
-comparison eligibility, not assignment, sharing, GC ownership or interface
-receiver admission. Values may still become dynamically compatible trait
+Comparison eligibility is independent of assignment, sharing, GC ownership and
+interface receiver admission. Values may still become dynamically compatible trait
 interfaces through checked implementations. No Object type, marker or bound is
 introduced.
 
@@ -88,13 +77,13 @@ Missing or unsatisfied evidence is a compile-time error, never an automatic
 identity comparison or a deferred missing-comparison trap. An author may
 explicitly implement PartialEq using `self === other` for an object type.
 
-| Type | Accepted equality contract |
+| Type | Equality contract |
 | --- | --- |
 | Unit, bool, integers, String | Builtin value comparison. |
 | Float | Builtin IEEE comparison, including NaN unequal to itself; no Eq/Hash. |
 | Tuple | Conditional member comparison when every member supports PartialEq. |
 | User Struct or enum | Explicit implementation; neither object identity nor enum member comparison is automatically supplied. |
-| Option / Result | Standard-library conditional variant/member comparison; all payload types must satisfy the required bounds, not only the active variant. |
+| Core Option / Result / Ordering / Bound / ControlFlow | Standard-library conditional variant/member comparison; all payload types must satisfy the required bounds, not only the active variant. |
 | Array / `Vec<T>` | Conditional content comparison when `T: PartialEq`; compare length and then corresponding elements in order. |
 | `HashSet<T>` | Conditional content comparison under `T: Eq + Hash`. |
 | `HashMap<K,V>` | Conditional content comparison under `K: Eq + Hash` and `V: PartialEq`. |
@@ -106,10 +95,10 @@ explicitly implement PartialEq using `self === other` for an object type.
 User Structs and enums opt into comparison, following Rust's explicit-implementation
 model. Memberwise derivation may be designed separately; this decision does not
 add derive syntax. Standard-library Option/Result retain their conditional
-implementations even though they use enum representation. Remove automatic
-identity Eq/Hash alongside identity PartialEq; having an identity does not make
-an object a hash key. Keep Eq/Hash requirements and callback consistency for
-explicit implementations and conditional content protocols.
+implementations even though they use enum representation. There is no automatic
+identity PartialEq, Eq or Hash; having an identity does not make an object a hash
+key. Explicit implementations and conditional content protocols retain Eq/Hash
+requirements and callback consistency.
 
 Boxing or adapting an interface never adds comparison capabilities. For example,
 if Color implements PartialEq and Read, Color values can compare, but values
@@ -118,12 +107,12 @@ applicable PartialEq implementation. Adding PartialEq as a parent is not an
 erased comparison contract: Kagari's `other: Self` remains subject to dynamic
 compatibility checking.
 
-Remove the six collection interfaces' automatic receiver-comparison forwarding
-implementations. Retain their Debug implementations and the explicit
+The six collection interfaces have no receiver-comparison forwarding
+implementations. They retain their Debug implementations and the explicit
 [content helpers](collection-access.md#content-protocols-and-helpers), including
 their element/key bounds and cross-implementation behavior. Consequently,
 `Vec<i32>` equality remains available, while `List<i32>` equality is rejected under
-the target library declarations. Interface-level content PartialEq and
+the library declarations. Interface-level content PartialEq and
 source-authored interface impl targets are separate future API decisions.
 
 The reference model is Rust's [PartialEq](https://doc.rust-lang.org/std/cmp/trait.PartialEq.html)
@@ -149,7 +138,7 @@ is unknown. A PartialEq/Eq bound does not prove object identity. An object shape
 such as `Vec<T>` is eligible even when T is generic or an interface: eligibility
 concerns the operand itself, not the categories of its members.
 
-Illustrative operand types and target checking results:
+Illustrative operand types and checking results:
 
 ```text
 Item === Item          // Allowed; neither needs PartialEq.
@@ -163,7 +152,7 @@ Color === Color        // Rejected; enum values have no object identity.
 Interface construction/upcasting preserves sharing and underlying object
 identity, but does not permit identity operators through an interface-typed
 expression. There is no interface-wrapper identity or hidden-value identity
-trap in the target operator contract. A checked explicit downcast to an object
+trap in the operator contract. A checked explicit downcast to an object
 type can make identity comparison legal without copying the object; a downcast
 to a value type cannot. This is the required semantic interaction, not a claim
 that source downcast syntax/APIs are implemented. Downcast failure must be
@@ -180,20 +169,17 @@ backends consume checked facts rather than rediscovering comparison policy.
 
 ## Equality and hashing
 
-This section describes the current implementation, including defaults and
-interface behavior superseded by the [accepted design](#accepted-comparison-design).
-Runnable coverage for the current implementation
-is provided by [standard-traits.kgr](../../examples/syntax/standard-traits.kgr)
+Runnable coverage is provided by [standard-traits.kgr](../../examples/syntax/standard-traits.kgr)
 and the standard-protocol integration tests.
 
 ### One implementation selection rule
 
-For a given concrete type, use its explicit protocol implementation when one
-exists; otherwise use the type's eligible builtin default. This rule applies
-equally to user Structs and enums. The selected implementation is the same in
-operators, method calls, generic code and containers; imports or call sites must
-not silently select a different comparison. Assignment and copying retain their
-existing semantics regardless of custom equality.
+For a given concrete type, select its applicable explicit implementation or its
+eligible builtin/library implementation. Missing evidence is a static error.
+User Structs and enums have no automatic comparison implementation. Operators,
+method calls, generic code and containers use the same selected implementation;
+imports cannot silently change it. Assignment and copying retain their existing
+semantics regardless of custom equality.
 
 ### Operators and defaults
 
@@ -202,48 +188,26 @@ PartialEq without adding a method: it promises an equivalence relation, includin
 reflexivity, symmetry and transitivity. Eq does not mean field equality or
 immutability. `.eq()` and generic comparisons use the same implementation as `==`.
 
-`===` and `!==` compare object identity and cannot be overridden. They apply to
-Struct, native script objects, Array, Map and Set, using stable runtime-owned
-identity rather than a physical address. Ordinary interfaces also admit these
-operators under the existing operand type-compatibility rules; no Object bound
-or collection marker is required. Interface wrapping and parent adaptation preserve
-the underlying object's identity, independently of its selected equality protocol.
+`===` and `!==` use stable runtime-owned object identity and cannot be overridden.
+Their [static operand rule](#identity-requires-statically-known-object-operands)
+rejects interface, value and unknown generic operands. Identity is independent of
+PartialEq and remains stable through mutation and GC relocation.
 
-Known scalar, String, Tuple and enum operands are rejected at compile time.
-If an interface hides one of these value categories, either identity operator
-traps at runtime, even when both operands refer to the same interface wrapper.
-Box allocation never supplies object identity. Both operands are evaluated left
-to right exactly once before comparison, and effects completed before a trap
-remain committed. Invalid or stale handles remain errors, not unequal objects.
-Host roots, borrowed handles and path-view identity comparisons remain outside
-this extension.
-
-The defaults differ by type, but follow the same selection rule:
-
-| Type | Default comparison | Default hash | User override |
+| Type | Supplied comparison | Supplied hash | Implementation owner |
 | --- | --- | --- | --- |
-| Struct | Object identity | Stable object identity | Allowed |
-| User enum | Same concrete enum type and variant, then corresponding members | Combine enum/variant identity and member hashes | Allowed |
-| Tuple | Corresponding members in position order | Combine member hashes in position order | No independent override |
-| Option / Result | Standard enum variant and member comparison | Standard enum variant and member hashes | No independent override |
-| Array | Object identity | Stable object identity | No override |
-| Vec / HashMap / HashSet | Conditional stdlib content implementation, otherwise eligible identity default | Conditional content implementation or eligible identity default | Type-owned library implementations |
-| Unit / bool / integers / String | Value | Value | No override |
-| Float | IEEE comparison | None | No override |
+| User Struct / enum | None | None | Explicit implementation in defining module |
+| Tuple | Conditional corresponding members | Conditional member hashes | Builtin |
+| Core Option / Result / Ordering / Bound / ControlFlow | Conditional variant/member comparison | Conditional variant/member hashes | Core library |
+| Array | Conditional ordered contents, PartialEq only | None | Standard library |
+| Vec / HashMap / HashSet | Conditional contents | Conditional contents | Standard library |
+| Unit / bool / integers / String | Value | Value | Builtin |
+| Float | IEEE comparison, PartialEq only | None | Builtin |
 
-Struct defaults supply PartialEq, Eq and Hash regardless of field types. Default
-Tuple and enum protocols are conditional, as described below. The six collection
-interfaces explicitly provide PartialEq by delegating to the retained object's
-comparison selection, and provide bounded Debug. They do not provide Eq/Hash.
+The six collection interfaces provide bounded Debug, without PartialEq/Eq/Hash.
 Concrete collection bounds and cross-implementation helpers are specified in
 [collection content protocols](collection-access.md#content-protocols-and-helpers).
 Other interfaces, host handles/paths and function values gain no automatic equality
 or hashing; this does not open host equality implementations.
-
-Implicit `==` and `!=` semantics remain available when no native packages are
-installed. A default identity or member comparison does not require an imported
-comparison trait declaration. Explicit overrides retain their checked trait and
-method contracts, and compose through tuples and enum payloads.
 
 ### Explicit Struct and enum implementations
 
@@ -256,23 +220,20 @@ concrete instantiation under their declared bounds:
 
 | Explicit implementations | `==` / `.eq()` | Eq and Hash eligibility |
 | --- | --- | --- |
-| None | Eligible type default | Eligible type defaults |
+| None | Not comparable | Not a key |
 | PartialEq only | Custom comparison | No implicit Eq or Hash; not a key |
 | PartialEq and Eq | Custom comparison | Explicit Eq, no implicit Hash; not a key |
 | PartialEq, Eq and Hash | Custom comparison | Explicit Eq and custom Hash; key eligible |
 
-An explicit PartialEq replaces the default comparison and removes the implicit
-Eq and Hash implementations. Eq must then be declared explicitly and Hash must
-be implemented explicitly when needed. Hash-only overrides retaining default
-comparison are rejected, as are Eq-only declarations; custom key protocols use the complete
-PartialEq/Eq/Hash set. Comparison alone does not require a Hash implementation.
+PartialEq, Eq and Hash are separate opt-ins. Eq requires PartialEq; Hash requires
+the complete PartialEq/Eq/Hash set for key use. Eq-only and Hash-only declarations
+without their required protocols are rejected. Comparison alone does not require Hash.
 
-An enum's explicit comparison replaces its entire default comparison, including
-the variant check. It may consider different variants equal. Its custom hash
-must then agree with that decision; the runtime must not prepend a variant tag
-or perform a variant inequality check before the user implementation. An explicit
-enum implementation is checked under its declared bounds, not an automatic
-requirement that every payload implement the same protocol.
+An explicit enum comparison defines the entire comparison, including whether
+different variants are equal. Its custom hash must agree; the runtime does not
+prepend a variant tag or perform a variant inequality check before calling it.
+An explicit implementation is checked under its declared bounds, without an
+automatic requirement that every payload implement the same protocol.
 
 Custom comparison does not change GC ownership, shallow copies or identity
 operators. Struct `===` remains identity comparison even when `==` is customized;
@@ -281,7 +242,7 @@ enum values do not gain `===` by implementing comparison.
 ### Member composition
 
 Default Tuple comparison applies `==` to corresponding members, left to right,
-stopping at the first unequal member. Default enum comparison first checks the
+stopping at the first unequal member. Conditional core enum comparison first checks the
 variant, then compares that variant's payload members in declaration order in
 the same way. A payload-free variant equals the same variant of the same
 concrete enum type. Different concrete types are not made comparable by this
@@ -289,14 +250,14 @@ rule. The members' selected implementations may be builtin or user-defined;
 there is no separate equality rule for composites containing custom members.
 
 Default hashing combines member hashes in the same member order, and enum
-hashing also includes enum and variant identity. A Tuple or default enum
+hashing also includes enum and variant identity. A Tuple or eligible core enum
 implements PartialEq, Eq or Hash only when all member types support the
 corresponding protocol. This checks every enum variant, not only the currently
-constructed variant. Option and Result follow these same default enum rules.
+constructed variant. Core Option, Result, Ordering, Bound and ControlFlow follow these rules.
 The all-members rule applies to default implementations, not explicit enum
 overrides. Floats retain PartialEq without Eq or Hash when nested in a composite.
 
-For example, under the current implementation's implicit enum comparison:
+For example, Option composes explicit member comparison:
 
 ```kagari
 struct Point { val x: i32, val y: i32 }
@@ -306,18 +267,17 @@ impl PartialEq for Point {
     }
 }
 impl Eq for Point {}
-enum Message { Empty, Position(Point) }
 
 fn compare() -> bool {
     val a = Point { x: 1, y: 2 };
     val b = Point { x: 1, y: 2 };
     // Both composite comparisons use Point's custom comparison.
-    (a, 7) == (b, 7) && Message::Position(a) == Message::Position(b)
+    (a, 7) == (b, 7) && Some(a) == Some(b)
 }
 ```
 
 `compare()` returns true; `a === b` would be false. Point has no Hash here, so
-neither `(Point, i32)` nor Message is eligible as a hash key. Adding a matching
+neither `(Point, i32)` nor `Option<Point>` is eligible as a hash key. Adding a matching
 Point Hash implementation makes both eligible through default composition.
 
 An explicit enum override can instead ignore its variants:
@@ -340,12 +300,12 @@ impl Hash for Identifier {
 ```
 
 Local(42) and Remote(42) now compare equal and hash equally, including inside a
-Tuple, another enum or a Set. Without these overrides, the default variant
-comparison makes them unequal. The custom hash does not include the variant.
+Tuple, Option or a Set. Without these implementations Identifier cannot compare
+or hash. The custom hash does not include the variant.
 
 ### Execution paths
 
-Builtin identity and scalar operations retain direct execution paths; String
+Identity operators and builtin scalar operations retain direct execution paths; String
 uses builtin content operations. Composites use their members' selected paths,
 calling user implementations only where required. Compilation/linking can select
 these paths for concrete instances, including monomorphized generic code. These
@@ -384,8 +344,9 @@ before changing it, then reinsert it. This also applies to composite keys that
 refer to that object. Hash codes are runtime lookup aids, not unique IDs,
 cryptographic hashes or persistent fingerprints.
 
-For example, a default `User { var id: i32 }` compares and hashes by identity:
-changing `id` does not affect membership and a different User with the same id
+For example, an author may explicitly give `User { var id: i32 }` identity
+equality and a consistent hash. Changing `id` then does not affect membership,
+and a different User with the same id
 is a different key. With custom equality and hashing based on `id`, separately
 allocated Users with the same id are equal keys; changing id while stored
 violates the container contract. In either case `===` distinguishes the objects.
@@ -444,8 +405,8 @@ tuple does not replace the tuple.
 ## Acceptance examples
 
 - Mutating `b` after `val b = a` changes the object observed through `a`.
-- Separately allocated mutable objects with identical fields compare unequal.
-- Separately constructed equal enum values compare equal.
+- Separately allocated objects have unequal identity; `==` requires PartialEq.
+- Core enum values compare by variant and selected member implementations; user enums require explicit comparison.
 - A shallow copy has new container identity but shares referenced elements.
 - Structural mutation through an alias commits; the old cursor traps on its next read.
 - A compound assignment evaluates root/index/RHS once, reads after RHS, and never

@@ -89,16 +89,17 @@ import references. The native import must match the exact implementation member
 and applied trait signature. Both callable targets retain their implementation
 generation and share frame, callback-return and cleanup validation.
 
-Interface construction records also carry checked receiver comparison evidence.
-A record selects an operation with its conditions and authenticated eligibility
-facts, certifies an unconditional object identity default, or supplies exhaustive
-specialized implementation identities with checked argument extraction paths.
-Independent verification rejects missing/forged evidence and missing executable
-targets. Runtime retains those operations and full supplying type generations
-through interface adaptation and reload; it never resolves source traits from a
-live value. Missing facts are not evidence that a conditional implementation is
-ineligible. These records grant neither Eq/Hash nor identity to boxed value types.
-See [the architecture owner](../architecture.md#library-identities-and-representation-boundaries).
+Interface construction records carry checked construction identities, applied
+arguments, parent views and result adapters. They grant no receiver comparison
+capability and carry no comparison-selection certificates. Dynamic admission
+validates the complete applied member/parent surface, including uncalled members.
+
+Independent MIR and bytecode validation require known object operand types for
+identity instructions. Primitive equality/hash instructions must prove eligibility
+from exact semantic operand types and cannot bypass an explicit implementation.
+Selected ordinary calls retain their supplying generations, roots and cleanup
+contracts without runtime source resolution. See
+[the architecture owner](../architecture.md#library-identities-and-representation-boundaries).
 
 Trait declarations no longer encode collection storage markers. Exact installed
 contracts, conversion-adapter authority, host storage access and operation witnesses

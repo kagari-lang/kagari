@@ -226,32 +226,35 @@ fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::
 }
 
 #[test]
-fn interface_comparison_retains_its_receiver_generation_in_a_new_caller() {
+fn content_helper_retains_interface_iteration_generation_in_a_new_caller() {
     let source = r#"
-use std::collections::Set;
+use std::collections::{List, list_content_equal};
 use std::iter::CollectionCursor;
-struct Bag { val value: i32 }
-impl PartialEq for Bag { fn eq(self, other: Self) -> bool { true } }
+use std::ops::Index;
+struct Bag { val value: f32 }
+impl Index<usize> for Bag { type Output = f32; fn index(self, index: usize) -> f32 { self.value } }
 impl Iterable for Bag {
-    type Item = i32;
-    type Iter = CollectionCursor<i32>;
-    fn iter(self) -> CollectionCursor<i32> { Vec::from([self.value]).iter() }
+    type Item = f32;
+    type Iter = CollectionCursor<f32>;
+    fn iter(self) -> CollectionCursor<f32> { Vec::from([self.value]).iter() }
 }
-
-impl Set<i32> for Bag {
+impl List<f32> for Bag {
     fn len(self) -> usize { 1usize }
     fn is_empty(self) -> bool { false }
-    fn contains(self, value: i32) -> bool { self.value == value }
+    fn get(self, index: usize) -> Option<f32> { Some(self.value) }
 }
-trait Probe { fn same(self, a: Set<i32>, b: Set<i32>) -> bool; }
+trait Probe { fn same(self, a: List<f32>, b: List<f32>) -> bool; }
 struct Checker {}
-impl Probe for Checker { fn same(self, a: Set<i32>, b: Set<i32>) -> bool { a == b } }
-fn make() -> Set<i32> { Bag { value: 42 } }
+impl Probe for Checker { fn same(self, a: List<f32>, b: List<f32>) -> bool { list_content_equal(a, b) } }
+fn make() -> List<f32> { Bag { value: 42.0f32 } }
 fn probe() -> Probe { Checker {} }
 "#;
     let engine = KagariEngine::default();
     let original = prepare(&engine, source);
-    let replacement = prepare(&engine, &source.replace("bool { true }", "bool { false }"));
+    let replacement = prepare(
+        &engine,
+        &source.replace("Vec::from([self.value])", "Vec::from([0.0f32 / 0.0f32])"),
+    );
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
@@ -317,14 +320,10 @@ fn shared_collection_comparison_accepts_new_primitive_applications_after_reload(
 }
 
 #[test]
-fn shared_collection_comparison_composes_old_and_new_nominal_arguments() {
-    // Exercise the typed native protocol binding with a mixed-generation view;
-    // the neighboring cases retain operator-selection coverage.
-    let source = mixed_generation_collection_source().replace(
-        "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
-        "factory.one(Item { value: 1 }).eq(factory.one(Item { value: 2 }))",
-    );
-    assert_shared_collection_comparison_reloading(&source, true, |source| {
+fn content_helper_selects_element_operations_in_the_callers_generation() {
+    let source = mixed_generation_collection_source();
+    // Element comparison belongs to the helper caller; iteration remains pinned to the view.
+    assert_shared_collection_comparison_reloading(&source, false, |source| {
         source.replace(
             "impl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }",
             "impl PartialEq for Local { fn eq(self, other: Self) -> bool { false } }",
@@ -342,22 +341,6 @@ fn shared_collection_comparison_composes_the_new_argument_operation() {
         .replace("Item { value: 1 }", "Local {}")
         .replace("Item { value: 2 }", "Local {}");
     assert_shared_collection_comparison_reloading(&same_nominal, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
-}
-
-#[test]
-fn shared_collection_comparison_preserves_ineligible_content_identity() {
-    let source = mixed_generation_collection_source()
-        .replace(
-            "struct Item { val value: i32 }\nimpl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }",
-            "trait Opaque {}\nimpl Opaque for i32 {}\nenum Item { Value(Opaque) }",
-        )
-        .replace(
-            "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
-            "val value: Opaque = 1;\n        val a = factory.one(Item::Value(value));\n        val b = factory.one(Item::Value(value));\n        a == a && !(a == b)",
-        );
-    assert_shared_collection_comparison_reloading(&source, true, |source| {
         source.replace("bool { true }", "bool { false }")
     });
 }
@@ -412,120 +395,6 @@ fn probe() -> Probe { Checker {} }
     });
 }
 
-#[test]
-fn shared_collection_identity_does_not_require_a_comparison_application() {
-    let source = mixed_generation_collection_source().replace(
-        "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
-        "val a = factory.one(Item { value: 1 });
-        val b = factory.one(Item { value: 2 });
-        a === a && !(a === b) && !(a !== a) && a !== b",
-    );
-    assert_shared_collection_comparison_reloading(&source, true, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
-}
-
-#[test]
-fn shared_collection_comparison_retains_a_generic_receiver_selection() {
-    let source = generic_bag_collection_source();
-    assert_shared_collection_comparison_reloading(&source, true, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
-    let constrained = source
-        .replace(
-            "impl<T> PartialEq for Bag<T>",
-            "impl<T: Eq> PartialEq for Bag<T>",
-        )
-        .replace("struct Local", "impl Eq for Local {}\nstruct Local")
-        .replace("struct Item", "impl Eq for Item {}\nstruct Item");
-    // Eq has no callable. Its positive and negative facts must independently
-    // follow the generation of the actual element, not the factory's body.
-    assert_shared_collection_comparison_reloading(&constrained, true, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
-    let negative = format!(
-        "struct Unequal {{}}\nimpl PartialEq for Unequal {{ fn eq(self, other: Self) -> bool {{ true }} }}\n{constrained}"
-    );
-    assert_shared_collection_comparison_reloading(&negative, false, |source| {
-        source
-            .replace("Item { value: 1 }", "Unequal {}")
-            .replace("Item { value: 2 }", "Unequal {}")
-    });
-}
-
-#[test]
-fn shared_collection_comparison_preserves_generic_identity_default() {
-    let source = generic_bag_collection_source()
-        .replace(
-            "impl<T> PartialEq for Bag<T> { fn eq(self, other: Self) -> bool { true } }",
-            "",
-        )
-        .replace(
-            "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
-            "val a = factory.one(Item { value: 1 });\n        val b = factory.one(Item { value: 2 });\n        a == a && !(a == b)",
-        );
-    assert_shared_collection_comparison_reloading(&source, true, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
-}
-
-#[test]
-fn shared_collection_comparison_checks_specialized_receiver_arguments() {
-    let source = generic_bag_collection_source().replace(
-        "impl<T> PartialEq for Bag<T>",
-        "impl PartialEq for Bag<(Local, Item)>",
-    ).replace(
-        "factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })",
-        "val a = factory.one(Item { value: 1 });\n        val b = factory.one(Item { value: 2 });\n        if !(a == a) { val zero = 0; 1 / zero; }\n        a == b",
-    );
-    assert_shared_collection_comparison_reloading(&source, false, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
-    let generic = generic_bag_collection_source()
-        .replace(
-            "impl<T> PartialEq for Bag<T>",
-            "impl<T: Eq> PartialEq for Bag<(T, i32)>",
-        )
-        .replace("List<(Local, T)>", "List<T>")
-        .replace("Vec::from([(Local {}, value)])", "Vec::from([value])")
-        .replace("struct Item", "impl Eq for Item {}\nstruct Item")
-        .replace("Item { value: 1 }", "(Item { value: 1 }, 1)")
-        .replace("Item { value: 2 }", "(Item { value: 2 }, 1)");
-    assert_shared_collection_comparison_reloading(&generic, true, |source| {
-        source.replace("bool { true }", "bool { false }")
-    });
-}
-
-fn generic_bag_collection_source() -> String {
-    let source = mixed_generation_collection_source().replace(
-        "Vec::from([(Local {}, value)])",
-        "Bag { items: Vec::from([(Local {}, value)]) }",
-    );
-    format!(
-        r#"
-use std::ops::Index;
-use std::iter::CollectionCursor;
-struct Bag<T> {{ val items: Vec<T> }}
-impl<T> PartialEq for Bag<T> {{ fn eq(self, other: Self) -> bool {{ true }} }}
-impl<T> Index<usize> for Bag<T> {{
-    type Output = T;
-    fn index(self, index: usize) -> T {{ self.items[index] }}
-}}
-impl<T> Iterable for Bag<T> {{
-    type Item = T;
-    type Iter = CollectionCursor<T>;
-    fn iter(self) -> CollectionCursor<T> {{ self.items.iter() }}
-}}
-impl<T> List<T> for Bag<T> {{
-    fn len(self) -> usize {{ self.items.len() }}
-    fn is_empty(self) -> bool {{ self.items.is_empty() }}
-    fn get(self, index: usize) -> Option<T> {{ self.items.get(index) }}
-}}
-{source}
-"#,
-    )
-}
-
 fn mixed_generation_collection_source() -> String {
     SHARED_COLLECTION_SOURCE
         .replace("struct Item", "struct Local {}\nimpl PartialEq for Local { fn eq(self, other: Self) -> bool { true } }\nstruct Item")
@@ -534,7 +403,7 @@ fn mixed_generation_collection_source() -> String {
 }
 
 const SHARED_COLLECTION_SOURCE: &str = r#"
-use std::collections::List;
+use std::collections::{List, list_content_equal};
 struct Item { val value: i32 }
 impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } }
 fn pack<T>(value: T) -> List<T> { Vec::from([value]) }
@@ -550,7 +419,7 @@ trait Probe { fn check(self, factory: Boxer) -> bool; }
 struct Checker {}
 impl Probe for Checker {
     fn check(self, factory: Boxer) -> bool {
-        factory.one(Item { value: 1 }) == factory.one(Item { value: 2 })
+        list_content_equal(factory.one(Item { value: 1 }), factory.one(Item { value: 2 }))
     }
 }
 fn make() -> Boxer { Factory {} }

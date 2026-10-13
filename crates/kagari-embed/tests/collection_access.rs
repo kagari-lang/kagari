@@ -90,10 +90,10 @@ fn main() -> i32 {
     shelf.items[0].value = 40;
     val copy = Vec::from([view[0]]);
     writable[0] = Item { value: 7 };
-    if !(copy[0] === item && copy !== view) { return 0; }
-    if !(view === writable && view == writable) { return 0; }
-    val join = if true { view } else { writable };
-    val other = match true { true => writable, false => view };
+    if !(copy[0] === item && copy !== writable) { return 0; }
+    if !(view[0] === writable[0] && view[0].value == 7) { return 0; }
+    val join: std::collections::List<Item> = if true { view } else { writable };
+    val other: std::collections::List<Item> = match true { true => writable, false => view };
     val inspect = || size(join) == size(other);
     if !(inspect()) { return 0; }
     val nested: std::collections::List<Vec<i32>> = Vec::from([Vec::from([1])]);
@@ -479,12 +479,12 @@ fn main() -> i32 {
     val x = demo::read_map(a); val y = demo::read_map(b);
     if !(equal(x, y) && x.hash() == y.hash() && x.get(1) == Some(40)) { return 1; }
     val mx: Map<i32, i32> = x; val my: Map<i32, i32> = y;
-    if !(mx == my && mx === x && map_content_equal(mx, my)) { return 2; }
+    if !(x === a && map_content_equal(mx, my)) { return 2; }
     val sa = HashSet::from([1, 2]); val sb = HashSet::from([2, 1]);
     val sx = demo::read_set(sa); val sy = demo::read_set(sb);
     if !(equal(sx, sy) && sx.hash() == sy.hash() && sx.contains(2)) { return 3; }
     val ix: Set<i32> = sx; val iy: Set<i32> = sy;
-    if !(ix == iy && ix === sx && set_content_equal(ix, iy)) { return 4; }
+    if !(sx === sa && set_content_equal(ix, iy)) { return 4; }
     a.insert(2, 2); sa.insert(3);
     if !(mx.get(2) == Some(2) && ix.contains(3)) { return 5; }
     42

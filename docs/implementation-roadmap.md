@@ -113,23 +113,21 @@ whole-crate missing-docs acceptance.
 
 ## Trait interfaces and comparison
 
-[Trait interfaces and comparison](trait-interface-comparison-plan.md) is the
-active TI01-TI04 execution plan for the accepted decisions. Implementation was
-authorized on 2026-10-13 and begins with TI01; unrelated queued work stays outside
-this execution. The plan alone owns phase acceptance and the progress/error ledger.
+The trait/interface comparison implementation is complete as of 2026-10-13.
+Specifications own [supplied conversion contexts](spec/traits.md#accepted-interface-conversion-context),
+[whole-trait dynamic eligibility](spec/traits.md#interface-compatibility-rules) and
+[static comparison/identity rules](spec/value-semantics.md#accepted-comparison-design).
+Architecture records their [proof and execution owners](architecture.md#library-identities-and-representation-boundaries).
 
-The sequence is: require supplied interface conversion targets; unify structural
-dynamic compatibility; replace equality/identity selection end to end; complete
-integration and remove obsolete mechanisms. Specifications own the accepted
-[conversion contexts](spec/traits.md#accepted-interface-conversion-context),
-[dynamic eligibility](spec/traits.md#interface-compatibility-rules) and
-[comparison rules](spec/value-semantics.md#accepted-comparison-design).
+Focused local checks cover branch contexts, dynamic admission, conditional and
+explicit comparison, rejected interface identity, malformed portable contracts,
+callback effects/cleanup, pinned reload and source-free loading. Full workspace
+and exhaustive feature/backend acceptance remain unrun locally and belong to CI.
+The completed plan and resolved findings are retained in Git history.
 
-The plan implements SA25/SA26 and resolves SA23/SA24 against the new semantics.
-SA22 generic construction witnesses, source interface impl targets, blanket impls,
-derive/downcast additions and NC/SA21 migrations remain outside its scope.
-Current specifications distinguish accepted targets from old implemented behavior.
-Full workspace/feature/backend acceptance remains CI-owned.
+[SA22 generic construction witnesses](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses),
+source interface impl targets, blanket impls, derive/downcast additions and NC/SA21
+migrations remain outside this work; their completion is not implied.
 
 ## Review follow-up order
 
@@ -141,8 +139,9 @@ into one migration. Each activated task retains a finite scope and focused gates
 Ordinary collection-interface ownership is implemented. Current contracts live in
 [collection semantics](spec/collection-access.md), [value semantics](spec/value-semantics.md)
 and [architecture](architecture.md#library-identities-and-representation-boundaries).
-Trait markers are removed; explicit stdlib content protocols/helpers and retained
-receiver equality are validated by focused source, artifact and reload tests.
+Trait markers and receiver comparison forwarding are removed. Explicit stdlib
+content protocols/helpers and pinned interface methods are validated by focused
+source, artifact and reload tests.
 Exhaustive workspace and feature/backend validation remain CI-owned; local focused
 results do not claim those unrun checks. The queued items below are not activated
 by completion of the collection-interface work.

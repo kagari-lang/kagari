@@ -266,13 +266,13 @@ fn main() -> i32 {
     val copy = Vec::from([view[0], view[1]]);
     val copied_view: List<i32> = copy;
     val other_sequence: List<i32> = Sequence { items: Vec::from([7, 35]) };
-    if !(view == view && view != other_sequence && other_sequence != view) { return 0; }
+    if !(list_content_equal(view, view) && list_content_equal(view, other_sequence) && list_content_equal(other_sequence, view)) { return 0; }
     if !(list_content_equal(view, copied_view) && list_content_equal(copied_view, view)) { return 0; }
     if !(list_content_equal(source, copy) && list_content_equal(copy, source)) { return 0; }
     val second_source = Sequence { items: Vec::from([7, 35]) };
     if !list_content_equal(source, second_source) { return 0; }
     if first(source) != 7 { return 0; }
-    if !(!(view === copied_view) && view != copied_view && copied_view != view) { return 0; }
+    if !(source !== copy && source !== second_source) { return 0; }
     val writable: MutableList<i32> = source;
     writable[0] -= 6;
     replace(source, 9);
@@ -280,10 +280,11 @@ fn main() -> i32 {
     child[0] -= 8;
     if !(copy[0] == 7 && view[0] == 1) { return 0; }
     if !(size(source) == 2usize && size(copy) == 2usize) { return 0; }
-    val set: Set<f64> = Singleton { value: 0.5 };
-    val same_set: Set<f64> = Singleton { value: 0.5 };
+    val concrete = Singleton { value: 0.5 };
+    val same_concrete = Singleton { value: 0.5 };
+    val set: Set<f64> = concrete;
     val different_set: Set<f64> = Singleton { value: 1.0 };
-    if !(set.contains(0.5) && set == same_set && same_set == set && set != different_set) { return 0; }
+    if !(set.contains(0.5) && concrete == same_concrete && !different_set.contains(0.5)) { return 0; }
     first(copy) + copy[1]
 }
 "#,

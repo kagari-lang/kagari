@@ -27,7 +27,7 @@ fn main() -> i32 {
     val pair = (point.x, point.y);
     val values = [pair[0], pair[1]];
     val answer = Answer::Value(values[0] + values[1]);
-    { val passed = answer == Answer::Value(42); if !passed {val zero=0;1/zero;} };
+    { val passed = (match answer { Answer::Value(n) => n == 42, Answer::Missing => false }); if !passed {val zero=0;1/zero;} };
     var arithmetic = 2;
     arithmetic -= 1;
     arithmetic *= 2;

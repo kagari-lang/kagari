@@ -88,47 +88,18 @@ Concrete implementations convert implicitly to their implemented interface.
 Mutable interfaces upcast to the read-only parent; reverse conversion and
 implicit downcasts are rejected. Type arguments are invariant: converting an
 outer container does not recursively convert elements or grant nested writes.
-Conversions apply to arguments, assignments, returns, fields and contextual
-expressions. The current implementation's branch joins enumerate valid native
-and script implementations and choose a unique most-specific common interface
-across all completing arms. An
-existing operand's interface is preserved when every arm can convert to it.
-Ambiguous unrelated candidates are rejected; generic arguments remain invariant.
-A join does not introduce Eq/Hash evidence.
-
-**Accepted conversion change, not yet implemented:**
-[explicit target contexts](traits.md#accepted-interface-conversion-context)
-replace the common-interface inference above. An annotated variable, assignment
-destination, parameter, return or field type supplies the interface target.
+Conversions use [supplied target contexts](traits.md#accepted-interface-conversion-context):
+an annotated variable, assignment destination, parameter, return or field type.
 Without that context, `if`/`match` neither search common traits/parents nor coerce
 one branch to another branch's interface type. Branches already sharing the same
-interface type still merge. Existing non-interface readonly adaptation remains
-separate. [SA25](../review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits)
-owns this migration; no new cast syntax is required.
+interface type still merge. Non-interface readonly adaptation remains separate.
 
-**Comparison migration status:** the following interface comparison behavior and
-identity defaults describe the current implementation. The
-[accepted design](value-semantics.md#accepted-comparison-design) removes automatic
-receiver PartialEq forwarding from all six collection interfaces, rejects
-interface `===`/`!==`, and removes concrete identity equality/hash defaults.
-Array gains conditional content equality; Vec/HashMap/HashSet keep their applicable
-content implementations. Explicit content helpers and bounded interface Debug
-remain. Implementation is pending under [SA26](../review.md#sa26-implement-the-accepted-equality-and-identity-design).
-
-The underlying object identity survives interface wrapping and upcasting.
-`===` and `!==` compare that identity independently of content protocols. Ordinary
-interfaces also admit identity operators; hidden value receivers trap as described
-in [value semantics](value-semantics.md#operators-and-defaults).
-
-The standard library explicitly implements PartialEq and bounded Debug for all
-six collection interfaces. Interface `==`, `!=` and `.eq()` use the underlying
-object's applicable PartialEq implementation, or its eligible identity default.
-Adapting a view preserves this selection and its supplying generation. Comparing
-different concrete receiver types does not manufacture a cross-type equality
-implementation: they compare unequal. Merely implementing List/Set/Map imposes no
-content equality on a custom collection. Interfaces gain neither Eq nor Hash from
-this comparison behavior, so plain List/Set/Map values cannot serve as hash keys.
-Use the explicit content helpers below for cross-implementation content comparison.
+Underlying object identity survives interface wrapping and upcasting, but
+`===`/`!==` require statically known concrete object operands. Interface operands
+are rejected, as described in [value semantics](value-semantics.md#operators-and-defaults).
+Boxing grants no comparison capability. The six collection interfaces provide
+bounded Debug without PartialEq/Eq/Hash or hidden receiver comparison forwarding.
+Use the explicit content helpers below for cross-implementation comparison.
 
 Concrete native operations retain intrinsic fast paths. Generic calls select a
 concrete implementation during compilation; dynamic calls use the existing
@@ -162,23 +133,20 @@ methods continue returning their concrete receiver.
 
 ## Content protocols and helpers
 
-The content implementations and helpers below remain part of the accepted design;
-the described fallback to identity is current behavior scheduled for removal.
-
 Stdlib declares these concrete conditional implementations through the same
 checked protocol and native-call contracts used by other libraries:
 
 | Concrete type | PartialEq | Eq | Hash |
 | --- | --- | --- | --- |
+| Array `[T]` | T: PartialEq | — | — |
 | Vec<T> | T: PartialEq | T: Eq | T: Eq + Hash |
 | HashSet<T> | T: Eq + Hash | T: Eq + Hash | T: Eq + Hash |
 | HashMap<K,V> | K: Eq + Hash, V: PartialEq | K: Eq + Hash, V: Eq | K: Eq + Hash, V: Eq + Hash |
 
-When a conditional content implementation does not apply, eligible object identity
-defaults remain available. Once explicit PartialEq applies, implicit identity Eq or
-Hash cannot contradict it. For example Vec<f32> has content PartialEq and no Eq/Hash;
-Vec containing values without PartialEq retains identity defaults. Arrays remain
-separate and retain identity equality/hash.
+Unsatisfied content bounds are a static error; there is no identity fallback.
+Vec<f32> has content PartialEq without Eq/Hash. Arrays supply PartialEq only,
+comparing length and then corresponding elements in order through selected
+callbacks; sharing an object does not bypass those callbacks.
 
 `std::collections::list_content_equal`, `set_content_equal` and
 `map_content_equal` accept two List<T>, Set<T> or Map<K,V> interfaces. Their bounds
@@ -202,7 +170,7 @@ mix over element hashes in order and finally mixes length. HashSet sums
 mix(seed, element_hash) and mixes cardinality. HashMap sums
 mix(mix(seed, key_hash), value_hash) and mixes cardinality. Set/map hashes are
 independent of traversal order. These algorithms belong to stdlib, separately
-from runtime identity hashing and internal hash-table storage.
+from identity operators and internal hash-table storage.
 
 ## Foundation algorithms
 
@@ -296,7 +264,7 @@ object boundary; they do not introduce a new JIT backend.
 
 Retained coverage exercises native and script implementations, generic and dynamic
 calls, mutable-to-read-only upcasts, live aliasing, indexed compound assignment,
-custom Eq/Hash keys, interface identity, malformed artifacts and generated
+custom Eq/Hash keys, concrete identity and rejection of interface identity, malformed artifacts and generated
 navigation. The accepted sorting/lazy/object proof covers source and encoded
 artifacts, GC during callbacks, cleanup, reload and independent source-free loading.
 The [performance report](../performance-baseline.md) records scoped measurements;

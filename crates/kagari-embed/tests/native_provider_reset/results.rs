@@ -108,7 +108,7 @@ fn artifact(engine: &KagariEngine, source: &str) -> DefinitionMetadata<KbcArtifa
 fn concrete_native_results_construct_declared_interfaces_in_generic_calls() {
     let engine = engine();
     for source in [
-        "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; if f.one(1) == f.one(1) {42} else {0} }",
+        "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; if std::collections::list_content_equal(f.one(1), f.one(1)) {42} else {0} }",
         "use example::results::singleton; fn main() -> i32 { singleton([42])[0usize][0usize] }",
         "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; f.one([42])[0usize][0usize] }",
         "use example::results::Factory; struct F {} struct Payload { val value: i32 } impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; val a = f.one(20); val b = f.one(Payload { value: 22 }); a[0usize] + b[0usize].value }",

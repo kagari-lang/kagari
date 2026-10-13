@@ -587,6 +587,27 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
                 if type_name == "K" && constraint == "Eq + Hash"
         )
     }));
+
+    // Header checking must defer nominal proofs, then reject missing evidence
+    // even when no function body constructs or accesses the declaration.
+    for declaration in [
+        "struct Store { val keys: HashSet<Key> }",
+        "enum Store { Keys(HashSet<Key>) }",
+    ] {
+        let lowered = common::lower_ok(&format!(
+            "use std::collections::HashSet; struct Key {{}} {declaration}"
+        ));
+        let diagnostics =
+            crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+                .expect("installed declaration analysis")
+                .into_checked()
+                .expect_err("nominal keys still require explicit protocols");
+        assert!(diagnostics.iter().any(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
+                if type_name == "Key" && constraint == "Eq + Hash"
+        )));
+    }
 }
 
 #[test]

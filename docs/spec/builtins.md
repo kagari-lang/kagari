@@ -121,29 +121,28 @@ Additional container types register storage and ordinary trait impls without
 adding concrete-type dispatch to the compiler or VM.
 
 The [equality and hashing contract](value-semantics.md#equality-and-hashing)
-defines defaults, custom Struct/enum implementations and user obligations for
+defines conditional implementations, explicit Struct/enum implementations and user obligations for
 mutable keys. Default HashMap keys and HashSet elements require the
 checked `Eq + Hash` contracts; Map/Set interfaces do not:
 
 - unit, bool, integers and String use value equality and hashing;
 - Tuple, Option and Result compose the protocols of all members;
-- user enums use explicit implementations, or eligible variant/member defaults;
-- Struct uses explicit implementations, or stable object identity;
-- Array uses stable object identity, independently of its contents;
-- Vec, HashMap and HashSet use their applicable stdlib content implementations,
-  with eligible identity defaults when content bounds are not satisfied. See
+- user Structs and enums require explicit implementations;
+- Array has conditional content PartialEq only, without Eq/Hash;
+- Vec, HashMap and HashSet use their applicable stdlib content implementations;
+  unsatisfied bounds reject comparison without an identity fallback. See
   [collection protocols and helpers](collection-access.md#content-protocols-and-helpers).
 
-Float, interface, host handle/path and function values are not keys themselves.
-Default enum eligibility checks every variant. A complete custom enum protocol
-may ignore payloads which do not themselves implement Eq/Hash.
+Float, collection-interface, host handle/path and function values are not keys.
+Conditional core enum eligibility checks every variant. A complete explicit user
+enum protocol may ignore payloads which do not themselves implement Eq/Hash.
 Objects referenced by keys are traced while the owning container is reachable.
 Builtin-only keys use a bounded immutable canonical key and native lookup.
 Custom keys hash and compare in ordinary script frames before committing a
 modification; no storage borrow spans a callback. Mutation of the active
 container traps, and failure releases lookup guards and temporary GC roots.
-Mutation of an identity key cannot invalidate its hash; custom key stability is
-the user's responsibility.
+Authors may explicitly choose identity equality with a consistent hash; key
+stability remains the author's responsibility.
 
 ## Option and Result
 

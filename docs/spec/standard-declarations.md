@@ -113,11 +113,11 @@ reference complete checked trait contracts instead of redeclaring them.
 Collection interfaces use ordinary methods and parent traits. There is no
 storage-access marker on trait declarations. Installed implementations can supply
 protocols for nominal interface values; type-owned protocols belong to that
-interface's defining module. The standard library explicitly implements PartialEq
-and Debug for its six collection interfaces, without Eq or Hash. Their equality
-binding uses `Interface::receiver_equal` to invoke the receiver's retained checked
-comparison; `Interface::debug_preview` supplies bounded interface formatting.
-Neither operation grants a storage layout or writable methods. Concrete host
+interface's defining module. The standard library explicitly implements bounded
+Debug for its six collection interfaces, without PartialEq, Eq or Hash.
+`Interface::debug_preview` supplies bounded formatting. Content helpers compare
+through selected element/key protocols; boxing never forwards a hidden receiver's
+equality. These operations grant no storage layout or writable methods. Concrete host
 Map/Set access descriptors remain checked at their independent storage boundary.
 
 `ModuleBuilder::define_enum` authors an ordinary managed nominal enum rather than

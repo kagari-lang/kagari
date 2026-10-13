@@ -229,7 +229,7 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
     }
     let artifact = compile(
         &engine,
-        "use pkg::left; use pkg::right; fn main() -> bool { left::make() == left::Event::Data(7) && right::make() == right::Event::Data(9) }",
+        "use pkg::left; use pkg::right; fn main() -> bool { (match left::make() { left::Event::Data(n) => n == 7 }) && (match right::make() { right::Event::Data(n) => n == 9 }) }",
     );
     let decoded =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())

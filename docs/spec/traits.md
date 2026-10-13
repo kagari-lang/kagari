@@ -45,21 +45,18 @@ The current trait scope excludes:
 
 ## Current interface conversion boundary
 
-**Accepted change, not yet implemented:** [comparison eligibility](value-semantics.md#accepted-comparison-design)
-will require interface-level PartialEq for interface `==` and reject `===`/`!==`
-whenever either operand is an interface. Value receivers remain allowed under
-ordinary checked conversion rules. No Object type/bound is added; boxing grants
-neither comparison capability nor identity. The current behavior below remains
-an implementation description until [SA26](../review.md#sa26-implement-the-accepted-equality-and-identity-design)
-is implemented.
+[Comparison eligibility](value-semantics.md#accepted-comparison-design) requires
+interface-level PartialEq for interface `==` and rejects `===`/`!==` whenever either
+operand is an interface. Value receivers remain allowed under checked conversion
+rules. Boxing grants neither comparison capability nor identity.
 
 Concrete applied implementations can become interface values, including generic
 receiver shapes such as `Vec<T>` becoming `List<T>`. Existing interface values
 upcast through declared parents. Their arguments remain invariant, and their
 checked associated outputs and receiver generations are preserved. Shared generic
 methods and ordinary trait-bound calls do not require a universal Object type.
-Identity comparison through any ordinary interface follows the runtime receiver
-category, as specified in [value semantics](value-semantics.md#operators-and-defaults).
+Identity operators require statically known concrete object operands, as specified
+in [value semantics](value-semantics.md#operators-and-defaults).
 
 A bare type parameter's bound does not currently supply an interface-construction
 witness. For example `fn erase<T: Child>(value: T) -> Child { value }` is rejected,
@@ -73,15 +70,10 @@ Source-authored impl targets remain concrete receiver types; installed native
 implementations may also define protocols on nominal interface values. Their
 signatures, type-owned protocol ownership and executable targets are checked by
 the same declaration/proof owners. The standard library uses this registration
-path for Iterator's Iterable adapter and collection-interface PartialEq/Debug.
+path for Iterator's Iterable adapter and collection-interface Debug.
 No collection name grants the implementation or its methods.
 
 ## Accepted interface conversion context
-
-Status: accepted on 2026-10-13; removal of context-free interface inference is
-not implemented yet. [SA25](../review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits)
-records the finding; [TI01](../trait-interface-comparison-plan.md#ti01-require-supplied-interface-conversion-targets)
-owns implementation and acceptance alongside TI02's structural compatibility work.
 
 An implicit interface conversion checks a target supplied by the program's type
 context; it does not choose a target by searching for a common implemented trait.
@@ -102,7 +94,7 @@ and constructor inference (such as integer literals and `None`/`Some`), existing
 non-interface readonly adaptation and non-completing branch handling remain
 unchanged. Restrict interface conversion, not ordinary type inference.
 
-The following target-behavior sketch assumes A and B implement Read:
+The following behavior sketch assumes A and B implement Read:
 
 ```text
 val inferred = if flag { A {} } else { B {} };          // Rejected.
@@ -133,9 +125,8 @@ Keep representation and performance claims separate from the type syntax.
 The existing bound-to-interface construction limitation in SA22 is not removed
 by supplying an explicit target. This decision changes target selection only;
 it does not add missing generic construction witnesses or weaken conversion
-validation. Current common-interface inference remains described in
-[collection conversions](collection-access.md#conversion-and-dispatch) until
-the implementation is migrated.
+validation. [Collection conversions](collection-access.md#conversion-and-dispatch)
+use the same supplied-target rule.
 
 ## Associated Constants
 
@@ -534,15 +525,6 @@ remain outside the implemented scope.
 
 ## Interface Compatibility Rules
 
-Status: the complete structural rule below was accepted on 2026-10-13;
-implementation alignment is pending under
-[SA25](../review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits).
-The [TI02 phase](../trait-interface-comparison-plan.md#ti02-unify-structural-dynamic-compatibility)
-owns execution, validation and progress.
-The current checker already enforces several signature/member restrictions but
-also excludes reserved protocols by role. That role-based exclusion is to be
-replaced, not preserved as an additional eligibility rule.
-
 An applied trait can be used as a dynamic interface only if erasing the concrete
 receiver still leaves every member's complete call contract expressible and
 checkable by the caller. Apply trait arguments and associated bindings before
@@ -555,7 +537,7 @@ bounds. Do not silently omit members, erase their signatures into different
 types, or add a static-only-member escape marker. Authors can separate a dynamic
 base trait from a static extension trait when both surfaces are needed.
 
-| Surface | Accepted dynamic compatibility rule |
+| Surface | Dynamic compatibility rule |
 | --- | --- |
 | Receiver | Methods must have `self`; its concrete type may be erased. |
 | Other parameters and return type | No unresolved `Self`, including nested occurrences such as `Option<Self>`, tuples or function signatures. All types must be representable by the runtime value model. |
@@ -1001,14 +983,12 @@ Iterator/Iterable and the six collection interfaces, are listed in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs
-and enums may override PartialEq/Eq/Hash in their defining module. Explicit
-PartialEq removes automatic Eq/Hash; explicit Eq requires PartialEq, and custom
-Hash requires both. Generic impl bounds must establish those requirements.
-The [current equality and hashing contract](value-semantics.md#equality-and-hashing)
-defines defaults, member composition, custom key callbacks and key stability.
-The [accepted replacement](value-semantics.md#accepted-comparison-design) removes
-automatic identity protocols and implicit user-enum comparison; explicit user
-implementations and checked conditional library implementations supply comparison.
+and enums may explicitly implement PartialEq/Eq/Hash in their defining module.
+Eq requires PartialEq, and custom Hash requires both. Generic impl bounds must
+establish those requirements. There are no identity defaults or implicit user-enum
+comparison. The [equality and hashing contract](value-semantics.md#equality-and-hashing)
+defines conditional library implementations, member composition, custom key
+callbacks and key stability.
 Explicit equality, hashing and nominal formatting methods are checked,
 specialized and linked through the ordinary static implementation path.
 Operator and ordering impls are also restricted to script Structs/enums in the
@@ -1016,13 +996,11 @@ type's defining module. Native host tables may implement Debug/Display, but not
 these operator, ordering or equality protocols. Applied operator inputs and
 associated Output identities are checked before static specialization and again
 when loading portable implementation metadata.
-The current implementation makes every reserved language role static-only except
-Index, Iterable and Iterator, including otherwise compatible formatting/hash
-signatures. The [accepted structural rules](#interface-compatibility-rules) replace
-this blanket exclusion; implementation is pending. Collection interfaces (List/MutableList,
-Map/MutableMap and Set/MutableSet), and their object-safe Index/Iterable parents,
-can be used dynamically with concrete type arguments and associated outputs.
-Ordinary user trait interfaces retain their existing dynamic behavior. See
+The [structural rules](#interface-compatibility-rules) govern every applied trait.
+PartialEq is incompatible because of `other: Self`, and Eq inherits that restriction.
+Debug, Display and Hash can become dynamic interfaces. Collection interfaces and
+their Index/Iterable parents use the same applied argument/output rules. No
+reserved-role exclusion or name exemption changes eligibility. See
 [collection interfaces](collection-access.md) for access and storage contracts.
 Try and FromResidual use static dispatch for source and registered native carriers;
 see [propagation protocols](builtins.md#propagation-protocols).

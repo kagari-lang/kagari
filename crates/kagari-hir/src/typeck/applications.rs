@@ -5,7 +5,6 @@ use crate::{
     aggregates::AggregateCatalog,
     declarations::Declarations,
     host::HostDeclarations,
-    language::semantics::intrinsic_holds,
     lower::LoweredModule,
     typeck::{
         GenericBounds, ModuleSignatures,
@@ -72,23 +71,13 @@ pub(super) fn validate(
             _ => None,
         };
         if let Some(key) = key
-            && ((key.contains_interface()
-                && !type_satisfies_standard_constraint(
-                    definitions,
-                    key,
-                    StandardTypeConstraint::HashKey,
-                    bounds,
-                    Some(catalog),
-                ))
-                || (type_satisfies_standard_constraint(
-                    definitions,
-                    key,
-                    StandardTypeConstraint::HashKey,
-                    bounds,
-                    None,
-                ) && [Protocol::Eq, Protocol::Hash]
-                    .into_iter()
-                    .any(|p| !intrinsic_holds(definitions, p, key, Some(catalog), bounds))))
+            && !type_satisfies_standard_constraint(
+                definitions,
+                key,
+                StandardTypeConstraint::HashKey,
+                bounds,
+                Some(catalog),
+            )
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {

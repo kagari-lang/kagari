@@ -1574,60 +1574,39 @@ names. NativeTypeKind/NativeTypeConstructor retain representation descriptors;
 ordinary new containers use existing nominal NativeStorage registration without
 a new generic type or execution-dispatch variant.
 
-The [accepted interface conversion context](spec/traits.md#accepted-interface-conversion-context)
-is pending under [SA25](review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits).
-The [execution plan](trait-interface-comparison-plan.md) owns phase order,
-integration gates and progress for the conversion and comparison migrations.
-HIR will check a supplied interface target rather than infer a common interface
-from context-free branches, including sibling-derived coercions. Shared
-declaration contracts own dynamic eligibility; lowering consumes checked
-conversions and executable validation independently checks their portable proofs.
-The current branch inference machinery remains until that migration. Type syntax
-does not promise allocation-free conversion or change runtime root/version ownership.
+HIR checks [supplied interface conversion targets](spec/traits.md#accepted-interface-conversion-context).
+Context-free branches neither infer a common interface nor use sibling interfaces
+as coercion targets. Lowering consumes checked conversions. Type syntax does not
+promise allocation-free conversion or change runtime root/version ownership.
 
-The [accepted dynamic compatibility contract](spec/traits.md#interface-compatibility-rules)
-checks complete applied member signatures, bounds and parent contracts. One
-incompatible member rejects the whole interface application without preventing
-static trait use. Shared generic methods remain supported; no member omission
-or reserved-role whitelist is part of the target. HIR and source-independent
-contract validation must agree, with member-specific source diagnostics. Current
-role exclusions remain an implementation gap owned by SA25.
+The [dynamic compatibility contract](spec/traits.md#interface-compatibility-rules)
+checks the complete applied signatures, bounds, outputs and parents. One
+incompatible member rejects the entire interface application without preventing
+static trait use. HIR's applied catalog and source-independent contract validation
+share this structural policy. Generic methods remain supported; no role blacklist,
+member omission or name exemption supplies eligibility.
 
-**Accepted comparison migration, not yet implemented:** the
-[value contract](spec/value-semantics.md#accepted-comparison-design) replaces
-identity equality defaults and automatic collection-interface receiver forwarding,
-and rejects interface identity operators statically. The comparison machinery
-described below is the current implementation, not a requirement to retain that
-model. [SA26](review.md#sa26-implement-the-accepted-equality-and-identity-design)
-owns its coherent replacement across HIR, portable contracts, verification and
-runtime. Preserve checked invocation, roots and generation pinning; remove
-comparison-only certificates/dispatch paths once their consumers are removed.
+The [value contract](spec/value-semantics.md#accepted-comparison-design) requires
+statically proven PartialEq and known concrete object types for identity operators.
+HIR selects implementations; contract owns independent eligibility proofs. MIR and
+bytecode reject primitive equality/hash instructions that lack exact semantic
+type evidence or bypass explicit implementations, and reject interface identity
+operands. Backends consume those checked facts. Runtime primitive comparison has
+no general object equality/hash fallback or interface unwrapping for identity.
 
-The standard library owns concrete conditional content protocols and the explicit
-cross-implementation helpers in [collection semantics](spec/collection-access.md#content-protocols-and-helpers).
-It also registers PartialEq and Debug implementations for collection interface
-values. These implementations grant no Eq/Hash evidence. Runtime's typed
-`Interface::receiver_equal` retains normal conversion, root, borrow and view checks
-and delegates to the comparison captured when the interface was constructed.
-`Interface::debug_preview` delegates to bounded value formatting.
+Stdlib owns conditional Array PartialEq and concrete collection content protocols,
+plus explicit [cross-implementation helpers](spec/collection-access.md#content-protocols-and-helpers).
+The six collection interfaces provide bounded Debug without PartialEq forwarding.
+`Interface::debug_preview` delegates to bounded formatting. Array equality uses
+checked element callbacks with roots, cancellation and ordered short circuiting.
 
-`ReceiverComparison` belongs to contract. A selected operation retains its checked
-conditions and separately authenticated positive/negative eligibility facts. An unconditional
-identity-default certificate requires proof that the receiver template has no possibly
-applicable explicit PartialEq implementation. Specialized heads carry an exhaustive
-list of implementation identities and checked parameter extraction paths, including
-associated-output identities. MIR and bytecode verify these records independently
-and require the referenced executable tables. Runtime follows those checked records
-and matches complete type identities against their supplying generations; it does
-not search a live implementation catalog. Unknown or missing evidence is an error,
-not proof that an explicit implementation is absent. Comparison-only facts do not
-become ordinary interface capabilities.
-
-Interface snapshots preserve actual receiver categories. Boxing a value type grants
-no identity. Ordinary-interface identity operations unwrap checked snapshots and
-trap for hidden value receivers. Object comparison retains its selected operation
-and environment across parent conversion and reload. Invocation, cancellation,
-call depth, rooting and trap cleanup use the existing checked call machinery.
+Interface snapshots retain their concrete data, ordinary callable bindings,
+parent views, result adapters and supplying generations. Construction demands use
+ordinary ConcreteFunctionIdentity records; there are no receiver comparison
+certificates, negative eligibility facts or comparison-only retention edges.
+Content helper comparison operations belong to the caller's selected generation;
+iteration through a retained view continues using that view's pinned methods.
+Invocation, cancellation, call depth, roots and trap cleanup use checked calls.
 
 Generated protocol adapter identities distinguish value-type arguments from their
 applied protocol contract. Encoding Iterable's contract as an interface value would

@@ -40,14 +40,13 @@ impose neither hashing nor order; HashMap/HashSet require Eq + Hash on keys/elem
 Ordered implementations can require Ord instead.
 
 The [collection content contracts](spec/collection-access.md#content-protocols-and-helpers)
-own explicit stdlib PartialEq/Eq/Hash for Vec/HashSet/HashMap and the three content
-comparison functions. The separate [trait/interface comparison plan](trait-interface-comparison-plan.md)
-replaces default identity equality and collection-interface receiver forwarding;
-NC must not preserve or reintroduce that superseded model. Reuse the resulting
-checked content implementations, helpers, interface Debug and normal selected
-calls rather than rebuild comparison algorithms. At NC activation, reconcile the
-current TI phase with storage consumers without silently absorbing TI or requiring
-the old ReceiverComparison records. Internal hash-table storage remains NC-owned.
+own conditional Array PartialEq, stdlib PartialEq/Eq/Hash for Vec/HashSet/HashMap,
+and the three content comparison functions. The implemented
+[comparison rules](spec/value-semantics.md#accepted-comparison-design) have no
+identity equality defaults or collection-interface receiver forwarding. NC must
+reuse checked content implementations, helpers, interface Debug and ordinary
+selected calls without reintroducing comparison certificates or duplicate
+algorithms. Internal hash-table storage remains NC-owned.
 
 Trait access markers and their builder/wire APIs are removed. The remaining
 [host/storage descriptor inventory](spec/collection-access.md#host-storage-boundary)

@@ -928,9 +928,15 @@ pub(super) fn validate_standard_constraint_type(
     if constraint == StandardTypeConstraint::Comparable && ty.is_unresolved() {
         return;
     }
-    // Header checking has not assembled installed trait facts yet. Nominal
-    // interface value constraints are completed with the aggregate catalog.
-    if catalog.is_none() && ty.contains_interface() {
+    // Header checking has not assembled explicit implementation facts yet.
+    // Complete non-scalar equality constraints with the aggregate catalog.
+    if catalog.is_none()
+        && matches!(
+            constraint,
+            StandardTypeConstraint::HashKey | StandardTypeConstraint::Comparable
+        )
+        && !matches!(ty, TypeId::Builtin(_))
+    {
         return;
     }
     if constraints::type_satisfies_standard_constraint(
