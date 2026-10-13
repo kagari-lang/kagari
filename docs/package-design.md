@@ -9,8 +9,9 @@ hot reload and state replacement.
 
 The user approved following Rust's dependency model as a direction. Manifest names,
 the initial feature subset and version restrictions below are recommendations to
-review, not implemented features or final language specifications. No implementation
-or commit is authorized by this planning task.
+review, not implemented features or final language specifications. The toolchain
+and Rust distribution names below are confirmed design decisions. Recording them
+does not activate implementation, crate renaming or publication.
 
 ## Current foundation
 
@@ -51,6 +52,115 @@ The first version should have one root code target per package, usable as a libr
 or through exported entry functions. Do not reproduce Cargo's entire target matrix,
 build scripts, procedural macros, feature unification or platform dependency system
 before Kagari needs them. Unsupported manifest fields must be diagnosed, not ignored.
+
+## Toolchain CLI and execution modes
+
+### Confirmed naming and Rust distribution
+
+The product is Kagari. Its two user-facing Rust packages serve distinct workflows:
+
+| Role | Target package or command | User workflow |
+| --- | --- | --- |
+| Embedding SDK on crates.io | `kagari` | `cargo add kagari`; Rust imports use `kagari::...` |
+| Installable toolchain package on crates.io | `kagari-cli` | `cargo install kagari-cli --locked` |
+| Executable installed by the CLI package | `kg` | `kg check`, `kg run`, `kg repl` |
+| Implementation components | `kagari-runtime`, `kagari-hir`, etc. | Dependencies behind the SDK and tooling boundaries |
+
+These are target functional-release workflows; the published reservation versions
+below do not provide them. The main `kagari` package owns the embedding SDK because embedding is a
+primary product purpose; users should not need to select between runtime and VM
+implementation crates to find that SDK. Keep the CLI package separate so argument
+parsing, terminal interaction and package acquisition do not become SDK dependencies.
+A package name and its executable target can differ; see
+[Cargo binary targets](https://doc.rust-lang.org/cargo/reference/cargo-targets.html#binaries)
+and [Cargo installation](https://doc.rust-lang.org/cargo/commands/cargo-install.html).
+
+At implementation, rename the existing `kagari-embed` package and directory directly
+to `kagari`, updating consumers and documentation. Keep `kagari-cli` as the package
+and directory name, and declare its executable as `kg`. Replace the current binary
+entrypoint rather than retaining a second compatibility command. Do not add an
+SDK forwarding package, a legacy `kagari-embed` alias or a separate `kg` package.
+The [Host API design](host-api-refactor.md) continues to own SDK API evolution;
+this naming decision does not require completing that refactor first.
+
+crates.io distributes the Rust SDK, CLI and their required Rust component packages.
+It is separate from the future registry or acquisition mechanisms for Kagari script
+packages. Before publishing functional releases, confirm name ownership for all
+required components, supply registry
+versions alongside local workspace paths, and publish the required dependency
+closure. Cargo does not bundle sibling workspace packages into the CLI archive;
+see [path and registry dependencies](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#multiple-locations).
+Do not publish unrelated workspace tools merely because they share the repository.
+Release automation, functional-release version policy and publication of the actual
+SDK/toolchain remain deferred. Workspace manifests and versions remain unchanged.
+
+After user review and explicit publication approval, standalone, dependency-free
+reservation packages were published on 2026-10-12:
+
+- [`kagari` 0.0.0-reserved](https://crates.io/crates/kagari/0.0.0-reserved).
+- [`kagari-cli` 0.0.0-reserved](https://crates.io/crates/kagari-cli/0.0.0-reserved).
+
+The SDK placeholder exposes no API; the CLI's `kg` binary identifies the placeholder
+and rejects script commands. Both link to the actual development repository and
+carry the project licenses. This reserves the two package names without migrating
+the SDK or releasing the toolchain. Future functional versions replace these
+placeholders directly; no compatibility API or forwarding package is introduced.
+The published archives contain only manifests/lockfiles, README, project licenses
+and minimal source. Package builds and CLI help/version/error behavior passed local
+checks; registry SHA-256 checksums matched the reviewed archives after publication.
+These results cover only the reservation versions, not SDK/toolchain acceptance.
+
+### Command responsibilities
+
+`kg` is the unified development toolchain entrypoint, including package management.
+The command vocabulary below is the target design, not the current CLI help:
+
+| Command | Intended responsibility |
+| --- | --- |
+| `kg check [file.kgr]` | Check the selected project or file and its source dependency closure without emitting executable code |
+| `kg fmt [file.kgr]` | Format the selected project sources or explicit file; `--check` reports differences without writing |
+| `kg lint [file.kgr]` | Run additional code-quality rules using syntax and available semantic facts |
+| `kg build` | Check the selected project and emit its executable artifact |
+| `kg run [file.kgr]` | Build and invoke the selected project entry or explicit script entry |
+| `kg repl` | Start a persistent interactive session |
+
+CLI code owns argument parsing, filesystem/terminal IO, input selection and command
+orchestration. Package loading prepares source snapshots, dependencies and host
+contract inputs. Formatting uses lossless syntax; linting reuses analysis queries;
+checking reuses HIR semantics; executable generation and execution retain their
+existing compiler and runtime owners. Formatting needs source selection, not
+semantic dependency resolution or downloads. Checking and semantic linting share
+the same declared environment as building.
+
+The existing `compile_source`/`compile_snapshot` SDK path already ends at checked
+HIR; `emit_bytecode` performs MIR and bytecode generation separately. Reuse that
+boundary. A successful check covers the selected source rules, including bodies
+not called by the entrypoint; it does not promise successful later code generation
+or execution. Language errors cannot be disabled as optional lint rules.
+
+### Project, standalone script and REPL inputs
+
+A project supplies its manifest, source modules, declared dependencies and entry
+selection. A standalone script needs no on-disk manifest: tooling supplies a
+host-owned in-memory package identity and uses the same checking, compilation and
+execution pipeline. `kg run file.kgr` does not itself authorize a new language rule
+allowing top-level statements; initially reuse the existing function-entry model.
+
+REPL design requires a persistent analysis/runtime session, multiline input and
+retained bindings/results with explicit GC ownership. For example, after accepting
+`val x = 10;`, a later input `x + 2` should display `12`. Invalid syntax or types
+must not commit a new input to the session. A runtime trap preserves completed
+side effects under the existing language contract; session persistence is not a
+transactional rollback mechanism. Reuse ordinary analysis, execution, cancellation,
+roots and generation-pinned call rules rather than a second interpreter.
+
+Before activating these modes, settle project discovery for explicit files,
+standalone dependency/host declarations, entry selection and argument forwarding,
+and REPL expression results and declaration lifetimes. The proposed initial REPL
+policy rejects duplicate declarations and offers `:reset`; redefinition syntax and
+reload integration remain open. Missing dependencies must produce diagnostics,
+not ambient cross-project lookup or undeclared downloads. CLI naming is confirmed;
+these detailed mode policies and their implementation sequence remain queued.
 
 ## Manifest and dependency declarations
 

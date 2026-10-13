@@ -82,7 +82,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | --- | --- |
 | [Rust interoperability](rust-interop-design.md) | DTO derives, optional schema-backed Serde and retained host-owned opaque objects; reuse existing conversion/root contracts. |
 | [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
-| [Packages](package-design.md) | Manifests, exact dependency graphs and source/module identities; first source kinds and selection/default policies need decisions. |
+| [Packages and toolchain](package-design.md) | Manifests, exact dependency graphs and source/module identities; confirmed [SDK/CLI naming and queued execution modes](package-design.md#toolchain-cli-and-execution-modes). Source kinds and selection/default policies still need decisions. The two `0.0.0-reserved` placeholders are published; SDK renaming, tooling implementation and functional releases remain queued. |
 | [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
 
 ## Open review and documentation work

@@ -39,7 +39,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Rust value/opaque interoperability](rust-interop-design.md).
 - [Host API unification](host-api-refactor.md).
-- [Packages and dependency resolution](package-design.md).
+- [Packages, dependency resolution and toolchain](package-design.md), including
+  [Rust distribution names and execution modes](package-design.md#toolchain-cli-and-execution-modes).
 - [Compatible reload and state replacement](update-model-design.md).
 
 ## Documentation lifecycle
