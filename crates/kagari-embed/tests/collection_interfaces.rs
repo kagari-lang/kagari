@@ -3,16 +3,8 @@
 mod execution;
 use execution::Route;
 
-use kagari_bytecode::{
-    artifact::KbcArtifact,
-    instruction::BytecodeInstruction,
-    program::{identity, verify_program},
-};
+use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
 use kagari_common::identity::map::DefinitionContext;
-use kagari_contract::callable::{
-    receiver::{ReceiverComparison, dispatch::ReceiverTypeStep},
-    witness::OperationWitness,
-};
 use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     error::EmbeddingError,
@@ -351,11 +343,12 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
 }
 
 #[test]
-fn receiver_identity_survives_upcasts_branches_and_concrete_hash_storage() {
+fn alias_mutation_survives_upcasts_and_supplied_branch_targets() {
     execute(
         r#"use std::collections::{HashSet, List, MutableList};
 
 struct Cell { var value: i32 }
+impl PartialEq for Cell { fn eq(self, other: Self) -> bool { self === other } }
 fn readonly(xs: MutableList<Cell>) -> List<Cell> { xs }
 fn main() -> i32 {
     val raw = Vec::from([Cell { value: 20 }]);
@@ -364,12 +357,9 @@ fn main() -> i32 {
     read[0].value += 22;
     val joined: List<Cell> = if true { raw } else { read };
     val selected: List<Cell> = match 1 { 1 => raw, _ => read };
-    if !(raw === read && writable == read && selected === joined) { return 0; }
+    if !(raw[0] === read[0] && writable[0] === selected[0] && selected[0] === joined[0]) { return 0; }
     val copy = Vec::from([read[0]]);
-    if !(raw == copy && raw.hash() == copy.hash()) { return 0; }
-    val keys: HashSet<Vec<Cell>> = HashSet::new();
-    keys.insert(raw); keys.insert(copy);
-    if !(keys.len() == 1usize) { return 0; }
+    if !(raw == copy && raw !== copy) { return 0; }
     raw[0].value
 }
 "#,
@@ -393,18 +383,18 @@ fn main() -> i32 {
     if !(a == b && same(a, b) && lists_same(a, b) && a.hash() == b.hash()) { return 1; }
     if a === b || a == Vec::from([2, 1]) { return 2; }
     val boxer: Boxer = 0;
-    if !(boxer.boxed(a) == boxer.boxed(b)) { return 7; }
+    if !(list_content_equal(boxer.boxed(a), boxer.boxed(b))) { return 7; }
     val al: List<i32> = a;
     val bl: List<i32> = b;
-    if !al.eq(bl) || al.debug() != "<interface>" { return 11; }
-    if !(al == bl && as_list(a) == as_list(b) && same(al, bl) && (al, 1) == (bl, 1) && list_content_equal(al, bl)) { return 3; }
+    if al.debug() != "<interface>" { return 11; }
+    if !(list_content_equal(as_list(a), as_list(b)) && list_content_equal(al, bl)) { return 3; }
     if !(list_content_equal(a, b) && list_content_equal(a, bl) && list_content_equal(al, b)) { return 8; }
     val s = HashSet::from([1, 2]);
     val t = HashSet::from([2, 1]);
     val sl: Set<i32> = s;
     val tl: Set<i32> = t;
-    if !sl.eq(tl) || sl.debug() != "<interface>" { return 12; }
-    if !(s == t && same(s, t) && s.hash() == t.hash() && sl == tl && set_content_equal(sl, tl)) { return 4; }
+    if sl.debug() != "<interface>" { return 12; }
+    if !(s == t && same(s, t) && s.hash() == t.hash() && set_content_equal(sl, tl)) { return 4; }
     if !set_content_equal(s, t) { return 9; }
     val m: HashMap<i32, i32> = HashMap::new();
     m.insert(1, 10); m.insert(2, 20);
@@ -412,8 +402,8 @@ fn main() -> i32 {
     n.insert(2, 20); n.insert(1, 10);
     val ml: Map<i32, i32> = m;
     val nl: Map<i32, i32> = n;
-    if !ml.eq(nl) || ml.debug() != "<interface>" { return 13; }
-    if !(m == n && same(m, n) && m.hash() == n.hash() && ml == nl && map_content_equal(ml, nl)) { return 5; }
+    if ml.debug() != "<interface>" { return 13; }
+    if !(m == n && same(m, n) && m.hash() == n.hash() && map_content_equal(ml, nl)) { return 5; }
     if !map_content_equal(m, n) { return 10; }
     n.insert(1, 20); n.insert(2, 10);
     if m == n { return 6; }
@@ -438,7 +428,7 @@ fn main() -> i32 {
     val nan = 0.0f32 / 0.0f32;
     val xs = Vec::from([nan]);
     val read: List<f32> = xs;
-    if xs == xs || read == read || list_content_equal(read, read) { return 3; }
+    if xs == xs || list_content_equal(read, read) { return 3; }
     if !(Vec::from([0.0f32]) == Vec::from([-0.0f32])) { return 4; }
     val m: HashMap<i32, f32> = HashMap::new();
     m.insert(1, nan);
@@ -542,394 +532,10 @@ fn main() -> i32 {
 }
 
 #[test]
-fn receiver_dispatch_records_are_checked_without_source() {
-    let engine = KagariEngine::default();
-    let source = r#"
-trait View {}
-struct Bag<T> { val value: T }
-impl<T> View for Bag<T> {}
-impl<U> PartialEq for Bag<(U, i32)> { fn eq(self, other: Self) -> bool { true } }
-impl PartialEq for Bag<bool> { fn eq(self, other: Self) -> bool { false } }
-trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
-impl Boxer for i32 {}
-fn main() -> View { val boxer: Boxer = 0; boxer.one((true, 1)) }
-"#;
-    // Concrete disjoint heads are accepted. A generic head remains conservatively
-    // overlapping with another head for this constructor, so test its recipe alone.
-    for generic in [false, true] {
-        let source = if generic {
-            source.replace(
-                "impl PartialEq for Bag<bool> { fn eq(self, other: Self) -> bool { false } }",
-                "",
-            ).replace(
-                "impl<U> PartialEq for Bag<(U, i32)>",
-                "trait Reader { type First; type Second; }\nimpl<U> PartialEq for Bag<Reader<First = i32, Second = U>>",
-            )
-        } else {
-            source.replace(
-                "impl<U> PartialEq for Bag<(U, i32)>",
-                "impl PartialEq for Bag<i32>",
-            )
-        };
-        let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("dispatch-proof.kgr", source),
-                Default::default(),
-            )
-            .unwrap();
-        let context = DefinitionContext::new().unwrap();
-        // Import referenced associated outputs before other declarations to
-        // reverse their numeric ordering in the destination definition table.
-        // The checked recipe must still select Second by identity.
-        for comparison in artifact
-            .records()
-            .program
-            .modules
-            .iter()
-            .flat_map(|module| &module.interface_tables)
-            .filter_map(|table| table.comparison.as_ref())
-        {
-            if let ReceiverComparison::Dispatch {
-                implementations, ..
-            } = comparison
-            {
-                for step in implementations
-                    .iter()
-                    .flat_map(|case| &case.arguments)
-                    .flatten()
-                {
-                    if let ReceiverTypeStep::Associated(member) = step {
-                        context
-                            .intern(&artifact.definitions().resolve(*member).unwrap().to_path())
-                            .unwrap();
-                    }
-                }
-            }
-        }
-
-        let artifact = artifact
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
-        for &mutation in if generic {
-            &[0, 2, 3, 4, 5][..]
-        } else {
-            &[0, 1, 2, 5][..]
-        } {
-            let mut program = artifact.program.clone();
-            let comparison = program
-                .modules
-                .iter_mut()
-                .flat_map(|module| &mut module.interface_tables)
-                .filter_map(|table| table.comparison.as_mut())
-                .find(|comparison| matches!(comparison, ReceiverComparison::Dispatch { .. }))
-                .expect("symbolic receiver dispatch");
-            let ReceiverComparison::Dispatch {
-                implementations, ..
-            } = comparison
-            else {
-                unreachable!();
-            };
-            let target = implementations[0].implementation;
-            match mutation {
-                0 => implementations.clear(),
-                1 => {
-                    implementations.pop();
-                }
-                2 => implementations.push(implementations[0].clone()),
-                3 => implementations[0].arguments[0].push(ReceiverTypeStep::Child(4000)),
-                4 => implementations[0].arguments.clear(),
-                _ => {
-                    for module in &mut program.modules {
-                        module
-                            .interface_tables
-                            .retain(|table| table.declaration != target);
-                    }
-                }
-            }
-            assert!(
-                KbcArtifact::from_program(program, Default::default(), &context).is_err(),
-                "forged receiver dispatch generic={generic}, mutation={mutation}"
-            );
-        }
-    }
-}
-
-#[test]
-fn receiver_identity_default_requires_a_uniform_object_template() {
-    let engine = KagariEngine::default();
-    let source = r#"
-trait View {}
-struct Bag<T> { val value: T }
-impl<T> View for Bag<T> {}
-trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
-impl Boxer for i32 {}
-fn main() -> View { val boxer: Boxer = 0; boxer.one(true) }
-"#;
-    for specialized in [false, true] {
-        let source = if specialized {
-            format!(
-                "{source}\nimpl PartialEq for Bag<i32> {{ fn eq(self, other: Self) -> bool {{ true }} }}"
-            )
-        } else {
-            source.to_owned()
-        };
-        let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("identity-proof.kgr", source),
-                Default::default(),
-            )
-            .unwrap();
-        let context = DefinitionContext::new().unwrap();
-        let artifact = artifact
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
-        let mut program = artifact.program.clone();
-        let comparison = program.modules.iter_mut()
-            .flat_map(|module| &mut module.interface_tables)
-            .filter_map(|table| table.comparison.as_mut())
-            .find(|comparison| if specialized {
-                matches!(comparison.receiver(), Ty::Struct(nominal) if nominal.arguments == [Ty::Builtin(BuiltinType::Bool)])
-            } else {
-                matches!(comparison, ReceiverComparison::Identity(_))
-            })
-            .expect("default receiver comparison");
-        *comparison = ReceiverComparison::Identity(if specialized {
-            comparison.receiver().clone()
-        } else {
-            Ty::Builtin(BuiltinType::I32)
-        });
-        assert!(
-            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
-            "identity certificates require an object template without a potentially applicable explicit implementation"
-        );
-    }
-}
-
-#[test]
-fn receiver_comparison_evidence_is_checked_without_source() {
-    let engine = KagariEngine::default();
-    for (source, symbolic, conditional) in [
-        (
-            "trait View {} struct Plain {} impl View for Plain {} fn main() -> View { Plain {} }",
-            false,
-            false,
-        ),
-        (
-            "use std::collections::List; fn main() -> bool { val xs: List<i32> = Vec::from([1]); xs == xs }",
-            false,
-            false,
-        ),
-        (
-            "use std::collections::List; trait Boxer {fn one<T>(self, value: T) -> List<T> {Vec::from([value])}} impl Boxer for i32 {} fn main() -> bool {val boxer: Boxer = 0; boxer.one(1) == boxer.one(1)}",
-            false,
-            false,
-        ),
-        (
-            r#"
-trait View {}
-struct Bag<T> { val value: T }
-impl<T> PartialEq for Bag<T> { fn eq(self, other: Self) -> bool { true } }
-impl<T> View for Bag<T> {}
-trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
-impl Boxer for i32 {}
-fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
-"#,
-            true,
-            false,
-        ),
-        (
-            r#"
-trait View {}
-struct Bag<T> { val value: T }
-impl<T: PartialEq> PartialEq for Bag<T> { fn eq(self, other: Self) -> bool { self.value == other.value } }
-impl<T> View for Bag<T> {}
-enum Hidden { Value(View) }
-fn opaque() -> View { val value: View = Bag { value: 1 }; Bag { value: Hidden::Value(value) } }
-trait Boxer { fn one<T>(self, value: T) -> View { Bag { value } } }
-impl Boxer for i32 {}
-fn main() -> View { val boxer: Boxer = 0; boxer.one(1) }
-"#,
-            true,
-            true,
-        ),
-    ] {
-        let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("receiver-proof.kgr", source),
-                Default::default(),
-            )
-            .unwrap();
-        let context = DefinitionContext::new().unwrap();
-        let artifact = artifact
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
-        let definitions = identity::collect(
-            &artifact.program.modules.iter().collect::<Vec<_>>(),
-            &context,
-        )
-        .unwrap();
-        verify_program(&artifact.program, &definitions).unwrap();
-        // Generic templates may omit comparison pending closed demands. When a
-        // shared selection is present, its scoped claim must still be checked.
-        for mutation in if symbolic { 1..5 } else { 0..4 } {
-            let mut program = artifact.program.clone();
-            let mut changed = false;
-            for table in program
-                .modules
-                .iter_mut()
-                .flat_map(|module| &mut module.interface_tables)
-            {
-                let Some(ReceiverComparison::Selected(comparison)) = &mut table.comparison else {
-                    continue;
-                };
-                if comparison.operation.requirement().receiver.is_concrete() == symbolic {
-                    continue;
-                }
-                changed = true;
-                match mutation {
-                    0 => table.comparison = None,
-                    1 => {
-                        let required = match &mut comparison.operation {
-                            OperationWitness::Selected(call) => &mut call.requirement,
-                            OperationWitness::SharedMethod(call) => &mut call.requirement,
-                            OperationWitness::Forward(_) | OperationWitness::SharedAdapter(_) => {
-                                panic!("selected object comparison")
-                            }
-                        };
-                        required.receiver = Ty::Builtin(BuiltinType::I32);
-                    }
-                    2 => match &mut comparison.operation {
-                        OperationWitness::Selected(call) => {
-                            call.signature.result = Ty::Builtin(BuiltinType::I32);
-                        }
-                        OperationWitness::SharedMethod(call) => {
-                            call.implementation
-                                .arguments
-                                .push(Ty::Builtin(BuiltinType::I32));
-                        }
-                        OperationWitness::Forward(_) | OperationWitness::SharedAdapter(_) => {
-                            panic!("selected object comparison")
-                        }
-                    },
-                    3 => {
-                        comparison.operation = OperationWitness::Forward(Box::new(
-                            comparison.operation.requirement().clone(),
-                        ))
-                    }
-                    _ => {
-                        let OperationWitness::SharedMethod(call) = &mut comparison.operation else {
-                            panic!("shared comparison");
-                        };
-                        let Ty::Parameter { position, .. } = &mut call.implementation.arguments[0]
-                        else {
-                            panic!("shared receiver binder");
-                        };
-                        *position += 1;
-                    }
-                }
-            }
-            assert!(
-                changed,
-                "comparison fixture must exercise the intended witness"
-            );
-            assert!(
-                KbcArtifact::from_program(program, Default::default(), &context).is_err(),
-                "forged receiver comparison {mutation}"
-            );
-        }
-        if conditional {
-            let mut program = artifact.program.clone();
-            let comparison = program
-                .modules
-                .iter_mut()
-                .flat_map(|module| &mut module.interface_tables)
-                .filter_map(|table| table.comparison.as_mut())
-                .find(|comparison| {
-                    comparison
-                        .selection()
-                        .is_some_and(|selected| !selected.conditions.is_empty())
-                })
-                .expect("guarded receiver selection");
-            *comparison = ReceiverComparison::Identity(comparison.receiver().clone());
-            assert!(
-                KbcArtifact::from_program(program, Default::default(), &context).is_err(),
-                "an explicit conditional implementation forbids an unconditional identity certificate"
-            );
-            for mutation in 0..4 {
-                let mut program = artifact.program.clone();
-                let comparison = program
-                    .modules
-                    .iter_mut()
-                    .flat_map(|module| &mut module.interface_tables)
-                    .filter_map(|table| match table.comparison.as_mut()? {
-                        ReceiverComparison::Selected(comparison) => Some(comparison),
-                        ReceiverComparison::Identity(_) | ReceiverComparison::Dispatch { .. } => {
-                            None
-                        }
-                    })
-                    .find(|comparison| !comparison.conditions.is_empty())
-                    .expect("conditional comparison guard");
-                match mutation {
-                    0 => comparison.conditions.clear(),
-                    1 => comparison.conditions.push(comparison.conditions[0].clone()),
-                    2 => comparison.conditions[0].ty = Ty::Builtin(BuiltinType::I32),
-                    _ => comparison.conditions[0].constraints.clear(),
-                }
-                assert!(
-                    KbcArtifact::from_program(program, Default::default(), &context).is_err(),
-                    "forged receiver comparison guard {mutation}"
-                );
-            }
-            for satisfied in [false, true] {
-                for mutation in 0..3 {
-                    let mut program = artifact.program.clone();
-                    let comparison = program
-                        .modules
-                        .iter_mut()
-                        .flat_map(|module| &mut module.interface_tables)
-                        .filter_map(|table| match table.comparison.as_mut()? {
-                            ReceiverComparison::Selected(comparison) => Some(comparison),
-                            ReceiverComparison::Identity(_)
-                            | ReceiverComparison::Dispatch { .. } => None,
-                        })
-                        .find(|comparison| {
-                            comparison
-                                .eligibility
-                                .iter()
-                                .any(|fact| fact.satisfied == satisfied)
-                        })
-                        .expect("closed positive and negative eligibility facts");
-                    let fact = comparison
-                        .eligibility
-                        .iter_mut()
-                        .find(|fact| fact.satisfied == satisfied)
-                        .unwrap();
-                    match mutation {
-                        0 => fact.satisfied = !fact.satisfied,
-                        1 => fact.bound.constraints.clear(),
-                        _ => {
-                            let duplicate = fact.clone();
-                            comparison.eligibility.push(duplicate);
-                        }
-                    }
-                    assert!(
-                        KbcArtifact::from_program(program, Default::default(), &context).is_err(),
-                        "forged eligibility {satisfied}, mutation {mutation}"
-                    );
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn shared_generic_boxing_selects_comparison_without_a_concrete_boxing_site() {
+fn shared_generic_boxing_preserves_methods_without_comparison_metadata() {
     execute(
         r#"
-use std::collections::List;
+use std::collections::{List, list_content_equal};
 fn forward<T>(xs: Vec<T>) -> List<T> { xs }
 trait Boxer {
     fn boxed<T>(self, xs: Vec<T>) -> List<T> { forward(xs) }
@@ -942,12 +548,48 @@ fn main() -> i32 {
     val a = boxer.boxed(Vec::from([1]));
     val b = boxer.one(1);
     val later = boxer.later(1);
-    if !(a == b && b == later()) { return 1; }
+    if !(list_content_equal(a, b) && list_content_equal(b, later())) { return 1; }
     val nan = boxer.one(0.0f32 / 0.0f32);
-    if nan == nan { return 2; }
-    if !(boxer.one(0.0f32) == boxer.one(-0.0f32)) { return 3; }
+    if list_content_equal(nan, nan) { return 2; }
+    if !(list_content_equal(boxer.one(0.0f32), boxer.one(-0.0f32))) { return 3; }
     42
 }
 "#,
     );
+}
+
+#[test]
+fn collection_interfaces_do_not_inherit_receiver_equality() {
+    let engine = KagariEngine::default();
+    for interface in [
+        "List<i32>",
+        "MutableList<i32>",
+        "Set<i32>",
+        "MutableSet<i32>",
+        "Map<i32,i32>",
+        "MutableMap<i32,i32>",
+    ] {
+        for expression in [
+            "a == b",
+            "a != b",
+            "a.eq(b)",
+            "same(a, b)",
+            "(a,) == (b,)",
+            "a === b",
+        ] {
+            let source = format!(
+                "use std::collections::{{List, MutableList, Set, MutableSet, Map, MutableMap}}; fn same<T: PartialEq>(a: T, b: T) -> bool {{ a == b }} fn compare(a: {interface}, b: {interface}) -> bool {{ {expression} }}"
+            );
+            assert!(
+                matches!(
+                    engine.compile_to_artifact(
+                        SourceFile::new("interface-comparison.kgr", source),
+                        Default::default()
+                    ),
+                    Err(EmbeddingError::Diagnostics { .. })
+                ),
+                "{interface}: {expression}"
+            );
+        }
+    }
 }

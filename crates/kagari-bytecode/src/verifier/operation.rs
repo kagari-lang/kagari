@@ -14,7 +14,6 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::numeric::NumericSignature;
 use kagari_contract::{
-    callable::receiver::object_receiver,
     contracts,
     contracts::RuntimeHelperKind,
     operations,
@@ -227,6 +226,22 @@ pub(super) fn verify_instruction(
             )
             .map_err(|error| contract_error(function, error))?;
             expect_register_ty(function, *dst, ty, "binary dst")?;
+            if matches!(
+                ir_binary_op(*op),
+                operations::BinaryOp::IdentityEq | operations::BinaryOp::IdentityNotEq
+            ) && [lhs, rhs].iter().any(|register| {
+                !function
+                    .metadata
+                    .semantic
+                    .registers
+                    .get(&register.index())
+                    .is_some_and(operations::object_identity_type)
+            }) {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "identity requires statically known object types",
+                });
+            }
         }
         BytecodeInstruction::Call { dst, callee, args } => {
             verify_call(module, function, *dst, callee, args, program, definitions)?;
@@ -459,12 +474,6 @@ pub(super) fn verify_instruction(
                     _ => None,
                 })
                 .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
-            if object_receiver(&table.for_type)
-                && table.for_type.is_concrete()
-                && linked.comparison.is_none()
-            {
-                return Err(BytecodeVerificationError::InvalidInterfaceTable);
-            }
             expect_register_ty(
                 function,
                 *value,

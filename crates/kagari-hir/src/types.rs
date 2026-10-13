@@ -804,36 +804,6 @@ impl TypeId {
         )
     }
 
-    /// Checks the built-in equality shape rules; this is not general trait-implementation lookup.
-    pub fn supports_equality(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Tuple(members) => {
-                    pending.extend(members);
-                }
-                Self::Inference(_)
-                | Self::Unknown
-                | Self::Error
-                | Self::Trait(_)
-                | Self::Host(_)
-                | Self::Generic(_)
-                | Self::SelfType(_)
-                | Self::Projection { .. } => return false,
-                Self::Function { .. } | Self::Iter(_) | Self::Range(_, _) => return false,
-                // The elements of mutable containers do not participate in identity equality.
-                Self::Builtin(_)
-                | Self::NativeObject(_)
-                | Self::Struct(_)
-                | Self::Enum(_)
-                | Self::Array(_)
-                | Self::Map { .. }
-                | Self::Set(_, _) => {}
-            }
-        }
-        true
-    }
-
     /// Recovery types suppress dependent diagnostics but never authorize codegen.
     pub fn is_unresolved(&self) -> bool {
         let mut pending = vec![self];

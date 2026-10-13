@@ -278,8 +278,6 @@ fn semantic_type_predicates_walk_deep_constructed_types_without_recursion() {
     assert!(!resolved.is_unresolved());
     assert!(!unresolved.is_concrete());
     assert!(unresolved.is_unresolved());
-    assert!(comparable.supports_equality());
-    assert!(!incomparable.supports_equality());
     let resolved_name = resolved.display_name(&context.snapshot());
     assert_eq!(resolved_name.len(), 20_003);
     assert!(resolved_name.starts_with("[["));

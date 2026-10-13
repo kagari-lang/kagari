@@ -210,11 +210,6 @@ impl RemapDefinitions for InterfaceTableRecord {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceTableRecord {
-            comparison: self
-                .comparison
-                .as_ref()
-                .map(|value| value.remap_definitions(mapper))
-                .transpose()?,
             view: self
                 .view
                 .as_ref()
@@ -235,9 +230,6 @@ impl DefinitionReferences for InterfaceTableRecord {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        if let Some(comparison) = &self.comparison {
-            comparison.visit_definition_ids(visit, cancel)?;
-        }
         if let Some(value0) = self.view.as_ref() {
             (value0).visit_definition_ids(visit, cancel)?;
         }

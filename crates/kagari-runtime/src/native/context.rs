@@ -511,7 +511,7 @@ impl<'call> CallContext<'call> {
         let value = match target.primitive {
             Some(primitive) => self
                 .runtime
-                .invoke_standard_builtin(&owner, primitive, arguments, Some(self.invoke_script))
+                .invoke_standard_builtin(&owner, primitive, arguments)
                 .map_err(|error| error.into_runtime_error())?,
             None => (self.invoke_script)(
                 self.runtime,

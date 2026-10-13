@@ -10,8 +10,10 @@ use kagari_common::{
     identity::{DefinitionKind, table::DefinitionTable},
 };
 use kagari_contract::{
-    callable::{receiver::ReceiverComparison, witness::OperationWitness},
+    callable::witness::OperationWitness,
     native_import::callables::NativeCallableOrigin,
+    operations::BinaryOp,
+    standard::RuntimePrimitive,
     types::{
         ConcreteFunctionIdentity, PublicItem,
         proofs::{ProofCatalog, implementation::Implementation},
@@ -20,6 +22,7 @@ use kagari_contract::{
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::ownership::ReceiverOwners,
+    language::Protocol,
     ty::{
         GenericParam,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -93,65 +96,46 @@ pub(super) fn validate(
     if !catalog.overrides_valid(&owners, cancel)? {
         return Ok(false);
     }
-    for instance in &caller.interface_instances {
-        let Some(comparison) = &instance.comparison else {
-            continue;
-        };
-        let Some((table, parameters)) = closure
-            .iter()
-            .flat_map(|module| &module.abi.public_items)
-            .find_map(|item| match item {
-                PublicItem::InterfaceTable(table) if table.declaration == instance.declaration => {
-                    let parameters = if instance.arguments.iter().any(|ty| !ty.is_concrete()) {
-                        table.generic_params.clone()
+    for function in &caller.functions {
+        for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
+            let primitive = match instruction {
+                Instruction::Binary {
+                    op: BinaryOp::Eq | BinaryOp::NotEq,
+                    lhs,
+                    rhs,
+                    ..
+                } => Some((Protocol::PartialEq, vec![*lhs, *rhs])),
+                Instruction::Call {
+                    callee:
+                        CallTarget::RuntimePrimitive(
+                            primitive @ (RuntimePrimitive::ValueEq | RuntimePrimitive::ValueHash),
+                        ),
+                    args,
+                    ..
+                } => Some((
+                    if *primitive == RuntimePrimitive::ValueEq {
+                        Protocol::PartialEq
                     } else {
-                        vec![]
-                    };
-                    table
-                        .instantiate(&instance.arguments, &parameters, definitions)
-                        .map(|table| (table, parameters))
-                }
+                        Protocol::Hash
+                    },
+                    args.to_vec(),
+                )),
                 _ => None,
-            })
-        else {
-            return Ok(false);
-        };
-        if let ReceiverComparison::Dispatch {
-            implementations, ..
-        } = comparison
-        {
-            for case in implementations {
-                let Some(target) = catalog.receiver_dispatch_target(case) else {
-                    return Ok(false);
-                };
-                if !closure
+            };
+            if let Some((protocol, args)) = primitive {
+                let facts = args
                     .iter()
-                    .flat_map(|module| &module.interface_instances)
-                    .any(|instance| {
-                        instance.identity() == target
-                            && instance
-                                .comparison
-                                .as_ref()
-                                .and_then(|comparison| comparison.selection())
-                                .is_some_and(|selected| selected.conditions.is_empty())
+                    .map(|value| {
+                        (
+                            value.ty,
+                            function.semantic.registers.get(&value.temp.index()),
+                        )
                     })
-                {
+                    .collect::<Vec<_>>();
+                if !catalog.primitive_comparison_valid(protocol, &facts, cancel)? {
                     return Ok(false);
                 }
             }
-        }
-        if !comparison.valid(
-            &table.for_type,
-            &catalog,
-            &parameters,
-            &table.bounds,
-            cancel,
-        )? {
-            return Ok(false);
-        }
-    }
-    for function in &caller.functions {
-        for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             if let Instruction::MakeInterface {
                 implementation,
                 arguments,
@@ -377,12 +361,7 @@ fn native_slots_valid(
             }
             _ => None,
         });
-    for instance in base.chain(
-        module
-            .interface_instances
-            .iter()
-            .map(|instance| instance.identity()),
-    ) {
+    for instance in base.chain(module.interface_instances.iter().cloned()) {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         if definitions
             .resolve(instance.declaration)

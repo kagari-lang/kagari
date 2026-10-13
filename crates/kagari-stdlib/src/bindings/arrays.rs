@@ -101,3 +101,30 @@ pub(super) fn set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     }
     Ok(result)
 }
+
+/// Compare fixed arrays in order through the checked element operation.
+pub(super) fn equal(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let left = source(cx)?;
+    let Value::Array(right) = cx.checked_argument(1)? else {
+        return Err(invalid());
+    };
+    let count = cx.heap().array_len(left).ok_or_else(invalid)?;
+    if count != cx.heap().array_len(right).ok_or_else(invalid)? {
+        return Ok(Value::Bool(false));
+    }
+    let equal = cx.selected_at(0)?;
+    for index in 0..count {
+        cx.poll()?;
+        let a = cx.heap().array_get(left, index).ok_or_else(invalid)?;
+        let b = cx.heap().array_get(right, index).ok_or_else(invalid)?;
+        let _a = cx.heap().root_value(a).ok_or_else(invalid)?;
+        let _b = cx.heap().root_value(b).ok_or_else(invalid)?;
+        let Value::Bool(same) = cx.call_values(equal, &[a, b])? else {
+            return Err(invalid());
+        };
+        if !same {
+            return Ok(Value::Bool(false));
+        }
+    }
+    Ok(Value::Bool(true))
+}

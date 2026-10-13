@@ -7,7 +7,7 @@ pub(crate) mod shared;
 pub mod views;
 
 use crate::{
-    instruction::{BytecodeInstruction, CallTarget},
+    instruction::{BinaryOp, BytecodeInstruction, CallTarget},
     module::BytecodeModule,
     program::BytecodeProgram,
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
@@ -21,7 +21,8 @@ use kagari_common::{
     },
 };
 use kagari_contract::{
-    callable::{interface::dynamic_interface_valid, receiver::ReceiverComparison},
+    callable::interface::dynamic_interface_valid,
+    standard::RuntimePrimitive,
     types as abi,
     types::{
         PublicItem,
@@ -227,6 +228,47 @@ fn linked_bounds_match(
     }
     for function in &module.functions {
         for instruction in &function.instructions {
+            let primitive = match instruction {
+                BytecodeInstruction::Binary {
+                    op: BinaryOp::Eq | BinaryOp::NotEq,
+                    lhs,
+                    rhs,
+                    ..
+                } => Some((Protocol::PartialEq, vec![*lhs, *rhs])),
+                BytecodeInstruction::Call {
+                    callee:
+                        CallTarget::RuntimePrimitive(
+                            primitive @ (RuntimePrimitive::ValueEq | RuntimePrimitive::ValueHash),
+                        ),
+                    args,
+                    ..
+                } => Some((
+                    if *primitive == RuntimePrimitive::ValueEq {
+                        Protocol::PartialEq
+                    } else {
+                        Protocol::Hash
+                    },
+                    args.to_vec(),
+                )),
+                _ => None,
+            };
+            if let Some((protocol, args)) = primitive {
+                let Some(facts) = args
+                    .iter()
+                    .map(|register| {
+                        Some((
+                            *function.metadata.registers.get(register.index())?,
+                            function.metadata.semantic.registers.get(&register.index()),
+                        ))
+                    })
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Ok(false);
+                };
+                if !catalog.primitive_comparison_valid(protocol, &facts, &cancel)? {
+                    return Ok(false);
+                }
+            }
             if let BytecodeInstruction::MakeInterface {
                 module: owner,
                 implementation,
@@ -447,63 +489,6 @@ fn linked_bounds_match(
         }
     }
     for linked in &module.interface_tables {
-        if let Some(comparison) = &linked.comparison {
-            let Some((table, parameters)) =
-                module.public_items.iter().find_map(|item| match item {
-                    PublicItem::InterfaceTable(table)
-                        if table.declaration == linked.declaration =>
-                    {
-                        let parameters = if linked.arguments.iter().any(|ty| !ty.is_concrete()) {
-                            table.generic_params.clone()
-                        } else {
-                            vec![]
-                        };
-                        table
-                            .instantiate(&linked.arguments, &parameters, definitions)
-                            .map(|table| (table, parameters))
-                    }
-                    _ => None,
-                })
-            else {
-                return Ok(false);
-            };
-            if let ReceiverComparison::Dispatch {
-                implementations, ..
-            } = comparison
-            {
-                for case in implementations {
-                    let Some(target) = catalog.receiver_dispatch_target(case) else {
-                        return Ok(false);
-                    };
-                    if !closure
-                        .iter()
-                        .flat_map(|module| &module.interface_tables)
-                        .any(|table| {
-                            table.declaration == target.declaration
-                                && table.arguments == target.arguments
-                                && table
-                                    .comparison
-                                    .as_ref()
-                                    .and_then(|comparison| comparison.selection())
-                                    .is_some_and(|selected| selected.conditions.is_empty())
-                        })
-                    {
-                        return Ok(false);
-                    }
-                }
-            }
-            if !comparison.valid(
-                &table.for_type,
-                &catalog,
-                &parameters,
-                &table.bounds,
-                &cancel,
-            )? || comparison.selection().is_some_and(|selected| {
-                !callables::witness_valid(&selected.operation, closure, definitions)
-            }) {
-                return Ok(false);
-            }
-        }
         if linked.arguments.is_empty() {
             continue;
         }

@@ -1,7 +1,11 @@
 #[path = "support/execution.rs"]
 mod execution;
 
-use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    instruction::{BinaryOp, BytecodeInstruction},
+};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::{BytecodeArtifact, engine::EngineConfig, error::EmbeddingError};
 use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
 use kagari_source::source::SourceFile;
@@ -9,30 +13,33 @@ use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
 
 #[test]
-fn ordinary_interfaces_preserve_underlying_object_identity() {
+fn concrete_identity_is_independent_of_equality_and_interface_views() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = execution::engine(config);
     let source = r#"
 trait Read { fn read(self) -> i32; }
 trait Child: Read {}
-struct Item { val value: i32 }
+struct Item { var value: i32 }
 struct Other { val value: i32 }
 impl Read for Item { fn read(self) -> i32 { self.value } }
 impl Child for Item {}
 impl Read for Other { fn read(self) -> i32 { self.value } }
 fn boxed(value: Item) -> Child { value }
+fn same_objects<T>(a: Vec<T>, b: Vec<T>) -> bool { a === b }
 fn main() -> i32 {
     val item = Item { value: 42 };
     val child: Child = boxed(item);
     val parent: Read = child;
     val again: Read = item;
-    val separate: Read = Item { value: 42 };
-    val other: Read = Other { value: 42 };
-    val joined = if true { child } else { parent };
-    if !(item === child && child === parent && parent === again && joined === item) { return 1; }
-    if parent !== again || parent === separate || parent === other { return 2; }
-    if !(parent !== separate && parent !== other) { return 3; }
+    val separate = Item { value: 42 };
+    val other = Other { value: 42 };
+    val joined: Read = if true { child } else { parent };
+    item.value = 42;
+    if !(item === item && item !== separate && item !== other) { return 1; }
+    if item === other || again.read() != joined.read() { return 2; }
+    val objects = Vec::from([item]);
+    if !same_objects(objects, objects) { return 3; }
     parent.read()
 }
 "#;
@@ -55,7 +62,7 @@ fn main() -> i32 {
 }
 
 #[test]
-fn hidden_value_identity_traps_after_operands_without_leaking_roots() {
+fn identity_operand_traps_preserve_effect_order_and_release_interface_roots() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = execution::engine(config);
@@ -63,17 +70,8 @@ fn hidden_value_identity_traps_after_operands_without_leaking_roots() {
 trait Read { fn read(self) -> i32; }
 trait Child: Read {}
 struct State { var trace: i32 }
-enum Choice { One }
 impl Read for State { fn read(self) -> i32 { self.trace } }
 impl Child for State {}
-impl Read for i32 { fn read(self) -> i32 { self } }
-impl Child for i32 {}
-impl Read for (i32, i32) { fn read(self) -> i32 { 7 } }
-impl Child for (i32, i32) {}
-impl Read for Choice { fn read(self) -> i32 { 7 } }
-impl Child for Choice {}
-impl Read for String { fn read(self) -> i32 { 7 } }
-impl Child for String {}
 trait Test {
     fn compare(self, left: i32, right: i32, negated: bool) -> bool;
     fn alias(self, kind: i32) -> bool;
@@ -85,14 +83,13 @@ impl Test for State {
     fn trace(self) -> i32 { self.trace }
 }
 fn make() -> Test { State { trace: 0 } }
-fn text() -> String { "value" }
-fn operand(state: State, digit: i32, kind: i32) -> Child {
+fn operand(state: State, digit: i32, kind: i32) -> State {
     state.trace = state.trace * 10 + digit;
-    if kind == 0 { return state; }
-    if kind == 1 { return 7; }
-    if kind == 2 { return (7, 8); }
-    if kind == 3 { return Choice::One; }
-    text()
+    val child: Child = state;
+    val parent: Read = child;
+    parent.read();
+    if kind != 0 { val zero = 0; 1 / zero; }
+    state
 }
 fn compare(state: State, left: i32, right: i32, negated: bool) -> bool {
     val result = if negated {
@@ -105,8 +102,7 @@ fn compare(state: State, left: i32, right: i32, negated: bool) -> bool {
 }
 fn alias(state: State, kind: i32) -> bool {
     val child = operand(state, 1, kind);
-    val parent: Read = child;
-    child === parent
+    child === state
 }
 "#;
     let artifact = engine
@@ -135,16 +131,13 @@ fn alias(state: State, kind: i32) -> bool {
         .declaration;
     let method = |name| ModuleDecl::method_id(declaration, name, loaded.definitions()).unwrap();
     let vm = Vm::new(runtime);
-    // Materialize the lazily cached string constant before observing execution
-    // cleanup; this retained program value is not an interface/operand leak.
-    drop(vm.execute(&loaded, "text").unwrap());
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     let baseline = vm.runtime().collect_garbage().unwrap().live_objects;
-    for kind in 1..=4 {
+    for kind in 1..=1 {
         for (entry, left, right, negated, expected_trace) in [
-            ("compare", kind, 0, false, 12),
+            ("compare", kind, 0, false, 1),
             ("compare", 0, kind, false, 12),
-            ("compare", kind, kind, true, 12),
+            ("compare", kind, kind, true, 1),
             ("alias", kind, kind, false, 1),
         ] {
             let root = vm.execute(&loaded, "make").unwrap().return_value;
@@ -158,7 +151,7 @@ fn alias(state: State, kind: i32) -> bool {
                 .invoke_interface_method(&state, &method(entry), &arguments)
                 .unwrap_err();
             assert!(
-                format!("{error:?}").contains("identity comparison requires object references"),
+                format!("{error:?}").contains("division by zero"),
                 "{error:?}"
             );
             assert_eq!(vm.runtime().gc().active_roots(), 1);
@@ -180,7 +173,7 @@ fn alias(state: State, kind: i32) -> bool {
 }
 
 #[test]
-fn known_values_and_incompatible_interfaces_reject_identity_operators() {
+fn values_interfaces_and_unknown_generic_categories_reject_identity_operators() {
     let engine = execution::engine(EngineConfig::default());
     for source in [
         "fn main() -> bool { 1 === 1 }",
@@ -188,6 +181,11 @@ fn known_values_and_incompatible_interfaces_reject_identity_operators() {
         "fn main() -> bool { (1, 2) === (1, 2) }",
         "enum Choice { One } fn main() -> bool { Choice::One === Choice::One }",
         "trait A {} trait B {} fn compare(a: A, b: B) -> bool { a === b }",
+        "trait A {} fn compare(a: A, b: A) -> bool { a !== b }",
+        "trait A {} struct Item {} impl A for Item {} fn compare(a: A, b: Item) -> bool { a === b }",
+        "trait A {} struct Item {} impl A for Item {} fn compare(a: Item, b: A) -> bool { a === b }",
+        "fn compare<T>(a: T, b: T) -> bool { a === b }",
+        "fn compare(a: fn() -> i32, b: fn() -> i32) -> bool { a === b }",
     ] {
         let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_to_artifact(
             SourceFile::new("invalid-identity.kgr", source),
@@ -200,6 +198,78 @@ fn known_values_and_incompatible_interfaces_reject_identity_operators() {
                 .iter()
                 .any(|diagnostic| diagnostic.code == "KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH"),
             "{source}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn portable_comparisons_cannot_bypass_static_object_or_protocol_rules() {
+    let engine = execution::engine(EngineConfig::default());
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "comparison-proof.kgr",
+                r#"
+trait Read { fn read(self) -> i32; }
+struct Item { val value: i32 }
+impl Read for Item { fn read(self) -> i32 { self.value } }
+impl PartialEq for Item { fn eq(self, other: Self) -> bool { false } }
+fn main() -> bool { val a: Read = Item { value: 1 }; a.read() == a.read() }
+"#,
+            ),
+            Default::default(),
+        )
+        .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap()
+            .import_into(&context, &Default::default())
+            .unwrap()
+            .into_records();
+    for (identity, concrete) in [(true, false), (false, false), (false, true)] {
+        let mut program = decoded.program.clone();
+        let function = program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.functions)
+            .find(|function| function.name == "main")
+            .unwrap();
+        let (boxed, object) = function
+            .instructions
+            .iter()
+            .find_map(|instruction| match instruction {
+                BytecodeInstruction::MakeInterface { dst, value, .. } => Some((*dst, *value)),
+                _ => None,
+            })
+            .unwrap();
+        let operand = if concrete { object } else { boxed };
+        let instruction = function
+            .instructions
+            .iter_mut()
+            .find(|instruction| {
+                matches!(
+                    instruction,
+                    BytecodeInstruction::Binary {
+                        op: BinaryOp::Eq,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let BytecodeInstruction::Binary { op, lhs, rhs, .. } = instruction else {
+            unreachable!()
+        };
+        *op = if identity {
+            BinaryOp::IdentityEq
+        } else {
+            BinaryOp::Eq
+        };
+        *lhs = operand;
+        *rhs = operand;
+        assert!(
+            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            "identity={identity}, concrete={concrete}"
         );
     }
 }

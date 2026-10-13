@@ -541,7 +541,7 @@ impl<'a> Executor<'a> {
         let owner = self.current_loaded()?;
         let value = self
             .runtime
-            .invoke_standard_builtin(&owner, intrinsic, &args, Some(invoke_script))
+            .invoke_standard_builtin(&owner, intrinsic, &args)
             .map_err(VmError::from)?;
         if let Some(dst) = dst {
             self.current_frame_mut()?

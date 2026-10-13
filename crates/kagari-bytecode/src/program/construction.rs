@@ -8,12 +8,9 @@ use crate::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use kagari_contract::{
-    callable::{
-        construction::{
-            ConstructionBody, ConstructionMethod, ConstructionStep, closed_constructions,
-            native_construction,
-        },
-        receiver::object_receiver,
+    callable::construction::{
+        ConstructionBody, ConstructionMethod, ConstructionStep, closed_constructions,
+        native_construction,
     },
     types::{ConcreteFunctionIdentity, PublicItem, trait_contract},
 };
@@ -206,7 +203,7 @@ pub(super) fn verify(
     )
     .map_err(|_| invalid())?;
     for demand in demands {
-        let Some((owner, table)) = program.modules.iter().find_map(|module| {
+        let Some((owner, _)) = program.modules.iter().find_map(|module| {
             module.public_items.iter().find_map(|item| match item {
                 PublicItem::InterfaceTable(table) if table.declaration == demand.declaration => {
                     table
@@ -218,13 +215,9 @@ pub(super) fn verify(
         }) else {
             return Err(invalid());
         };
-        if object_receiver(&table.for_type)
-            && !owner.interface_tables.iter().any(|table| {
-                table.declaration == demand.declaration
-                    && table.arguments == demand.arguments
-                    && table.comparison.is_some()
-            })
-        {
+        if !owner.interface_tables.iter().any(|table| {
+            table.declaration == demand.declaration && table.arguments == demand.arguments
+        }) {
             return Err(invalid());
         }
     }

@@ -103,7 +103,8 @@ impl InstancePlanner<'_> {
         let mut operations = vec![];
         for mut required in requirements {
             required = self.normalize_callable_requirement(required)?;
-            if matches!(&required.receiver, Ty::Tuple(items) if !items.is_empty())
+            if !required.receiver.is_concrete()
+                && matches!(&required.receiver, Ty::Tuple(items) if !items.is_empty())
                 && let Some(protocol @ (Protocol::PartialEq | Protocol::Hash)) =
                     Protocol::from_definition(&required.interface.declaration, &self.definitions())
             {

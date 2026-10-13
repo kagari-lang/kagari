@@ -3,6 +3,7 @@ use crate::{
     language::primitive as intrinsic,
     types::proofs::{Budget, ProofCatalog, search::Search},
 };
+use kagari_abi::representation::ValueType;
 use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
     language::Protocol,
@@ -11,7 +12,55 @@ use kagari_types::{
 use std::collections::HashSet;
 
 impl ProofCatalog<'_> {
-    /// Whether native identity/structural equality would bypass a selected
+    /// Validate primitive equality/hash without granting a fallback or bypassing
+    /// a selected callback. Aggregate physical slots require exact type evidence.
+    pub fn primitive_comparison_valid(
+        &self,
+        protocol: Protocol,
+        arguments: &[(ValueType, Option<&Ty>)],
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        let count = if protocol == Protocol::PartialEq {
+            2
+        } else if protocol == Protocol::Hash {
+            1
+        } else {
+            return Ok(false);
+        };
+        if arguments.len() != count {
+            return Ok(false);
+        }
+        let (physical, semantic) = arguments[0];
+        if arguments.iter().any(|(ty, _)| *ty != physical) {
+            return Ok(false);
+        }
+        match physical {
+            ValueType::Unit
+            | ValueType::Bool
+            | ValueType::I32
+            | ValueType::I64
+            | ValueType::U64
+            | ValueType::Str => Ok(true),
+            ValueType::F32 | ValueType::F64 => Ok(protocol == Protocol::PartialEq),
+            ValueType::HeapObject => {
+                let Some(receiver) = semantic else {
+                    return Ok(false);
+                };
+                if arguments.iter().any(|(_, ty)| *ty != Some(receiver)) {
+                    return Ok(false);
+                }
+                Ok(self.holds(
+                    &intrinsic::applied(protocol, vec![], &self.definitions)?,
+                    receiver,
+                    &[],
+                    cancel,
+                )? && !self.uses_custom_equality(receiver, cancel)?)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Whether primitive member equality would bypass a selected
     /// nominal PartialEq implementation in this value's tuple or enum payloads.
     pub fn uses_custom_equality(
         &self,
@@ -29,7 +78,8 @@ impl ProofCatalog<'_> {
             }
             match ty {
                 Ty::Trait(_) => return Ok(true),
-                Ty::NativeObject(_)
+                Ty::Array(_)
+                | Ty::NativeObject(_)
                 | Ty::Struct(_)
                 | Ty::Enum(_)
                 | Ty::Map { .. }

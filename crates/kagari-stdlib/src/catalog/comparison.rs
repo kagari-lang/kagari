@@ -53,6 +53,15 @@ pub(super) fn declare(
             }
         }
     }
+    concrete(
+        ids,
+        module,
+        "array",
+        RegistrationTrait::Index,
+        1,
+        RegistrationTrait::PartialEq,
+        CollectionAccess::Mutable,
+    )?;
     Ok(())
 }
 
@@ -154,6 +163,7 @@ fn concrete(
     let params = parameters(owner, arity);
     let items: Vec<_> = params.iter().map(GenericParam::as_type).collect();
     let receiver = match family {
+        "array" => Ty::Array(Box::new(items[0].clone())),
         "list" => vec_type(ids, items[0].clone())?,
         "set" => Ty::Set(Box::new(items[0].clone()), access),
         "map" => Ty::Map {
@@ -163,7 +173,7 @@ fn concrete(
         },
         _ => unreachable!("collection family"),
     };
-    let mut bounds = if family == "list" {
+    let mut bounds = if matches!(family, "list" | "array") {
         vec![]
     } else {
         hash_bounds(ids, items[0].clone())?
@@ -214,6 +224,12 @@ fn concrete(
             .iter()
             .map(|item| requirement(ids, item.clone(), protocol, vec![], member))
             .collect::<Result<Vec<_>, _>>()?;
+        if family == "array" {
+            module
+                .callable_requirements
+                .insert(identities::method(ids, &owner, member)?, calls);
+            return Ok(());
+        }
         calls.push(requirement(
             ids,
             receiver.clone(),

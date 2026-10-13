@@ -25,7 +25,10 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_types::{declaration::conversion::ConversionAdapter, language::Protocol};
+use kagari_types::{
+    declaration::conversion::ConversionAdapter,
+    language::{Protocol, binding},
+};
 use std::{
     collections::{BTreeMap, HashSet},
     iter,
@@ -291,7 +294,8 @@ impl AggregateCatalog {
         let result = (|| {
             if matches!(
                 ty,
-                TypeId::Trait(_)
+                TypeId::Array(_)
+                    | TypeId::Trait(_)
                     | TypeId::NativeObject(_)
                     | TypeId::Struct(_)
                     | TypeId::Enum(_)
@@ -348,7 +352,9 @@ impl AggregateCatalog {
             }
             let members = match ty {
                 TypeId::Tuple(members) => Some(members.clone()),
-                TypeId::Enum(n) => {
+                TypeId::Enum(n)
+                    if binding::member_comparison(&n.declaration, budget.definitions) =>
+                {
                     if let Some(declaration) = self.enumeration(&n.declaration) {
                         let substitution = declaration
                             .generic_params
@@ -887,9 +893,8 @@ impl AggregateCatalog {
                                 )
                                 && protocol.equality_protocol()
                             {
-                                // Equality defaults depend on declarations:
-                                // enums inspect payloads and object overrides
-                                // can suppress identity Eq/Hash. A catalog-free
+                                // Equality depends on explicit implementations
+                                // and core enum payloads. A catalog-free
                                 // intrinsic answer cannot establish this bound.
                                 if self.standard_holds(protocol, &actual, visiting, budget)? {
                                     continue;

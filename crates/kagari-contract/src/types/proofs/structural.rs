@@ -4,7 +4,7 @@ use {
         types::proofs::{Budget, ProofCatalog, search::Search},
     },
     kagari_types::{
-        language::Protocol,
+        language::{Protocol, binding},
         scalar::BuiltinType,
         surface::StandardTypeConstraint,
         ty::{Constraint, GenericBound, Ty, substitution::TypeTransformError},
@@ -41,23 +41,6 @@ impl ProofCatalog<'_> {
         {
             return Ok(true);
         }
-        if matches!(
-            receiver,
-            Ty::Struct(_) | Ty::NativeObject(_) | Ty::Enum(_) | Ty::Map { .. } | Ty::Set(_, _)
-        ) && matches!(kind, Protocol::Eq | Protocol::Hash)
-            && self.explicit(
-                &intrinsic::applied(Protocol::PartialEq, vec![], &self.definitions)?,
-                receiver,
-                assumptions,
-                search,
-                budget,
-                depth,
-            )? != 0
-        {
-            // Once nominal equality is customized, identity/structural Eq and
-            // Hash defaults cannot silently disagree with that implementation.
-            return Ok(false);
-        }
         let members: Vec<&Ty> = match receiver {
             Ty::Builtin(ty) => {
                 return Ok(!matches!(kind, Protocol::Eq | Protocol::Hash)
@@ -66,15 +49,16 @@ impl ProofCatalog<'_> {
             _ if kind == Protocol::Display => return Ok(false),
             Ty::Host(_) => return Ok(kind == Protocol::Debug),
             Ty::Enum(_) if kind == Protocol::Debug => return Ok(true),
-            Ty::Struct(_) | Ty::NativeObject(_) | Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _) => {
-                return Ok(true);
+            Ty::Struct(_) | Ty::NativeObject(_) | Ty::Map { .. } | Ty::Set(_, _) => {
+                return Ok(kind == Protocol::Debug);
             }
+            Ty::Array(_) => return Ok(kind == Protocol::Debug),
             Ty::Tuple(items) => items.iter().collect(),
-            Ty::Enum(instance) => {
+            Ty::Enum(instance)
+                if binding::member_comparison(&instance.declaration, &self.definitions) =>
+            {
                 let Some(payload) = self.enumerations.get(instance) else {
-                    // Missing declaration/layout evidence is not proof that a
-                    // structural protocol is inapplicable. In particular it
-                    // must never authorize an object's identity fallback.
+                    // Core member comparison requires complete layout evidence.
                     return Err(TypeTransformError::InvalidContract);
                 };
                 payload.clone()

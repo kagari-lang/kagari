@@ -76,22 +76,25 @@ fn main()->i32 {
 }
 
 #[test]
-fn structural_and_identity_keys_execute_through_artifacts() {
+fn explicit_identity_keys_and_standard_member_keys_execute_through_artifacts() {
     execute(
         r#"use std::collections::{HashMap};
 
 struct Key { var value: i32 }
-enum Tag { Name(String), Number(i32) }
+impl PartialEq for Key { fn eq(self, other: Self) -> bool { self === other } }
+impl Eq for Key {}
+// A constant hash is correct for explicit identity equality, with collisions.
+impl std::hash::Hash for Key { fn hash(self) -> i64 { 0i64 } }
 fn main()->i32 {
-    val map: HashMap<(Tag, i32), i32> = HashMap::new();
-    map.insert((Tag::Name("a"), 2), 20);
+    val map: HashMap<(Option<String>, i32), i32> = HashMap::new();
+    map.insert((Some("a"), 2), 20);
     val key = Key { value: 1 };
     val identities: HashMap<Key, i32> = HashMap::new();
     identities.insert(key, 22);
     key.value = 9;
     val different = Key { value: 9 };
     if identities.contains_key(different) { 0 } else {
-        (match map.get((Tag::Name("a"), 2)) { Some(value) => value, None => 0 }) + (match identities.get(key) { Some(value) => value, None => 0 })
+        (match map.get((Some("a"), 2)) { Some(value) => value, None => 0 }) + (match identities.get(key) { Some(value) => value, None => 0 })
     }
 }
 "#,
@@ -109,6 +112,9 @@ use core::hash::Hash;
 use core::fmt as formatting;
 trait Named: Equal { fn name(self)->String; }
 struct Item { val value: i32 }
+impl PartialEq for Item { fn eq(self, other: Self) -> bool { self.value == other.value } }
+impl Equal for Item {}
+impl Hash for Item { fn hash(self) -> i64 { self.value.hash() } }
 impl Named for Item { fn name(self)->String { "item" } }
 fn same<T: Named>(a:T,b:T)->bool { a.eq(b) }
 fn output<T: formatting::Display>(x:T)->String { x.display() }
@@ -264,21 +270,20 @@ fn main()->i32 {
     val map: HashMap<i32, i32> = HashMap::new();
     val set: HashSet<i32> = HashSet::new();
     a.value = 2;
-    if a === alias && a !== b && values === values && values !== copy && map === map && set === set { 42 } else { 0 }
+    if a === alias && a !== b && values === values && values !== copy && values !== [true] && map === map && set === set { 42 } else { 0 }
 }
 "#,
     );
 }
 
 #[test]
-fn identity_operators_reject_value_types_and_mismatched_objects() {
+fn identity_operators_reject_value_types() {
     for expression in [
         "1 === 1",
         "true !== false",
         "\"a\" === \"a\"",
         "(1,2) === (1,2)",
         "Some(1) === Some(1)",
-        "[1] === [true]",
     ] {
         let source = format!("fn main()->bool {{ {expression} }}");
         assert!(matches!(
@@ -299,7 +304,6 @@ fn custom_equality_composes_and_enum_overrides_variant_checks() {
 struct Point { val x:i32 }
 impl PartialEq for Point { fn eq(self, other:Self)->bool { self.x == other.x } }
 impl Eq for Point {}
-enum Message { Missing, Here(Point) }
 enum Id { Local(i32), Remote(i32) }
 fn number(v:Id)->i32 { match v { Id::Local(x)=>x, Id::Remote(x)=>x } }
 impl PartialEq for Id { fn eq(self, other:Self)->bool { number(self)==number(other) } }
@@ -308,7 +312,7 @@ impl Hash for Id { fn hash(self)->i64 { number(self).hash() } }
 fn same<T:Eq>(a:T,b:T)->bool { a==b && a.eq(b) }
 fn main()->i32 {
  val a=Point{x:1}; val b=Point{x:1};
- if same(a,b) && a !== b && same((a,7),(b,7)) && same(Message::Here(a),Message::Here(b)) && same(Id::Local(42),Id::Remote(42)) && Id::Local(42).hash()==Id::Remote(42).hash() {42} else {0}
+ if same(a,b) && a !== b && same((a,7),(b,7)) && same(Some(a),Some(b)) && same(Id::Local(42),Id::Remote(42)) && Id::Local(42).hash()==Id::Remote(42).hash() {42} else {0}
 }
 "#,
     );
@@ -324,14 +328,13 @@ struct Key { val id:i32, var ignored:i32 }
 impl PartialEq for Key { fn eq(self, other:Self)->bool { self.id == other.id } }
 impl Eq for Key {}
 impl Hash for Key { fn hash(self)->i64 { 0.hash() } }
-enum Tag { Value(Key), Empty }
 fn store<T:Eq+Hash>(map:HashMap<T,i32>,key:T,value:i32) { map.insert(key,value); }
 fn main()->i32 {
- val map:HashMap<(Tag,i32),i32> = HashMap::new();
+ val map:HashMap<(Option<Key>,i32),i32> = HashMap::new();
  val a=Key{id:1,ignored:0}; val b=Key{id:2,ignored:0};
- store(map,(Tag::Value(a),7),20); store(map,(Tag::Value(b),7),21);
+ store(map,(Some(a),7),20); store(map,(Some(b),7),21);
  a.ignored=99;
- store(map,(Tag::Value(Key{id:1,ignored:3}),7),22);
+ store(map,(Some(Key{id:1,ignored:3}),7),22);
  val set:HashSet<Key> = HashSet::new();
  set.insert(a); set.insert(b); set.insert(Key{id:1,ignored:4});
  { val passed = set.len()==Vec::from([1,2]).len(); if !passed { val zero = 0; 1 / zero; } };
@@ -339,11 +342,11 @@ fn main()->i32 {
  { val passed = set.remove(Key{id:2,ignored:5}); if !passed { val zero = 0; 1 / zero; } };
  { val passed = !set.contains(b); if !passed { val zero = 0; 1 / zero; } };
  { val passed = map.len()==Vec::from([1,2]).len(); if !passed { val zero = 0; 1 / zero; } };
- { val passed = map.contains_key((Tag::Value(Key{id:2,ignored:0}),7)); if !passed { val zero = 0; 1 / zero; } };
- val query = (Tag::Value(Key{id:1,ignored:0}),7);
+ { val passed = map.contains_key((Some(Key{id:2,ignored:0}),7)); if !passed { val zero = 0; 1 / zero; } };
+ val query = (Some(Key{id:1,ignored:0}),7);
  val found = map.get(query);
  val result = match found { Some(value) => value, None => 0 };
- { val passed = (match map.remove((Tag::Value(b),7)) { Some(value) => value, None => 0 })==21; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = (match map.remove((Some(b),7)) { Some(value) => value, None => 0 })==21; if !passed { val zero = 0; 1 / zero; } };
  result+20
 }
 "#,
@@ -351,7 +354,7 @@ fn main()->i32 {
 }
 
 #[test]
-fn default_protocols_follow_custom_members_and_recursive_enums() {
+fn explicit_recursive_enum_protocols_compose_with_member_operations() {
     execute(
         r#"use std::collections::{HashSet};
 use std::hash::{Hash};
@@ -361,6 +364,15 @@ impl<T:PartialEq> PartialEq for Key<T> { fn eq(self, other:Self)->bool { self.va
 impl<T:Eq> Eq for Key<T> {}
 impl<T:Eq+Hash> Hash for Key<T> { fn hash(self)->i64 { self.value.hash() } }
 enum Chain { End, Next(Key<i32>, Chain) }
+impl PartialEq for Chain {
+ fn eq(self, other: Self) -> bool { match (self, other) {
+  (Chain::End, Chain::End) => true,
+  (Chain::Next(a, tail), Chain::Next(b, rest)) => a == b && tail == rest,
+  _ => false
+ } }
+}
+impl Eq for Chain {}
+impl Hash for Chain { fn hash(self) -> i64 { match self { Chain::End => 0i64, Chain::Next(key, tail) => key.hash() + tail.hash() } } }
 fn main()->i32 {
  val a=Chain::Next(Key{value:42},Chain::End);
  val b=Chain::Next(Key{value:42},Chain::End);
@@ -405,14 +417,13 @@ fn custom_comparisons_short_circuit_without_identity_shortcuts() {
 struct Counter {var count:i32}
 struct Key {val id:i32,val counter:Counter}
 impl PartialEq for Key {fn eq(self,other:Self)->bool {self.counter.count+=1;self.id==other.id}}
-enum Pair {Values(Key,Key), Empty}
 fn main()->i32 {
  val c=Counter{count:0};val a=Key{id:1,counter:c};val b=Key{id:2,counter:c};
  { val passed = !(a,a).eq((b,a)); if !passed { val zero = 0; 1 / zero; } };
  { val passed = c.count==1; if !passed { val zero = 0; 1 / zero; } };
- { val passed = Pair::Values(a,a)!=Pair::Empty; if !passed { val zero = 0; 1 / zero; } };
+ { val passed = Some((a,a))!=None; if !passed { val zero = 0; 1 / zero; } };
  { val passed = c.count==1; if !passed { val zero = 0; 1 / zero; } };
- { val passed = Pair::Values(a,a)!=Pair::Values(b,a); if !passed { val zero = 0; 1 / zero; } };
+ { val passed = Some((a,a))!=Some((b,a)); if !passed { val zero = 0; 1 / zero; } };
  { val passed = c.count==2; if !passed { val zero = 0; 1 / zero; } };
  { val passed = a==a; if !passed { val zero = 0; 1 / zero; } };
  { val passed = c.count==3; if !passed { val zero = 0; 1 / zero; } };
@@ -731,11 +742,11 @@ fn main()->i64 {Key{id:1}.hash()}
 }
 
 #[test]
-fn composed_enum_hash_uses_variant_identity_instead_of_version_local_slots() {
+fn explicit_enum_hash_is_stable_across_variant_reordering() {
     let mut hashes = Vec::new();
     for variants in ["Empty, Present(Key)", "Present(Key), Empty"] {
         let source = format!(
-            "use std::hash::{{Hash}};\nstruct Key {{val id:i32}} impl PartialEq for Key {{fn eq(self,other:Self)->bool {{self.id==other.id}}}} impl Eq for Key {{}} impl Hash for Key {{fn hash(self)->i64 {{self.id.hash()}}}} enum Envelope {{{variants}}} fn main()->i64 {{Envelope::Present(Key{{id:1}}).hash()}}"
+            "use std::hash::{{Hash}};\nstruct Key {{val id:i32}} impl PartialEq for Key {{fn eq(self,other:Self)->bool {{self.id==other.id}}}} impl Eq for Key {{}} impl Hash for Key {{fn hash(self)->i64 {{self.id.hash()}}}} enum Envelope {{{variants}}} impl PartialEq for Envelope {{fn eq(self,other:Self)->bool {{as_option(self)==as_option(other)}}}} impl Eq for Envelope {{}} impl Hash for Envelope {{fn hash(self)->i64 {{as_option(self).hash()}}}} fn as_option(value:Envelope)->Option<Key> {{match value {{Envelope::Empty=>None,Envelope::Present(key)=>Some(key)}}}} fn main()->i64 {{Envelope::Present(Key{{id:1}}).hash()}}"
         );
         let engine = KagariEngine::default();
         let artifact = engine
@@ -786,6 +797,64 @@ fn main() -> i32 {
     val hash: Hash = view;
     if debug.debug() != "item" || display.display() != "42" { return 0; }
     if hash.hash() != 42.hash() { return 0; }
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn equality_requires_an_explicit_or_conditional_static_implementation() {
+    let engine = KagariEngine::default();
+    for source in [
+        "struct Item {} fn main() -> bool { val a = Item {}; a == a }",
+        "enum Item { One } fn main() -> bool { Item::One == Item::One }",
+        "struct Item {} fn main() -> bool { val a = Vec::from([Item {}]); a == a }",
+        "struct Item {} fn main() -> bool { val a = [Item {}]; a == a }",
+        "struct Item {} fn main() -> bool { val a = Some(Item {}); a == a }",
+        "struct Item {} fn main() -> bool { val a = (Item {},); a == a }",
+        "fn same<T>(a: T, b: T) -> bool { a == b }",
+        "trait Read {} struct Item {} impl Read for Item {} impl PartialEq for Item { fn eq(self, other: Self) -> bool { true } } fn main() -> bool { val a: Read = Item {}; a == a }",
+        "struct Item {} fn main() -> bool { Item {}.eq(Item {}) }",
+        "fn main() -> i64 { [1].hash() }",
+    ] {
+        assert!(
+            matches!(
+                engine.compile_to_artifact(
+                    SourceFile::new("comparison-required.kgr", source),
+                    Default::default()
+                ),
+                Err(EmbeddingError::Diagnostics { .. })
+            ),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn arrays_compare_contents_through_selected_element_operations() {
+    execute(
+        r#"
+struct Counter { var calls: i32 }
+struct Item { val value: i32, val counter: Counter }
+impl PartialEq for Item {
+    fn eq(self, other: Self) -> bool { self.counter.calls += 1; self.value == other.value }
+}
+fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
+fn arrays<T: PartialEq>(a: [T], b: [T]) -> bool { a == b }
+fn main() -> i32 {
+    val count = Counter { calls: 0 };
+    val a = Item { value: 1, counter: count };
+    val b = Item { value: 2, counter: count };
+    val xs = [a, b];
+    if xs == [b, a] || count.calls != 1 { return 1; }
+    if !same(xs, xs) || count.calls != 3 { return 2; }
+    if xs == [a] || count.calls != 3 { return 3; }
+    if !arrays(xs, [a, b]) || count.calls != 5 { return 4; }
+    if !(xs === xs && xs !== [a, b]) { return 5; }
+    val nan = [0.0f32 / 0.0f32];
+    if nan == nan { return 6; }
+    if !([0.0f32] == [-0.0f32]) || !([[1, 2]] == [[1, 2]]) { return 7; }
     42
 }
 "#,

@@ -11,7 +11,9 @@ use kagari_hir::{
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
 };
-use kagari_types::{declaration::wire::leaf::NominalTyRecord, language::Protocol};
+use kagari_types::{
+    declaration::wire::leaf::NominalTyRecord, language::Protocol, scalar::BuiltinType, ty::Ty,
+};
 use std::{collections::HashSet, fmt::Write};
 
 impl FunctionLowerer<'_, '_> {
@@ -30,14 +32,14 @@ impl FunctionLowerer<'_, '_> {
             }
             match &ty {
                 TypeId::Trait(_) | TypeId::Generic(_) => return Ok(true),
-                TypeId::NativeObject(_)
+                TypeId::Array(_)
+                | TypeId::NativeObject(_)
                 | TypeId::Struct(_)
                 | TypeId::Enum(_)
                 | TypeId::Map { .. }
                 | TypeId::Set(_, _) => {
-                    // Implicit identity/member equality does not import a
-                    // protocol declaration. Only an actual checked override
-                    // requires its method contract during call lowering.
+                    // Primitive member composition needs no method import.
+                    // A checked explicit implementation requires its callable.
                     if self
                         .planner
                         .catalog
@@ -191,9 +193,6 @@ impl FunctionLowerer<'_, '_> {
             let method = self.protocol_method(protocol, 0)?;
             return self.lower_applied_operator(interface, ty.clone(), &method, args);
         }
-        if protocol == Protocol::PartialEq && matches!(ty, TypeId::Trait(_)) {
-            return Ok(self.emit_intrinsic(RuntimePrimitive::ValueEq, args, ValueType::Bool));
-        }
         let result_ty = if protocol == Protocol::PartialEq {
             ValueType::Bool
         } else {
@@ -313,7 +312,20 @@ impl FunctionLowerer<'_, '_> {
             for (ty, args) in inputs {
                 hashes.push(self.lower_protocol(protocol, ty, args, depth + 1)?);
             }
+            let tuple_type = Ty::Tuple(
+                hashes
+                    .iter()
+                    .map(|value| match value.ty {
+                        ValueType::Str => Ty::Builtin(BuiltinType::String),
+                        _ => Ty::Builtin(BuiltinType::I64),
+                    })
+                    .collect(),
+            );
             let tuple = self.alloc_temp(ValueType::HeapObject);
+            self.function
+                .semantic
+                .registers
+                .insert(tuple.temp.index(), tuple_type);
             self.emit(Instruction::MakeTuple {
                 dst: tuple,
                 elements: hashes,

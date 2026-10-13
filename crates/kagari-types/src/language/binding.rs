@@ -65,3 +65,17 @@ pub fn result(table: &DefinitionTable, value: Ty, error: Ty) -> Option<Ty> {
 pub fn control_flow_declaration() -> DefinitionPath {
     declaration("ops", "ControlFlow")
 }
+
+/// Core enum declarations with conditional member comparison and hashing.
+/// User enum shapes never imply these protocols; explicit implementations win.
+pub fn member_comparison(id: &DefinitionId, table: &DefinitionTable) -> bool {
+    [
+        option_declaration(),
+        result_declaration(),
+        ordering_declaration(),
+        bound_declaration(),
+        control_flow_declaration(),
+    ]
+    .iter()
+    .any(|declaration| matches(id, declaration, table))
+}

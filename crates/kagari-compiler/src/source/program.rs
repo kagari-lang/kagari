@@ -249,12 +249,7 @@ pub fn lower_program_to_mir(
             let materialized = modules
                 .iter()
                 .find(|module| &module.identity == owner)
-                .is_some_and(|module| {
-                    module
-                        .interface_instances
-                        .iter()
-                        .any(|demand| demand.identity() == instance)
-                });
+                .is_some_and(|module| module.interface_instances.contains(&instance));
             if !materialized && seen.insert(instance.clone()) {
                 requests.entry(owner.clone()).or_default().push(instance);
                 changed = true;
@@ -285,7 +280,7 @@ pub fn lower_program_to_mir(
             module
                 .interface_instances
                 .iter()
-                .map(|instance| (&module.identity, instance.identity()))
+                .map(|instance| (&module.identity, instance.clone()))
         });
         for (caller, instance) in allocations.chain(demands) {
             let implementation = &instance.declaration;

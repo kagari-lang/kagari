@@ -1,6 +1,6 @@
 # Trait interfaces and comparison execution plan
 
-Status: implementation activated on 2026-10-13; TI01-TI02 are complete; TI03 is next.
+Status: implementation activated on 2026-10-13; TI01-TI03 are complete; TI04 is next.
 This plan owns the finite implementation sequence, acceptance, carried errors
 and progress ledger for SA25/SA26 and the affected SA23/SA24 cases. The
 [roadmap](implementation-roadmap.md#trait-interfaces-and-comparison) owns queue
@@ -63,7 +63,7 @@ the whole workspace to establish a baseline.
 | [Interface contracts](../crates/kagari-contract/src/callable/interface.rs) | Source-independent declarations/proofs must express and validate the same signature, bound and parent requirements. No dependency on HIR or source annotations. |
 | [HIR semantics](../crates/kagari-hir/src/language/semantics.rs), [operator checking](../crates/kagari-hir/src/typeck/body/operators.rs), [equality lowering](../crates/kagari-compiler/src/source/lower/expr/equality.rs) | Establish eligibility and selected operations once; lowering consumes accepted operand adaptations and never selects solely from an unadapted operand. |
 | [Stdlib comparison catalog](../crates/kagari-stdlib/src/catalog/comparison.rs), [interface protocols](../crates/kagari-stdlib/src/catalog/interface_protocols.rs), [comparison bindings](../crates/kagari-stdlib/src/bindings/comparison.rs) | Library-owned conditional content behavior and helpers remain; remove collection-interface receiver equality and keep Debug. |
-| [Receiver planning](../crates/kagari-compiler/src/source/lower/instances/receiver.rs), [receiver proofs](../crates/kagari-contract/src/callable/receiver.rs), [runtime comparison](../crates/kagari-runtime/src/objects/comparison.rs) | Identity certificates, negative eligibility and retained specialized comparison dispatch support the superseded fallback/forwarding model. Remove them with their consumers, retaining ordinary selected-call machinery. |
+| [Callable planning](../crates/kagari-compiler/src/source/lower/instances/callables.rs), [primitive proofs](../crates/kagari-contract/src/types/proofs/composition.rs), [runtime value semantics](../crates/kagari-runtime/src/value_semantics.rs) | Identity certificates, negative eligibility and retained specialized comparison dispatch support the superseded fallback/forwarding model. Remove them with their consumers, retaining ordinary selected-call machinery. |
 | [Interface wire records](../crates/kagari-bytecode/src/artifact/wire/interface.rs), [GC interface metadata](../crates/kagari-runtime/src/gc/interfaces.rs), [value semantics](../crates/kagari-runtime/src/value_semantics.rs) | Update portable and runtime representations together; independently validate types/proofs and preserve roots, object identities and supplying generations. |
 
 Shared eligibility operations belong with source-independent declaration/type or
@@ -249,13 +249,60 @@ errors change. Successful command transcripts belong in Git history after handof
 - [x] Record accepted design, bounded ownership, TI01-TI04 and local/CI gates.
 - [x] TI01: Require supplied interface conversion targets.
 - [x] TI02: Unify structural dynamic compatibility.
-- [ ] TI03: Replace equality and identity selection end to end.
+- [x] TI03: Replace equality and identity selection end to end.
 - [ ] TI04: Complete integration and retire the migration.
 
-Current build status: TI01-TI02 build and their selected local checks pass.
-No carried build/test failure remains. SA23-SA25 comparison findings await TI03;
-full workspace, feature/backend and CI acceptance remain unverified. SA22 and
-unrelated roadmap work remain outside this plan.
+Current build status: TI01-TI03 libraries build and selected local checks pass.
+Initial compile/comparison failures are repaired; no carried production build
+failure remains. TI04 reload/fixture migration and documentation handoff are
+pending. Full workspace, feature/backend and CI acceptance remain unverified.
+SA22 and unrelated roadmap work remain outside this plan.
+
+TI03 implementation and verification:
+
+- Static equality requires PartialEq. Explicit Struct/user-enum and registered
+  interface implementations remain available; core Option/Result/Ordering/Bound/
+  ControlFlow use conditional member protocols. Array has a library-owned
+  conditional PartialEq implementation with checked element callbacks.
+- Removed six interface PartialEq registrations, receiver comparison certificates,
+  negative eligibility facts, dispatch, wire records and runtime retention edges.
+  Interface demands now use ConcreteFunctionIdentity directly. Ordinary callable
+  bindings, parent views, result adapters and their generation/GC owners remain.
+- Removed primitive object equality/hash defaults. MIR and KBC identity checks
+  require known object types; linked primitive equality/hash requires exact
+  aggregate type/protocol evidence and rejects bypassing selected implementations.
+  Removed the unused catalog-free TypeId equality predicate. Portable host schema
+  constraints now follow member capabilities and reject interface equality.
+- Passed four standard-trait cases for missing equality evidence, comparison-only
+  hashing rejection, Array callbacks/IEEE/nesting and alias callback execution.
+  Passed eight further selected standard-trait cases for explicit identity keys,
+  imported/supertrait bounds, explicit recursive/custom enums, key callbacks,
+  stable enum hashing and concrete identity. Each executing case uses source,
+  artifact and artifact JIT routes unless its existing purpose is artifact-only.
+- Passed five selected collection-interface cases: concrete content/helper behavior,
+  nested/IEEE content, upcast alias mutation, generic boxing methods, and all six
+  interfaces rejecting operator/method/generic/tuple/identity comparison.
+- Passed all four interface_identity cases, including operand effects/root cleanup
+  and forged KBC identity/equality instructions (interface operands or a custom
+  concrete implementation bypass). Passed ten contract proof tests and the
+  portable host-constraint test.
+- Initial strict-proof failures exposed missing semantic registers in generated
+  protocol parameters and hash-composition tuples; lowering now records them.
+  A closed tuple callback had been emitted as a forwarded shared witness without
+  a native application scope. Closed tuple requirements now select the existing
+  concrete adapter; symbolic tuple requirements retain the same shared adapter
+  body. Affected key/enum hash cases passed after repair. No second comparison
+  implementation or compatibility bridge was added.
+- Scoped library Clippy passed for types, HIR, contract, MIR, bytecode, compiler,
+  runtime and stdlib after removing stale imports and simplifying interface-demand
+  comparisons. Both runtime value-semantics tests passed, retaining nominal reload
+  behavior, IEEE values and rejection of implicit object-member equality. Structure,
+  formatting and diff checks passed; no structural exception was added.
+- TI04 owns the older generic_reload receiver-forwarding/identity fixtures: replace
+  their obsolete interface comparison expectations with concrete comparison or
+  explicit helper calls while preserving pinned generation and root assertions.
+  Audit remaining dynamic-standard-trait negative fixtures and callback/reentry
+  cases there; do not interpret their unrun status as a pass.
 
 TI02 verification:
 
@@ -306,6 +353,7 @@ parallel compatibility path or structural exception was introduced.
 
 | Checkpoint | Evidence / disposition |
 | --- | --- |
+| 2026-10-13 TI03 | Removed automatic equality/identity fallback and receiver certificates across source, portable contracts, library and runtime. Array content comparison and strict object identity verified with focused source/artifact/JIT, malformed KBC, proof and runtime checks; scoped Clippy passed. TI04 fixture/reload migration, documentation handoff and CI remain pending. |
 | 2026-10-13 TI02 | Unified applied structural eligibility and portable admission; retained generic methods, checked declaration/method constraints and standard protocol dispatch. Selected HIR, contract, compiler and multi-route execution tests plus scoped Clippy passed. No carried errors; TI03-TI04 and CI pending. |
 | 2026-10-13 TI01 | Supplied-target branch checking and solver hint separation implemented; nine HIR tests and two multi-route execution tests passed. Existing operator-only common-interface search remains until TI03. No carried errors; TI02-TI04 and CI pending. |
 | 2026-10-13 planning | Read current implementations/tests at 981b7070 and accepted specifications; checked existing module/test filter names without running Cargo. Content review, 82 added local links/anchors across nine documentation files, code fences, preserved CRLF, whitespace and git diff checks passed. TI01-TI04 and all local/CI implementation gates remain pending. |

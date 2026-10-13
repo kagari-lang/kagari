@@ -10,7 +10,6 @@ pub mod implementation;
 mod normalize;
 mod ownership;
 mod protocols;
-mod receiver;
 mod search;
 mod structural;
 

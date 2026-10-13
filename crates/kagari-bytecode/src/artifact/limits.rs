@@ -9,16 +9,12 @@ use crate::{
     program::BytecodeProgram,
 };
 use kagari_common::identity::table::DefinitionTable;
-use kagari_contract::{
-    callable::{receiver::ReceiverComparison, witness::OperationWitness},
-    types::PublicItem,
-};
+use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{AssociatedTypeDef, FnDecl, requirement::NativeCallableRequirement},
     ty::{Constraint, GenericBound, Ty},
 };
-use std::slice;
 
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
     lengths
@@ -132,32 +128,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         }
     }
     for table in &module.interface_tables {
-        if let Some(ReceiverComparison::Dispatch {
-            implementations, ..
-        }) = &table.comparison
-            && (!add(implementations.len())
-                || !implementations.iter().all(|case| {
-                    add(case.arguments.len()) && case.arguments.iter().all(|path| add(path.len()))
-                }))
-        {
-            return false;
-        }
-
-        if let Some(comparison) = table
-            .comparison
-            .as_ref()
-            .and_then(|comparison| comparison.selection())
-            && (!add_operations(slice::from_ref(&comparison.operation), &mut add)
-                || !add(comparison.conditions.len())
-                || !add_abi_bounds(&comparison.conditions, &mut add)
-                || !add(comparison.eligibility.len())
-                || !comparison
-                    .eligibility
-                    .iter()
-                    .all(|fact| add_abi_bounds(slice::from_ref(&fact.bound), &mut add)))
-        {
-            return false;
-        }
         if let Some(view) = &table.view
             && (!add(view.results.len())
                 || !add(view.interface.arguments.len())
@@ -407,29 +377,7 @@ pub(super) fn module_abi_type_limit(
                 })
         })
         && module.interface_tables.iter().all(|table| {
-            table.comparison.as_ref().is_none_or(|comparison| {
-                if !valid(comparison.receiver()) {
-                    return false;
-                }
-                let Some(comparison) = comparison.selection() else {
-                    return true;
-                };
-                bounds_type_limit(&comparison.conditions)
-                    && comparison
-                        .eligibility
-                        .iter()
-                        .all(|fact| bounds_type_limit(slice::from_ref(&fact.bound)))
-                    && module.public_items.iter().any(|item| match item {
-                        PublicItem::InterfaceTable(contract)
-                            if contract.declaration == table.declaration =>
-                        {
-                            comparison
-                                .operation
-                                .structurally_valid(&contract.generic_params, definitions)
-                        }
-                        _ => false,
-                    })
-            }) && table.view.as_ref().is_none_or(|view| {
+            table.view.as_ref().is_none_or(|view| {
                 valid(&Ty::Trait(view.interface.clone()))
                     && view
                         .results

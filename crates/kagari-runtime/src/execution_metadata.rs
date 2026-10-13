@@ -22,7 +22,7 @@ use crate::{
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
     frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
-    gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot, ReceiverComparisonBinding},
+    gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
     module::LoadedModule,
     native::{application::NativeApplication, stored_selection::StoredSelection},
     value::Value,
@@ -266,11 +266,6 @@ impl<'a> MetadataTrace<'a> {
                         .push(MetadataEdge::InterfaceView(self.interfaces.get(id)?));
                 }
                 MetadataEdge::InterfaceView(snapshot) => {
-                    if let Some(ReceiverComparisonBinding::Selected(comparison)) =
-                        &snapshot.comparison
-                    {
-                        self.pending.push(MetadataEdge::Binding(comparison));
-                    }
                     self.values.push(&snapshot.data);
                     self.pending
                         .push(MetadataEdge::Program(&snapshot.implementation));

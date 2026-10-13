@@ -7,30 +7,15 @@ use crate::{
     value::{EnumTag, Value},
 };
 
-use kagari_contract::callable::receiver::object_receiver;
 use std::{
     cmp::Ordering,
     fmt,
     fmt::{Error, Write},
 };
 
-/// Checked object interface boxes preserve the underlying object's identity.
-fn object_data(gc: &GcHeap, value: &Value) -> Option<Value> {
-    let Value::Interface(id) = value else {
-        return None;
-    };
-    let snapshot = gc.interface_snapshot(*id)?;
-    // Publication validates the concrete receiver. Identity depends on its
-    // object category, independently of any selected PartialEq application.
-    object_receiver(&snapshot.concrete_type).then_some(snapshot.data)
-}
-
 /// Identity is available only for script object categories, never allocation
 /// details of values such as strings, tuples or enums.
 pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
-    let left = object_data(gc, lhs);
-    let right = object_data(gc, rhs);
-    let (lhs, rhs) = (left.as_ref().unwrap_or(lhs), right.as_ref().unwrap_or(rhs));
     let object = |value: &Value| match value {
         Value::Struct(id) => Some((*id, GcObjectKind::Struct)),
         Value::Array(id) => Some((*id, GcObjectKind::Array)),
@@ -68,7 +53,13 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
     }
     Ok(match (lhs, rhs) {
         (
-            Value::Interface(_)
+            Value::Array(_)
+            | Value::Map(_)
+            | Value::Set(_)
+            | Value::Struct(_)
+            | Value::GcHandle(_)
+            | Value::Closure(_)
+            | Value::Interface(_)
             | Value::HostRoot(_)
             | Value::HostPathView(_)
             | Value::Ephemeral(_)
@@ -77,7 +68,13 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
         )
         | (
             _,
-            Value::Interface(_)
+            Value::Array(_)
+            | Value::Map(_)
+            | Value::Set(_)
+            | Value::Struct(_)
+            | Value::GcHandle(_)
+            | Value::Closure(_)
+            | Value::Interface(_)
             | Value::HostRoot(_)
             | Value::HostPathView(_)
             | Value::Ephemeral(_)
@@ -107,38 +104,6 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
             let a = gc.enum_view(*a).ok_or_else(invalid)?;
             let b = gc.enum_view(*b).ok_or_else(invalid)?;
             a.tag == b.tag && members_equal(gc, &a.fields, &b.fields)?
-        }
-        (Value::Array(a), Value::Array(b))
-        | (Value::Map(a), Value::Map(b))
-        | (Value::Set(a), Value::Set(b))
-        | (Value::Struct(a), Value::Struct(b)) => {
-            let kind = match lhs {
-                Value::Array(_) => GcObjectKind::Array,
-                Value::Map(_) => GcObjectKind::Map,
-                Value::Set(_) => GcObjectKind::Set,
-                _ => GcObjectKind::Struct,
-            };
-            if gc.object_kind(*a) != Some(kind) || gc.object_kind(*b) != Some(kind) {
-                return Err(invalid());
-            }
-            a == b
-        }
-        (Value::GcHandle(a), Value::GcHandle(b))
-            if gc.object_kind(*a) == Some(GcObjectKind::Native)
-                && gc.object_kind(*b) == Some(GcObjectKind::Native) =>
-        {
-            a == b
-        }
-        (Value::GcHandle(id), _) | (_, Value::GcHandle(id))
-            if gc.object_kind(*id) == Some(GcObjectKind::Native) =>
-        {
-            false
-        }
-        (Value::GcHandle(_), _) | (_, Value::GcHandle(_)) => {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "untyped GC handle does not support general equality",
-            ));
         }
         _ => false,
     })
@@ -418,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn enum_members_use_script_semantics_including_identity_and_nan() {
+    fn enum_members_preserve_nan_and_reject_implicit_object_comparison() {
         let mut runtime = crate::Runtime::default();
         let interface = crate::layout_fixtures::interface_value(&mut runtime);
         let owner = crate::layout_fixtures::allocation_owner(&mut runtime);
@@ -458,7 +423,7 @@ mod tests {
                 .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
                 .unwrap(),
         );
-        assert!(script_equal(gc, &make(array), &make(array)).unwrap());
+        assert!(script_equal(gc, &make(array), &make(array)).is_err());
         let first = make(Value::Array(
             runtime
                 .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
@@ -469,7 +434,7 @@ mod tests {
                 .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(3)])
                 .unwrap(),
         ));
-        assert!(!script_equal(gc, &first, &second).unwrap());
+        assert!(script_equal(gc, &first, &second).is_err());
         let nan = make(Value::F64(f64::NAN));
         assert!(!script_equal(gc, &nan, &nan).unwrap());
         assert!(script_equal(gc, &interface, &interface).is_err());

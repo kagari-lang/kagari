@@ -367,11 +367,14 @@ pub fn intrinsic_holds(
             | TypeId::Array(_)
             | TypeId::Map { .. }
             | TypeId::Set(_, _)
-                if protocol != Protocol::Display => {}
+                if protocol == Protocol::Debug => {}
             TypeId::Tuple(elements) if protocol != Protocol::Display => {
                 pending.extend(elements.into_iter().map(|ty| (ty, depth + 1)))
             }
-            TypeId::Enum(instance) if protocol != Protocol::Display => {
+            TypeId::Enum(instance)
+                if protocol != Protocol::Display
+                    && binding::member_comparison(&instance.declaration, definitions) =>
+            {
                 let Some(catalog) = catalog else {
                     continue;
                 };

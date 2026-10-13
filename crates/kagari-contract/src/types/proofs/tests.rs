@@ -442,97 +442,62 @@ fn family_projection_normalization_applies_both_binders_and_rejects_cycles() {
 }
 
 #[test]
-fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
+fn member_defaults_are_limited_to_core_enums_and_proven_payloads() {
     let context = proof_context();
-    let collect_id = id(&context, DefinitionKind::Trait, "FromIterator");
     let cancel = CancellationToken::default();
-    let instance = nominal(id(&context, DefinitionKind::Enum, "Chain"), vec![]);
-    let ty = Ty::Enum(instance.clone());
-    let mut layout = EnumLayout {
-        declaration: instance.declaration,
+    let user = nominal(id(&context, DefinitionKind::Enum, "Choice"), vec![]);
+    let user_layout = EnumLayout {
+        declaration: user.declaration,
         arguments: vec![],
-        variants: vec![EnumVariantLayout {
-            reports_failure: false,
-            declaration: id(&context, DefinitionKind::Variant, "Next"),
-            payload: vec![ty.clone()],
-        }],
+        variants: vec![],
     };
-    let catalog = ProofCatalog::new(
+    let object = Ty::Struct(nominal(
+        id(&context, DefinitionKind::Struct, "Object"),
         vec![],
-        vec![],
-        [&layout],
-        [],
-        [],
-        &context.snapshot(),
-        &cancel,
-    )
-    .unwrap();
-    assert!(
-        catalog
-            .holds(
-                &intrinsic::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap(),
-                &ty,
-                &[],
-                &cancel
-            )
-            .unwrap()
-    );
-    layout.variants[0]
-        .payload
-        .push(Ty::Builtin(BuiltinType::F64));
-    let catalog = ProofCatalog::new(
-        vec![],
-        vec![],
-        [&layout],
-        [],
-        [],
-        &context.snapshot(),
-        &cancel,
-    )
-    .unwrap();
-    assert!(
-        !catalog
-            .holds(
-                &intrinsic::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap(),
-                &ty,
-                &[],
-                &cancel
-            )
-            .unwrap()
-    );
-    let set = Ty::Set(Box::new(ty), CollectionAccess::Mutable);
-    let collect = nominal(
-        collect_id,
-        vec![Ty::Enum(nominal(layout.declaration, vec![]))],
-    );
-    assert!(!catalog.holds(&collect, &set, &[], &cancel).unwrap());
-    // Storage itself remains an identity key regardless of element equality.
-    let wrapped = Ty::Enum(NominalTy {
-        declaration: context.intern(&binding::option_declaration()).unwrap(),
-        arguments: vec![set.clone()],
-        associated_types: Default::default(),
-    });
-    let wrapper = wrapper_layout(&context, set);
-    let catalog = ProofCatalog::new(
-        vec![],
-        vec![],
-        [&layout, &wrapper],
-        [],
-        [],
-        &context.snapshot(),
-        &cancel,
-    )
-    .unwrap();
-    assert!(
-        catalog
-            .holds(
-                &intrinsic::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap(),
-                &wrapped,
-                &[],
-                &cancel
-            )
-            .unwrap()
-    );
+    ));
+    for (payload, partial, key) in [
+        (scalar(), true, true),
+        (Ty::Builtin(BuiltinType::F64), true, false),
+        (Ty::Enum(user.clone()), false, false),
+        (object, false, false),
+        (Ty::Array(Box::new(scalar())), false, false),
+        (
+            Ty::Set(Box::new(scalar()), CollectionAccess::Mutable),
+            false,
+            false,
+        ),
+    ] {
+        let layout = wrapper_layout(&context, payload.clone());
+        let wrapper = Ty::Enum(nominal(layout.declaration, vec![payload]));
+        let catalog = ProofCatalog::new(
+            vec![],
+            vec![],
+            [&layout, &user_layout],
+            [],
+            [],
+            &context.snapshot(),
+            &cancel,
+        )
+        .unwrap();
+        for (protocol, expected) in [
+            (Protocol::PartialEq, partial),
+            (Protocol::Eq, key),
+            (Protocol::Hash, key),
+        ] {
+            assert_eq!(
+                catalog
+                    .holds(
+                        &intrinsic::applied(protocol, vec![], &context.snapshot()).unwrap(),
+                        &wrapper,
+                        &[],
+                        &cancel
+                    )
+                    .unwrap(),
+                expected,
+                "{protocol:?}: {wrapper:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -849,7 +814,7 @@ fn carried_iterator_outputs_supply_identity_iterable_and_reject_forged_items() {
 }
 
 #[test]
-fn equality_composition_uses_carried_payloads_and_stops_at_identity_boundaries() {
+fn equality_composition_uses_carried_payloads_and_explicit_storage_implementations() {
     let context = proof_context();
     let cancel = CancellationToken::default();
     let key = Ty::Struct(nominal(id(&context, DefinitionKind::Struct, "Key"), vec![]));

@@ -92,8 +92,13 @@ pub(crate) fn lower_callable<'a>(
             .function
             .semantic
             .locals
-            .insert(local.index(), semantic);
+            .insert(local.index(), semantic.clone());
         let value = lowerer.alloc_temp(physical);
+        lowerer
+            .function
+            .semantic
+            .registers
+            .insert(value.temp.index(), semantic);
         lowerer.emit(Instruction::LoadLocal { dst: value, local });
         values.push(value);
     }
@@ -291,8 +296,13 @@ pub(crate) fn lower_protocol<'a>(
             .function
             .semantic
             .locals
-            .insert(local.index(), semantic);
+            .insert(local.index(), semantic.clone());
         let value = lowerer.alloc_temp(physical);
+        lowerer
+            .function
+            .semantic
+            .registers
+            .insert(value.temp.index(), semantic);
         lowerer.emit(Instruction::LoadLocal { dst: value, local });
         args.push(value);
     }

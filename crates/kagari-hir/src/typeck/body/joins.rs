@@ -1,7 +1,6 @@
 //! Infer branch results before committing implicit interface conversions.
 
 use crate::{
-    aggregates::implementations::ImplementationSearchError,
     hir::{
         expr::{Condition, MatchArm},
         ids::{BlockId, ExprId},
@@ -18,53 +17,6 @@ use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
 
 impl BodyChecker<'_> {
-    pub(super) fn common_branch_interface(
-        &mut self,
-        inputs: &[TypeId],
-        env: &BodyTypeEnv,
-        expr: ExprId,
-    ) -> Option<TypeId> {
-        match self.aggregates.common_interfaces(
-            self.declarations.definitions(),
-            inputs,
-            &env.generic_bounds,
-            self.cancel,
-        ) {
-            Ok(mut candidates) => match candidates.len() {
-                0 => None,
-                1 => Some(TypeId::Trait(candidates.remove(0))),
-                _ => {
-                    let mut candidates = candidates
-                        .into_iter()
-                        .map(|candidate| {
-                            display_type_id(
-                                self.declarations.definitions(),
-                                &TypeId::Trait(candidate),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    candidates.sort();
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::AmbiguousCommonInterface { candidates })
-                            .with_span(self.lowered.source_map.expr_span(expr)),
-                    );
-                    Some(TypeId::Error)
-                }
-            },
-            Err(ImplementationSearchError::Cancelled) => None,
-            Err(ImplementationSearchError::LimitExceeded) => {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
-                        resource: "common interface search",
-                        limit: 100_000,
-                    })
-                    .with_span(self.lowered.source_map.expr_span(expr)),
-                );
-                None
-            }
-        }
-    }
-
     pub(super) fn infer_if_type(
         &mut self,
         condition: &Condition,

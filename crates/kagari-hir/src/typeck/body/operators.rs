@@ -433,32 +433,21 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
-                if (lhs_ty.conflicts_with(&rhs_ty)
-                    && !lhs_ty.can_weaken_to(&rhs_ty)
-                    && !rhs_ty.can_weaken_to(&lhs_ty)
-                    && self
-                        .common_branch_interface(&[lhs_ty.clone(), rhs_ty.clone()], env, rhs_expr)
-                        .is_none())
-                    || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
-                        // Interfaces retain their concrete receiver category. A
-                        // hidden value receiver traps instead of acquiring the
-                        // identity of its interface wrapper.
-                        !matches!(
-                            ty,
-                            TypeId::Unknown
-                                | TypeId::Error
-                                | TypeId::Trait(_)
-                                | TypeId::Struct(_)
-                                | TypeId::NativeObject(_)
-                                | TypeId::Array(_)
-                                | TypeId::Map { .. }
-                                | TypeId::Set(_, _)
-                        )
-                    })
-                {
+                if [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
+                    !matches!(
+                        ty,
+                        TypeId::Unknown
+                            | TypeId::Error
+                            | TypeId::Struct(_)
+                            | TypeId::NativeObject(_)
+                            | TypeId::Array(_)
+                            | TypeId::Map { .. }
+                            | TypeId::Set(_, _)
+                    )
+                }) {
                     self.emit_binary_operand_type_mismatch(
                         op,
-                        "compatible objects or interfaces with object receivers",
+                        "statically known object types",
                         &lhs_ty,
                         &rhs_ty,
                         rhs_expr,
@@ -469,10 +458,7 @@ impl<'a> BodyChecker<'a> {
             BinaryOp::Eq | BinaryOp::NotEq => {
                 if (lhs_ty.conflicts_with(&rhs_ty)
                     && !lhs_ty.can_weaken_to(&rhs_ty)
-                    && !rhs_ty.can_weaken_to(&lhs_ty)
-                    && self
-                        .common_branch_interface(&[lhs_ty.clone(), rhs_ty.clone()], env, rhs_expr)
-                        .is_none())
+                    && !rhs_ty.can_weaken_to(&lhs_ty))
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
                             && !traits::intrinsic_holds(

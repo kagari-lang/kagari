@@ -37,12 +37,6 @@ pub(super) fn binding(
     declaration: &DefinitionMetadata<NativeDeclaration>,
 ) -> NativeResult<Option<NativeBinding>> {
     match name {
-        name if name.starts_with("$foundation_interface_") && name.ends_with("_eq") => {
-            return Ok(Some(NativeBinding::declared(
-                declaration,
-                |cx, (left, right): (Interface, Interface)| left.receiver_equal(cx, &right),
-            )));
-        }
         name if name.starts_with("$foundation_interface_") && name.ends_with("_debug") => {
             return Ok(Some(NativeBinding::declared(
                 declaration,

@@ -1,4 +1,4 @@
-//! Checked declared interface applications, shared by inference and branch joins.
+//! Checked declared interface applications, shared by member lookup and checked applications.
 
 use crate::{
     aggregates::{
@@ -147,62 +147,5 @@ impl AggregateCatalog {
             }
         }
         Ok(expanded)
-    }
-
-    /// Find the most-specific applications accepted by every input.
-    /// All inputs participate before dominance or ambiguity is decided.
-    pub(crate) fn common_interfaces(
-        &self,
-        definitions: &DefinitionTable,
-        inputs: &[TypeId],
-        assumptions: &GenericBounds,
-        cancel: &CancellationToken,
-    ) -> Result<Vec<NominalType>, ImplementationSearchError> {
-        let available = inputs
-            .iter()
-            .map(|input| self.declared_interfaces(definitions, input, assumptions, cancel))
-            .collect::<Result<Vec<_>, _>>()?;
-        let Some(first) = available.first() else {
-            return Ok(Vec::new());
-        };
-        // An existing operand's interface is a checked one-way target, including
-        // its explicitly chosen associated constraints. Do not invent erased
-        // associated outputs merely to make otherwise distinct candidates meet.
-        let mut common = Vec::new();
-        for input in inputs {
-            if let TypeId::Trait(target) = input
-                && available
-                    .iter()
-                    .all(|views| views.iter().any(|view| view.satisfies(target)))
-                && !common.contains(target)
-            {
-                common.push(target.clone());
-            }
-        }
-        if common.is_empty() {
-            common = first.clone();
-            for views in &available[1..] {
-                common.retain(|candidate| views.contains(candidate));
-            }
-        }
-        let mut dominated = Vec::new();
-        for candidate in &common {
-            let parents = self.interface_closure(
-                definitions,
-                candidate,
-                &TypeId::Trait(candidate.clone()),
-                cancel,
-            )?;
-            for other in &common {
-                if other != candidate
-                    && parents.iter().any(|parent| parent.satisfies(other))
-                    && !dominated.contains(other)
-                {
-                    dominated.push(other.clone());
-                }
-            }
-        }
-        common.retain(|candidate| !dominated.contains(candidate));
-        Ok(common)
     }
 }

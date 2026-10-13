@@ -15,7 +15,6 @@ use kagari_types::{
     declaration::{TypeDefKind, applications::ApplicationValidator},
     ty::substitution::TypeTransformError,
 };
-use std::slice;
 
 pub(super) fn validate(
     module: &BytecodeModule,
@@ -85,29 +84,6 @@ pub(super) fn validate(
     validate_layouts(&validator, &module.structures, &module.enumerations, cancel)?;
     for table in &module.interface_tables {
         validator.types(&table.arguments)?;
-        if let Some(comparison) = &table.comparison {
-            validator.validate_type(comparison.receiver())?;
-        }
-        if let Some(comparison) = table
-            .comparison
-            .as_ref()
-            .and_then(|comparison| comparison.selection())
-        {
-            validator.bounds(&comparison.conditions)?;
-            for fact in &comparison.eligibility {
-                validator.bounds(slice::from_ref(&fact.bound))?;
-            }
-            let operation = &comparison.operation;
-            let required = operation.requirement();
-            validator.validate_type(&required.receiver)?;
-            validator.trait_application(&required.interface)?;
-            validator.types(&required.arguments)?;
-            if let OperationWitness::Selected(call) = operation {
-                validator.types(&call.instance.arguments)?;
-                validator.types(&call.signature.params)?;
-                validator.validate_type(&call.signature.result)?;
-            }
-        }
         for slot in &table.methods {
             validator.types(&slot.arguments)?;
         }

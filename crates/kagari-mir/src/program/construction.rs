@@ -12,7 +12,6 @@ use kagari_contract::{
         ConstructionBody, ConstructionMethod, ConstructionStep, closed_constructions,
         native_construction,
     },
-    callable::receiver::object_receiver,
     decode_limits::MAX_TABLE_RECORDS,
     types::{ConcreteFunctionIdentity, PublicItem, trait_contract},
 };
@@ -106,8 +105,7 @@ pub fn closed_interface_instances(
     let mut seen = HashSet::new();
     for owner in modules {
         for instance in &owner.interface_instances {
-            if !instance.arguments.iter().all(Ty::is_concrete) || !seen.insert(instance.identity())
-            {
+            if !instance.arguments.iter().all(Ty::is_concrete) || !seen.insert(instance.clone()) {
                 continue;
             }
             let Some((module, table)) = modules.iter().find_map(|module| {
@@ -263,7 +261,7 @@ pub(super) fn verify_closed_interfaces(
     cancel: &CancellationToken,
 ) -> Result<(), TypeTransformError> {
     for demand in closed_interface_instances(modules, definitions, MAX_TABLE_RECORDS, cancel)? {
-        let Some((owner, table)) = modules.iter().find_map(|module| {
+        let Some((owner, _)) = modules.iter().find_map(|module| {
             module.abi.public_items.iter().find_map(|item| match item {
                 PublicItem::InterfaceTable(table) if table.declaration == demand.declaration => {
                     table
@@ -275,12 +273,7 @@ pub(super) fn verify_closed_interfaces(
         }) else {
             return Err(TypeTransformError::InvalidContract);
         };
-        if object_receiver(&table.for_type)
-            && !owner
-                .interface_instances
-                .iter()
-                .any(|instance| instance.identity() == demand && instance.comparison.is_some())
-        {
+        if !owner.interface_instances.contains(&demand) {
             return Err(TypeTransformError::InvalidContract);
         }
     }

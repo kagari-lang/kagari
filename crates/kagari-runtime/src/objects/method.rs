@@ -2,7 +2,7 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
-    execution_metadata::{groups::OperationId, interfaces::InterfaceSnapshotId},
+    execution_metadata::interfaces::InterfaceSnapshotId,
     gc::roots::RootedValue,
     module::LoadedModule,
     objects::{invocation::MethodInvocation, method_view::MethodView},
@@ -45,27 +45,6 @@ impl RootedInterfaceMethod {
             },
             _root: root,
         })
-    }
-
-    pub(super) fn from_comparison(
-        runtime: &Runtime,
-        root: RootedValue,
-        operation: OperationId,
-        receiver: Value,
-        concrete_type: Ty,
-        interface: NominalTy,
-    ) -> Result<Self, RuntimeError> {
-        let method = Self {
-            invocation: MethodInvocation::from_operation(runtime, operation)?,
-            bound_receiver: BoundReceiver {
-                receiver,
-                concrete_type,
-                interface,
-            },
-            _root: root,
-        };
-        method.refresh_roots(runtime)?;
-        Ok(method)
     }
 
     pub fn receiver(&self) -> &Value {

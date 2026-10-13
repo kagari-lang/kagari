@@ -21,42 +21,39 @@ pub(super) fn declare(
         (RegistrationTrait::Map, 2),
         (RegistrationTrait::MutableMap, 2),
     ] {
-        for (protocol, member) in [
-            (RegistrationTrait::PartialEq, "eq"),
-            (RegistrationTrait::Debug, "debug"),
-        ] {
-            let binding = format!("$foundation_interface_{}_{member}", interface.name());
-            let owner = identities::implementation(ids, module.implementations.len())?;
-            let parameters: Vec<_> = (0..arity)
-                .map(|position| GenericParam { owner, position })
-                .collect();
-            let receiver = Ty::Trait(key::applied(
-                ids,
-                interface,
-                parameters.iter().map(GenericParam::as_type).collect(),
-            )?);
-            let contract = module
-                .traits
-                .iter()
-                .find(|item| item.name == protocol.name())
-                .expect("declared protocol")
-                .clone();
-            module.implement_trait(
-                &contract,
-                ImplDecl {
-                    generic_params: parameters,
-                    bounds: vec![],
-                    trait_type: Some(key::applied(ids, protocol, vec![])?),
-                    for_type: receiver,
-                    methods: vec![],
-                },
-                &[(
-                    member,
-                    identities::definition(ids, DefinitionKind::Function, &binding)?,
-                )],
-                ids,
-            )?;
-        }
+        let protocol = RegistrationTrait::Debug;
+        let member = "debug";
+        let binding = format!("$foundation_interface_{}_{member}", interface.name());
+        let owner = identities::implementation(ids, module.implementations.len())?;
+        let parameters: Vec<_> = (0..arity)
+            .map(|position| GenericParam { owner, position })
+            .collect();
+        let receiver = Ty::Trait(key::applied(
+            ids,
+            interface,
+            parameters.iter().map(GenericParam::as_type).collect(),
+        )?);
+        let contract = module
+            .traits
+            .iter()
+            .find(|item| item.name == protocol.name())
+            .expect("declared protocol")
+            .clone();
+        module.implement_trait(
+            &contract,
+            ImplDecl {
+                generic_params: parameters,
+                bounds: vec![],
+                trait_type: Some(key::applied(ids, protocol, vec![])?),
+                for_type: receiver,
+                methods: vec![],
+            },
+            &[(
+                member,
+                identities::definition(ids, DefinitionKind::Function, &binding)?,
+            )],
+            ids,
+        )?;
     }
     Ok(())
 }

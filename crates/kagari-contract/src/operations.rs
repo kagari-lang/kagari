@@ -141,3 +141,12 @@ impl StringIterKind {
         *ty == self.source_type()
     }
 }
+
+/// Whether the static script type exposes object identity. Generic arguments
+/// do not change a known object's category; interfaces hide that category.
+pub fn object_identity_type(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Struct(_) | Ty::NativeObject(_) | Ty::Array(_) | Ty::Map { .. } | Ty::Set(_, _)
+    )
+}

@@ -254,11 +254,25 @@ pub(super) fn verify(
             contracts::unary_result(*op, operand.ty).map_err(contract)?,
             "unary destination",
         )?,
-        Instruction::Binary { dst, op, lhs, rhs } => context.expect(
-            dst.ty,
-            contracts::binary_result(*op, lhs.ty, rhs.ty).map_err(contract)?,
-            "binary destination",
-        )?,
+        Instruction::Binary { dst, op, lhs, rhs } => {
+            context.expect(
+                dst.ty,
+                contracts::binary_result(*op, lhs.ty, rhs.ty).map_err(contract)?,
+                "binary destination",
+            )?;
+            if matches!(
+                op,
+                operations::BinaryOp::IdentityEq | operations::BinaryOp::IdentityNotEq
+            ) && [lhs, rhs].iter().any(|value| {
+                !function
+                    .semantic
+                    .registers
+                    .get(&value.temp.index())
+                    .is_some_and(operations::object_identity_type)
+            }) {
+                return Err(context.error(Error::UnsupportedCall));
+            }
+        }
         Instruction::Call { dst, callee, args } => match callee {
             CallTarget::Shared(call) => {
                 if !call.structurally_valid(

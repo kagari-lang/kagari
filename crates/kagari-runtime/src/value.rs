@@ -1,5 +1,5 @@
 use crate::{
-    gc::{GcHeap, GcObjectKind, HeapObjectId},
+    gc::{GcHeap, HeapObjectId},
     host::{FrameHostBorrowToken, HostRegistryId},
     module::EnumVariantRef,
 };
@@ -121,7 +121,6 @@ enum KeyPart {
     Str(String),
     Tuple(usize),
     DeclaredEnum(HostRegistryId, DefinitionId, Vec<Ty>, DefinitionId),
-    Identity(u8, HeapObjectId),
 }
 
 impl PartialEq for MapKey {
@@ -166,13 +165,6 @@ impl MapKey {
             Value::I64(value) => Some(KeyPart::I64(*value)),
             Value::U64(value) => Some(KeyPart::U64(*value)),
             Value::Str(value) => Some(KeyPart::Str(gc.string(*value)?.to_owned())),
-            Value::Struct(id) => Some(KeyPart::Identity(0, *id)),
-            Value::Array(id) => Some(KeyPart::Identity(1, *id)),
-            Value::Map(id) => Some(KeyPart::Identity(2, *id)),
-            Value::Set(id) => Some(KeyPart::Identity(3, *id)),
-            Value::GcHandle(id) if gc.object_kind(*id) == Some(GcObjectKind::Native) => {
-                Some(KeyPart::Identity(4, *id))
-            }
             _ => None,
         };
         if let Some(part) = single {
@@ -213,13 +205,6 @@ impl MapKey {
                     });
                     parts.push(KeyPart::Tuple(snapshot.fields.len()));
                     pending.extend(snapshot.fields.iter().rev().copied());
-                }
-                Value::Struct(id) => parts.push(KeyPart::Identity(0, id)),
-                Value::Array(id) => parts.push(KeyPart::Identity(1, id)),
-                Value::Map(id) => parts.push(KeyPart::Identity(2, id)),
-                Value::Set(id) => parts.push(KeyPart::Identity(3, id)),
-                Value::GcHandle(id) if gc.object_kind(id) == Some(GcObjectKind::Native) => {
-                    parts.push(KeyPart::Identity(4, id))
                 }
                 _ => return None,
             }

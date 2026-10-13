@@ -148,6 +148,7 @@ fn build_module(
                 construction::hash_from_iter
             }
             "$foundation_list_from_iter" => construction::list_from_iter,
+            "$foundation_array_eq" => arrays::equal,
             "$foundation_array_len" => arrays::length,
             "$foundation_array_is_empty" => arrays::is_empty,
             "$foundation_array_index" => arrays::index,

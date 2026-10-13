@@ -6,7 +6,7 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::{identity::ModuleIdentity, span::Span};
 use kagari_contract::{
-    callable::{receiver::InterfaceInstance, witness::OperationWitness},
+    callable::witness::OperationWitness,
     effects::EffectSet,
     layout::{EnumLayout, StructLayout},
     native_import::{NativeImport, callables::NativeCallableApplication},
@@ -28,7 +28,7 @@ pub struct MirModule {
     pub native_targets: Vec<NativeImport>,
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
-    pub interface_instances: Vec<InterfaceInstance>,
+    pub interface_instances: Vec<ConcreteFunctionIdentity>,
     pub host_types: Vec<HostTypeDeclaration>,
     pub dependencies: Vec<ModuleIdentity>,
     pub structures: Vec<StructLayout>,
@@ -120,13 +120,6 @@ impl MirModule {
                     })
                     .flatten(),
             )
-            .chain(self.interface_instances.iter().filter_map(|instance| {
-                instance
-                    .comparison
-                    .as_ref()
-                    .and_then(|comparison| comparison.selection())
-                    .map(|comparison| &comparison.operation)
-            }))
             .flat_map(OperationWitness::walk)
     }
 

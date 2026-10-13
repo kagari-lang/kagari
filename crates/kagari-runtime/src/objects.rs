@@ -35,7 +35,6 @@ use std::{cell::Ref, slice};
 mod adapters;
 mod application;
 mod calls;
-mod comparison;
 pub(crate) mod invocation;
 pub(crate) mod method;
 mod method_view;
@@ -318,9 +317,7 @@ impl Runtime {
                 .collect(),
             environment: environment.clone(),
         };
-        let comparison = self.receiver_comparison_binding(&receiver_table, &template.for_type)?;
         Ok(InterfaceValueSnapshot {
-            comparison,
             receiver_operations: MetadataCache::new(),
             receiver_table,
             parents: linked
@@ -422,11 +419,10 @@ impl Runtime {
             return Ok(*prepared);
         }
         let binding = parent.binding.clone();
-        let comparison = snapshot.comparison.clone();
         let data = snapshot.data;
         let use_view = parent.view;
         drop(snapshot);
-        let mut prepared = self.prepare_interface_snapshot(
+        let prepared = self.prepare_interface_snapshot(
             &binding.owner,
             binding.table,
             &self.type_arguments(
@@ -441,7 +437,6 @@ impl Runtime {
             data,
             use_view,
         )?;
-        prepared.comparison = comparison;
         self.validate_interface_receiver(&prepared)?;
         self.validate_metadata(MetadataEdge::InterfaceView(&prepared))?;
         let prepared = self.gc.alloc_interface_snapshot(prepared)?;
