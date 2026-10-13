@@ -14,6 +14,15 @@ Opaque objects. Its phases extend accepted GO capabilities rather than implement
 a second conversion or root system. Editing a runtime-owned payload does not grant
 exclusive access to an externally shared Opaque object.
 
+The [SA21 registration proposal](host-registration-plan.md#retained-opaque-integration)
+merges existing host declarations and installation into NativeModule. New Rust
+reference adapters and field projections are deferred. This plan continues to own
+retained Opaque storage/conversion through the shared registration model. An
+`Opaque<T>` callback uses an owning handle; it does not implicitly satisfy a
+scoped mutable input. Registered modifying methods own domain validation and safe
+interior mutation. Shared references and opaque handles may change interior state;
+the shared registration boundary supplies conservative call-effect metadata.
+
 Build on the current [native registration](spec/standard-declarations.md) and
 [installation-based access model](spec/execution.md). Activation and scheduling
 belong to the [roadmap](implementation-roadmap.md). Synchronous interop does not
@@ -336,7 +345,7 @@ fn calculate(config: SkillConfig, level: i32) -> i32 {
 
 Methods are ordinary registered Native calls with an opaque receiver. Property
 getters use the same conversion and invocation machinery with appropriate member
-metadata. Preserve declared effects, evaluation order and once-only receiver
+metadata. Preserve conservative call effects, evaluation order and once-only receiver
 evaluation. No per-type or per-member cases belong in generic compiler/VM dispatch.
 
 A getter or method returning `Opaque<Child>` produces a `Child` handle; returning a
@@ -367,8 +376,9 @@ game
 
 Other handles observe the updated score. The property is read-only in script syntax
 even though the object has a modifying method. Read-only field access is not proof
-of deep immutability or absence of aliases. Mutation effects belong to the Native
-contract and must not be inferred as pure from a shared Rust receiver.
+of deep immutability or absence of aliases. Native callbacks are potentially
+effectful by default. Internal call contracts must not infer purity from a shared
+Rust receiver or readonly property.
 
 The host selects safe interior mutation/synchronization appropriate to its object.
 Bindings neither add a mandatory mutex nor hand out `&mut T` behind a shared handle.

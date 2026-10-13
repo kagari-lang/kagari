@@ -393,174 +393,56 @@ the agreed future design only; implementation remains deferred.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 
-The requested future direction is to register all Rust-side functions and types
-through NativeModule, including application host APIs. Keep the existing field,
-assignment and function-call syntax. Host access still needs explicit typing and
-runtime lifetime/borrow checks; unified registration does not make Rust state
-part of the script heap or import a full Rust borrow checker into Kagari.
+The next scope is merging the existing HostInterface into NativeModule.
+The [implementation plan and API proposal](host-registration-plan.md) owns
+HR01-HR03, registration API decisions, migration acceptance and progress.
+Implementation is unstarted. New Rust reference adapters and field-view behavior
+are deferred rather than prerequisites for registration unification.
 
-Current registration has two paths. Standard and application native modules use
-ModuleDecl, NativeBinding/storage and Engine installation. The bundled standard
-library supplies [modules()](../crates/kagari-stdlib/src/lib.rs), and the
-[Engine builder](../crates/kagari-embed/src/engine/builder.rs) installs them by
-default. Host APIs separately use
-[HostInterface](../crates/kagari-types/src/host_interface/mod.rs),
-HostFunction/type/path bindings and HostRegistry. The runtime retains both host
-and native registries. Ordinary function and method registration overlaps; the
-Host path additionally owns external object identity, scoped borrows, declared
-field/path access and mutation adapters. Its capabilities justify a host boundary,
-not necessarily a second declaration and installation system.
+### Registration unification
 
-The target reuses [unified library registration](architecture.md#unified-library-registration):
-one declaration/binding/install path for standard and application APIs, with
-host object/access adapters under the same module. Move relevant Host contracts
-into the shared model and replace obsolete entrypoints/records coherently rather
-than retaining forwarding APIs or dual signature authorities. Runtime-local host
-objects, borrow leases and path commit state may retain focused internal owners;
-this does not require flattening every registry into one data structure. Preserve
-source-free declaration/binding validation, generated tooling views, root and
-runtime ownership checks, schema/generation validation and pinned dependencies.
+Standard and application native modules use shared declarations, Native bindings
+and Engine installation. Host APIs separately use
+[HostInterface](../crates/kagari-types/src/host_interface/mod.rs), host type/function/
+path bindings and runtime registration. Their overlapping declaration and install
+paths should become one NativeModule model.
 
-### Candidate host access types and field semantics
+Move existing type/member/trait/path and passing/access contracts to their shared
+semantic and executable owners. Migrate source/tooling import, runtime bindings and
+source-free linking together; remove the old aggregate, format and registration
+entrypoints. Reuse [unified library registration](architecture.md#unified-library-registration).
 
-Ref<T> and RefMut<T> are candidate script-visible wrapper names for shared and
-writable host access; names, conversion rules and exact representation remain
-open. Scripts use ordinary type annotations, field access and Native calls rather
-than new `&`/`&mut`, move or lifetime syntax. A wrapper is a checked handle with
-host provenance, access capability and a valid scope, not a freely storable naked
-Rust reference. It still needs semantic support for lifetime/escape restrictions;
-a plain generic struct alone cannot establish these guarantees. Writable access
-through a host wrapper is separate from the [ordinary collection-interface model](spec/collection-access.md) and
-from binding `val`/`var`; shared access does not imply deep object immutability.
+Runtime-local host identities, scoped borrow checks and prepared path commits
+remain focused services. Preserve existing field/path semantics, roots, alias and
+escape checks, cancellation, schema ownership, atomic installation and pinned
+reentry/reload. Unification does not move external Rust state into the GC or
+require new script wrappers or unrestricted Rust references.
 
-The intended distinction is:
+### Deferred borrowing and field-view design
 
-| Field content | Result of reading the field |
-| --- | --- |
-| Scalar or other value-semantic data | An ordinary value; local copies do not alias the host field. |
-| A shared Kagari-managed object | Its checked object identity, following ordinary alias and rooting rules. |
-| A Rust-owned nested object accessed in place | A controlled field view retaining host provenance, access and scope. |
+Typed `&T`/`&mut T` native inputs, candidate script `Ref<T>`/`RefMut<T>` types,
+new scope-entry conveniences and new field projections need a later design.
+In particular, it must address simultaneous mutable access to disjoint fields
+of one host object. Independent projectors taking `&mut Player` cannot safely
+produce simultaneously live mutable field references by merely relaxing the
+runtime conflict check. The proposed whole-root restriction is not accepted as
+the final new API. Existing root-level checks remain in force during this migration.
 
-These examples illustrate future wrapper behavior, not implemented APIs:
+The follow-up must settle projection ownership, disjoint access, alias/reentry
+validation, scope escape and field replacement/removal/relocation before coding.
+Retain the distinction between value copies, Kagari shared-object identities and
+host location views; views must not retain dangling Rust field addresses.
+No particular new wrapper spelling or replacement policy is frozen by this plan.
 
-```kagari
-// Assume player.hp is i32.
-var hp = player.hp;
-val number_alias = hp;
-hp = 20; // Changes only the local; player.hp and number_alias are unchanged.
-player.hp = 20; // Writes the host field through its checked adapter.
+Persistent returns borrowed from an input are a separate optional extension.
+They require origin/lifetime records, conflict protection, deterministic cleanup
+and a policy for alias invalidation; ordinary independent outputs do not establish
+that borrow relationship. Do not use GC timing to release Rust borrow protection.
 
-// Assume player.stats is a Rust-owned nested object.
-val stats = player.stats;
-val alias = stats;
-alias.hp = 20; // Accesses the same host field view.
-reset_stats(stats); // Native registration declares writable access to Stats.
-```
-
-Reuse [host path views](spec/typed-path-mutation.md): they retain a root and typed
-projection rather than a persistent Rust field borrow. Copying a controlled view
-must not duplicate a raw mutable reference. Field replacement, indexed-element
-removal and relocation need an explicit view contract: decide whether an old view
-resolves the current location or becomes invalid. Never silently treat a path
-view as a stable borrowed object identity or retain a dangling field address.
-
-### Initial scope: borrowed inputs and independent outputs
-
-The proposed first implementation accepts shared/unique Rust access during a
-Native invocation, returning ordinary values or independent owning handles.
-Acquire checked access before invoking Rust and release it on every exit. An
-outer host-to-script borrowed scope remains the lifetime bound for all derived
-access; per-operation access must be authorized by that scope rather than create
-an independent conflicting lease. Checks cover aliases, multiple parameters,
-parent/child overlap and synchronous reentry. Distinct script names do not prove
-distinct host data. For a callback requiring two mutable inputs, two handles to
-the same or overlapping data must fail before Rust receives overlapping `&mut`s.
-
-The existing [typed conversion traits](../crates/kagari-runtime/src/native/conversion/mod.rs)
-primarily transfer owned data or owning handles; safe borrowed input adapters
-must be designed explicitly rather than assume ordinary FromKagari can return
-arbitrary Rust references. Reuse existing host ownership/borrow validation and
-checked native contracts. Do not activate unrestricted borrowed returns as an
-incidental part of registration unification.
-
-### Optional extension: returns borrowed from an input
-
-A Native function returning a reference tied to its input requires a persistent
-borrow relationship. For example:
-
-```rust
-fn stats_mut<'a>(player: &'a mut Player) -> &'a mut Stats {
-    &mut player.stats
-}
-```
-
-The following future script sketch must reject the conflicting replacement while
-the returned borrow remains active:
-
-```kagari
-val stats = stats_mut(player);
-player.stats = new_stats(); // Trap: a live derived borrow protects the input.
-stats.hp = 20;
-```
-
-Returning shared `&Stats` also prevents conflicting writes while it remains valid.
-Returning an independent value/handle, or a reference independent of the input,
-does not establish this particular input/output relationship. Registration must
-declare the return's borrow origin(s), or use a dedicated checked return adapter;
-input/output type names alone cannot identify that relationship. Multi-input
-origins and composite borrowed results need a bounded design if later included.
-
-The candidate runtime model records the host owner/scope, parent borrow, mode and
-active/released state, and associates the returned handle with that record. Keep
-the originating borrow protection after the Native function returns. Authorize
-access through the derived handle while blocking conflicting use of the parent
-or other aliases. Check active conflicts, not whether an object was ever borrowed;
-a live shared borrow also blocks writes. An initial conservative whole-root check
-is acceptable to evaluate; field-disjoint borrow analysis is not required. Report
-conflicts as runtime traps rather than introduce a complete static borrow checker.
-Preserve once-only evaluation, trap ordering, committed effects and path mutation
-validation/commit guarantees when choosing the check location.
-
-Explicit release is a candidate, not a finalized API:
-
-```kagari
-val stats = stats_mut(player);
-val alias = stats;
-stats.release(); // Candidate: closes the shared borrow record for all aliases.
-player.stats = new_stats();
-alias.hp = 20; // Trap: this borrowed handle is now invalid.
-```
-
-Closing the record invalidates all associated borrowed aliases; merely removing
-one variable cannot restore input access while another valid alias remains.
-Do not release protection while an active Rust callback still holds a reference.
-Nested derived borrows also need a defined release/invalidation policy before
-support is added. Explicit release must be backed by automatic scope cleanup on
-normal exit, traps, cancellation and depth exhaustion. Releasing a child does not
-end an independent outer host borrow. Borrowed handles cannot outlive their host
-scope or cross suspension without a separately established safe contract. Do not
-use nondeterministic GC collection as the borrow-release mechanism.
-
-Runtime checking avoids full static borrow analysis but still needs safe storage,
-provenance and cleanup. Wrapper copying, readonly adaptation, scope escape,
-release behavior and diagnostics remain decisions for activation. Genuine borrowed
-returns and re-resolving path views must remain distinct contracts. Rust's
-[lifetime relationships](https://doc.rust-lang.org/book/ch10-03-lifetime-syntax.html)
-and [RefCell runtime borrow checks](https://doc.rust-lang.org/std/cell/struct.RefCell.html)
-are references for these boundaries, not a requirement to copy Rust syntax,
-ownership semantics or RefCell's panic API.
-
-Follow-up owner: shared declarations and executable contracts, Engine module
-registration, runtime host identity/path/borrow adapters and Native conversion.
-Suggested order: unify registration; integrate host types and field views; support
-borrowed inputs with ordinary/owning outputs; then decide whether persistent
-borrowed returns justify their additional lifecycle model. When activated, reuse
-focused registration/linking, source-free rejection, alias/overlap, borrowed-return
-lifetime, reentry, stale-view, suspension, cleanup and pinned-reload contracts.
-Do not weaken tests or retain a second semantic implementation to hide migration
-gaps. This review entry records the future direction and unresolved choices only;
-implementation, specifications and roadmap phase activation remain deferred.
-
+Retained `Opaque<T>` objects remain owned by the
+[interoperability plan](rust-interop-design.md#opaque-ownership-and-access), using
+the shared registration model. Retention is not exclusivity against external Rust
+aliases, and opaque handles cannot automatically supply `&mut T`.
 
 ## SA22 Generic bounds do not supply interface construction witnesses
 

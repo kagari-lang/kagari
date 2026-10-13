@@ -37,6 +37,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
+- [Unified host registration and API proposal](host-registration-plan.md):
+  SA21 / HR01-HR03 are unstarted; merge the existing host interface into
+  NativeModule. New Rust reference adapters and field-view behavior are deferred.
 - [Rust value/opaque interoperability](rust-interop-design.md).
 - [Host API unification](host-api-refactor.md).
 - [Packages, dependency resolution and toolchain](package-design.md), including
