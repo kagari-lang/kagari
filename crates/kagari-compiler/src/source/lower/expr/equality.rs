@@ -166,7 +166,25 @@ impl FunctionLowerer<'_, '_> {
                 "protocol composition exceeds type depth limit",
             ));
         }
-        if matches!(ty, TypeId::Generic(_)) {
+        let dynamic_protocol = if let TypeId::Trait(child) = ty {
+            self.planner
+                .catalog
+                .interface_closure(
+                    &self.planner.definitions(),
+                    child,
+                    ty,
+                    &self.planner.options.cancel,
+                )
+                .is_ok_and(|parents| {
+                    parents.iter().any(|parent| {
+                        Protocol::from_definition(&parent.declaration, &self.planner.definitions())
+                            == Some(protocol)
+                    })
+                })
+        } else {
+            false
+        };
+        if matches!(ty, TypeId::Generic(_)) || dynamic_protocol {
             let interface = protocol.nominal(&self.planner.definitions()).ok_or(
                 MirLoweringError::MissingBinding("generic equality protocol"),
             )?;

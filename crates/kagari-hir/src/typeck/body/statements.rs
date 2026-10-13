@@ -11,7 +11,7 @@ use crate::{
     typeck::{
         BodyTypeEnv, applications,
         body::{BodyChecker, LoopResult},
-        check, completion,
+        check, completion, interfaces,
         ty::{TypeContext, display_type, display_type_id, resolve_type_in},
     },
     types::TypeId,
@@ -87,11 +87,10 @@ impl<'a> BodyChecker<'a> {
                 let initializer_ty =
                     self.infer_expr_with_coercion(*initializer, env, annotation.as_ref());
                 let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
-                applications::validate_imported_interface_type(
+                interfaces::validate_type(
                     self.declarations.definitions(),
                     &local_ty,
                     self.aggregates,
-                    self.lowered.source.module_identity(),
                     self.lowered.source_map.stmt_span(stmt_id),
                     self.diagnostics,
                     self.cancel,

@@ -354,3 +354,138 @@ fn call(receiver: Transform) -> i32 { forward(receiver, 42) }
         DiagnosticKind::GenericBoundNotSatisfied { .. }
     )));
 }
+
+#[test]
+fn dynamic_trait_eligibility_checks_the_whole_applied_surface() {
+    for (declaration, application, accepted) in [
+        ("trait View { fn read(self) -> i32; }", "View", true),
+        (
+            "trait View { fn map<T>(self, value: T) -> T { value } }",
+            "View",
+            true,
+        ),
+        (
+            "trait View { fn read(self) -> i32; fn other(self, value: [Self]); }",
+            "View",
+            false,
+        ),
+        (
+            "trait View { fn read(self) -> fn() -> Self; }",
+            "View",
+            false,
+        ),
+        ("trait View { fn make() -> i32; }", "View", false),
+        (
+            "trait View { const SIZE: i32; fn read(self) -> i32; }",
+            "View",
+            false,
+        ),
+        (
+            "trait View { type Item<T>; fn read(self) -> i32; }",
+            "View",
+            false,
+        ),
+        (
+            "trait Related<T> {} trait View { fn read<T: Related<Self>>(self, item: T); }",
+            "View",
+            false,
+        ),
+        (
+            "trait Related<T> {} trait Parent { fn read<T: Related<Self>>(self, item: T); } trait View: Parent {}",
+            "View",
+            false,
+        ),
+        (
+            "trait Related<T> {} trait View { fn read<T: Related<i32>>(self, item: T); }",
+            "View",
+            true,
+        ),
+        (
+            "trait View { type Item; fn read(self) -> Self::Item; }",
+            "View<Item = i32>",
+            true,
+        ),
+        (
+            "trait View { type Item; fn read(self) -> Self::Item; }",
+            "View",
+            false,
+        ),
+        (
+            "trait Parent { type Item; fn read(self) -> Self::Item; } trait View: Parent<Item = i32> {}",
+            "View",
+            true,
+        ),
+        (
+            "trait View { fn read(self) -> i32 where Self: View; }",
+            "View",
+            true,
+        ),
+    ] {
+        let static_source = SourceFile::new(
+            "static-trait.kgr",
+            format!("{declaration} fn use_static<T: View>() {{}}"),
+        );
+        let analysis =
+            crate::analyze_source(&static_source, foundation_catalog::shared().unwrap()).unwrap();
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{declaration}: {:?}",
+            analysis.diagnostics()
+        );
+        let source = SourceFile::new(
+            "dynamic-trait.kgr",
+            format!("{declaration} fn accept(value: {application}) {{}}"),
+        );
+        let analysis =
+            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            accepted,
+            "{declaration}: {:?}",
+            analysis.diagnostics()
+        );
+        if !accepted {
+            assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+                diagnostic.kind,
+                DiagnosticKind::InvalidInterfaceType { .. }
+            )));
+        }
+        assert_eq!(analysis.into_codegen().is_ok(), accepted);
+    }
+}
+
+#[test]
+fn dynamic_standard_traits_and_caller_known_outputs_use_structural_rules() {
+    for (source, accepted) in [
+        ("fn accept(value: std::fmt::Debug) {}", true),
+        ("fn accept(value: std::fmt::Display) {}", true),
+        ("fn accept(value: std::hash::Hash) {}", true),
+        ("fn accept(value: PartialEq) {}", false),
+        ("fn accept(value: Eq) {}", false),
+        (
+            "trait Source { type Item; fn read(self) -> Self::Item; } fn get<T>(source: Source<Item = T>) -> T { source.read() }",
+            true,
+        ),
+        (
+            "trait View { fn clone(self) -> Self; } struct Holder { val view: View }",
+            false,
+        ),
+        (
+            "trait View { fn clone(self) -> Self; } enum Holder { Some(View) }",
+            false,
+        ),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new("structural-trait.kgr", source),
+            foundation_catalog::shared().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            accepted,
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), accepted, "{source}");
+    }
+}

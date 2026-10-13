@@ -617,3 +617,47 @@ fn untouched()->i32 {1}
             .is_empty()
     );
 }
+
+#[test]
+fn imported_interface_eligibility_checks_method_bounds() {
+    for (argument, accepted) in [("Self", false), ("i32", true)] {
+        let mut sources = SourceDatabase::default();
+        let mut root = None;
+        for (name, text) in [
+            (
+                "api",
+                format!(
+                    "pub trait Related<T> {{}} pub trait View {{ fn read<T: Related<{argument}>>(self, value: T); }}"
+                ),
+            ),
+            (
+                "root",
+                "use pkg::api::View; fn accept(value: View) {}".into(),
+            ),
+        ] {
+            sources
+                .bind_module(
+                    name,
+                    ModuleIdentity {
+                        package: PackageId("pkg".into()),
+                        path: vec![name.into()],
+                    },
+                )
+                .unwrap();
+            let file = sources.set(name, text, SourceLayer::Base).unwrap();
+            if name == "root" {
+                root = Some(file);
+            }
+        }
+        let mut db = test_analysis();
+        let snapshot = analyze(&mut db, &sources);
+        let analysis = snapshot.file(root.unwrap()).unwrap();
+        assert_eq!(
+            analysis.result().diagnostics().is_empty(),
+            accepted,
+            "{argument}: {:?}",
+            analysis.result().diagnostics()
+        );
+        assert_eq!(analysis.result().clone().into_codegen().is_ok(), accepted);
+    }
+}

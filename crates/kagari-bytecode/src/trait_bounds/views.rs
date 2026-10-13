@@ -19,13 +19,10 @@ use kagari_contract::{
     native_import::{NativeImport, result::NativeResultAdapter},
     types::{ConcreteFunctionIdentity, InterfaceTable, PublicItem, matching::match_implementation},
 };
-use kagari_types::{
-    language::{Protocol, role::LangRole},
-    ty::{
-        GenericParam, NominalTy, Ty,
-        inheritance::{erased_iterator_view, interface_views},
-        substitution::{TypeSubstitution, TypeTransformError},
-    },
+use kagari_types::ty::{
+    GenericParam, NominalTy, Ty,
+    inheritance::{erased_iterator_view, interface_views},
+    substitution::{TypeSubstitution, TypeTransformError},
 };
 
 pub struct InterfaceLinks {
@@ -60,11 +57,9 @@ pub fn links(
         .into_iter()
         .skip(1)
     {
-        // Static language protocols are proved by bounds and operation witnesses;
-        // they have no boxed parent table (including implicit implementations).
-        if Protocol::from_definition(&parent.declaration, definitions).is_some_and(|protocol| {
-            LangRole::from_protocol(protocol).is_some_and(LangRole::requires_static_dispatch)
-        }) {
+        // Static implementations also have tables, but only structurally dynamic
+        // parents have boxed views. Admission checks the entire dynamic closure.
+        if !executable_interface(&template.generic_params, &parent, closure, definitions) {
             continue;
         }
         parents.push(select(
@@ -315,5 +310,5 @@ pub(super) fn native_result_valid(
         .as_ref()
         .map_or(&[][..], |body| body.parameters.as_slice());
     native_result_target(adapter, closure).is_some()
-        && executable_interface(scope, interface, &adapter.receiver, closure, definitions)
+        && executable_interface(scope, interface, closure, definitions)
 }

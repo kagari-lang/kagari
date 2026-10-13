@@ -763,3 +763,31 @@ fn composed_enum_hash_uses_variant_identity_instead_of_version_local_slots() {
     }
     assert_eq!(hashes[0], hashes[1]);
 }
+
+#[test]
+fn structurally_dynamic_standard_traits_dispatch_through_parents() {
+    execute(
+        r#"
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+trait Inspect: Debug + Display + Hash { fn identity(self) -> i32 where Self: Inspect { 42 } }
+struct Item { val value: i32 }
+impl Debug for Item { fn debug(self) -> String { "item" } }
+impl Display for Item { fn display(self) -> String { val value: Self = self; value.value.display() } }
+impl Hash for Item { fn hash(self) -> i64 { self.value.hash() } }
+impl PartialEq for Item { fn eq(self, other: Self) -> bool { self.value == other.value } }
+impl Eq for Item {}
+impl Inspect for Item {}
+fn main() -> i32 {
+    val view: Inspect = Item { value: 42 };
+    if view.identity() != 42 { return 0; }
+    val debug: Debug = view;
+    val display: Display = view;
+    val hash: Hash = view;
+    if debug.debug() != "item" || display.display() != "42" { return 0; }
+    if hash.hash() != 42.hash() { return 0; }
+    42
+}
+"#,
+    );
+}

@@ -100,6 +100,22 @@ impl InstancePlanner<'_> {
                 .or_default()
                 .extend(constraints.iter().cloned());
         }
+        if matches!(receiver, TypeId::Trait(_))
+            && let Some(targets) = bounds.get_mut(&TypeId::SelfType(interface.declaration))
+        {
+            targets.retain(|target| {
+                let ConstraintTarget::Trait(required) = target else {
+                    return true;
+                };
+                let TypeId::Trait(required) = TypeId::Trait(required.clone())
+                    .instantiate(&substitution)
+                    .with_associated_types(interface, receiver)
+                else {
+                    unreachable!()
+                };
+                !interface.satisfies(&required)
+            });
+        }
         let bounds = bounds
             .into_iter()
             .map(|(ty, targets)| {

@@ -705,6 +705,13 @@ impl<'a> BodyChecker<'a> {
                                 ConstraintTarget::Trait(bound)
                             }
                         })
+                        .filter(|constraint| {
+                            // Dynamic dispatch already carries the selected interface's
+                            // own receiver evidence; this grants no bound to other values.
+                            !(matches!(&self_ty, TypeId::Trait(_))
+                                && ty == &TypeId::SelfType(*self_owner)
+                                && matches!(constraint, ConstraintTarget::Trait(required) if interface.satisfies(required)))
+                        })
                         .collect(),
                 )
             })

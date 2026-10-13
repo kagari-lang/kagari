@@ -402,3 +402,66 @@ fn supplied_normalization_cannot_override_a_declared_signature() {
         ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     assert!(!call.check(&contract, &catalog, &[], &[], &cancel).unwrap());
 }
+
+#[test]
+fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
+    let context = DefinitionContext::new().unwrap();
+    let (call, contract) = fixture(&context);
+    let cancel = CancellationToken::default();
+    for mutation in 0..5 {
+        let mut changed = contract.clone();
+        let self_type = Ty::SelfType(call.interface.declaration);
+        let key = changed.methods[0].generic_params[0].as_type();
+        match mutation {
+            0 => changed.methods[0].params[1].ty = Ty::Array(Box::new(self_type)),
+            1 => changed.methods[0].bounds.push(GenericBound {
+                ty: key,
+                constraints: vec![Constraint::Trait(NominalTy {
+                    declaration: call.interface.declaration,
+                    arguments: vec![self_type],
+                    associated_types: BTreeMap::new(),
+                })],
+            }),
+            2 => {
+                let mut other = changed.methods[0].clone();
+                other.name = "static_member".into();
+                other.generic_params.clear();
+                other.params.clear();
+                other.return_type = Ty::Builtin(BuiltinType::I32);
+                context
+                    .intern_child(
+                        call.interface.declaration,
+                        DefinitionKind::Method,
+                        &other.name,
+                        0,
+                    )
+                    .unwrap();
+                changed.methods.push(other);
+            }
+            3 => changed.methods[0].bounds.push(GenericBound {
+                ty: self_type,
+                constraints: vec![Constraint::Trait(call.interface.clone())],
+            }),
+            4 => {
+                changed.methods.clear();
+                changed.bounds.push(GenericBound {
+                    ty: changed.generic_params[0].as_type(),
+                    constraints: vec![Constraint::Trait(NominalTy {
+                        declaration: call.interface.declaration,
+                        arguments: vec![self_type],
+                        associated_types: BTreeMap::new(),
+                    })],
+                });
+            }
+            _ => unreachable!(),
+        }
+        let valid = dynamic_interface_valid(
+            &[],
+            &call.interface,
+            &|id| (*id == call.interface.declaration).then_some(&changed),
+            &context.snapshot(),
+            &cancel,
+        );
+        assert_eq!(valid.unwrap_or(false), mutation == 3, "mutation {mutation}");
+    }
+}

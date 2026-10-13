@@ -76,7 +76,6 @@ pub(crate) fn check_signatures(
     }
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
-    let mut function_index = FunctionTypeIndex::default();
     let mut type_table = TypeTable::default();
     constraints::resolve_constraints(
         lowered,
@@ -422,19 +421,10 @@ pub(crate) fn check_signatures(
             params,
             return_type,
         };
-        function_index
-            .by_id
-            .insert(function.id, typed_function.clone());
         functions.push(typed_function);
     }
 
-    validate_trait_surface(
-        lowered,
-        declarations,
-        &function_index,
-        &mut type_table,
-        &mut diagnostics,
-    );
+    validate_trait_surface(lowered, declarations, &mut type_table, &mut diagnostics);
     AnalysisResult {
         facts: super::ModuleSignatures {
             type_bounds,
@@ -961,18 +951,6 @@ pub(super) fn validate_standard_constraint_type(
         })
         .with_span(span),
     );
-}
-
-pub(super) fn interface_method_compatible<'a>(
-    has_receiver: bool,
-    return_type: &TypeId,
-    other_parameters: impl IntoIterator<Item = &'a TypeId>,
-) -> bool {
-    has_receiver
-        && !return_type.contains_self_type()
-        && other_parameters
-            .into_iter()
-            .all(|parameter| !parameter.contains_self_type())
 }
 
 /// Shared read-only signature contract for comparing source and catalog methods.

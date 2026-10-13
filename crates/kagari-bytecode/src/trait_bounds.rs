@@ -21,7 +21,7 @@ use kagari_common::{
     },
 };
 use kagari_contract::{
-    callable::{interface::InterfaceCallContract, receiver::ReceiverComparison},
+    callable::{interface::dynamic_interface_valid, receiver::ReceiverComparison},
     types as abi,
     types::{
         PublicItem,
@@ -31,7 +31,7 @@ use kagari_contract::{
 };
 use kagari_types::{
     declaration::{TraitDef, ownership::ReceiverOwners},
-    language::{Protocol, role::LangRole},
+    language::Protocol,
     ty::{
         GenericBound, GenericParam, NominalTy, Ty, inheritance as trait_inheritance,
         substitution::TypeTransformError,
@@ -89,89 +89,17 @@ pub fn interface_views(
 fn executable_interface(
     scope: &[GenericParam],
     applied: &NominalTy,
-    receiver: &Ty,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
 ) -> bool {
-    let Some(preserved) =
-        interface_ancestors(applied, &Ty::Trait(applied.clone()), closure, definitions)
-    else {
-        return false;
-    };
-    if interface_ancestors(applied, receiver, closure, definitions).as_ref() != Some(&preserved) {
-        return false;
-    }
-    let Some(views) = interface_views(applied, &Ty::Trait(applied.clone()), closure, definitions)
-    else {
-        return false;
-    };
-    for view in views {
-        if Protocol::from_definition(&view.declaration, definitions).is_some_and(|kind| {
-            LangRole::from_protocol(kind).is_some_and(LangRole::requires_static_dispatch)
-        }) {
-            return false;
-        }
-        let Some(record) = contract(&view.declaration, closure, definitions) else {
-            return false;
-        };
-        if !record.associated_consts.is_empty()
-            || record
-                .associated_types
-                .iter()
-                .any(|member| !member.generic_params.is_empty())
-            || view.associated_types.len() != record.associated_types.len()
-            || record
-                .associated_types
-                .iter()
-                .any(|member| !view.associated_types.contains_key(&member.declaration))
-        {
-            return false;
-        }
-        let Some(owner) = closure.iter().find(|module| {
-            definitions
-                .resolve(view.declaration)
-                .is_ok_and(|view| view.module() == &module.identity)
-        }) else {
-            return false;
-        };
-        for (slot, method) in record.methods.iter().enumerate() {
-            let call = InterfaceCallContract {
-                normalizations: vec![],
-                receiver: None,
-                operations: vec![],
-                interface: view.clone(),
-                method_slot: slot as u32,
-                arguments: method
-                    .generic_params
-                    .iter()
-                    .map(GenericParam::as_type)
-                    .collect(),
-            };
-            if !call
-                .signature_in(
-                    &owner.identity,
-                    &owner.public_items,
-                    &owner.trait_contracts,
-                    &Default::default(),
-                    definitions,
-                )
-                .is_ok_and(|signature| {
-                    signature.types_valid(
-                        &scope
-                            .iter()
-                            .chain(&method.generic_params)
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                        &Default::default(),
-                        definitions,
-                    )
-                })
-            {
-                return false;
-            }
-        }
-    }
-    true
+    dynamic_interface_valid(
+        scope,
+        applied,
+        &|id| contract(id, closure, definitions),
+        definitions,
+        &CancellationToken::default(),
+    )
+    .unwrap_or(false)
 }
 
 fn declarations<'a>(
@@ -696,7 +624,6 @@ fn instruction_contracts_match(
                     .as_ref()
                     .map_or(&[][..], |body| body.parameters.as_slice()),
                 applied,
-                &table.for_type,
                 closure,
                 definitions,
             ) {

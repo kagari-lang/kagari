@@ -1,6 +1,6 @@
 //! Applied interface method signatures retain separate receiver and method binders.
-use crate::callable::witness::{OperationWitness, required_operations};
 use crate::{
+    callable::witness::{OperationWitness, required_operations},
     native_import::callables::normalize_requirement,
     representation::semantic_representation,
     types::{PublicItem, TraitContract, proofs::ProofCatalog, trait_contract},
@@ -8,12 +8,16 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, table::DefinitionTable},
+    identity::{
+        DefinitionKind, ModuleIdentity,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::{
     declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope},
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        inheritance::{interface_views, trait_closure},
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
     },
 };
@@ -57,7 +61,7 @@ impl InterfaceMethodSignature {
             parameters,
             cancel,
             definitions,
-        )
+        ) && bounds_in_scope(&self.bounds, parameters, cancel, definitions)
     }
 
     pub fn physical_types(
@@ -159,11 +163,12 @@ impl InterfaceCallContract {
                     && part.name == contract.name
             })
             || interface.arguments.len() != contract.generic_params.len()
-            || !contract.associated_consts.is_empty()
-            || contract
-                .associated_types
-                .iter()
-                .any(|member| !member.generic_params.is_empty())
+            || (self.receiver.is_none()
+                && (!contract.associated_consts.is_empty()
+                    || contract
+                        .associated_types
+                        .iter()
+                        .any(|member| !member.generic_params.is_empty())))
             || interface.associated_types.keys().any(|id| {
                 !contract
                     .associated_types
@@ -228,24 +233,13 @@ impl InterfaceCallContract {
         }
         let mut bounds = substitution.apply_bounds(&contract.bounds, definitions, cancel)?;
         bounds.extend(substitution.apply_bounds(&method.bounds, definitions, cancel)?);
-        for bound in &mut bounds {
-            bound.ty =
-                resolve_associated_outputs(&bound.ty, interface, &projection_receiver, cancel)?;
-            for constraint in &mut bound.constraints {
-                if let Constraint::Trait(required) = constraint {
-                    let Ty::Trait(resolved) = resolve_associated_outputs(
-                        &Ty::Trait(required.clone()),
-                        interface,
-                        &projection_receiver,
-                        cancel,
-                    )?
-                    else {
-                        return Err(invalid);
-                    };
-                    *required = resolved;
-                }
-            }
-        }
+        let bounds = resolve_interface_bounds(
+            bounds,
+            interface,
+            &projection_receiver,
+            self.receiver.is_none(),
+            cancel,
+        )?;
         Ok(InterfaceMethodSignature {
             params,
             result: apply(&method.return_type)?,
@@ -264,6 +258,23 @@ impl InterfaceCallContract {
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let definitions = catalog.definitions();
+        if self.receiver.is_none()
+            && !dynamic_interface_valid(
+                parameters,
+                &self.interface,
+                &|id| {
+                    if *id == self.interface.declaration {
+                        Some(contract)
+                    } else {
+                        catalog.trait_contract(id)
+                    }
+                },
+                definitions,
+                cancel,
+            )?
+        {
+            return Ok(false);
+        }
         let mut signature = self.signature(contract, cancel, definitions)?;
         for fact in &self.normalizations {
             if catalog.normalize(&fact.source, cancel)? != fact.result {
@@ -359,3 +370,155 @@ impl InterfaceCallContract {
 mod tests;
 
 mod mapping;
+
+/// Validate every applied member and parent before admitting a dynamic value or call.
+/// Caller parameters remain valid output bindings; an erased receiver never does.
+/// Static constraint dispatch does not use this admission check. `lookup` supplies
+/// the complete declaration closure; `parameters` is the caller's binder scope.
+///
+/// Returns false for incompatible surfaces. Malformed declarations, cancellation
+/// and bounded traversal exhaustion return a type transformation error.
+pub fn dynamic_interface_valid<'a>(
+    parameters: &[GenericParam],
+    interface: &NominalTy,
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<bool, TypeTransformError> {
+    if !types_in_scope(
+        [&Ty::Trait(interface.clone())],
+        parameters,
+        cancel,
+        definitions,
+    ) {
+        return Ok(false);
+    }
+    let preserved = trait_closure(
+        interface,
+        &Ty::SelfType(interface.declaration),
+        cancel,
+        lookup,
+    )?;
+    let erased = trait_closure(interface, &Ty::Trait(interface.clone()), cancel, lookup)?;
+    if preserved != erased {
+        return Ok(false);
+    }
+    for view in interface_views(
+        interface,
+        &Ty::Trait(interface.clone()),
+        cancel,
+        definitions,
+        lookup,
+    )? {
+        let Some(contract) = lookup(&view.declaration) else {
+            return Ok(false);
+        };
+        if !contract.associated_consts.is_empty()
+            || contract
+                .associated_types
+                .iter()
+                .any(|member| !member.generic_params.is_empty())
+            || view.associated_types.len() != contract.associated_types.len()
+            || contract
+                .associated_types
+                .iter()
+                .any(|member| !view.associated_types.contains_key(&member.declaration))
+        {
+            return Ok(false);
+        }
+        let substitution = TypeSubstitution::for_owner(&view.declaration, &view.arguments);
+        let bounds = resolve_interface_bounds(
+            substitution.apply_bounds(&contract.bounds, definitions, cancel)?,
+            &view,
+            &Ty::SelfType(view.declaration),
+            true,
+            cancel,
+        )?;
+        if !bounds_in_scope(&bounds, parameters, cancel, definitions) {
+            return Ok(false);
+        }
+        for (slot, method) in contract.methods.iter().enumerate() {
+            let call = InterfaceCallContract {
+                normalizations: vec![],
+                receiver: None,
+                operations: vec![],
+                interface: view.clone(),
+                method_slot: slot as u32,
+                arguments: method
+                    .generic_params
+                    .iter()
+                    .map(GenericParam::as_type)
+                    .collect(),
+            };
+            let signature = call.declared_signature(contract, cancel, definitions)?;
+            let scope = parameters
+                .iter()
+                .chain(&method.generic_params)
+                .cloned()
+                .collect::<Vec<_>>();
+            if !signature.types_valid(&scope, cancel, definitions) {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn resolve_interface_bounds(
+    mut bounds: Vec<GenericBound>,
+    interface: &NominalTy,
+    receiver: &Ty,
+    dynamic: bool,
+    cancel: &CancellationToken,
+) -> Result<Vec<GenericBound>, TypeTransformError> {
+    for bound in &mut bounds {
+        bound.ty = resolve_associated_outputs(&bound.ty, interface, receiver, cancel)?;
+        for constraint in &mut bound.constraints {
+            if let Constraint::Trait(required) = constraint {
+                let Ty::Trait(resolved) = resolve_associated_outputs(
+                    &Ty::Trait(required.clone()),
+                    interface,
+                    receiver,
+                    cancel,
+                )?
+                else {
+                    return Err(TypeTransformError::InvalidContract);
+                };
+                *required = resolved;
+            }
+        }
+    }
+    if dynamic {
+        // A boxed receiver already proves membership in its own interface.
+        for bound in &mut bounds {
+            if &bound.ty == receiver {
+                bound.constraints.retain(|constraint| {
+                    !matches!(constraint,
+                        Constraint::Trait(required) if interface.satisfies(required))
+                });
+            }
+        }
+        bounds.retain(|bound| !bound.constraints.is_empty());
+    }
+    Ok(bounds)
+}
+
+fn bounds_in_scope(
+    bounds: &[GenericBound],
+    parameters: &[GenericParam],
+    cancel: &CancellationToken,
+    definitions: &DefinitionTable,
+) -> bool {
+    bounds.iter().all(|bound| {
+        types_in_scope([&bound.ty], parameters, cancel, definitions)
+            && bound.constraints.iter().all(|constraint| match constraint {
+                Constraint::Standard(_) => true,
+                Constraint::Trait(required) => types_in_scope(
+                    [&Ty::Trait(required.clone())],
+                    parameters,
+                    cancel,
+                    definitions,
+                ),
+            })
+    })
+}

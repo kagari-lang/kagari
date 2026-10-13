@@ -52,6 +52,7 @@ pub mod const_budget;
 mod const_eval;
 pub(crate) mod definition_registration;
 mod families;
+mod interfaces;
 pub(crate) mod supertraits;
 
 pub mod constraints;

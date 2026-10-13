@@ -211,11 +211,12 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
             }
-            if self
-                .planner
-                .catalog
-                .implementation_method(&self.planner.definitions(), method, interface, &ty)
-                .is_some()
+            if matches!(ty, TypeId::Trait(_))
+                || self
+                    .planner
+                    .catalog
+                    .implementation_method(&self.planner.definitions(), method, interface, &ty)
+                    .is_some()
             {
                 return self.lower_applied_method(
                     interface.clone(),

@@ -1,59 +1,31 @@
-//! Validate implementation methods and interface uses against declared trait contracts.
-//! Checks receiver/signature compatibility and permitted interface type surfaces before
-//! body analysis relies on aggregate implementation records.
+//! Validate source implementation declarations before building aggregate records.
+//! Dynamic value eligibility is checked against the completed applied catalog in
+//! `typeck::interfaces`, independently of local or imported declaration origin.
 
 use crate::{
     declarations::Declarations,
-    hir::{ids::FunctionId, ty::TypeKind},
+    hir::ty::TypeKind,
     language::semantics as traits,
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
-        FunctionTypeIndex,
-        check::{
-            interface_method_compatible, possibly_overlapping_impls,
-            validate_standard_constraint_type,
-        },
+        check::{possibly_overlapping_impls, validate_standard_constraint_type},
         constraints,
         table::{ConstraintTarget, TypeTable},
         ty::{display_type, display_type_id},
     },
     types::{NominalType, TypeId},
 };
-use kagari_common::{identity::DefinitionKind, span::Span};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::language::Protocol;
 use smallvec::SmallVec;
-use std::iter;
 
 pub(super) fn validate_trait_surface(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    function_index: &FunctionTypeIndex,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
-    for function in &lowered.module.functions {
-        let Some(typed_function) = function_index.by_id.get(&function.id) else {
-            continue;
-        };
-        for ty in typed_function
-            .params
-            .iter()
-            .map(|param| &param.ty)
-            .chain(iter::once(&typed_function.return_type))
-        {
-            validate_interface_type(
-                lowered,
-                declarations,
-                function_index,
-                ty,
-                lowered.source_map.function_span(function.id),
-                diagnostics,
-            );
-        }
-    }
-
     let mut seen_impls: Vec<(NominalType, TypeId)> = Vec::new();
     for impl_block in &lowered.module.impls {
         let Some(reference) = &impl_block.trait_ref else {
@@ -291,205 +263,5 @@ pub(super) fn validate_trait_surface(
             bounds,
             methods,
         );
-    }
-}
-
-pub(super) fn trait_method_interface_compatible(
-    function_index: &FunctionTypeIndex,
-    function_id: FunctionId,
-    interface: &NominalType,
-) -> bool {
-    let Some(function) = function_index.by_id.get(&function_id) else {
-        return false;
-    };
-    interface_method_compatible(
-        function
-            .params
-            .first()
-            .is_some_and(|param| param.name == "self"),
-        &function
-            .return_type
-            .with_associated_types(interface, &TypeId::SelfType(interface.declaration)),
-        function
-            .params
-            .iter()
-            .skip(1)
-            .map(|param| {
-                param
-                    .ty
-                    .with_associated_types(interface, &TypeId::SelfType(interface.declaration))
-            })
-            .collect::<Vec<_>>()
-            .iter(),
-    )
-}
-
-pub(super) fn validate_interface_type(
-    lowered: &LoweredModule,
-    declarations: &Declarations,
-    function_index: &FunctionTypeIndex,
-    ty: &TypeId,
-    span: Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    if let TypeId::NativeObject(nominal)
-    | TypeId::Struct(nominal)
-    | TypeId::Enum(nominal)
-    | TypeId::Trait(nominal) = ty
-    {
-        for argument in &nominal.arguments {
-            validate_interface_type(
-                lowered,
-                declarations,
-                function_index,
-                argument,
-                span,
-                diagnostics,
-            );
-        }
-    }
-    match ty {
-        TypeId::Trait(trait_name) => {
-            if let Some(trait_def) = lowered.module.traits.iter().find(|trait_def| {
-                declarations.definition(ResolvedName::Trait(trait_def.id))
-                    == Some(&trait_name.declaration)
-            }) {
-                if !trait_def.associated_consts.is_empty() {
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                            trait_name: trait_def.name.clone(),
-                            reason: "traits with associated constants only support static dispatch"
-                                .into(),
-                        })
-                        .with_span(span),
-                    );
-                }
-                if trait_def
-                    .associated_types
-                    .iter()
-                    .any(|member| !member.generic_params.is_empty())
-                {
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                            trait_name: trait_def.name.clone(),
-                            reason:
-                                "traits with generic associated types only support static dispatch"
-                                    .into(),
-                        })
-                        .with_span(span),
-                    );
-                }
-                if trait_def.associated_types.iter().any(|member| {
-                    declarations
-                        .definitions()
-                        .lookup_child(
-                            trait_name.declaration,
-                            DefinitionKind::AssociatedType,
-                            &member.name,
-                            0,
-                        )
-                        .is_none_or(|member| !trait_name.associated_types.contains_key(&member))
-                }) {
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                            trait_name: trait_def.name.clone(),
-                            reason: "interface values require bindings for all associated types"
-                                .into(),
-                        })
-                        .with_span(span),
-                    );
-                }
-                for method in &trait_def.methods {
-                    if !trait_method_interface_compatible(
-                        function_index,
-                        method.function,
-                        trait_name,
-                    ) {
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                trait_name: trait_def.name.clone(),
-                                reason: format!(
-                                    "method `{}` is not interface-compatible",
-                                    method.name
-                                ),
-                            })
-                            .with_span(span),
-                        );
-                    }
-                }
-            }
-        }
-        TypeId::Tuple(elements) => {
-            for element in elements {
-                validate_interface_type(
-                    lowered,
-                    declarations,
-                    function_index,
-                    element,
-                    span,
-                    diagnostics,
-                );
-            }
-        }
-        TypeId::Function { params, result } => {
-            for parameter in params {
-                validate_interface_type(
-                    lowered,
-                    declarations,
-                    function_index,
-                    parameter,
-                    span,
-                    diagnostics,
-                );
-            }
-            validate_interface_type(
-                lowered,
-                declarations,
-                function_index,
-                result,
-                span,
-                diagnostics,
-            );
-        }
-        TypeId::Array(element) | TypeId::Iter(element) | TypeId::Range(element, _) => {
-            validate_interface_type(
-                lowered,
-                declarations,
-                function_index,
-                element,
-                span,
-                diagnostics,
-            );
-        }
-        TypeId::Map { key, value, .. } => {
-            validate_interface_type(
-                lowered,
-                declarations,
-                function_index,
-                key,
-                span,
-                diagnostics,
-            );
-            validate_interface_type(
-                lowered,
-                declarations,
-                function_index,
-                value,
-                span,
-                diagnostics,
-            );
-        }
-        TypeId::Set(element, _) => {
-            validate_interface_type(
-                lowered,
-                declarations,
-                function_index,
-                element,
-                span,
-                diagnostics,
-            );
-        }
-
-        _ => {}
     }
 }

@@ -11,23 +11,17 @@ use crate::{
         GenericBounds, ModuleSignatures,
         check::{self, MethodComparison},
         constraints::{self, type_satisfies_standard_constraint},
-        families,
+        families, interfaces,
         table::ConstraintTarget,
     },
     types::{TypeId, TypeSubstitution},
 };
 
 use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{ModuleIdentity, table::DefinitionTable},
-    span::Span,
+    cancellation::CancellationToken, identity::table::DefinitionTable, span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    language::{Protocol, role::LangRole},
-    range::RangeKind,
-    surface::StandardTypeConstraint,
-};
+use kagari_types::{language::Protocol, range::RangeKind, surface::StandardTypeConstraint};
 
 /// Checked declaration sources and their retained identity scope for application validation.
 pub(super) struct ApplicationContext<'a> {
@@ -373,11 +367,10 @@ pub(crate) fn validate_signatures(
             return;
         }
         for parameter in &function.params {
-            validate_imported_interface_type(
+            interfaces::validate_type(
                 definitions,
                 &parameter.ty,
                 catalog,
-                lowered.source.module_identity(),
                 lowered.source_map.param_span(parameter.id),
                 diagnostics,
                 cancel,
@@ -395,11 +388,10 @@ pub(crate) fn validate_signatures(
                 cancel,
             );
         }
-        validate_imported_interface_type(
+        interfaces::validate_type(
             definitions,
             &function.return_type,
             catalog,
-            lowered.source.module_identity(),
             lowered.source_map.function_span(function.id),
             diagnostics,
             cancel,
@@ -535,6 +527,14 @@ pub(crate) fn validate_signatures(
             == identity
     }) {
         for field in &structure.fields {
+            interfaces::validate_type(
+                definitions,
+                &field.ty,
+                catalog,
+                field.declaration.location.range,
+                diagnostics,
+                cancel,
+            );
             validate(
                 ApplicationContext {
                     definitions,
@@ -558,6 +558,14 @@ pub(crate) fn validate_signatures(
     }) {
         for variant in &enumeration.variants {
             for payload in &variant.payload {
+                interfaces::validate_type(
+                    definitions,
+                    payload,
+                    catalog,
+                    variant.declaration.location.range,
+                    diagnostics,
+                    cancel,
+                );
                 validate(
                     ApplicationContext {
                         definitions,
@@ -571,154 +579,6 @@ pub(crate) fn validate_signatures(
                     cancel,
                 );
             }
-        }
-    }
-}
-
-pub(super) fn validate_imported_interface_type(
-    definitions: &DefinitionTable,
-    ty: &TypeId,
-    catalog: &AggregateCatalog,
-    module: &ModuleIdentity,
-    span: Span,
-    diagnostics: &mut DiagnosticBuffer,
-    cancel: &CancellationToken,
-) {
-    let mut pending = vec![ty];
-    while let Some(ty) = pending.pop() {
-        if cancel.check().is_err() {
-            return;
-        }
-        match ty {
-            TypeId::Trait(instance) => {
-                if Protocol::from_definition(&instance.declaration, definitions).is_some_and(
-                    |kind| {
-                        LangRole::from_protocol(kind)
-                            .is_some_and(LangRole::requires_static_dispatch)
-                    },
-                ) {
-                    diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(definitions), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
-                }
-                let erased = catalog.trait_closure(instance, ty, cancel);
-                let preserved = catalog.trait_closure(
-                    instance,
-                    &TypeId::SelfType(instance.declaration),
-                    cancel,
-                );
-                if erased != preserved {
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                            trait_name: ty.display_name(definitions),
-                            reason: "supertrait arguments cannot depend on erased Self".into(),
-                        })
-                        .with_span(span),
-                    );
-                }
-                if let Ok(parents) = catalog.interface_closure(definitions, instance, ty, cancel) {
-                    for (index, parent) in parents.into_iter().enumerate() {
-                        if index == 0
-                            && definitions
-                                .resolve(instance.declaration)
-                                .expect("scoped trait")
-                                .module()
-                                == module
-                        {
-                            continue;
-                        }
-                        let Some(contract) = catalog.trait_(&parent.declaration) else {
-                            continue;
-                        };
-                        if Protocol::from_definition(&parent.declaration, definitions).is_some_and(
-                            |kind| {
-                                LangRole::from_protocol(kind)
-                                    .is_some_and(LangRole::requires_static_dispatch)
-                            },
-                        ) && index != 0
-                        {
-                            diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                    trait_name: ty.display_name(definitions),
-                                    reason: "standard supertraits require static dispatch".into(),
-                                })
-                                .with_span(span),
-                            );
-                        }
-                        if !contract.associated_consts.is_empty() {
-                            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                trait_name: contract.declaration.name.clone(), reason: "traits with associated constants only support static dispatch".into(),
-                            }).with_span(span));
-                        }
-                        if !contract.associated_type_parameters.is_empty() {
-                            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: contract.declaration.name.clone(), reason: "traits with generic associated types only support static dispatch".into() }).with_span(span));
-                        }
-                        if contract
-                            .associated_types
-                            .keys()
-                            .any(|member| !parent.associated_types.contains_key(member))
-                        {
-                            diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                    trait_name: contract.declaration.name.clone(),
-                                    reason:
-                                        "interface values require bindings for all associated types"
-                                            .into(),
-                                })
-                                .with_span(span),
-                            );
-                        }
-                        for method in &contract.methods {
-                            if !check::interface_method_compatible(
-                                method
-                                    .params
-                                    .first()
-                                    .is_some_and(|param| param.name == "self"),
-                                &method.return_type.with_associated_types(
-                                    &parent,
-                                    &TypeId::SelfType(parent.declaration),
-                                ),
-                                method
-                                    .params
-                                    .iter()
-                                    .skip(1)
-                                    .map(|param| {
-                                        param.ty.with_associated_types(
-                                            &parent,
-                                            &TypeId::SelfType(parent.declaration),
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .iter(),
-                            ) {
-                                diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                        trait_name: contract.declaration.name.clone(),
-                                        reason: format!(
-                                            "method `{}` is not interface-compatible",
-                                            method.name
-                                        ),
-                                    })
-                                    .with_span(span),
-                                );
-                            }
-                        }
-                    }
-                }
-                pending.extend(&instance.arguments);
-            }
-            TypeId::NativeObject(instance) | TypeId::Struct(instance) | TypeId::Enum(instance) => {
-                pending.extend(&instance.arguments)
-            }
-            TypeId::Tuple(items) => pending.extend(items),
-            TypeId::Function { params, result } => {
-                pending.extend(params);
-                pending.push(result);
-            }
-            TypeId::Array(item)
-            | TypeId::Set(item, _)
-            | TypeId::Iter(item)
-            | TypeId::Range(item, _) => pending.push(item),
-            TypeId::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
-            _ => {}
         }
     }
 }
