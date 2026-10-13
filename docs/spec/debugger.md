@@ -6,6 +6,13 @@ The target user experience is close to debugging Kotlin in IntelliJ IDEA: source
 Debugger support is a host/tooling capability.
 It is not an ordinary script API and it must not bypass runtime security, installed interface contracts, typed path mutation policy, or hot reload validation.
 
+Implementation status: this document also retains target capabilities that are
+not yet implemented. Current `DebugSession` records rooted snapshots and supports
+binding-name watches; it does not wait interactively at a breakpoint. The
+[queued interactive debugger design](../debugger-design.md) records the confirmed
+synchronous host-thread pause model, remaining gaps and proposed implementation
+scope. Its recording does not activate those features or establish DAP support.
+
 ## Design Goals
 
 - support IDE-grade source debugging for scripts

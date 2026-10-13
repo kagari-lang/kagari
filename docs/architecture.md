@@ -1317,6 +1317,9 @@ See [embedding](spec/embedding-api.md), [loading](spec/module-loading.md) and
 The interpreter-first debugger uses source maps, safe points, rooted frame/value
 inspection and module epochs. IDE/DAP transport belongs outside runtime.
 DebugProtocolAdapter is the implemented boundary; see [debugger](spec/debugger.md#adapter-boundary).
+Current pause notifications are snapshots, not interactive execution stops.
+The [queued debugger design](debugger-design.md) preserves the Rust call chain by
+waiting on the executing host thread; live command control and DAP remain unimplemented.
 Attached observers force pre-entry fallback when native code lacks callbacks.
 Ordinary reflection stays within declared metadata and member adapters.
 

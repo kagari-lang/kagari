@@ -42,6 +42,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Packages, dependency resolution and toolchain](package-design.md), including
   [Rust distribution names and execution modes](package-design.md#toolchain-cli-and-execution-modes).
 - [Compatible reload and state replacement](update-model-design.md).
+- [Interactive debugger](debugger-design.md): synchronous waiting on the executing
+  host thread, followed by SDK control and IDE/DAP integration; not implemented.
 
 ## Documentation lifecycle
 

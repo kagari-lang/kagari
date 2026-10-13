@@ -84,6 +84,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
 | [Packages and toolchain](package-design.md) | Manifests, exact dependency graphs and source/module identities; confirmed [SDK/CLI naming and queued execution modes](package-design.md#toolchain-cli-and-execution-modes). Source kinds and selection/default policies still need decisions. The two `0.0.0-reserved` placeholders are published; SDK renaming, tooling implementation and functional releases remain queued. |
 | [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
+| [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 
 ## Open review and documentation work
 
