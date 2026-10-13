@@ -114,9 +114,9 @@ whole-crate missing-docs acceptance.
 ## Trait interfaces and comparison
 
 [Trait interfaces and comparison](trait-interface-comparison-plan.md) is the
-formal TI01-TI04 execution plan for the accepted decisions. Implementation is
-unstarted; creating the plan does not activate code changes or reorder unrelated
-queued work. The plan alone owns phase acceptance and the progress/error ledger.
+active TI01-TI04 execution plan for the accepted decisions. Implementation was
+authorized on 2026-10-13 and begins with TI01; unrelated queued work stays outside
+this execution. The plan alone owns phase acceptance and the progress/error ledger.
 
 The sequence is: require supplied interface conversion targets; unify structural
 dynamic compatibility; replace equality/identity selection end to end; complete

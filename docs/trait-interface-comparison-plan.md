@@ -1,13 +1,11 @@
 # Trait interfaces and comparison execution plan
 
-Status: design and phase sequence recorded on 2026-10-13; TI01-TI04 are unstarted.
-This checkpoint records documentation only. This plan owns
-the finite implementation sequence, acceptance, carried errors and progress
-ledger for SA25/SA26 and the affected SA23/SA24 cases. The
+Status: implementation activated on 2026-10-13; TI01 is complete; TI02 is next.
+This plan owns the finite implementation sequence, acceptance, carried errors
+and progress ledger for SA25/SA26 and the affected SA23/SA24 cases. The
 [roadmap](implementation-roadmap.md#trait-interfaces-and-comparison) owns queue
-placement; creating this plan does not start implementation or reorder unrelated
-work. Planning baseline: `981b7070` plus the accepted-design documents in this
-checkpoint.
+placement. Implementation baseline: `5dc34273`; unrelated queued work stays
+outside this execution.
 
 ## Outcome and scope
 
@@ -205,7 +203,7 @@ baseline (record renamed filters and added distinct cases in the ledger):
 
 ```text
 cargo test -p kagari-hir --lib analysis::generic_type_tests::joins::
-cargo test -p kagari-embed --test collection_interfaces inferred_
+cargo test -p kagari-embed --test collection_interfaces explicit_interface_
 cargo test -p kagari-contract --lib callable::interface::tests::
 cargo test -p kagari-compiler --lib tests::interface_signatures::
 cargo test -p kagari-embed --test standard_traits custom_comparisons_short_circuit_without_identity_shortcuts
@@ -249,18 +247,37 @@ checklist. Update this section when implementation scope, design or carried
 errors change. Successful command transcripts belong in Git history after handoff.
 
 - [x] Record accepted design, bounded ownership, TI01-TI04 and local/CI gates.
-- [ ] TI01: Require supplied interface conversion targets.
+- [x] TI01: Require supplied interface conversion targets.
 - [ ] TI02: Unify structural dynamic compatibility.
 - [ ] TI03: Replace equality and identity selection end to end.
 - [ ] TI04: Complete integration and retire the migration.
 
-Current build status: no build/test run was performed for plan authoring. No
-new implementation failure is carried; SA23-SA25 remain known current-code
-findings, not fixed bugs. Source-free, feature/backend and full CI acceptance
-are unverified. Existing SA22 and unrelated roadmap issues are outside this plan.
+Current build status: TI01 builds and its selected local checks pass. No carried
+build/test failure remains. SA23-SA25 comparison findings await TI02/TI03; full
+workspace, feature/backend and CI acceptance remain unverified. SA22 and unrelated
+roadmap work remain outside this plan.
+
+TI01 verification: `cargo test -p kagari-hir --lib --
+analysis::generic_type_tests::joins:: body_constraints_use_later_arguments_and_local_uses
+return_context_reaches_control_flow_and_composite_constructors
+branch_and_array_merges_recover_complementary_member_facts` passed all nine tests.
+`cargo test -p kagari-embed --test collection_interfaces explicit_interface_`
+passed both tests across source, artifact and artifact JIT routes. Structure
+checking (1115 Rust files, zero violations), formatting and diff checks passed.
+
+The branch policy now masks inferred interface targets, including nested types
+and facts recovered across solver rounds. Compatible branches unify unresolved
+constructor payloads without converting values, preserving Option inference.
+Initial tests exposed the solver feedback path and a masked None payload; both
+are fixed and the affected tests passed. Supplied targets still propagate through
+assignments, arguments, returns, fields and nested branches. Existing comparison
+operators still consume `common_branch_interface` / `common_interfaces` and its
+ambiguity diagnostic; TI03 owns their removal with those operator paths. No new
+parallel compatibility path or structural exception was introduced.
 
 | Checkpoint | Evidence / disposition |
 | --- | --- |
+| 2026-10-13 TI01 | Supplied-target branch checking and solver hint separation implemented; nine HIR tests and two multi-route execution tests passed. Existing operator-only common-interface search remains until TI03. No carried errors; TI02-TI04 and CI pending. |
 | 2026-10-13 planning | Read current implementations/tests at 981b7070 and accepted specifications; checked existing module/test filter names without running Cargo. Content review, 82 added local links/anchors across nine documentation files, code fences, preserved CRLF, whitespace and git diff checks passed. TI01-TI04 and all local/CI implementation gates remain pending. |
 
 For each implementation checkpoint record: phase and changed contract; actual

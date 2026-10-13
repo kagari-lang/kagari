@@ -787,11 +787,11 @@ impl Display for DiagnosticKind {
             ),
             Self::IfBranchTypeMismatch { expected, found } => write!(
                 f,
-                "if branch type mismatch: expected `{expected}`, found `{found}`"
+                "if branch type mismatch: expected `{expected}`, found `{found}`; supply a result type for interface conversion"
             ),
             Self::MatchArmTypeMismatch { expected, found } => write!(
                 f,
-                "match arm type mismatch: expected `{expected}`, found `{found}`"
+                "match arm type mismatch: expected `{expected}`, found `{found}`; supply a result type for interface conversion"
             ),
             Self::ReturnTypeMismatch {
                 function_name,

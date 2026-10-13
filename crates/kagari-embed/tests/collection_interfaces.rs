@@ -39,7 +39,7 @@ fn execute(source: &str) {
 }
 
 #[test]
-fn inferred_common_interfaces_record_each_branch_conversion() {
+fn explicit_interface_targets_record_each_branch_conversion() {
     execute(
         r#"
 trait X { fn x(self) -> i32; }
@@ -58,7 +58,7 @@ fn a(counter: Counter) -> A { counter.count += 1; Item { value: 10 } }
 fn b(counter: Counter) -> B { counter.count += 1; Item { value: 20 } }
 fn c(counter: Counter) -> C { counter.count += 1; Item { value: 12 } }
 fn choose(tag: i32, counter: Counter) -> i32 {
-    val joined = match tag { 0 => a(counter), 1 => b(counter), _ => c(counter) };
+    val joined: X = match tag { 0 => a(counter), 1 => b(counter), _ => c(counter) };
     joined.x()
 }
 trait Read<T> { fn read(self) -> T; }
@@ -67,7 +67,7 @@ struct Right<T> { val item: T }
 impl<T: Eq> Read<T> for Left<T> { fn read(self) -> T { self.item } }
 impl<T: Eq> Read<T> for Right<T> { fn read(self) -> T { self.item } }
 fn choose_read<T: Eq>(flag: bool, left: Left<T>, right: Right<T>) -> T {
-    val joined = if flag { left } else { right };
+    val joined: Read<T> = if flag { left } else { right };
     joined.read()
 }
 fn main() -> i32 {
@@ -85,7 +85,7 @@ fn main() -> i32 {
 }
 
 #[test]
-fn inferred_iterable_join_preserves_iterator_result_adaptation() {
+fn explicit_interface_target_preserves_iterator_result_adaptation() {
     execute(
         r#"
 trait Factory {
@@ -110,7 +110,7 @@ fn consume<R: Reader<Iterable<Item = i32>>>(reader: R, value: Iterable<Item = i3
     reader.read(value)
 }
 fn choose_iter(flag: bool, concrete: Vec<i32>, view: Iterable<Item = i32>) -> i32 {
-    val joined = match flag { true => concrete, false => view };
+    val joined: Iterable<Item = i32> = match flag { true => concrete, false => view };
     var total = 0;
     for item in joined { total += item; }
     total
@@ -362,8 +362,8 @@ fn main() -> i32 {
     val writable: MutableList<Cell> = raw;
     val read: List<Cell> = readonly(writable);
     read[0].value += 22;
-    val joined = if true { raw } else { read };
-    val selected = match 1 { 1 => raw, _ => read };
+    val joined: List<Cell> = if true { raw } else { read };
+    val selected: List<Cell> = match 1 { 1 => raw, _ => read };
     if !(raw === read && writable == read && selected === joined) { return 0; }
     val copy = Vec::from([read[0]]);
     if !(raw == copy && raw.hash() == copy.hash()) { return 0; }

@@ -346,7 +346,7 @@ impl BodyChecker<'_> {
             return Some(self.solver.resolve(expected));
         }
         let inferred = self.solver.resolve(&variable);
-        (!matches!(inferred, TypeId::Inference(_))).then_some(inferred)
+        (!matches!(inferred, TypeId::Inference(_))).then(|| inference_hint(&inferred))
     }
 
     pub(super) fn constrain_expression(
@@ -401,4 +401,10 @@ impl BodyChecker<'_> {
         }
         resolved
     }
+}
+
+/// Inferred facts refine literals and constructors but never authorize boxing.
+/// This also applies across solver rounds and inside tuples or nominal arguments.
+pub(super) fn inference_hint(ty: &TypeId) -> TypeId {
+    ty.substitute_once(|ty| matches!(ty, TypeId::Trait(_)).then_some(&TypeId::Unknown))
 }

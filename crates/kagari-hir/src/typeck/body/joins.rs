@@ -6,7 +6,12 @@ use crate::{
         expr::{Condition, MatchArm},
         ids::{BlockId, ExprId},
     },
-    typeck::{BodyTypeEnv, body::BodyChecker, completion, ty::display_type_id},
+    typeck::{
+        BodyTypeEnv,
+        body::{BodyChecker, solving::inference_hint},
+        completion,
+        ty::display_type_id,
+    },
     types::TypeId,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
@@ -109,9 +114,9 @@ impl BodyChecker<'_> {
                 let mut else_context = expected.cloned();
                 if condition_completes && then_completes {
                     if let Some(context) = &mut else_context {
-                        context.recover_from(&then_ty);
+                        context.recover_from(&inference_hint(&then_ty));
                     } else {
-                        else_context = Some(then_ty.clone());
+                        else_context = Some(inference_hint(&then_ty));
                     }
                 }
                 let else_ty = self.infer_expr_with_coercion(else_expr, env, else_context.as_ref());
@@ -130,42 +135,6 @@ impl BodyChecker<'_> {
                     if !then_completes {
                         then_ty = else_ty;
                     } else if else_completes
-                        && then_ty != else_ty
-                        && !then_ty.can_weaken_to(&else_ty)
-                        && !else_ty.can_weaken_to(&then_ty)
-                        && let Some(view) = self.common_branch_interface(
-                            &[then_ty.clone(), else_ty.clone()],
-                            env,
-                            else_expr,
-                        )
-                    {
-                        let converted_then =
-                            if let Some(tail) = self.lowered.module.block(then_branch).tail_expr {
-                                self.apply_interface_coercion(tail, then_ty, Some(&view), &then_env)
-                            } else {
-                                then_ty
-                            };
-                        let converted_else =
-                            self.apply_interface_coercion(else_expr, else_ty, Some(&view), env);
-                        for found in [converted_then, converted_else] {
-                            if found.conflicts_with(&view) {
-                                self.diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
-                                        expected: display_type_id(
-                                            self.declarations.definitions(),
-                                            &view,
-                                        ),
-                                        found: display_type_id(
-                                            self.declarations.definitions(),
-                                            &found,
-                                        ),
-                                    })
-                                    .with_span(self.lowered.source_map.expr_span(else_expr)),
-                                );
-                            }
-                        }
-                        then_ty = view;
-                    } else if else_completes
                         && (then_ty.can_weaken_to(&else_ty) || else_ty.can_weaken_to(&then_ty))
                     {
                         then_ty = then_ty.read_only_view().expect("collection branch join");
@@ -181,6 +150,8 @@ impl BodyChecker<'_> {
                             .with_span(self.lowered.source_map.expr_span(else_expr)),
                         );
                     } else if else_completes {
+                        // Unify unresolved constructor payloads without converting values.
+                        let _ = self.solver.constrain(&then_ty, &else_ty, self.cancel);
                         then_ty.recover_from(&else_ty);
                         if !then_ty.is_unresolved()
                             && let Some(tail) = self.lowered.module.block(then_branch).tail_expr
@@ -225,7 +196,8 @@ impl BodyChecker<'_> {
             if self.cancel.check().is_err() {
                 return TypeId::Unknown;
             }
-            let context = expected.or(if reachable { hint.as_ref() } else { None });
+            let sibling = hint.as_ref().filter(|_| reachable).map(inference_hint);
+            let context = expected.or(sibling.as_ref());
             let (found, arm_env) =
                 self.infer_match_arm_type(arm, &scrutinee_ty, env, context, expected.is_some());
             if !reachable {
@@ -271,13 +243,8 @@ impl BodyChecker<'_> {
         });
         if let Some(view) = host_view {
             result = view;
-        } else if inputs.iter().any(|input| input.conflicts_with(&result))
-            && let Some(view) = self.common_branch_interface(&inputs, env, scrutinee)
-        {
-            result = view;
         }
-        for (expr, source, mut arm_env) in completing {
-            let found = self.apply_interface_coercion(expr, source, Some(&result), &arm_env);
+        for (expr, found, mut arm_env) in completing {
             if found.conflicts_with(&result) && !found.can_weaken_to(&result) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
@@ -286,8 +253,11 @@ impl BodyChecker<'_> {
                     })
                     .with_span(self.lowered.source_map.expr_span(expr)),
                 );
-            } else if !result.is_unresolved() {
-                self.refine_standard_tail(expr, &result, &mut arm_env);
+            } else {
+                let _ = self.solver.constrain(&found, &result, self.cancel);
+                if !result.is_unresolved() {
+                    self.refine_standard_tail(expr, &result, &mut arm_env);
+                }
             }
         }
         result
