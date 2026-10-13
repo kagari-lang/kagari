@@ -39,14 +39,15 @@ mutators without freezing objects or introducing borrow syntax. Map/Set interfac
 impose neither hashing nor order; HashMap/HashSet require Eq + Hash on keys/elements.
 Ordered implementations can require Ord instead.
 
-The implemented [collection content contracts](spec/collection-access.md#content-protocols-and-helpers)
-and [receiver comparison model](architecture.md#library-identities-and-representation-boundaries)
+The [collection content contracts](spec/collection-access.md#content-protocols-and-helpers)
 own explicit stdlib PartialEq/Eq/Hash for Vec/HashSet/HashMap and the three content
-comparison functions. Object `==` through List/Set/Map retains applicable receiver
-equality or its eligible identity default; this grants no Eq/Hash bounds to those
-interfaces. NC reuses stdlib's catalog/comparison and bindings/comparison owners,
-including explicit interface PartialEq/Debug registrations, rather than rebuilding
-those algorithms or comparison evidence. Internal hash-table storage remains NC-owned.
+comparison functions. The separate [trait/interface comparison plan](trait-interface-comparison-plan.md)
+replaces default identity equality and collection-interface receiver forwarding;
+NC must not preserve or reintroduce that superseded model. Reuse the resulting
+checked content implementations, helpers, interface Debug and normal selected
+calls rather than rebuild comparison algorithms. At NC activation, reconcile the
+current TI phase with storage consumers without silently absorbing TI or requiring
+the old ReceiverComparison records. Internal hash-table storage remains NC-owned.
 
 Trait access markers and their builder/wire APIs are removed. The remaining
 [host/storage descriptor inventory](spec/collection-access.md#host-storage-boundary)

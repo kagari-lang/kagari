@@ -3,6 +3,14 @@
 This is the authoritative v1 contract for observable value behavior. Physical
 allocation, Rust `Clone`/`PartialEq`, and backend choices do not define semantics.
 
+**Comparison migration status:** [the accepted comparison design](#accepted-comparison-design)
+defines the agreed replacement for equality defaults and identity eligibility.
+It is not implemented yet. Other comparison descriptions below document the
+current implementation until that migration; they do not override the accepted
+design. [SA26](../review.md#sa26-implement-the-accepted-equality-and-identity-design)
+records the follow-up; [TI03](../trait-interface-comparison-plan.md#ti03-replace-equality-and-identity-selection-end-to-end)
+owns implementation and acceptance.
+
 ## Values and identity
 
 Scalars, strings, tuples, and enums (including Option and Result) have value
@@ -62,9 +70,119 @@ runtime floating-point operations retain their IEEE behavior. Invalid literal
 ranges are diagnosed during analysis, including in const initializers and match
 patterns. A literal pattern must have the scrutinee's type.
 
+## Accepted comparison design
+
+Status: accepted on 2026-10-13; implementation is pending. This decision changes
+comparison eligibility, not assignment, sharing, GC ownership or interface
+receiver admission. Values may still become dynamically compatible trait
+interfaces through checked implementations. No Object type, marker or bound is
+introduced.
+
+### Equality requires PartialEq
+
+`==` requires a statically proven applicable PartialEq implementation; `!=`
+negates its result. Operators, `.eq()`, generic code and container operations
+use the same selected implementation. Builtin and conditional library
+implementations count as evidence; users need not handwrite every comparison.
+Missing or unsatisfied evidence is a compile-time error, never an automatic
+identity comparison or a deferred missing-comparison trap. An author may
+explicitly implement PartialEq using `self === other` for an object type.
+
+| Type | Accepted equality contract |
+| --- | --- |
+| Unit, bool, integers, String | Builtin value comparison. |
+| Float | Builtin IEEE comparison, including NaN unequal to itself; no Eq/Hash. |
+| Tuple | Conditional member comparison when every member supports PartialEq. |
+| User Struct or enum | Explicit implementation; neither object identity nor enum member comparison is automatically supplied. |
+| Option / Result | Standard-library conditional variant/member comparison; all payload types must satisfy the required bounds, not only the active variant. |
+| Array / `Vec<T>` | Conditional content comparison when `T: PartialEq`; compare length and then corresponding elements in order. |
+| `HashSet<T>` | Conditional content comparison under `T: Eq + Hash`. |
+| `HashMap<K,V>` | Conditional content comparison under `K: Eq + Hash` and `V: PartialEq`. |
+| Native script object | Applicable registered implementation; no identity fallback. Existing host-handle/path restrictions remain separate. |
+| Trait interface value | Requires an implementation for the interface value type itself; hidden receiver implementations are not automatically exposed. |
+| Generic T | Requires PartialEq evidence in the checked generic context. |
+| Function / closure | No automatic comparison. |
+
+User Structs and enums opt into comparison, following Rust's explicit-implementation
+model. Memberwise derivation may be designed separately; this decision does not
+add derive syntax. Standard-library Option/Result retain their conditional
+implementations even though they use enum representation. Remove automatic
+identity Eq/Hash alongside identity PartialEq; having an identity does not make
+an object a hash key. Keep Eq/Hash requirements and callback consistency for
+explicit implementations and conditional content protocols.
+
+Boxing or adapting an interface never adds comparison capabilities. For example,
+if Color implements PartialEq and Read, Color values can compare, but values
+erased to Read cannot compare unless Read's interface value type itself has an
+applicable PartialEq implementation. Adding PartialEq as a parent is not an
+erased comparison contract: Kagari's `other: Self` remains subject to dynamic
+compatibility checking.
+
+Remove the six collection interfaces' automatic receiver-comparison forwarding
+implementations. Retain their Debug implementations and the explicit
+[content helpers](collection-access.md#content-protocols-and-helpers), including
+their element/key bounds and cross-implementation behavior. Consequently,
+`Vec<i32>` equality remains available, while `List<i32>` equality is rejected under
+the target library declarations. Interface-level content PartialEq and
+source-authored interface impl targets are separate future API decisions.
+
+The reference model is Rust's [PartialEq](https://doc.rust-lang.org/std/cmp/trait.PartialEq.html)
+and [conditional Box comparison](https://doc.rust-lang.org/std/boxed/struct.Box.html):
+wrapping a value does not supply a missing comparison implementation. Keep
+Kagari's current same-type comparison scope; Rust's heterogeneous `PartialEq<Rhs>`,
+borrowing and ownership model are not added by this decision. Rust can use
+PartialEq with a fixed Rhs in a trait object; that does not make Kagari's
+unresolved `other: Self` dynamically compatible.
+
+### Identity requires statically known object operands
+
+`===` and `!==` require both operands to have statically known identity-bearing
+object types: Struct, native script objects, Array, Vec, HashMap or HashSet.
+Different concrete object types may be compared without a common interface,
+boxing or PartialEq selection. The result tests the same underlying object;
+distinct objects compare unequal. `!==` negates that result. Neither operator
+is overloadable or invokes user comparison code.
+
+Reject either operator at compile time if either operand is a trait interface,
+a value type, a function/closure or a bare generic parameter whose object category
+is unknown. A PartialEq/Eq bound does not prove object identity. An object shape
+such as `Vec<T>` is eligible even when T is generic or an interface: eligibility
+concerns the operand itself, not the categories of its members.
+
+Illustrative operand types and target checking results:
+
+```text
+Item === Item          // Allowed; neither needs PartialEq.
+Vec<T> === Vec<T>      // Allowed; the container has identity.
+T === T                // Rejected; T's object category is unknown.
+Item === Read          // Rejected; one operand is an interface.
+Read === Read          // Rejected, even if both hide the same Item.
+Color === Color        // Rejected; enum values have no object identity.
+```
+
+Interface construction/upcasting preserves sharing and underlying object
+identity, but does not permit identity operators through an interface-typed
+expression. There is no interface-wrapper identity or hidden-value identity
+trap in the target operator contract. A checked explicit downcast to an object
+type can make identity comparison legal without copying the object; a downcast
+to a value type cannot. This is the required semantic interaction, not a claim
+that source downcast syntax/APIs are implemented. Downcast failure must be
+handled through its own checked contract. Generic interface infrastructure can
+use subscription handles, node IDs or explicit keys when the concrete type is
+unknown; no universal identity API is introduced.
+
+Both operands still evaluate left to right exactly once. Identity remains stable
+through mutation and GC relocation; invalid, foreign or stale handles remain
+errors rather than unequal objects. Preserve roots, owner/generation checks,
+selected comparison generations, cancellation and cleanup. Source checking and
+independent executable validation must agree on both operators' eligibility;
+backends consume checked facts rather than rediscovering comparison policy.
+
 ## Equality and hashing
 
-The operators, defaults and overrides below are implemented. Runnable coverage
+This section describes the current implementation, including defaults and
+interface behavior superseded by the [accepted design](#accepted-comparison-design).
+Runnable coverage for the current implementation
 is provided by [standard-traits.kgr](../../examples/syntax/standard-traits.kgr)
 and the standard-protocol integration tests.
 
@@ -178,7 +296,7 @@ constructed variant. Option and Result follow these same default enum rules.
 The all-members rule applies to default implementations, not explicit enum
 overrides. Floats retain PartialEq without Eq or Hash when nested in a composite.
 
-For example, under the target contract:
+For example, under the current implementation's implicit enum comparison:
 
 ```kagari
 struct Point { val x: i32, val y: i32 }

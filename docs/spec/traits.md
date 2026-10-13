@@ -45,6 +45,14 @@ The current trait scope excludes:
 
 ## Current interface conversion boundary
 
+**Accepted change, not yet implemented:** [comparison eligibility](value-semantics.md#accepted-comparison-design)
+will require interface-level PartialEq for interface `==` and reject `===`/`!==`
+whenever either operand is an interface. Value receivers remain allowed under
+ordinary checked conversion rules. No Object type/bound is added; boxing grants
+neither comparison capability nor identity. The current behavior below remains
+an implementation description until [SA26](../review.md#sa26-implement-the-accepted-equality-and-identity-design)
+is implemented.
+
 Concrete applied implementations can become interface values, including generic
 receiver shapes such as `Vec<T>` becoming `List<T>`. Existing interface values
 upcast through declared parents. Their arguments remain invariant, and their
@@ -67,6 +75,67 @@ signatures, type-owned protocol ownership and executable targets are checked by
 the same declaration/proof owners. The standard library uses this registration
 path for Iterator's Iterable adapter and collection-interface PartialEq/Debug.
 No collection name grants the implementation or its methods.
+
+## Accepted interface conversion context
+
+Status: accepted on 2026-10-13; removal of context-free interface inference is
+not implemented yet. [SA25](../review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits)
+records the finding; [TI01](../trait-interface-comparison-plan.md#ti01-require-supplied-interface-conversion-targets)
+owns implementation and acceptance alongside TI02's structural compatibility work.
+
+An implicit interface conversion checks a target supplied by the program's type
+context; it does not choose a target by searching for a common implemented trait.
+A variable annotation, existing assignment destination, declared function
+parameter/return type or declared field type can supply that target. An enclosing
+interface context flows into each completing `if`/`match` branch. Each conversion
+must satisfy the target's dynamic compatibility, implementation, argument and
+associated-output requirements. A type annotation or signature is sufficient;
+this decision adds neither a mandatory cast at every branch nor `dyn` syntax.
+
+Without a supplied target, `if` and `match` do not enumerate common traits or
+choose a shared parent interface. They also do not use an interface-typed branch
+as a conversion target for another branch, in either operand order. Reject
+incompatible branch types with a diagnostic asking for an explicit target type.
+Branches already having the same interface type can merge without an annotation:
+no interface conversion is needed. Identical concrete types, ordinary literal
+and constructor inference (such as integer literals and `None`/`Some`), existing
+non-interface readonly adaptation and non-completing branch handling remain
+unchanged. Restrict interface conversion, not ordinary type inference.
+
+The following target-behavior sketch assumes A and B implement Read:
+
+```text
+val inferred = if flag { A {} } else { B {} };          // Rejected.
+val selected: Read = if flag { A {} } else { B {} };    // Allowed.
+val matched: Read = match tag { 0 => A {}, _ => B {} }; // Allowed.
+
+val view: Read = A {};
+val mixed = if flag { view } else { B {} };             // Rejected.
+val explicit: Read = if flag { view } else { B {} };    // Allowed.
+val other: Read = B {};
+val existing = if flag { view } else { other };         // Allowed.
+
+fn choose(flag: bool) -> Read {
+    if flag { A {} } else { B {} } // The return type supplies the target.
+}
+
+fn consume(value: Read) { /* ... */ }
+consume(if flag { A {} } else { B {} }); // The parameter supplies the target.
+```
+
+Choosing an interface target makes type erasure deliberate; it is not an
+allocation-free guarantee. The current runtime prepares interface metadata and
+allocates a wrapper when constructing an interface. Copying an existing interface
+value is not another construction, and a dynamic method call does not inherently
+rebox its receiver. A generic trait bound alone does not construct an interface.
+Keep representation and performance claims separate from the type syntax.
+
+The existing bound-to-interface construction limitation in SA22 is not removed
+by supplying an explicit target. This decision changes target selection only;
+it does not add missing generic construction witnesses or weaken conversion
+validation. Current common-interface inference remains described in
+[collection conversions](collection-access.md#conversion-and-dispatch) until
+the implementation is migrated.
 
 ## Associated Constants
 
@@ -465,18 +534,94 @@ remain outside the implemented scope.
 
 ## Interface Compatibility Rules
 
-Not every trait method shape is suitable for interface dispatch.
-The language describes this as interface compatibility rather than Rust object safety.
+Status: the complete structural rule below was accepted on 2026-10-13;
+implementation alignment is pending under
+[SA25](../review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits).
+The [TI02 phase](../trait-interface-comparison-plan.md#ti02-unify-structural-dynamic-compatibility)
+owns execution, validation and progress.
+The current checker already enforces several signature/member restrictions but
+also excludes reserved protocols by role. That role-based exclusion is to be
+replaced, not preserved as an additional eligibility rule.
 
-Interface-callable methods must:
+An applied trait can be used as a dynamic interface only if erasing the concrete
+receiver still leaves every member's complete call contract expressible and
+checkable by the caller. Apply trait arguments and associated bindings before
+checking the interface and all its parents. Eligibility is structural, with the
+same rules for standard, user and registered native traits.
 
-- not return `Self`
-- not take `Self` in parameters other than the receiver
-- bind method-level generic parameters explicitly and satisfy their bounds at each call
-- have parameter and return types representable in the runtime value model
+One incompatible member or parent rejects the entire trait application as an
+interface. The declaration itself remains legal for concrete calls and generic
+bounds. Do not silently omit members, erase their signatures into different
+types, or add a static-only-member escape marker. Authors can separate a dynamic
+base trait from a static extension trait when both surfaces are needed.
 
-Traits may still contain methods that are useful for static generic bounds but are not callable through an interface value.
-The compiler rejects use of a trait as an interface type when the trait contains methods that cannot be dispatched dynamically.
+| Surface | Accepted dynamic compatibility rule |
+| --- | --- |
+| Receiver | Methods must have `self`; its concrete type may be erased. |
+| Other parameters and return type | No unresolved `Self`, including nested occurrences such as `Option<Self>`, tuples or function signatures. All types must be representable by the runtime value model. |
+| Ordinary associated types | Bind every output to a caller-known type; normalize projections before checking for hidden `Self` dependencies. |
+| Trait type parameters | Resolve through the applied interface type and check their bounds. |
+| Method type parameters | Allowed through the existing checked shared-generic call contract; each call supplies arguments and bound evidence. |
+| Method bounds | Must be checkable from the interface contract, method arguments and available evidence; no additional dependency on the hidden concrete receiver type. |
+| Parents | Every applied parent recursively satisfies these rules with consistent arguments and associated outputs. |
+| Associated functions without `self` | Static-only; their presence prevents the trait from becoming an interface. |
+| Associated constants | Static-only in the current language scope, including inherited constants. |
+| Generic associated types (GATs) | Static-only in the current language scope, including inherited families. |
+| Default methods | Same signature and bound checks as required methods; a body does not exempt a member. |
+
+Fixed associated outputs may contain type parameters already known in the
+enclosing generic context. They need not all be closed types such as i32.
+Bindings may come from annotations, applied parents or valid contextual
+inference; missing outputs cannot be invented or implicitly erased. For example:
+
+```text
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+Reader<Item = i32> // Eligible: the result is i32.
+Reader<Item = T>   // Eligible when T is known in the enclosing checked context.
+Reader            // Rejected if Item cannot be determined from context.
+
+trait CloneLike {
+    fn copy(self) -> Self;
+}
+// CloneLike remains a valid static trait, but cannot be an interface type.
+
+trait Mapper {
+    fn map<T: Display>(self, value: T) -> String;
+}
+// Method generics do not prevent interface use.
+
+trait Related<T> {}
+trait Processor {
+    fn process<T: Related<Self>>(self, value: T);
+}
+// Processor cannot be an interface: its call bound needs the hidden Self.
+```
+
+The implicit receiver implementation of its own declared trait is not a forbidden
+extra Self requirement. What must not escape is an unresolved concrete-receiver
+dependency that the caller needs to construct arguments or verify a call. Self
+inside an implementation/default body is checked normally; its presence in a
+body alone does not make the public interface incompatible.
+
+Kagari's PartialEq is incompatible because `eq` takes `other: Self`; Eq is
+incompatible through that parent. Debug, Display and Hash are checked by their
+actual signatures, not rejected by reserved identity. Iterator, Iterable and
+Index must satisfy the same applied-output and parent checks, without a name
+exemption. GAT/constant exclusions are explicit support limits, not consequences
+of the rule about Self. This design retains Kagari's generic interface methods;
+it does not import Rust's blanket restriction on method type parameters.
+
+Diagnostics should identify the offending member/parent and the reason, such as
+`CloneLike cannot be used as an interface: method copy returns erased Self`.
+Local/imported declarations and independent executable validation must enforce
+the same structural contract. Lowering and execution consume checked interface
+facts rather than applying separate eligibility heuristics. The
+[explicit conversion context](#accepted-interface-conversion-context) determines
+which interface the user requests; compatibility determines whether it is legal.
 
 ## Generic Methods
 
@@ -859,8 +1004,11 @@ user definitions named Eq or Debug do not gain intrinsic behavior. Script Struct
 and enums may override PartialEq/Eq/Hash in their defining module. Explicit
 PartialEq removes automatic Eq/Hash; explicit Eq requires PartialEq, and custom
 Hash requires both. Generic impl bounds must establish those requirements.
-The [equality and hashing contract](value-semantics.md#equality-and-hashing)
+The [current equality and hashing contract](value-semantics.md#equality-and-hashing)
 defines defaults, member composition, custom key callbacks and key stability.
+The [accepted replacement](value-semantics.md#accepted-comparison-design) removes
+automatic identity protocols and implicit user-enum comparison; explicit user
+implementations and checked conditional library implementations supply comparison.
 Explicit equality, hashing and nominal formatting methods are checked,
 specialized and linked through the ordinary static implementation path.
 Operator and ordering impls are also restricted to script Structs/enums in the
@@ -868,7 +1016,10 @@ type's defining module. Native host tables may implement Debug/Display, but not
 these operator, ordering or equality protocols. Applied operator inputs and
 associated Output identities are checked before static specialization and again
 when loading portable implementation metadata.
-Most standard protocols remain static-only. Collection interfaces (List/MutableList,
+The current implementation makes every reserved language role static-only except
+Index, Iterable and Iterator, including otherwise compatible formatting/hash
+signatures. The [accepted structural rules](#interface-compatibility-rules) replace
+this blanket exclusion; implementation is pending. Collection interfaces (List/MutableList,
 Map/MutableMap and Set/MutableSet), and their object-safe Index/Iterable parents,
 can be used dynamically with concrete type arguments and associated outputs.
 Ordinary user trait interfaces retain their existing dynamic behavior. See

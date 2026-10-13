@@ -89,11 +89,31 @@ Mutable interfaces upcast to the read-only parent; reverse conversion and
 implicit downcasts are rejected. Type arguments are invariant: converting an
 outer container does not recursively convert elements or grant nested writes.
 Conversions apply to arguments, assignments, returns, fields and contextual
-expressions. Branch joins enumerate valid native and script implementations and
-choose a unique most-specific common interface across all completing arms. An
+expressions. The current implementation's branch joins enumerate valid native
+and script implementations and choose a unique most-specific common interface
+across all completing arms. An
 existing operand's interface is preserved when every arm can convert to it.
 Ambiguous unrelated candidates are rejected; generic arguments remain invariant.
 A join does not introduce Eq/Hash evidence.
+
+**Accepted conversion change, not yet implemented:**
+[explicit target contexts](traits.md#accepted-interface-conversion-context)
+replace the common-interface inference above. An annotated variable, assignment
+destination, parameter, return or field type supplies the interface target.
+Without that context, `if`/`match` neither search common traits/parents nor coerce
+one branch to another branch's interface type. Branches already sharing the same
+interface type still merge. Existing non-interface readonly adaptation remains
+separate. [SA25](../review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits)
+owns this migration; no new cast syntax is required.
+
+**Comparison migration status:** the following interface comparison behavior and
+identity defaults describe the current implementation. The
+[accepted design](value-semantics.md#accepted-comparison-design) removes automatic
+receiver PartialEq forwarding from all six collection interfaces, rejects
+interface `===`/`!==`, and removes concrete identity equality/hash defaults.
+Array gains conditional content equality; Vec/HashMap/HashSet keep their applicable
+content implementations. Explicit content helpers and bounded interface Debug
+remain. Implementation is pending under [SA26](../review.md#sa26-implement-the-accepted-equality-and-identity-design).
 
 The underlying object identity survives interface wrapping and upcasting.
 `===` and `!==` compare that identity independently of content protocols. Ordinary
@@ -141,6 +161,9 @@ Interface push/insert/set/clear return unit. Existing native fluent push/insert
 methods continue returning their concrete receiver.
 
 ## Content protocols and helpers
+
+The content implementations and helpers below remain part of the accepted design;
+the described fallback to identity is current behavior scheduled for removal.
 
 Stdlib declares these concrete conditional implementations through the same
 checked protocol and native-call contracts used by other libraries:

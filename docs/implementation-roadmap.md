@@ -111,6 +111,26 @@ audit had unsuppressed gaps in imports/namespace/solver APIs, including
 docs at their owning documentation checkpoint; model examples do not establish
 whole-crate missing-docs acceptance.
 
+## Trait interfaces and comparison
+
+[Trait interfaces and comparison](trait-interface-comparison-plan.md) is the
+formal TI01-TI04 execution plan for the accepted decisions. Implementation is
+unstarted; creating the plan does not activate code changes or reorder unrelated
+queued work. The plan alone owns phase acceptance and the progress/error ledger.
+
+The sequence is: require supplied interface conversion targets; unify structural
+dynamic compatibility; replace equality/identity selection end to end; complete
+integration and remove obsolete mechanisms. Specifications own the accepted
+[conversion contexts](spec/traits.md#accepted-interface-conversion-context),
+[dynamic eligibility](spec/traits.md#interface-compatibility-rules) and
+[comparison rules](spec/value-semantics.md#accepted-comparison-design).
+
+The plan implements SA25/SA26 and resolves SA23/SA24 against the new semantics.
+SA22 generic construction witnesses, source interface impl targets, blanket impls,
+derive/downcast additions and NC/SA21 migrations remain outside its scope.
+Current specifications distinguish accepted targets from old implemented behavior.
+Full workspace/feature/backend acceptance remains CI-owned.
+
 ## Review follow-up order
 
 The following is the proposed default order for the unresolved [SA review](review.md)

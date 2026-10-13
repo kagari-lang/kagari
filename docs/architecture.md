@@ -1453,10 +1453,12 @@ view analysis and library capability/adapter records.
 
 Eq/Hash/Ord are retained because the current compiler supplies implicit value
 implementations, not because a hash container or sorting method alone needs a
-language role. PartialEq/Hash/Debug defaults for user values must remain eligible
-under the current rules; floats do not acquire Eq/Hash/Ord. Explicit implementations
-take precedence where specified. Moving all such defaults to a library would be
-a separate semantic-implementation change, not a prerequisite for this cleanup.
+language role. The completed ownership cleanup preserved PartialEq/Hash/Debug
+defaults under the then-current rules; floats do not acquire Eq/Hash/Ord.
+Explicit implementations take precedence where specified. The subsequent
+[accepted comparison design](spec/value-semantics.md#accepted-comparison-design)
+changes equality eligibility separately; it does not require moving every
+remaining intrinsic protocol implementation into a library.
 
 The other 14 traits use ordinary native-library declaration/implementation records:
 
@@ -1571,6 +1573,35 @@ matching, identity/equality and interface dispatch do not recognize collection
 names. NativeTypeKind/NativeTypeConstructor retain representation descriptors;
 ordinary new containers use existing nominal NativeStorage registration without
 a new generic type or execution-dispatch variant.
+
+The [accepted interface conversion context](spec/traits.md#accepted-interface-conversion-context)
+is pending under [SA25](review.md#sa25-common-interface-inference-includes-dynamically-incompatible-traits).
+The [execution plan](trait-interface-comparison-plan.md) owns phase order,
+integration gates and progress for the conversion and comparison migrations.
+HIR will check a supplied interface target rather than infer a common interface
+from context-free branches, including sibling-derived coercions. Shared
+declaration contracts own dynamic eligibility; lowering consumes checked
+conversions and executable validation independently checks their portable proofs.
+The current branch inference machinery remains until that migration. Type syntax
+does not promise allocation-free conversion or change runtime root/version ownership.
+
+The [accepted dynamic compatibility contract](spec/traits.md#interface-compatibility-rules)
+checks complete applied member signatures, bounds and parent contracts. One
+incompatible member rejects the whole interface application without preventing
+static trait use. Shared generic methods remain supported; no member omission
+or reserved-role whitelist is part of the target. HIR and source-independent
+contract validation must agree, with member-specific source diagnostics. Current
+role exclusions remain an implementation gap owned by SA25.
+
+**Accepted comparison migration, not yet implemented:** the
+[value contract](spec/value-semantics.md#accepted-comparison-design) replaces
+identity equality defaults and automatic collection-interface receiver forwarding,
+and rejects interface identity operators statically. The comparison machinery
+described below is the current implementation, not a requirement to retain that
+model. [SA26](review.md#sa26-implement-the-accepted-equality-and-identity-design)
+owns its coherent replacement across HIR, portable contracts, verification and
+runtime. Preserve checked invocation, roots and generation pinning; remove
+comparison-only certificates/dispatch paths once their consumers are removed.
 
 The standard library owns concrete conditional content protocols and the explicit
 cross-implementation helpers in [collection semantics](spec/collection-access.md#content-protocols-and-helpers).

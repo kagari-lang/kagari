@@ -608,9 +608,13 @@ passes an interface value to Vec's concrete comparison contract. The verifier is
 correct to reject that call; weakening access/type validation is not a repair.
 
 Follow-up owner: HIR checked comparison/coercion facts and compiler equality
-lowering. Record the accepted operand adaptation and consume it consistently in
-both orders, preserving left-to-right once-only evaluation and the selected
-receiver comparison. Reuse
+lowering, coordinated with [SA26](#sa26-implement-the-accepted-equality-and-identity-design).
+Under the accepted declarations, List has no automatic PartialEq, so both mixed
+operand orders in this reproduction must fail source checking. Do not retain
+receiver forwarding merely to make the old example execute. For comparisons
+that remain legal, record checked operand adaptation and the selected operation
+together and consume them consistently, preserving left-to-right once-only
+evaluation. Reuse
 [collection interface coverage](../crates/kagari-embed/tests/collection_interfaces.rs)
 for concrete/interface and mutable/readable operand orders, both equality
 operators, and same/different underlying receivers. Validate representative
@@ -652,28 +656,26 @@ same object-category restriction. Consequently, interface PartialEq forwarding
 cannot use this enum's valid comparison. The identity restriction has also become
 a restriction on retaining value equality.
 
-The agreed comparison distinction is that applicable PartialEq takes precedence;
-otherwise only the receiver type's eligible default is available. An object may
-use identity as its default. Boxing must not grant identity to a value, and `===`
-does not invoke PartialEq. The observation above concerns `==`, not an objection
-to the accepted hidden-value identity trap.
+**The replacement semantics are now agreed:** [SA26](#sa26-implement-the-accepted-equality-and-identity-design)
+and the [accepted value contract](spec/value-semantics.md#accepted-comparison-design)
+remove automatic collection-interface PartialEq forwarding and all identity
+fallbacks. Both Set operands above remain legal interface values, but their `==`
+must fail source checking because Set has no interface-level PartialEq. The fix
+is not to extend the old retained receiver comparison to enums. Explicit content
+helpers remain available under their declared bounds.
 
-**Receiver admission remains undecided.** The user deferred whether value types
-may become dynamic interfaces at all. An object-only conversion policy, with
-values restricted to concrete/generic trait use, was discussed but not adopted.
-Keep the current conversion and identity contracts until that decision is made;
-do not silently prohibit primitive, String, tuple or enum conversion as a repair.
-If value receivers remain supported, separate retained PartialEq evidence from
-identity eligibility and preserve value comparison. If admission changes later,
-reject disallowed conversions consistently during source checking and independent
-artifact validation, and update the public contract and affected consumers.
+Value receivers remain eligible for checked interface conversion; object-only
+admission was not adopted. All interface `===`/`!==` expressions are rejected
+statically, replacing the current hidden-value trap contract. No Object type or
+bound is introduced. User enum comparison becomes explicit rather than implicit.
 
-Follow-up owner: receiver-comparison planning, portable proof contracts and runtime
-binding, coordinated with the receiver-admission decision. Reuse collection and
+Follow-up owner: source operator checking, receiver-comparison planning, portable
+proof contracts and runtime binding, coordinated with SA26. Reuse collection and
 [interface identity coverage](../crates/kagari-embed/tests/interface_identity.rs)
-to distinguish explicit/default value equality, object identity defaults and
-identity-operator rejection. Preserve meaningful generic-method, GC and reload
-coverage currently exercised through value receivers when changing fixtures.
+to distinguish explicit/conditional value equality, absent comparison evidence,
+concrete-object identity and interface-operator rejection. Preserve meaningful
+generic-method, GC and reload coverage currently exercised through value receivers
+when changing fixtures.
 
 ## SA25 Common-interface inference includes dynamically incompatible traits
 
@@ -695,60 +697,90 @@ fn main() -> i32 {
 
 The checker reports KG_TYPE_AMBIGUOUS_COMMON_INTERFACE with `PartialEq, Read`.
 PartialEq is not a valid dynamic-interface target under the current rules, so
-Read is the only usable common interface. Adding an unrelated static comparison
-implementation should not make this previously valid join ambiguous.
+Read is the only usable common interface under the current inference policy.
+Adding an unrelated static comparison implementation changes its candidate set.
+The accepted replacement below removes that inference policy entirely: the
+unannotated example must be rejected even without the PartialEq implementations;
+`val item: Read = ...` explicitly supplies the intended interface.
 
 [Relationship queries](../crates/kagari-hir/src/aggregates/relationships.rs)
 enumerate implemented traits and intersect/deduplicate candidates before applying
 dominance, without filtering dynamic-interface eligibility. Later
 [interface validation](../crates/kagari-hir/src/typeck/applications.rs) cannot
 repair an ambiguity already reported. Keep the general implementation query usable
-for static bounds and member lookup; filter conversion/join candidates through
-the shared dynamic-compatibility owner before deciding ambiguity or specificity.
+for static bounds and member lookup. Targeted conversions must use the shared
+dynamic-compatibility owner; do not repair context-free joins by adding a filtered
+candidate search that the accepted design no longer permits.
+
+### Accepted explicit conversion contexts
+
+Status: accepted on 2026-10-13; implementation unstarted. The
+[trait specification](spec/traits.md#accepted-interface-conversion-context) owns
+semantics; [TI01](trait-interface-comparison-plan.md#ti01-require-supplied-interface-conversion-targets)
+owns implementation, focused acceptance and progress. Retain explicit target
+contexts and remove context-free common-interface/common-parent inference,
+including sibling-derived coercion. Identical interface types and ordinary
+non-interface inference remain valid.
+
+[Branch checking](../crates/kagari-hir/src/typeck/body/joins.rs) currently both
+searches common interfaces and supplies inferred branch hints to conversion.
+Removing only common_interfaces is insufficient. The plan owns migration of both
+paths and their existing behavioral fixtures; SA22 remains separately scoped.
 
 ### Agreed direction for dynamic trait compatibility
 
-The user confirmed a structural direction for subsequent changes: determine
-dynamic compatibility from the exposed signatures and parent contracts rather
-than the blanket reserved-protocol rule in
-[LangRole::requires_static_dispatch](../crates/kagari-types/src/language/role.rs).
-Currently that rule excludes every reserved role except Index, Iterable and
-Iterator, including Debug, Display and Hash. This is broader than a restriction
-justified by unresolved Self in a signature.
+Status: the complete structural rule was accepted on 2026-10-13; implementation
+alignment is pending. The [trait specification](spec/traits.md#interface-compatibility-rules)
+owns the rules, examples and diagnostics;
+[TI02](trait-interface-comparison-plan.md#ti02-unify-structural-dynamic-compatibility)
+owns execution and validation. Check applied signatures, method bounds, associated
+outputs and every parent. One incompatible member rejects the entire interface
+application while static use remains legal; add no member exclusion mechanism.
+Keep shared generic methods; no-receiver functions, constants and GATs remain
+static-only in the accepted scope.
 
-- The receiver may use Self. Other parameter/return positions must not retain
-  unresolved Self after applying interface arguments and associated bindings.
-- A bound projection such as Self::Item in Reader<Item = i32> is permitted when
-  it resolves to the fixed output. Self appearing inside a method implementation
-  is not itself a dynamic-interface signature restriction.
-- Every parent must satisfy the same compatibility contract. Existing support
-  for generic interface methods remains part of the model.
-- Associated constants, generic associated types and other currently unsupported
-  surfaces must have explicit, separately documented limitations; do not explain
-  all of them as Self restrictions or implicitly activate their implementation.
+The current [role exclusion](../crates/kagari-types/src/language/role.rs) rejects
+every reserved role except Index, Iterable and Iterator, including Debug, Display
+and Hash. Replace it with structural checking at all admission boundaries.
+PartialEq remains incompatible because of other: Self; Eq is incompatible through
+its parent. Value receivers still admit checked interface conversion. This does
+not grant comparison or identity operators; [SA26](#sa26-implement-the-accepted-equality-and-identity-design)
+tracks that separate semantic migration.
 
-PartialEq's `other: Self` still needs rejection under this direction. Protocols
-with compatible signatures should not be excluded merely by their reserved
-identity. The [current compatibility guide](spec/traits.md#interface-compatibility-rules)
-describes signature rules, while the standard-protocol section only says that
-most protocols remain static-only; it does not give users the full exclusion
-list or distinguish structural reasons from implementation limits. Update the
-guide, protocol documentation and diagnostics together when implementing the
-agreed direction. The separate receiver-category decision remains open in SA24.
-
-Follow-up owner: HIR interface compatibility and common-interface inference,
-shared declaration contracts and source-free interface validation. Keep these
-owners consistent instead of adding a join-only list of protocol exclusions.
-Reuse [branch-join tests](../crates/kagari-hir/src/analysis/generic_type_tests/joins.rs)
-and interface conformance cases for usable versus static-only candidates,
-Self parameters/results, fixed associated outputs, parent restrictions, generic
-methods and declaration-identity remapping. Check both if and match joins and
-retain rejection of genuinely ambiguous usable interfaces.
+Implementation ownership: HIR compatibility and expected-type propagation,
+source-independent declarations/contracts, lowering and executable validation.
+The execution plan is the sole phase/acceptance ledger; retain these reproductions
+until the corresponding TI outcomes are implemented and validated.
 
 The three findings were confirmed with temporary focused SDK probes using
 compile_to_artifact and interpreter execution where compilation succeeded.
 The source examples and diagnostics above retain the reproduction evidence;
 temporary harnesses are not required documentation dependencies. No complete
 backend/feature matrix or full-workspace suite was run for this review. These
-entries record unresolved work and the agreed design direction; implementation
-and the deferred receiver-admission choice are not activated by recording them.
+entries record unresolved work and the agreed design direction; no implementation
+or new validation run is implied by the subsequent documentation decision.
+
+## SA26 Implement the accepted equality and identity design
+
+Status: design accepted on 2026-10-13; implementation unstarted. The
+[value specification](spec/value-semantics.md#accepted-comparison-design) owns
+semantics; [TI03](trait-interface-comparison-plan.md#ti03-replace-equality-and-identity-selection-end-to-end)
+and TI04 own implementation, cleanup, validation and the progress ledger.
+
+Require statically proven PartialEq, explicit user Struct/enum comparison and
+conditional Array content equality. Remove object identity defaults and automatic
+collection-interface receiver forwarding; preserve content helpers, interface
+Debug and ordinary method dispatch. Identity operators admit known concrete
+object types and reject either interface operand. Value receivers remain allowed
+in interfaces; no Object type/bound or new downcast API is introduced.
+
+Current code still implements identity equality defaults, implicit user-enum
+comparison, collection-interface receiver forwarding and runtime rejection of
+hidden-value identity operations. The plan maps their HIR, contract, stdlib,
+compiler/runtime and codec owners and removes comparison-only proof/dispatch
+machinery with its consumers. Ordinary checked calls, GC/host boundaries,
+cancellation, cleanup and pinned generations remain mandatory. SA23/SA24 must be
+resolved against the replacement semantics rather than extending the old model.
+
+This finding is unresolved. Plan authoring and specification updates do not
+establish implementation correctness, passing local gates or complete CI.
