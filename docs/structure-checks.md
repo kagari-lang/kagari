@@ -35,6 +35,25 @@ rule and explanation. JSON contains `files`, a sorted `findings` array and visib
 re-export findings include their `declaration`. The checker never modifies Rust
 source files.
 
+## Dependency upgrade constraint
+
+The checker uses `tree-sitter==0.25.2` with `tree-sitter-rust==0.24.2`.
+On Windows x86_64 with CPython 3.12.12, binding 0.26.0 passes the 43 small
+checker regressions but crashes during the full repository scan with native
+access violation `0xC0000005`. The observed stack ends at `Node.text` in
+`path_parts` while inspecting `crates/kagari-bytecode/src/artifact/wire/instruction.rs`.
+Holding grammar 0.24.2 fixed and using binding 0.25.2 completes the scan.
+The root cause inside the native binding is not established; retain the working
+binding until a candidate passes both the regression suite and full scan.
+Do not skip files or weaken structural rules to accommodate the crash.
+
+The failed candidate can be reproduced from the repository root without changing
+the pinned script dependencies:
+
+```text
+uv run --with tree-sitter==0.26.0 --with tree-sitter-rust==0.24.2 python -X faulthandler scripts/check_structure.py
+```
+
 ## Enforced Rules
 
 | Rule | Rejected source | Required change |

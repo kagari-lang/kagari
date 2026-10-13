@@ -20,6 +20,11 @@ No system Lua installation is needed: this benchmark-only package embeds standar
 Lua 5.4 through `mlua` with `lua54,vendored`. Kagari production dependencies do
 not gain Lua. The lockfile pins the measured dependencies.
 
+The dependency refresh on 2026-10-13 selects mlua 0.12.2 and lua-src 551.0.2,
+retaining the `lua54,vendored` features. Historical measurements below retain
+their original dependency versions and are not measurements of this updated
+configuration. New performance comparisons need a fresh matched baseline.
+
 For correctness checks without a performance claim:
 
 ```text

@@ -194,6 +194,32 @@ Important ordering constraints and limits:
   postpone acceptance until every queued review feature is implemented or promise
   unmeasured speedups.
 
+## Dependency maintenance
+
+The 2026-10-13 refresh selects Cranelift 0.136.2, Rowan 0.17.0, mlua 0.12.2,
+SmallVec 1.16.3 and Serde 1.0.229, with their resolved transitive updates.
+Cranelift emission supplies the module target configuration at finalization, uses
+`MemFlagsData` with the same empty flags, and explicitly sign-extends comparison
+immediates to preserve checked i32 bounds. No runtime ABI or artifact version changes.
+The benchmark retains `lua54,vendored`; historical performance results retain their
+original dependencies and do not establish performance of the refreshed toolchain.
+
+Bincode stays at 1.3.3 by user instruction. Evaluate its replacement separately at
+the artifact/MIR/type codec owners, preserving bounded decoding and source-free
+validation. The structure checker updates the Rust grammar to 0.24.2 but retains
+Python binding 0.25.2: 0.26.0 crashes the full scan on Windows. The
+[checker guide](structure-checks.md#dependency-upgrade-constraint) records the
+reproduction and the conditions for retrying that upgrade.
+
+Local validation selects backend execution/overflow/lifetime tests, SDK artifact
+and native preparation contracts, parser interpolation/recovery/limits, and the
+Lua benchmark's empty/single-element cases. These cover the changed dependency
+boundaries without running the full workspace or performance matrix. All 36 selected
+Rust tests and 43 checker regressions passed; the full structural scan reported
+zero findings. Backend-scoped Clippy (`--lib --no-deps -- -D warnings`), workspace
+formatting and diff checks also passed. Exhaustive feature/backend/platform
+acceptance remains pending CI; no performance improvement is claimed.
+
 ## Verification and open CI acceptance
 
 Completed implementations have recorded local acceptance with no carried local

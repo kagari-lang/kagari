@@ -224,7 +224,7 @@ pub(super) fn compile(
             .iconst(types::I32, i64::from(JIT_STATUS_INTEGER_OVERFLOW));
         builder.ins().return_(&[status]);
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(module.target_config());
     }
     module
         .define_function(id, &mut context)

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["tree-sitter==0.25.2", "tree-sitter-rust==0.24.0"]
+# dependencies = ["tree-sitter==0.25.2", "tree-sitter-rust==0.24.2"]
 # ///
 """Check Rust source structure without building the workspace."""
 

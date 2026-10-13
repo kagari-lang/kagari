@@ -1,5 +1,5 @@
 //! Scalar legalization for the existing Unit/Bool/i32 native subset.
-use cranelift_codegen::ir::{self, InstBuilder, MemFlags, condcodes::IntCC, types};
+use cranelift_codegen::ir::{self, InstBuilder, MemFlagsData, condcodes::IntCC, types};
 use cranelift_frontend::FunctionBuilder;
 use kagari_codegen::diagnostic::BackendCompileError;
 use kagari_mir::{ids::TempId, instruction::Constant};
@@ -29,7 +29,7 @@ pub(super) fn emit_resource_check(
     let status = builder.inst_results(call)[0];
     let ok = builder
         .ins()
-        .icmp_imm(IntCC::Equal, status, i64::from(JIT_STATUS_OK));
+        .icmp_imm_s(IntCC::Equal, status, i64::from(JIT_STATUS_OK));
     let continue_block = builder.create_block();
     builder.ins().brif(
         ok,
@@ -91,7 +91,7 @@ pub(super) fn emit_unary(
             })
         }
         (UnaryOp::Not, JIT_VALUE_TAG_BOOL) => {
-            let is_false = builder.ins().icmp_imm(IntCC::Equal, operand.payload, 0);
+            let is_false = builder.ins().icmp_imm_s(IntCC::Equal, operand.payload, 0);
             Ok(LoweredValue {
                 tag: JIT_VALUE_TAG_BOOL,
                 payload: builder.ins().uextend(types::I64, is_false),
@@ -174,10 +174,10 @@ fn emit_i32_range_check(
     // any later instruction can observe it or hide it through another operation.
     let below = builder
         .ins()
-        .icmp_imm(IntCC::SignedLessThan, value, i64::from(i32::MIN));
+        .icmp_imm_s(IntCC::SignedLessThan, value, i64::from(i32::MIN));
     let above = builder
         .ins()
-        .icmp_imm(IntCC::SignedGreaterThan, value, i64::from(i32::MAX));
+        .icmp_imm_s(IntCC::SignedGreaterThan, value, i64::from(i32::MAX));
     let overflow = builder.ins().bor(below, above);
     let next = builder.create_block();
     builder.ins().brif(overflow, overflow_block, &[], next, &[]);
@@ -196,7 +196,7 @@ pub(super) fn emit_store_result(
     result_ptr: ir::Value,
     value: LoweredValue,
 ) {
-    let flags = MemFlags::new();
+    let flags = MemFlagsData::new();
     let tag = builder.ins().iconst(types::I8, i64::from(value.tag));
     builder
         .ins()
