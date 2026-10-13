@@ -276,7 +276,7 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
         analysis.type_at(good),
         Some(TypeId::Enum(crate::types::NominalType {
             associated_types: Default::default(),
-            declaration: enumeration.id.clone(),
+            declaration: enumeration.id,
             arguments: Vec::new()
         }))
     );

@@ -16,18 +16,16 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
-    let definition = facts
+    let definition = *facts
         .declarations
         .definition(ResolvedName::Trait(facts.lowered.module.traits[0].id))
-        .unwrap()
-        .clone();
-    let method = facts
+        .unwrap();
+    let method = *facts
         .declarations
         .definition(ResolvedName::Function(
             facts.lowered.module.traits[0].methods[0].function,
         ))
-        .unwrap()
-        .clone();
+        .unwrap();
     let point = TypeId::Struct(crate::types::NominalType {
         associated_types: Default::default(),
         declaration: facts
@@ -35,8 +33,7 @@ fn targets(facts: &AnalyzedModule) -> (DefinitionId, DefinitionId, TypeId) {
             .structures()
             .find(|s| s.declaration.name == "Point")
             .unwrap()
-            .id
-            .clone(),
+            .id,
         arguments: Vec::new(),
     });
     (definition, method, point)

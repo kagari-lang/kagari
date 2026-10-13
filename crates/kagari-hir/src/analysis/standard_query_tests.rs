@@ -190,7 +190,7 @@ mod tests {
         assert!(
             snapshot
                 .declaration_snapshot()
-                .documentation(&DeclarationId::Definition(target.clone()))
+                .documentation(&DeclarationId::Definition(*target))
                 .unwrap()
                 .written_signature
                 .contains("fn next")
@@ -265,7 +265,7 @@ mod tests {
         let method = collect.methods.values().next().unwrap();
         let metadata = snapshot
             .declaration_snapshot()
-            .documentation(&DeclarationId::Definition(method.clone()))
+            .documentation(&DeclarationId::Definition(*method))
             .unwrap();
         assert_eq!(
             snapshot
@@ -477,7 +477,7 @@ mod trait_tests {
             .unwrap();
         let member = iterator.associated_types.keys().next().unwrap();
         let declaration = snapshot
-            .declaration(&DeclarationId::Definition(member.clone()))
+            .declaration(&DeclarationId::Definition(*member))
             .unwrap();
         assert_eq!(declaration.name, "Item");
         assert!(
@@ -669,7 +669,7 @@ mod collection_access_tests {
                 for (trait_method, target) in &implementation.methods {
                     let declared = catalog.trait_method(trait_method).unwrap();
                     let declaration = snapshot
-                        .declaration(&DeclarationId::Definition(target.clone()))
+                        .declaration(&DeclarationId::Definition(*target))
                         .unwrap();
                     let file = snapshot
                         .signature_snapshot()

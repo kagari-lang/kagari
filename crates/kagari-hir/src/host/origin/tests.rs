@@ -87,7 +87,7 @@ fn installation_checks_origin_identities_including_expanded_methods() {
         },
     ));
     for id in [&owner.id, &owner.fields[0].id, &owner.methods[0].id] {
-        input.origins.insert(id.clone(), origin.clone());
+        input.origins.insert(*id, origin.clone());
     }
     let hosts = HostDeclarations::new(input.clone()).unwrap();
     for id in input.origins.keys() {
@@ -130,7 +130,7 @@ fn origin_changes_are_snapshot_owned_and_never_change_native_authority() {
                 ..Default::default()
             },
         ),
-        origins: HashMap::from([(declaration.id.clone(), origin.clone())]),
+        origins: HashMap::from([(declaration.id, origin.clone())]),
     };
     let old = HostDeclarations::new(input.clone()).unwrap();
     let id = old.resolve("demo::echo").unwrap();
@@ -172,9 +172,7 @@ fn origin_changes_are_snapshot_owned_and_never_change_native_authority() {
         declaration: Some(location("kagari-host://v2/demo.kgr")),
         rust: None,
     };
-    input
-        .origins
-        .insert(declaration.id.clone(), changed.clone());
+    input.origins.insert(declaration.id, changed.clone());
     let new = HostDeclarations::new(input).unwrap();
     assert!(new.callable(id).is_none());
     database.set_host_declarations(new);

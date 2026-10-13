@@ -1041,13 +1041,13 @@ mod search_tests {
         let marker = definition(&context, DefinitionKind::Trait, "Marker");
         let owner = definition(&context, DefinitionKind::Impl, "");
         let parameter = GenericParameterType {
-            owner: owner.clone(),
+            owner,
             position: 0,
             name: "T".into(),
         };
         let applied = |argument| NominalType {
             associated_types: Default::default(),
-            declaration: marker.clone(),
+            declaration: marker,
             arguments: vec![argument],
         };
         let signature = ImplementationSignature {
@@ -1061,7 +1061,7 @@ mod search_tests {
             methods: Default::default(),
         };
         let catalog = AggregateCatalog {
-            implementations: [(signature.id.clone(), Arc::new(signature.clone()))].into(),
+            implementations: [(signature.id, Arc::new(signature.clone()))].into(),
             ..Default::default()
         };
         let actual = TypeId::Builtin(BuiltinType::I32);
@@ -1108,7 +1108,7 @@ mod search_tests {
             TypeId::Generic(parameter.clone()),
             vec![ConstraintTarget::Trait(NominalType {
                 associated_types: Default::default(),
-                declaration: next.clone(),
+                declaration: next,
                 arguments: vec![TypeId::Generic(parameter.clone())],
             })],
         );
@@ -1120,7 +1120,7 @@ mod search_tests {
         let next_signature = ImplementationSignature {
             engine_owned: false,
             associated_type_families: Default::default(),
-            id: next_parameter.owner.clone(),
+            id: next_parameter.owner,
             trait_type: NominalType {
                 associated_types: Default::default(),
                 declaration: next,
@@ -1134,7 +1134,7 @@ mod search_tests {
         let catalog = AggregateCatalog {
             implementations: [chained, next_signature]
                 .into_iter()
-                .map(|signature| (signature.id.clone(), Arc::new(signature)))
+                .map(|signature| (signature.id, Arc::new(signature)))
                 .collect(),
             ..Default::default()
         };

@@ -217,8 +217,12 @@ Lua benchmark's empty/single-element cases. These cover the changed dependency
 boundaries without running the full workspace or performance matrix. All 36 selected
 Rust tests and 43 checker regressions passed; the full structural scan reported
 zero findings. Backend-scoped Clippy (`--lib --no-deps -- -D warnings`), workspace
-formatting and diff checks also passed. Exhaustive feature/backend/platform
-acceptance remains pending CI; no performance improvement is claimed.
+formatting and diff checks also passed. A user-requested workspace/all-targets
+Clippy follow-up removed 44 redundant DefinitionId clones in HIR tests and test
+helpers, with field shorthand cleanup. `cargo clippy --workspace --all-targets --
+-D warnings` now passes; test assertions and production behavior are unchanged.
+Exhaustive feature/backend/platform acceptance remains pending CI; no performance
+improvement is claimed.
 
 ## Verification and open CI acceptance
 

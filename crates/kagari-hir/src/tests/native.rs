@@ -33,12 +33,12 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             .intern_child(root, DefinitionKind::Function, name, 0)
             .unwrap();
         let parameter = GenericParam {
-            owner: id.clone(),
+            owner: id,
             position: 0,
         };
         module
             .documentation
-            .insert(id.clone(), format!("Registered generic {name} function."));
+            .insert(id, format!("Registered generic {name} function."));
         module.functions.push(FnDecl {
             name: name.into(),
             implementation: CallableImplementation::Native(id),
@@ -68,7 +68,7 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         .intern_child(root, DefinitionKind::Trait, "NativeRead", 0)
         .unwrap();
     let interface = NominalTy {
-        declaration: owner.clone(),
+        declaration: owner,
         arguments: vec![],
         associated_types: Default::default(),
     };
@@ -83,12 +83,12 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             )
             .unwrap();
         let parameter = GenericParam {
-            owner: template.clone(),
+            owner: template,
             position: 0,
         };
         let body = FnDecl {
             name: format!("default_{name}"),
-            implementation: CallableImplementation::Native(template.clone()),
+            implementation: CallableImplementation::Native(template),
             method_policy: MethodPolicy::default(),
             generic_params: vec![parameter.clone()],
             bounds: vec![GenericBound {
@@ -107,11 +107,11 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         method.generic_params.clear();
         method.bounds.clear();
         method.params[0].name = "self".into();
-        method.params[0].ty = Ty::SelfType(owner.clone());
+        method.params[0].ty = Ty::SelfType(owner);
         method.method_policy.override_allowed = overridable;
         method.implementation = CallableImplementation::NativeDefault(NativeDefaultApplication {
-            declaration: template.clone(),
-            arguments: vec![Ty::SelfType(owner.clone())],
+            declaration: template,
+            arguments: vec![Ty::SelfType(owner)],
         });
         module.private_functions.insert(template);
         module.documentation.insert(
@@ -192,7 +192,7 @@ pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         .intern_child(root, DefinitionKind::Trait, "TextItems", 0)
         .unwrap();
     let interface = NominalTy {
-        declaration: owner.clone(),
+        declaration: owner,
         arguments: vec![],
         associated_types: Default::default(),
     };
@@ -223,7 +223,7 @@ pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             method_policy: MethodPolicy::default(),
             generic_params: vec![],
             bounds: vec![GenericBound {
-                ty: Ty::SelfType(owner.clone()),
+                ty: Ty::SelfType(owner),
                 constraints: vec![Constraint::Trait(required.clone())],
             }],
             params: vec![Param {
@@ -243,10 +243,7 @@ pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
                 module.implementations.len().try_into().unwrap(),
             )
             .unwrap();
-        let parameter = GenericParam {
-            owner: owner.clone(),
-            position: 0,
-        };
+        let parameter = GenericParam { owner, position: 0 };
         let item = parameter.as_type();
         let receiver = match family {
             0 => Ty::Array(Box::new(item)),

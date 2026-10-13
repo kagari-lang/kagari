@@ -73,12 +73,12 @@ fn nominal_identity_includes_kind_declaration_and_ordered_type_arguments() {
     let boolean = TypeId::Builtin(BuiltinType::Bool);
     let a = NominalType {
         associated_types: Default::default(),
-        declaration: owner.clone(),
+        declaration: owner,
         arguments: vec![integer.clone(), boolean.clone()],
     };
     let reversed = NominalType {
         associated_types: Default::default(),
-        declaration: owner.clone(),
+        declaration: owner,
         arguments: vec![boolean, integer],
     };
     let foreign = NominalType {
@@ -116,7 +116,7 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
     let context = DefinitionContext::new().unwrap();
     let owner = definition(&context, "owner.kgr", DefinitionKind::Struct);
     let parameter = GenericParameterType {
-        owner: owner.clone(),
+        owner,
         position: 0,
         name: "T".into(),
     };
@@ -141,7 +141,7 @@ fn substitution_preserves_nominal_owners_and_only_replaces_the_selected_binder_l
     ] {
         let template = make(NominalType {
             associated_types: Default::default(),
-            declaration: owner.clone(),
+            declaration: owner,
             arguments: vec![TypeId::Array(Box::new(inner.clone()))],
         });
         assert!(!template.is_concrete());
@@ -182,10 +182,10 @@ fn self_substitution_reaches_nested_nominal_arguments_without_replacing_foreign_
         associated_types: Default::default(),
         declaration: definition(&context, "box.kgr", DefinitionKind::Struct),
         arguments: vec![
-            TypeId::SelfType(owner.clone()),
+            TypeId::SelfType(owner),
             TypeId::Trait(NominalType {
                 associated_types: Default::default(),
-                declaration: foreign.clone(),
+                declaration: foreign,
                 arguments: vec![TypeId::SelfType(foreign)],
             }),
         ],
@@ -238,8 +238,8 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
     let context = DefinitionContext::new().unwrap();
     let owner = definition(&context, "owner.kgr", DefinitionKind::Trait);
     let foreign = definition(&context, "foreign.kgr", DefinitionKind::Trait);
-    let mut template = TypeId::SelfType(owner.clone());
-    let mut replacement = TypeId::SelfType(owner.clone());
+    let mut template = TypeId::SelfType(owner);
+    let mut replacement = TypeId::SelfType(owner);
     for _ in 0..10_000 {
         template = TypeId::Set(Box::new(template), CollectionAccess::Mutable);
         replacement = TypeId::Set(Box::new(replacement), CollectionAccess::Mutable);
@@ -252,11 +252,11 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
             };
             ty = *inner;
         }
-        assert_eq!(ty, TypeId::SelfType(owner.clone()));
+        assert_eq!(ty, TypeId::SelfType(*owner));
     }
     consume(result, 20_000, &owner);
     consume(template, 10_000, &owner);
-    let foreign_result = TypeId::SelfType(foreign.clone()).with_self(&owner, &replacement);
+    let foreign_result = TypeId::SelfType(foreign).with_self(&owner, &replacement);
     assert_eq!(foreign_result, TypeId::SelfType(foreign));
     consume(replacement, 10_000, &owner);
 }

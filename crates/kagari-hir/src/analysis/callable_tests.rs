@@ -350,7 +350,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
                         facts.declarations.definitions(),
                     )
                     .unwrap(),
-                arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id.clone())],
+                arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id)],
             }));
         let method = iterator
             .methods

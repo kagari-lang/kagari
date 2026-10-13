@@ -104,16 +104,15 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                         analysis.definitions(),
                         &crate::types::NominalType {
                             associated_types: Default::default(),
-                            declaration: facts
+                            declaration: *facts
                                 .declarations
                                 .definition(ResolvedName::Trait(item.id))
-                                .unwrap()
-                                .clone(),
+                                .unwrap(),
                             arguments: Vec::new(),
                         },
                         &TypeId::Struct(crate::types::NominalType {
                             associated_types: Default::default(),
-                            declaration: valid.id.clone(),
+                            declaration: valid.id,
                             arguments: Vec::new()
                         })
                     )

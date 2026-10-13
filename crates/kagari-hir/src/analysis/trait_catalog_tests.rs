@@ -102,7 +102,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             Some(MethodDefault::Native(NativeBinding::Default(
                 NativeDefaultApplication {
                     declaration: template,
-                    arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id.clone())],
+                    arguments: vec![kagari_types::ty::Ty::SelfType(iterator.id)],
                 }
             )))
         );
@@ -155,13 +155,12 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             .structures()
             .find(|item| item.declaration.name == "Point")
             .unwrap()
-            .id
-            .clone(),
+            .id,
         arguments: vec![],
         associated_types: Default::default(),
     });
     let interface = NominalType {
-        declaration: local.id.clone(),
+        declaration: local.id,
         arguments: vec![],
         associated_types: Default::default(),
     };
