@@ -114,7 +114,7 @@ impl RemapDefinitions for InterfaceTable {
             associated_consts: map_sequence(&self.associated_consts, |value| {
                 (value).remap_definitions(mapper)
             })?,
-            host_bridge: self.host_bridge,
+            bridge: self.bridge,
             declaration: mapper.reference(&self.declaration)?,
             name: self.name.clone(),
             generic_params: map_sequence(&self.generic_params, |value| {

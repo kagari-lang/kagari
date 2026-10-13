@@ -10,14 +10,17 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind,
+        DefinitionKind, ModuleIdentity,
         table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_contract::{
     callable::interface::InterfaceCallContract,
     native_import::{NativeImport, result::NativeResultAdapter},
-    types::{ConcreteFunctionIdentity, InterfaceTable, PublicItem, matching::match_implementation},
+    types::{
+        ConcreteFunctionIdentity, InterfaceBridge, InterfaceTable, PublicItem,
+        matching::match_implementation,
+    },
 };
 use kagari_types::ty::{
     GenericParam, NominalTy, Ty,
@@ -63,6 +66,7 @@ pub fn links(
             continue;
         }
         parents.push(select(
+            &module.identity,
             &parent,
             &table.for_type,
             &template.generic_params,
@@ -123,6 +127,7 @@ pub fn links(
                 return Err(invalid);
             };
             let selected = select(
+                &module.identity,
                 &result,
                 &raw_result,
                 &template.generic_params,
@@ -161,6 +166,7 @@ pub fn links(
 }
 
 fn select(
+    local: &ModuleIdentity,
     interface: &NominalTy,
     receiver: &Ty,
     scope: &[GenericParam],
@@ -169,7 +175,9 @@ fn select(
     definitions: &DefinitionTable,
 ) -> Result<InterfaceParentRecord, TypeTransformError> {
     let invalid = TypeTransformError::InvalidContract;
-    let mut selected = None;
+    let mut selected: Option<InterfaceParentRecord> = None;
+    let mut selected_bridge = None;
+    let mut selected_local = false;
     // Match the receiver and trait arguments first. An explicit erased view may
     // hide an associated output, and must then match that whole surface exactly.
     let mut header = interface.clone();
@@ -219,9 +227,29 @@ fn select(
             } else {
                 continue;
             };
-            if selected.is_some() {
-                return Err(invalid);
+            if let Some(previous) = &selected {
+                // Separate modules may materialize the same intrinsic operation.
+                // These verified forwarding tables add no implementation evidence;
+                // Prefer the local bridge so an imported module never gains a
+                // dependency on its consumer; break remaining ties by identity.
+                if selected_bridge != Some(InterfaceBridge::Intrinsic)
+                    || template.bridge != Some(InterfaceBridge::Intrinsic)
+                {
+                    return Err(invalid);
+                }
+                let candidate_local = &owner.identity == local;
+                if selected_local && !candidate_local
+                    || selected_local == candidate_local
+                        && !definitions
+                            .compare(previous.implementation.declaration, linked.declaration)
+                            .map_err(|_| invalid)?
+                            .is_gt()
+                {
+                    continue;
+                }
             }
+            selected_bridge = template.bridge;
+            selected_local = &owner.identity == local;
             selected = Some(InterfaceParentRecord {
                 interface: interface.clone(),
                 view,

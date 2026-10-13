@@ -220,7 +220,7 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
         PublicItem::InterfaceTable(Box::new(InterfaceTable {
             associated_type_families: Vec::new(),
             associated_consts: Vec::new(),
-            host_bridge: false,
+            bridge: None,
             declaration: impl_id,
             name: String::new(),
             generic_params: vec![],

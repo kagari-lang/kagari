@@ -2,10 +2,15 @@ use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+};
 use kagari_contract::{
     callable::witness::OperationWitness,
-    types::applications::{validate_declarations, validate_layouts, validate_slots},
+    types::applications::{
+        validate_declarations, validate_function, validate_layouts, validate_slots, validate_types,
+    },
 };
 use kagari_types::{
     declaration::{
@@ -17,6 +22,7 @@ use kagari_types::{
 pub(super) fn validate<'a>(
     module: &MirModule,
     cancel: &CancellationToken,
+    definitions: &DefinitionTable,
     lookup: impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
     nominal: impl Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 ) -> Result<(), TypeTransformError> {
@@ -26,9 +32,10 @@ pub(super) fn validate<'a>(
         &module.abi.public_items,
         &module.abi.trait_contracts,
         cancel,
+        definitions,
     )?;
     for declaration in &module.abi.native_declarations {
-        validator.function(&declaration.function)?;
+        validate_function(&validator, &declaration.function, cancel, definitions)?;
         for required in &declaration.callable_requirements {
             validator.validate_type(&required.receiver)?;
             validator.trait_application(&required.interface)?;
@@ -37,8 +44,8 @@ pub(super) fn validate<'a>(
     }
     for import in module.native_applications() {
         validator.types(&import.instance.arguments)?;
-        validator.types(&import.signature.params)?;
-        validator.validate_type(&import.signature.result)?;
+        validate_types(&validator, &import.signature.params, cancel, definitions)?;
+        validate_types(&validator, [&import.signature.result], cancel, definitions)?;
         validator.bounds(&import.requirements)?;
         for operation in import.callables.iter().flat_map(OperationWitness::walk) {
             let required = operation.requirement();
@@ -52,17 +59,23 @@ pub(super) fn validate<'a>(
             validator.validate_type(&call.requirement.receiver)?;
             validator.trait_application(&call.requirement.interface)?;
             validator.types(&call.requirement.arguments)?;
-            validator.types(&call.signature.params)?;
-            validator.validate_type(&call.signature.result)?;
+            validate_types(&validator, &call.signature.params, cancel, definitions)?;
+            validate_types(&validator, [&call.signature.result], cancel, definitions)?;
         }
     }
-    validate_layouts(&validator, &module.structures, &module.enumerations, cancel)?;
+    validate_layouts(
+        &validator,
+        &module.structures,
+        &module.enumerations,
+        cancel,
+        definitions,
+    )?;
     for instance in &module.interface_instances {
         validator.types(&instance.arguments)?;
     }
     for function in &module.functions {
         validator.types(&function.instance.arguments)?;
-        validate_slots(&validator, &function.semantic, cancel)?;
+        validate_slots(&validator, &function.semantic, cancel, definitions)?;
         for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match instruction {
@@ -88,8 +101,13 @@ pub(super) fn validate<'a>(
                 } => {
                     validator.types(&contract.instance.arguments)?;
                     validator.types(&contract.arguments)?;
-                    validator.types(&contract.signature.params)?;
-                    validator.validate_type(&contract.signature.result)?;
+                    validate_types(&validator, &contract.signature.params, cancel, definitions)?;
+                    validate_types(
+                        &validator,
+                        [&contract.signature.result],
+                        cancel,
+                        definitions,
+                    )?;
                     for operation in contract.operations.iter().flat_map(OperationWitness::walk) {
                         let required = operation.requirement();
                         validator.validate_type(&required.receiver)?;

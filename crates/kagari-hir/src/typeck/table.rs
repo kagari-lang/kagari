@@ -265,6 +265,8 @@ pub enum ResolvedInterfaceImplementation {
     },
     /// An installed host implementation path.
     Host,
+    /// Existing intrinsic protocol evidence materialized as a dispatch table.
+    Intrinsic,
 }
 
 /// A checked expression path through declared host access, not an unrestricted Rust reference.

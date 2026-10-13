@@ -36,8 +36,8 @@ mod expr;
 mod function;
 mod future;
 mod host;
-mod host_interfaces;
 pub mod instances;
+mod interface_bridges;
 mod layouts;
 mod place;
 mod state;
@@ -247,7 +247,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         enumerations,
     } = layouts::collect(module, &mut planner, &functions)?;
     let mut abi = abi::collect_module_abi(module);
-    host_interfaces::collect(&mut planner, module, &mut abi, &mut functions)?;
+    interface_bridges::collect(&mut planner, module, &mut abi, &mut functions)?;
     planner.host_types.extend(
         module_host::references(
             &abi.public_items,

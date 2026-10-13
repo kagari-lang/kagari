@@ -243,7 +243,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         generic_params: Vec::new(),
         bounds: Vec::new(),
         methods: Vec::new(),
-        host_bridge: false,
+        bridge: None,
     };
     assert!(same_method_contract(
         &declared,
@@ -402,7 +402,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         associated_consts: vec![],
         associated_type_families: vec![],
         methods: vec![],
-        host_bridge: false,
+        bridge: None,
     };
     let dependency = InterfaceTable {
         trait_type: Ty::Trait(NominalTy {

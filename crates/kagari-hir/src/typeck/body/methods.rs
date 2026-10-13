@@ -131,6 +131,25 @@ impl<'a> BodyChecker<'a> {
                 );
                 target.clone()
             }
+            Ok(None)
+                if !matches!(source, TypeId::Generic(_) | TypeId::Projection { .. })
+                    && self.aggregates.intrinsic_implementation(
+                        self.declarations.definitions(),
+                        interface,
+                        &source,
+                        &env.generic_bounds,
+                    ) =>
+            {
+                self.type_table.insert_interface_coercion(
+                    expr_id,
+                    ResolvedInterfaceCoercion {
+                        implementation: ResolvedInterfaceImplementation::Intrinsic,
+                        concrete_type: source,
+                        interface_type: interface.clone(),
+                    },
+                );
+                target.clone()
+            }
             Ok(None) | Err(ImplementationSearchError::Cancelled) => source,
             Err(ImplementationSearchError::LimitExceeded) => {
                 self.diagnostics.push(

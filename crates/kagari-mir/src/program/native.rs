@@ -2,7 +2,7 @@
 use crate::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
-    program::shared,
+    program::{bridges, shared},
     verify::ValidatedMirModule,
 };
 use kagari_common::{
@@ -35,12 +35,15 @@ pub(super) fn validate(
     definitions: &DefinitionTable,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
+    if !bridges::valid(caller, definitions, cancel)? {
+        return Ok(false);
+    }
     let tables = closure
         .iter()
         .flat_map(|module| &module.abi.public_items)
         .filter_map(|item| {
             if let PublicItem::InterfaceTable(table) = item {
-                (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))
+                (table.bridge.is_none()).then_some(Implementation::Interface(table.as_ref()))
             } else {
                 None
             }
@@ -379,7 +382,7 @@ fn native_slots_valid(
         }) else {
             return Ok(false);
         };
-        if template.host_bridge
+        if template.bridge.is_some()
             || instance.arguments.is_empty() && !template.generic_params.is_empty()
         {
             continue;

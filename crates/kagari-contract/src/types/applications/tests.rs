@@ -6,7 +6,7 @@ use kagari_common::identity::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        AssociatedTypeDef, ConstDef, FieldDef, FnDecl, TypeDef, TypeDefKind,
+        AssociatedTypeDef, ConstDef, FieldDef, FnDecl, Param, TypeDef, TypeDefKind,
         native::NativeStorageLayout,
     },
     language::binding,
@@ -196,7 +196,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
     ];
     for item in items {
         assert_eq!(
-            validate_declarations(&check, &[item], &[], &cancel),
+            validate_declarations(&check, &[item], &[], &cancel, &context.snapshot()),
             Err(TypeTransformError::InvalidContract)
         );
     }
@@ -205,7 +205,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
         ..Default::default()
     };
     assert_eq!(
-        validate_slots(&check, &slots, &cancel),
+        validate_slots(&check, &slots, &cancel, &context.snapshot()),
         Err(TypeTransformError::InvalidContract)
     );
     assert_eq!(
@@ -329,4 +329,80 @@ fn ordinary_enum_applications_require_a_declared_owner_and_exact_arity() {
         wrong.validate_type(&applied(vec![Ty::Builtin(BuiltinType::I32)])),
         Err(TypeTransformError::InvalidContract)
     );
+}
+
+#[test]
+fn incompatible_traits_remain_static_contracts_but_cannot_hide_in_value_positions() {
+    let context = DefinitionContext::new().unwrap();
+    let (id, mut record) = declaration(&context);
+    record.generic_params.clear();
+    record.associated_types.clear();
+    context
+        .intern_child(id, DefinitionKind::Method, "read", 0)
+        .unwrap();
+    record.methods.push(FnDecl {
+        name: "read".into(),
+        implementation: CallableImplementation::Required,
+        method_policy: Default::default(),
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![Param {
+            name: "self".into(),
+            mutable: false,
+            ty: Ty::SelfType(id),
+        }],
+        return_type: Ty::SelfType(id),
+    });
+    let cancel = CancellationToken::default();
+    let interface = Ty::Trait(NominalTy {
+        declaration: id,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    for compatible in [false, true] {
+        if compatible {
+            record.methods[0].return_type = Ty::Builtin(BuiltinType::I32);
+        }
+        let check =
+            ApplicationValidator::new(&cancel, |key| (key == &id).then_some(&record), |_| None);
+        assert!(
+            validate_declarations(
+                &check,
+                &[PublicItem::Trait(record.clone())],
+                &[],
+                &cancel,
+                &context.snapshot()
+            )
+            .is_ok()
+        );
+        let nested = Ty::Function {
+            params: vec![Ty::Array(Box::new(interface.clone()))],
+            result: Box::new(Ty::Builtin(BuiltinType::Unit)),
+        };
+        let slots = SemanticSlots {
+            result: Some(nested.clone()),
+            ..Default::default()
+        };
+        assert_eq!(
+            validate_slots(&check, &slots, &cancel, &context.snapshot()).is_ok(),
+            compatible
+        );
+        let field = PublicItem::Type(TypeDef {
+            name: "Unused".into(),
+            kind: TypeDefKind::Struct,
+            generic_params: vec![],
+            bounds: vec![],
+            variants: vec![],
+            fields: vec![FieldDef {
+                name: "callback".into(),
+                visibility: Visibility::Public,
+                mutable: false,
+                ty: nested,
+            }],
+        });
+        assert_eq!(
+            validate_declarations(&check, &[field], &[], &cancel, &context.snapshot()).is_ok(),
+            compatible
+        );
+    }
 }

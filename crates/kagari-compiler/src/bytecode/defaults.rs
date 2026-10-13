@@ -48,7 +48,7 @@ pub(super) fn catalog<'a>(
                 let PublicItem::InterfaceTable(table) = item else {
                     return None;
                 };
-                (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))
+                (table.bridge.is_none()).then_some(Implementation::Interface(table.as_ref()))
             })
             .collect(),
         modules

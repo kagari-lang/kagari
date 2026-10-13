@@ -505,7 +505,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     ),
                 })
                 .collect(),
-            host_bridge: false,
+            bridge: None,
             declaration: *module
                 .declarations
                 .impl_identity(impl_block.id)

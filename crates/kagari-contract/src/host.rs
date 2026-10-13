@@ -3,7 +3,7 @@
 use crate::{
     layout::{EnumLayout, LayoutValidationError, StructLayout},
     types as abi,
-    types::{InterfaceTable, PublicItem, TraitContract},
+    types::{InterfaceBridge, InterfaceTable, PublicItem, TraitContract},
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
@@ -365,7 +365,7 @@ pub fn validate(
         .map_err(|_| LayoutValidationError::Invalid)?;
     if items.iter().any(|item| {
         matches!(item, PublicItem::InterfaceTable(table)
-            if table.host_bridge && host_bridge_implementation(table, interface).is_none())
+            if table.bridge == Some(InterfaceBridge::Host) && host_bridge_implementation(table, interface).is_none())
     }) {
         return Err(LayoutValidationError::Invalid);
     }

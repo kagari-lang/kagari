@@ -11,8 +11,9 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
-    native_import::NativeImport, representation::semantic_representation,
-    types::ConcreteFunctionIdentity,
+    native_import::NativeImport,
+    representation::semantic_representation,
+    types::{ConcreteFunctionIdentity, InterfaceBridge},
 };
 use kagari_hir::{
     AnalyzedModule,
@@ -147,6 +148,15 @@ pub(super) struct CallableInstance {
     pub span: Span,
 }
 
+#[derive(Clone)]
+pub(super) struct InterfaceBridgeRequest {
+    pub declaration: DefinitionId,
+    pub receiver: TypeId,
+    pub interface: NominalType,
+    pub span: Span,
+    pub kind: InterfaceBridge,
+}
+
 pub(super) struct InstancePlanner<'a> {
     module: &'a AnalyzedModule,
     pub context: &'a DefinitionContext,
@@ -156,7 +166,7 @@ pub(super) struct InstancePlanner<'a> {
     pub instances: Vec<Instance>,
     pub layout_roots: Vec<(TypeId, Span)>,
     pub host_types: BTreeSet<DefinitionId>,
-    pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
+    pub interface_bridges: Vec<InterfaceBridgeRequest>,
     pub native_targets: Vec<NativeImport>,
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
     keys: HashMap<InstanceKey, InstanceId>,
@@ -291,7 +301,7 @@ impl<'a> InstancePlanner<'a> {
             instances: Vec::new(),
             layout_roots: Vec::new(),
             host_types: Default::default(),
-            host_interfaces: Vec::new(),
+            interface_bridges: Vec::new(),
             interface_instances: Vec::new(),
             native_targets: Vec::new(),
             keys: HashMap::new(),
@@ -594,24 +604,25 @@ impl<'a> InstancePlanner<'a> {
         Ok(())
     }
 
-    pub fn host_interface(
+    pub fn interface_bridge(
         &mut self,
         receiver: &TypeId,
         interface: &NominalType,
         span: Span,
+        kind: InterfaceBridge,
     ) -> Result<DefinitionId, MirLoweringError> {
         self.check()?;
-        if let Some((id, ..)) = self
-            .host_interfaces
+        if let Some(request) = self
+            .interface_bridges
             .iter()
-            .find(|(_, ty, applied, _)| ty == receiver && applied == interface)
+            .find(|request| &request.receiver == receiver && &request.interface == interface)
         {
-            return Ok(*id);
+            return Ok(request.declaration);
         }
 
         let base = self.module.lowered.module.impls.len();
-        let occurrence = u32::try_from(base + self.host_interfaces.len())
-            .map_err(|_| MirLoweringError::MissingBinding("host interface identity limit"))?;
+        let occurrence = u32::try_from(base + self.interface_bridges.len())
+            .map_err(|_| MirLoweringError::MissingBinding("interface bridge identity limit"))?;
         let root = self
             .context
             .intern_root(self.module.lowered.source.module_identity())
@@ -620,8 +631,24 @@ impl<'a> InstancePlanner<'a> {
             .context
             .intern_child(root, DefinitionKind::Impl, "", occurrence)
             .map_err(DefinitionMappingError::from)?;
-        self.host_interfaces
-            .push((id, receiver.clone(), interface.clone(), span));
+        self.interface_bridges.push(InterfaceBridgeRequest {
+            declaration: id,
+            receiver: receiver.clone(),
+            interface: interface.clone(),
+            span,
+            kind,
+        });
+        self.interface_instances.push(ConcreteFunctionIdentity {
+            declaration: id,
+            arguments: vec![],
+        });
+        if kind == InterfaceBridge::Intrinsic {
+            let protocol = Protocol::from_definition(&interface.declaration, &self.definitions())
+                .ok_or(MirLoweringError::MissingBinding(
+                "intrinsic interface protocol",
+            ))?;
+            self.enqueue_selected_protocol(protocol, receiver, interface, span, false)?;
+        }
         Ok(id)
     }
 
@@ -746,7 +773,7 @@ impl<'a> InstancePlanner<'a> {
                 .interface_implementation(&parent, receiver)
                 .is_some()
             {
-                self.host_interface(receiver, &parent, span)?;
+                self.interface_bridge(receiver, &parent, span, InterfaceBridge::Host)?;
                 continue;
             }
             let selected = self
@@ -764,14 +791,28 @@ impl<'a> InstancePlanner<'a> {
                 )
                 .map_err(|_| MirLoweringError::MissingBinding("parent interface search"))?;
             let Some((declaration, arguments)) = selected else {
-                // Intrinsic protocols carry checked operation evidence rather
-                // than a nominal implementation table to retain.
+                // Static-only parents keep operation evidence. A compatible
+                // parent additionally needs a table for dynamic upcasts.
                 if self.catalog.intrinsic_implementation(
                     &self.definitions(),
                     &parent,
                     receiver,
                     assumptions,
                 ) {
+                    if self
+                        .catalog
+                        .interface_incompatibility(
+                            &self.definitions(),
+                            &parent,
+                            &self.options.cancel,
+                        )
+                        .map_err(|_| {
+                            MirLoweringError::MissingBinding("parent interface compatibility")
+                        })?
+                        .is_none()
+                    {
+                        self.interface_bridge(receiver, &parent, span, InterfaceBridge::Intrinsic)?;
+                    }
                     continue;
                 }
                 return Err(MirLoweringError::MissingBinding(

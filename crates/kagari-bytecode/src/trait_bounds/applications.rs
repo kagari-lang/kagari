@@ -7,7 +7,10 @@ use kagari_common::{cancellation::CancellationToken, identity::table::Definition
 use kagari_contract::{
     callable::witness::OperationWitness,
     types::{
-        applications::{validate_declarations, validate_layouts, validate_slots},
+        applications::{
+            validate_declarations, validate_function, validate_layouts, validate_slots,
+            validate_types,
+        },
         type_contract,
     },
 };
@@ -51,9 +54,10 @@ pub(super) fn validate(
         &module.public_items,
         &module.trait_contracts,
         cancel,
+        definitions,
     )?;
     for declaration in &module.native_declarations {
-        validator.function(&declaration.function)?;
+        validate_function(&validator, &declaration.function, cancel, definitions)?;
         for required in &declaration.callable_requirements {
             validator.validate_type(&required.receiver)?;
             validator.trait_application(&required.interface)?;
@@ -62,8 +66,8 @@ pub(super) fn validate(
     }
     for import in &module.native_imports {
         validator.types(&import.instance.arguments)?;
-        validator.types(&import.signature.params)?;
-        validator.validate_type(&import.signature.result)?;
+        validate_types(&validator, &import.signature.params, cancel, definitions)?;
+        validate_types(&validator, [&import.signature.result], cancel, definitions)?;
         validator.bounds(&import.requirements)?;
         for operation in import.callables.iter().flat_map(OperationWitness::walk) {
             let required = operation.requirement();
@@ -77,11 +81,17 @@ pub(super) fn validate(
             validator.validate_type(&call.requirement.receiver)?;
             validator.trait_application(&call.requirement.interface)?;
             validator.types(&call.requirement.arguments)?;
-            validator.types(&call.signature.params)?;
-            validator.validate_type(&call.signature.result)?;
+            validate_types(&validator, &call.signature.params, cancel, definitions)?;
+            validate_types(&validator, [&call.signature.result], cancel, definitions)?;
         }
     }
-    validate_layouts(&validator, &module.structures, &module.enumerations, cancel)?;
+    validate_layouts(
+        &validator,
+        &module.structures,
+        &module.enumerations,
+        cancel,
+        definitions,
+    )?;
     for table in &module.interface_tables {
         validator.types(&table.arguments)?;
         for slot in &table.methods {
@@ -101,7 +111,7 @@ pub(super) fn validate(
         if let Some(identity) = &function.identity {
             validator.types(&identity.arguments)?;
         }
-        validate_slots(&validator, &function.metadata.semantic, cancel)?;
+        validate_slots(&validator, &function.metadata.semantic, cancel, definitions)?;
         for instruction in &function.instructions {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if let Some(arguments) = instruction.layout_arguments() {
@@ -114,8 +124,13 @@ pub(super) fn validate(
                 } => {
                     validator.types(&contract.instance.arguments)?;
                     validator.types(&contract.arguments)?;
-                    validator.types(&contract.signature.params)?;
-                    validator.validate_type(&contract.signature.result)?;
+                    validate_types(&validator, &contract.signature.params, cancel, definitions)?;
+                    validate_types(
+                        &validator,
+                        [&contract.signature.result],
+                        cancel,
+                        definitions,
+                    )?;
                     for operation in contract.operations.iter().flat_map(OperationWitness::walk) {
                         let required = operation.requirement();
                         validator.validate_type(&required.receiver)?;

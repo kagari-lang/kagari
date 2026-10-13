@@ -18,6 +18,7 @@ use kagari_types::{
     },
     ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
+use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
 pub mod applications;
@@ -99,11 +100,18 @@ impl PublicItem {
     }
 }
 
+/// A dispatch bridge retains existing evidence rather than declaring a new impl.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InterfaceBridge {
+    Host,
+    Intrinsic,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceTable {
     pub associated_type_families: Vec<AssociatedTypeFamily>,
     pub associated_consts: Vec<ConstDef>,
-    pub host_bridge: bool,
+    pub bridge: Option<InterfaceBridge>,
     pub declaration: DefinitionId,
     pub name: String,
     pub generic_params: Vec<GenericParam>,
@@ -185,7 +193,7 @@ impl InterfaceTable {
                 })
                 .collect::<Option<_>>()?,
             associated_consts: self.associated_consts.clone(),
-            host_bridge: self.host_bridge,
+            bridge: self.bridge,
             declaration: self.declaration,
             name: self.name.clone(),
             generic_params: Vec::new(),

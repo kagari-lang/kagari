@@ -427,8 +427,13 @@ pub fn dynamic_interface_valid<'a>(
             return Ok(false);
         }
         let substitution = TypeSubstitution::for_owner(&view.declaration, &view.arguments);
+        let mut declared_bounds = contract.bounds.clone();
+        declared_bounds.extend(contract.associated_types.iter().map(|member| GenericBound {
+            ty: view.associated_types[&member.declaration].clone(),
+            constraints: member.bounds.clone(),
+        }));
         let bounds = resolve_interface_bounds(
-            substitution.apply_bounds(&contract.bounds, definitions, cancel)?,
+            substitution.apply_bounds(&declared_bounds, definitions, cancel)?,
             &view,
             &Ty::SelfType(view.declaration),
             true,

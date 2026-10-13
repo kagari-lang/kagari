@@ -767,6 +767,7 @@ impl RemapDefinitions for ResolvedInterfaceImplementation {
                 arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
             },
             Self::Host => ResolvedInterfaceImplementation::Host,
+            Self::Intrinsic => ResolvedInterfaceImplementation::Intrinsic,
         })
     }
 }
@@ -790,7 +791,7 @@ impl DefinitionReferences for ResolvedInterfaceImplementation {
                     (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
-            Self::Host => {}
+            Self::Host | Self::Intrinsic => {}
         }
         Ok(())
     }

@@ -181,7 +181,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
                 value: integer.clone(),
             }],
             associated_consts: vec![value],
-            host_bridge: false,
+            bridge: None,
             declaration: ids["Impl"],
             name: "Impl".into(),
             generic_params: vec![parameter.clone()],

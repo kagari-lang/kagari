@@ -97,7 +97,7 @@ impl<'a> Implementation<'a> {
     }
 
     pub(super) fn is_bridge(&self) -> bool {
-        matches!(self, Self::Interface(table) if table.host_bridge)
+        matches!(self, Self::Interface(table) if table.bridge.is_some())
     }
 
     pub(super) fn method(

@@ -406,7 +406,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                 else {
                     unreachable!()
                 };
-                table.host_bridge = false;
+                table.bridge = None;
             }
             4 => {
                 let CallableTarget::Script(function) = module.interface_tables[0].methods[0].target

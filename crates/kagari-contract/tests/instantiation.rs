@@ -54,7 +54,7 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
     let table = InterfaceTable {
         associated_type_families: vec![],
         associated_consts: vec![],
-        host_bridge: false,
+        bridge: None,
         declaration: implementation,
         name: "Impl".into(),
         generic_params: vec![outer.clone()],

@@ -408,7 +408,8 @@ fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
     let context = DefinitionContext::new().unwrap();
     let (call, contract) = fixture(&context);
     let cancel = CancellationToken::default();
-    for mutation in 0..5 {
+    for mutation in 0..7 {
+        let mut call = call.clone();
         let mut changed = contract.clone();
         let self_type = Ty::SelfType(call.interface.declaration);
         let key = changed.methods[0].generic_params[0].as_type();
@@ -453,6 +454,33 @@ fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
                     })],
                 });
             }
+            5 | 6 => {
+                let member = context
+                    .intern_child(
+                        call.interface.declaration,
+                        DefinitionKind::AssociatedType,
+                        "Item",
+                        0,
+                    )
+                    .unwrap();
+                call.interface
+                    .associated_types
+                    .insert(member, Ty::Builtin(BuiltinType::I32));
+                changed.associated_types.push(AssociatedTypeDef {
+                    declaration: member,
+                    generic_params: vec![],
+                    parameter_bounds: vec![],
+                    bounds: vec![Constraint::Trait(NominalTy {
+                        declaration: call.interface.declaration,
+                        arguments: vec![if mutation == 5 {
+                            self_type
+                        } else {
+                            Ty::Builtin(BuiltinType::I32)
+                        }],
+                        associated_types: BTreeMap::new(),
+                    })],
+                });
+            }
             _ => unreachable!(),
         }
         let valid = dynamic_interface_valid(
@@ -462,6 +490,10 @@ fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
             &context.snapshot(),
             &cancel,
         );
-        assert_eq!(valid.unwrap_or(false), mutation == 3, "mutation {mutation}");
+        assert_eq!(
+            valid.unwrap_or(false),
+            matches!(mutation, 3 | 6),
+            "mutation {mutation}"
+        );
     }
 }

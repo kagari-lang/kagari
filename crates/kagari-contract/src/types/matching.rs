@@ -77,7 +77,7 @@ mod tests {
             for_type: Ty::Set(Box::new(parameter.as_type()), CollectionAccess::Mutable),
             trait_type: Ty::Trait(applied(custom, vec![parameter.as_type()])),
             associated_type_families: vec![],
-            host_bridge: false,
+            bridge: None,
         };
         let cancel = CancellationToken::default();
         for declared in [CollectionAccess::Mutable, CollectionAccess::ReadOnly] {
@@ -143,7 +143,7 @@ mod tests {
                 bounds: vec![],
                 value: Ty::Tuple(vec![parameter.as_type(), family_parameter.as_type()]),
             }],
-            host_bridge: false,
+            bridge: None,
         };
         let integer = Ty::Builtin(BuiltinType::I32);
         let boolean = Ty::Builtin(BuiltinType::Bool);

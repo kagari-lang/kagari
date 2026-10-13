@@ -1,7 +1,7 @@
 //! Validate serialized semantic types independently of display strings.
 use crate::{
     layout::LayoutValidationError,
-    types::{InterfaceTable, PublicItem, TraitContract},
+    types::{InterfaceBridge, InterfaceTable, PublicItem, TraitContract},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -158,10 +158,12 @@ pub fn validate(
                         })
                     }) && bounds_valid(&table.bounds, &params, cancel, definitions)
                         && families_valid(table, &params, cancel, definitions)
-                        && (!table.host_bridge
+                        && (table.bridge.is_none()
                             || (table.generic_params.is_empty()
                                 && table.bounds.is_empty()
-                                && matches!(table.for_type, Ty::Host(_))
+                                && (table.bridge != Some(InterfaceBridge::Host)
+                                    || matches!(table.for_type, Ty::Host(_)))
+                                && table.for_type.is_concrete()
                                 && table.trait_type.is_concrete()))
                         && matches!(table.trait_type, Ty::Trait(_))
                         && type_valid(&table.trait_type, &params, None, cancel, definitions)

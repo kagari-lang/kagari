@@ -175,7 +175,7 @@ fn linked_bounds_match(
         .iter()
         .flat_map(|dependency| &dependency.public_items)
         .filter_map(|item| match item {
-            PublicItem::InterfaceTable(table) if !table.host_bridge => Some(table.as_ref()),
+            PublicItem::InterfaceTable(table) if table.bridge.is_none() => Some(table.as_ref()),
             _ => None,
         })
         .collect();
@@ -477,7 +477,7 @@ fn linked_bounds_match(
         {
             return Ok(false);
         }
-        if !table.host_bridge
+        if table.bridge.is_none()
             && matches!(table.for_type, Ty::Host(_))
             && catalog.implementation_count(interface, &table.for_type, &table.bounds, &cancel)?
                 != 1

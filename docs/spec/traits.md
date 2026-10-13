@@ -50,6 +50,11 @@ interface-level PartialEq for interface `==` and rejects `===`/`!==` whenever ei
 operand is an interface. Value receivers remain allowed under checked conversion
 rules. Boxing grants neither comparison capability nor identity.
 
+Intrinsic implementations follow the same conversion rule: for example,
+`val view: Debug = 42`, `val text: Display = 42` and `val key: Hash = 42`
+retain the operations used by static calls. Tuple protocols and default nominal
+Debug also remain available through compatible interfaces; boxing adds no protocol.
+
 Concrete applied implementations can become interface values, including generic
 receiver shapes such as `Vec<T>` becoming `List<T>`. Existing interface values
 upcast through declared parents. Their arguments remain invariant, and their
@@ -541,7 +546,7 @@ base trait from a static extension trait when both surfaces are needed.
 | --- | --- |
 | Receiver | Methods must have `self`; its concrete type may be erased. |
 | Other parameters and return type | No unresolved `Self`, including nested occurrences such as `Option<Self>`, tuples or function signatures. All types must be representable by the runtime value model. |
-| Ordinary associated types | Bind every output to a caller-known type; normalize projections before checking for hidden `Self` dependencies. |
+| Ordinary associated types | Bind every output to a caller-known type; normalize projections and check its declared bounds for hidden `Self` dependencies. |
 | Trait type parameters | Resolve through the applied interface type and check their bounds. |
 | Method type parameters | Allowed through the existing checked shared-generic call contract; each call supplies arguments and bound evidence. |
 | Method bounds | Must be checkable from the interface contract, method arguments and available evidence; no additional dependency on the hidden concrete receiver type. |
@@ -581,6 +586,12 @@ trait Processor {
     fn process<T: Related<Self>>(self, value: T);
 }
 // Processor cannot be an interface: its call bound needs the hidden Self.
+
+trait Source {
+    type Item: Related<Self>;
+    fn read(self) -> Self::Item;
+}
+// Binding Item does not remove Related<Self>; Source remains static-only.
 ```
 
 The implicit receiver implementation of its own declared trait is not a forbidden
@@ -600,7 +611,9 @@ it does not import Rust's blanket restriction on method type parameters.
 Diagnostics should identify the offending member/parent and the reason, such as
 `CloneLike cannot be used as an interface: method copy returns erased Self`.
 Local/imported declarations and independent executable validation must enforce
-the same structural contract. Lowering and execution consume checked interface
+the same structural contract, including unused parameter/result types, fields and
+nested value types. An impl header or trait bound names a static contract and does
+not by itself request a dynamic value. Lowering and execution consume checked interface
 facts rather than applying separate eligibility heuristics. The
 [explicit conversion context](#accepted-interface-conversion-context) determines
 which interface the user requests; compatibility determines whether it is legal.

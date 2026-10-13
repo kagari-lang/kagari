@@ -858,3 +858,48 @@ fn main() -> i32 {
 "#,
     );
 }
+
+#[test]
+fn intrinsic_standard_traits_box_without_changing_operations() {
+    execute(
+        r#"
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+mod model {
+    use std::fmt::Debug;
+    pub struct Entry { pub val value: i32 }
+    pub trait Inspect: Debug { fn value(self) -> i32; }
+    impl Inspect for Entry { fn value(self) -> i32 { self.value } }
+    pub fn boxed(value: Entry) -> Debug { value }
+}
+struct Item { val value: i32 }
+trait Inspect: Debug { fn value(self) -> i32; }
+impl Inspect for Item { fn value(self) -> i32 { self.value } }
+fn boxed_tuple<T: Debug>(value: T) -> Debug { (value,) }
+fn main() -> i32 {
+    val d: Debug = 42;
+    val s: Display = 42;
+    val h: Hash = 42;
+    if d.debug() != 42.debug() || s.display() != 42.display() || h.hash() != 42.hash() { return 1; }
+    val tuple = (42, "value");
+    val tuple_debug: Debug = tuple;
+    val tuple_hash: Hash = tuple;
+    if tuple_debug.debug() != tuple.debug() || tuple_hash.hash() != tuple.hash() { return 2; }
+    val item = Item { value: 42 };
+    val item_debug: Debug = item;
+    val inspect: Inspect = item;
+    val parent: Debug = inspect;
+    if item_debug.debug() != item.debug() || parent.debug() != item.debug() || inspect.value() != 42 { return 3; }
+    if boxed_tuple(42).debug() != (42,).debug() { return 5; }
+    val remote_object = model::Entry { value: 42 };
+    val remote: model::Inspect = remote_object;
+    val remote_debug: Debug = remote;
+    if remote_debug.debug() != model::boxed(remote_object).debug() || remote.value() != 42 { return 6; }
+    val text: Display = "hello";
+    val flag: Debug = true;
+    if text.display() != "hello" || flag.debug() != true.debug() { return 4; }
+    42
+}
+"#,
+    );
+}

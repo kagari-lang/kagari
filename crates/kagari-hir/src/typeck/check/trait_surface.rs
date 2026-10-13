@@ -4,12 +4,10 @@
 
 use crate::{
     declarations::Declarations,
-    hir::ty::TypeKind,
-    language::semantics as traits,
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
-        check::{possibly_overlapping_impls, validate_standard_constraint_type},
+        check::possibly_overlapping_impls,
         constraints,
         table::{ConstraintTarget, TypeTable},
         ty::{display_type, display_type_id},
@@ -59,93 +57,8 @@ pub(super) fn validate_trait_surface(
             .imported_types()
             .by_declaration(&id.declaration);
 
-        if let (Some(trait_def), Some(TypeId::Trait(applied))) = (
-            trait_def,
-            table.type_ref(reference.ty).map(|entry| &entry.ty),
-        ) {
-            let required =
-                constraints::parameter_bounds(&trait_def.generic_params, declarations, table);
-            let available = constraints::implementation_bounds(impl_block, declarations, table);
-            let source_arguments = match &lowered.module.type_ref(reference.ty).kind {
-                TypeKind::Generic { args, .. } => args.as_slice(),
-                _ => &[],
-            };
-            for ((parameter, actual), source_argument) in trait_def
-                .generic_params
-                .iter()
-                .zip(&applied.arguments)
-                .zip(source_arguments)
-            {
-                if actual.is_unresolved() {
-                    continue;
-                }
-                let Some(parameter) = declarations.generic_type(parameter.id) else {
-                    continue;
-                };
-                let span = lowered.source_map.type_span(*source_argument);
-                for constraint in required
-                    .get(&TypeId::Generic(parameter))
-                    .into_iter()
-                    .flatten()
-                {
-                    match constraint {
-                        ConstraintTarget::Standard(standard) => {
-                            validate_standard_constraint_type(
-                                declarations.definitions(),
-                                actual,
-                                *standard,
-                                &available,
-                                span,
-                                diagnostics,
-                                None,
-                            );
-                        }
-                        ConstraintTarget::Trait(required_trait) => {
-                            let satisfied = Protocol::from_definition(
-                                &required_trait.declaration,
-                                declarations.definitions(),
-                            )
-                            .is_some_and(|kind| {
-                                required_trait.arguments.is_empty()
-                                    && required_trait.associated_types.is_empty()
-                                    && traits::intrinsic_holds(
-                                        declarations.definitions(),
-                                        kind,
-                                        actual,
-                                        None,
-                                        &available,
-                                    )
-                            }) || match actual {
-                                TypeId::Generic(parameter) => available
-                                    .get(&TypeId::Generic(parameter.clone()))
-                                    .is_some_and(|bounds| bounds.contains(constraint)),
-                                _ => table.implements(
-                                    declarations.definitions(),
-                                    required_trait,
-                                    actual,
-                                ),
-                            };
-                            if !satisfied {
-                                diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
-                                        type_name: actual.display_name(declarations.definitions()),
-                                        trait_name: declarations
-                                            .definitions()
-                                            .resolve(required_trait.declaration)
-                                            .expect("scoped trait")
-                                            .last()
-                                            .map(|part| part.name.to_owned())
-                                            .unwrap_or_default(),
-                                    })
-                                    .with_span(span),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+        // Applied bounds require the completed implementation catalog. The
+        // application pass validates these headers together with imported traits.
         let Some(for_ty) = impl_block
             .for_type
             .and_then(|ty| table.type_ref(ty))

@@ -1586,6 +1586,22 @@ static trait use. HIR's applied catalog and source-independent contract validati
 share this structural policy. Generic methods remain supported; no role blacklist,
 member omission or name exemption supplies eligibility.
 
+Implementation-header bounds are proved after the complete aggregate catalog is
+available. Dynamic admission also checks associated-output constraints. Contract's
+application validation distinguishes static trait references from interface value
+types in declarations, layouts and body slots, even when no construction or call
+uses them. MIR and bytecode share that value-type validation.
+
+Compiler-generated interface bridges retain either installed host mappings or
+existing intrinsic protocol evidence. Intrinsic bridges call the ordinary checked
+protocol adapters; MIR and bytecode verify their forwarding targets. Bridge tables
+are excluded from implementation proofs, so materializing dispatch cannot invent
+an impl or override static semantics. Equivalent intrinsic bridges emitted in
+separate modules prefer the local bridge for parent views, with portable identity
+as the tie breaker; distinct
+implementation candidates still conflict. Parent views use the same structural
+admission query as explicit conversions.
+
 The [value contract](spec/value-semantics.md#accepted-comparison-design) requires
 statically proven PartialEq and known concrete object types for identity operators.
 HIR selects implementations; contract owns independent eligibility proofs. MIR and

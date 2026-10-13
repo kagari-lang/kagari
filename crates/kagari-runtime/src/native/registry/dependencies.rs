@@ -153,7 +153,7 @@ fn implementation_matches(id: &DefinitionId, expected: &ImplDecl, actual: &Inter
     // Match the registered header and every explicit native method; defaults are
     // independently checked against the exact carried trait/template contracts.
     actual.declaration == *id
-        && !actual.host_bridge
+        && actual.bridge.is_none()
         && actual.generic_params == expected.generic_params
         && actual.bounds == expected.bounds
         && actual.for_type == expected.for_type

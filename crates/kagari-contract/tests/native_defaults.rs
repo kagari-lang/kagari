@@ -143,7 +143,7 @@ impl Fixture {
                 methods: vec![derived],
                 associated_consts: vec![],
                 associated_type_families: vec![],
-                host_bridge: false,
+                bridge: None,
             },
         }
     }

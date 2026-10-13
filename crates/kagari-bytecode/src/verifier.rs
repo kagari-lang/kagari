@@ -24,7 +24,9 @@ use kagari_contract::{
     layout::StructFieldLayout,
     operations::BinaryOp as MirBinaryOp,
     standard::RuntimePrimitive,
-    types::{InterfaceTable, PublicItem, inherent::native_signatures_match, verify},
+    types::{
+        InterfaceBridge, InterfaceTable, PublicItem, inherent::native_signatures_match, verify,
+    },
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -464,7 +466,7 @@ fn verify_interface_tables(
                     ) {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
-                    if abi.host_bridge && !host_bridge_method_matches(abi, slot, function, module) {
+                    if abi.bridge.is_some() && !bridge_method_matches(abi, slot, function, module) {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
                     function
@@ -477,7 +479,7 @@ fn verify_interface_tables(
                         .native_imports
                         .get(target.index())
                         .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
-                    if abi.host_bridge
+                    if abi.bridge.is_some()
                         || import.host.is_some()
                         || match &method.implementation {
                             CallableImplementation::Native(binding) => binding != &import.binding,
@@ -565,42 +567,54 @@ fn verify_interface_tables(
     Ok(())
 }
 
-fn host_bridge_method_matches(
+fn bridge_method_matches(
     table: &InterfaceTable,
     slot: &InterfaceMethodSlot,
     function: &BytecodeFunction,
     module: &BytecodeModule,
 ) -> bool {
-    let Some((_, implementation)) = host::host_bridge_implementation(table, &module.host_interface)
-    else {
-        return false;
-    };
-    let Some(mapping) = implementation
-        .methods
-        .iter()
-        .find(|mapping| mapping.trait_method == slot.method)
-    else {
-        return false;
-    };
     let params = function.metadata.params.len();
     if function.instructions.len() != params + 2 {
         return false;
     }
     let BytecodeInstruction::Call {
         dst: Some(result),
-        callee: CallTarget::Native(import),
+        callee,
         args,
     } = &function.instructions[params]
     else {
         return false;
     };
-    if args.len() != params
-        || !module
-            .native_imports
-            .get(import.index())
-            .and_then(|import| import.host.as_ref())
-            .is_some_and(|contract| contract.id == mapping.host_method)
-    {
+    let target_matches = match (table.bridge, callee) {
+        (Some(InterfaceBridge::Host), CallTarget::Native(import)) => {
+            host::host_bridge_implementation(table, &module.host_interface)
+                .and_then(|(_, implementation)| {
+                    implementation
+                        .methods
+                        .iter()
+                        .find(|mapping| mapping.trait_method == slot.method)
+                })
+                .is_some_and(|mapping| {
+                    module
+                        .native_imports
+                        .get(import.index())
+                        .and_then(|import| import.host.as_ref())
+                        .is_some_and(|contract| contract.id == mapping.host_method)
+                })
+        }
+        (Some(InterfaceBridge::Intrinsic), CallTarget::Function(target)) => module
+            .functions
+            .get(target.index())
+            .and_then(|function| function.metadata.semantic.protocol_adapter.as_ref())
+            .is_some_and(|required| {
+                required.receiver == table.for_type
+                    && Ty::Trait(required.interface.clone()) == table.trait_type
+                    && required.member == slot.method
+                    && required.arguments.is_empty()
+            }),
+        _ => false,
+    };
+    if args.len() != params || !target_matches {
         return false;
     }
     function.instructions[..params]

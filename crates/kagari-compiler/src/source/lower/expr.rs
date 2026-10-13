@@ -7,7 +7,7 @@ use crate::source::lower::{
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
     numeric::NumericConversion, operations::UnaryOp, representation::semantic_representation,
-    standard::RuntimePrimitive,
+    standard::RuntimePrimitive, types::InterfaceBridge,
 };
 use kagari_hir::{
     aggregates::implementations::ImplementationSearchLimits,
@@ -213,7 +213,14 @@ impl FunctionLowerer<'_, '_> {
                 )?;
                 let (implementation, arguments, constructed) = match coercion.implementation {
                     ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
-                    ResolvedInterfaceImplementation::Host => {
+                    ResolvedInterfaceImplementation::Host
+                    | ResolvedInterfaceImplementation::Intrinsic => {
+                        let kind =
+                            if coercion.implementation == ResolvedInterfaceImplementation::Host {
+                                InterfaceBridge::Host
+                            } else {
+                                InterfaceBridge::Intrinsic
+                            };
                         let mut types = self
                             .planner
                             .arguments(
@@ -231,7 +238,8 @@ impl FunctionLowerer<'_, '_> {
                             return Err(MirLoweringError::MissingBinding("host interface type"));
                         };
                         (
-                            self.planner.host_interface(&receiver, &interface, span)?,
+                            self.planner
+                                .interface_bridge(&receiver, &interface, span, kind)?,
                             Vec::new(),
                             interface,
                         )

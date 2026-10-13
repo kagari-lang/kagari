@@ -2,6 +2,7 @@
 use kagari_contract::representation::semantic_representation;
 use kagari_types::declaration::TypeDefKind;
 mod applications;
+mod bridges;
 pub mod construction;
 mod native;
 mod shared;
@@ -258,6 +259,7 @@ pub fn verify_program(
         applications::validate(
             module,
             cancel,
+            &definitions,
             |id| {
                 let owner = *indices.get(definitions.resolve(*id).ok()?.module())?;
                 if owner != index && !dependencies.contains(&owner) {

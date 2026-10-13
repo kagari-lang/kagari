@@ -11,7 +11,7 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     host, layout,
-    types::{PublicItem, verify},
+    types::{InterfaceBridge, PublicItem, verify},
 };
 use kagari_types::{
     declaration::{TypeDefKind, ownership::ReceiverOwners},
@@ -239,6 +239,7 @@ pub(crate) fn verify_with_suspensions(
                 .resolve(table.declaration)
                 .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
             if let Some(kind) = Protocol::from_definition(&instance.declaration, definitions)
+                && table.bridge != Some(InterfaceBridge::Intrinsic)
                 && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
                     || trait_id.module() != implementation.module()
                         && owners.owner(&table.for_type, definitions).as_ref()

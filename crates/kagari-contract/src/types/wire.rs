@@ -1,7 +1,7 @@
 //! Public ABI file records shared by artifact codecs and ABI fingerprints.
 use crate::{
     decode_limits,
-    types::{InterfaceTable, PublicItem, inherent::InherentTable},
+    types::{InterfaceBridge, InterfaceTable, PublicItem, inherent::InherentTable},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -100,7 +100,7 @@ struct InterfaceTableRecord {
     associated_type_families: Vec<AssociatedTypeFamilyRecord>,
     #[serde(deserialize_with = "decode_limits::nested")]
     associated_consts: Vec<ConstDefRecord>,
-    host_bridge: bool,
+    bridge: Option<InterfaceBridge>,
     declaration: PortableDefinitionRef,
     name: String,
     #[serde(deserialize_with = "decode_limits::nested")]
@@ -133,7 +133,7 @@ impl InterfaceTableRecord {
                 .iter()
                 .map(|value| ConstDefRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
-            host_bridge: value.host_bridge,
+            bridge: value.bridge,
             declaration: encoding.reference(value.declaration)?,
             name: value.name.clone(),
             generic_params: value
@@ -175,7 +175,7 @@ impl InterfaceTableRecord {
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
-            host_bridge: self.host_bridge,
+            bridge: self.bridge,
             declaration: decoding.resolve(self.declaration)?,
             name: self.name,
             generic_params: self

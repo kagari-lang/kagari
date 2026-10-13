@@ -460,6 +460,10 @@ fn dynamic_standard_traits_and_caller_known_outputs_use_structural_rules() {
         ("fn accept(value: std::fmt::Debug) {}", true),
         ("fn accept(value: std::fmt::Display) {}", true),
         ("fn accept(value: std::hash::Hash) {}", true),
+        (
+            "fn erase<T: std::fmt::Debug>(value: T) -> std::fmt::Debug { value }",
+            false,
+        ),
         ("fn accept(value: PartialEq) {}", false),
         ("fn accept(value: Eq) {}", false),
         (
@@ -487,5 +491,79 @@ fn dynamic_standard_traits_and_caller_known_outputs_use_structural_rules() {
             analysis.diagnostics()
         );
         assert_eq!(analysis.into_codegen().is_ok(), accepted, "{source}");
+    }
+}
+
+#[test]
+fn implementation_headers_use_complete_protocol_evidence() {
+    for (argument, valid) in [
+        ("Key", true),
+        ("(Key, i32)", true),
+        ("[Key]", true),
+        ("Missing", false),
+    ] {
+        let source = SourceFile::new(
+            "header-bounds.kgr",
+            format!(
+                r#"
+struct Key {{}}
+impl PartialEq for Key {{ fn eq(self, other: Self) -> bool {{ true }} }}
+struct Missing {{}}
+trait Use<T: PartialEq> {{ fn get(self) -> i32; }}
+struct C {{}}
+impl Use<{argument}> for C {{ fn get(self) -> i32 {{ 42 }} }}
+fn main() -> i32 {{ C {{}}.get() }}
+"#
+            ),
+        );
+        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        if valid {
+            result
+                .into_checked()
+                .expect("complete applicable implementation");
+        } else {
+            assert!(
+                result.diagnostics().iter().any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::GenericBoundNotSatisfied { .. }
+                )),
+                "{:?}",
+                result.diagnostics()
+            );
+        }
+    }
+}
+
+#[test]
+fn dynamic_associated_bounds_cannot_retain_erased_self() {
+    for (bound, valid) in [("i32", true), ("Self", false)] {
+        let source = SourceFile::new(
+            "associated-dynamic.kgr",
+            format!(
+                r#"
+trait Related<T> {{}}
+impl<T> Related<T> for i32 {{}}
+trait Read {{ type Item: Related<{bound}>; fn read(self) -> Self::Item; }}
+struct Reader {{}}
+impl Read for Reader {{ type Item = i32; fn read(self) -> i32 {{ 42 }} }}
+fn main() -> i32 {{ val view: Read<Item = i32> = Reader {{}}; view.read() }}
+"#
+            ),
+        );
+        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        if valid {
+            result
+                .into_checked()
+                .expect("receiver-independent associated bound");
+        } else {
+            assert!(
+                result.diagnostics().iter().any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::InvalidInterfaceType { .. }
+                )),
+                "{:?}",
+                result.diagnostics()
+            );
+        }
     }
 }

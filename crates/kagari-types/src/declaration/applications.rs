@@ -31,6 +31,11 @@ where
         }
     }
 
+    /// Look up a trait in this validator's retained declaration closure.
+    pub fn trait_declaration(&self, id: &DefinitionId) -> Option<&'declaration TraitDef> {
+        (self.lookup)(id)
+    }
+
     pub fn trait_application_contract(
         &self,
         applied: &NominalTy,
