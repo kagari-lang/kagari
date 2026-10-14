@@ -14,8 +14,13 @@ use kagari_contract::{
 };
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, error::RuntimeErrorKind, jit_abi::jit_poll_execution,
-    module::LoadedModule, native::module::NativeModule, resource::RuntimeLimits, value::Value,
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    jit_abi::jit_poll_execution,
+    module::{LoadedModule, entry::ProgramEntry},
+    native::module::NativeModule,
+    resource::RuntimeLimits,
+    value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
@@ -109,7 +114,9 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
     let (vm, module) = setup(compile("fn main() {}", false));
     assert_eq!(module.bytecode.functions[0].instructions.len(), 2);
     let preparation = prepared(&vm, &module, native_unit);
-    let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
+    let report = vm
+        .execute_prepared(&module, ProgramEntry::Main, &preparation)
+        .unwrap();
     assert_eq!(
         report
             .return_value
@@ -132,7 +139,9 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
         backend: BackendId::new("fixture"),
         diagnostics: vec!["unsupported operation".into()],
     };
-    let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
+    let report = vm
+        .execute_prepared(&module, ProgramEntry::Main, &preparation)
+        .unwrap();
     assert_eq!(
         report
             .return_value
@@ -151,7 +160,7 @@ fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
     let (vm, module) = setup(compile("fn main() {}", false));
     let preparation = prepared(&vm, &module, native_trap);
     let error = vm
-        .execute_prepared(&module, "main", &preparation)
+        .execute_prepared(&module, ProgramEntry::Main, &preparation)
         .unwrap_err();
     assert!(
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ScriptTrap)
@@ -164,7 +173,7 @@ fn native_errors_never_restart_in_the_interpreter_and_keep_the_trace() {
 
 #[test]
 fn prepared_function_identity_must_match_the_requested_entry() {
-    let bytecode = compile("fn main() {} fn other() {}", false);
+    let bytecode = compile("fn main() {} pub fn other() {}", false);
     let (vm, module) = setup(bytecode);
     let preparation = prepared(&vm, &module, native_unit);
     let error = vm
@@ -192,8 +201,8 @@ fn optimized_execution_preserves_results_traps_and_source_origins() {
         {
             let (before, a) = setup(original.clone());
             let (after, b) = setup(optimized.clone());
-            let a = before.execute(&a, "main");
-            let b = after.execute(&b, "main");
+            let a = before.execute(&a, ProgramEntry::Main);
+            let b = after.execute(&b, ProgramEntry::Main);
             match (a, b) {
                 (Ok(a), Ok(b)) => {
                     assert_eq!(
@@ -243,7 +252,9 @@ fn debugging_selects_interpreter_before_entering_native_code() {
 
     vm.attach_debug_session(DebugSession::new(vm.runtime()).unwrap())
         .unwrap();
-    let report = vm.execute_prepared(&module, "main", &preparation).unwrap();
+    let report = vm
+        .execute_prepared(&module, ProgramEntry::Main, &preparation)
+        .unwrap();
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none());
@@ -256,13 +267,15 @@ fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
     let (vm, module) = setup(program.clone());
     let preparation = prepared(&vm, &module, native_unit);
     let new = vm.reload_program(&module, "test", program).unwrap();
-    let error = vm.execute_prepared(&new, "main", &preparation).unwrap_err();
+    let error = vm
+        .execute_prepared(&new, ProgramEntry::Main, &preparation)
+        .unwrap_err();
     assert!(
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
 
     assert_eq!(
-        vm.execute_prepared(&module, "main", &preparation)
+        vm.execute_prepared(&module, ProgramEntry::Main, &preparation)
             .unwrap()
             .jit
             .unwrap()

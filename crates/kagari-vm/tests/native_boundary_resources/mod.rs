@@ -3,7 +3,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeError,
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
         declarations::FunctionDecl, views::ValueHandle,
@@ -107,7 +107,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     );
     let Value::Enum(result) = fixture
         .vm
-        .execute(&fixture.loaded, "main")
+        .execute(&fixture.loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(fixture.vm.runtime().gc())
@@ -151,7 +151,7 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
     );
     let Value::Tuple(values) = fixture
         .vm
-        .execute(&fixture.loaded, "main")
+        .execute(&fixture.loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(fixture.vm.runtime().gc())
@@ -198,7 +198,7 @@ use std::hash::{Hash};
         assert_eq!(
             fixture
                 .vm
-                .execute(&fixture.loaded, "main")
+                .execute(&fixture.loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(fixture.vm.runtime().gc())

@@ -39,7 +39,7 @@ impl Ord for Rank {{ fn cmp(self, other: Self) -> Ordering {{ self.value.cmp(oth
 trait Run {{ fn run(self) -> bool; }}
 struct Saved {{ val callback: fn() -> bool }}
 impl Run for Saved {{ fn run(self) -> bool {{ (self.callback)() }} }}
-fn make() -> Run {{
+pub fn make() -> Run {{
     val keeper: Keep = 0;
     Saved {{ callback: keeper.keep(Rank {{ value: 1 }}, Rank {{ value: 2 }}) }}
 }}
@@ -137,8 +137,8 @@ impl Keep for i32 {}
 trait Run { fn run(self)->i32; }
 struct Saved { val callback:fn()->Option<i32> }
 impl Run for Saved { fn run(self)->i32 { match (self.callback)() {Some(value)=>value,None=>0} } }
-fn make()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Value(20),|value| Some(value+22))}}
-fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Stopped,|value| Some(value+22))}}
+pub fn make()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Value(20),|value| Some(value+22))}}
+pub fn make_stopped()->Run {val keeper:Keep=0; Saved {callback:keeper.keep(Carrier::Stopped,|value| Some(value+22))}}
 "#;
     let engine = KagariEngine::default();
     let program = prepare(&engine, source);
@@ -246,8 +246,8 @@ impl List<f32> for Bag {
 trait Probe { fn same(self, a: List<f32>, b: List<f32>) -> bool; }
 struct Checker {}
 impl Probe for Checker { fn same(self, a: List<f32>, b: List<f32>) -> bool { list_content_equal(a, b) } }
-fn make() -> List<f32> { Bag { value: 42.0f32 } }
-fn probe() -> Probe { Checker {} }
+pub fn make() -> List<f32> { Bag { value: 42.0f32 } }
+pub fn probe() -> Probe { Checker {} }
 "#;
     let engine = KagariEngine::default();
     let original = prepare(&engine, source);
@@ -375,8 +375,8 @@ impl Probe for Checker {
         factory.one(Item { value: 1 }, Item { value: 2 })
     }
 }
-fn make() -> Boxer { Factory {} }
-fn probe() -> Probe { Checker {} }
+pub fn make() -> Boxer { Factory {} }
+pub fn probe() -> Probe { Checker {} }
 "#;
     assert_shared_collection_comparison_reloading(source, true, |source| {
         source.replace(
@@ -422,8 +422,8 @@ impl Probe for Checker {
         list_content_equal(factory.one(Item { value: 1 }), factory.one(Item { value: 2 }))
     }
 }
-fn make() -> Boxer { Factory {} }
-fn probe() -> Probe { Checker {} }
+pub fn make() -> Boxer { Factory {} }
+pub fn probe() -> Probe { Checker {} }
 "#;
 
 fn assert_shared_collection_comparison_reloading(

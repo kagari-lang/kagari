@@ -9,8 +9,10 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::native_links::{NativeLinkError, build_native_links};
 use kagari_mir::ids::InstanceId;
 use kagari_runtime::{
-    backend::BackendInvocationError, error::RuntimeError, jit_abi::native_helper_symbols,
-    module::LoadedModule,
+    backend::BackendInvocationError,
+    error::RuntimeError,
+    jit_abi::native_helper_symbols,
+    module::{LoadedModule, entry::ProgramEntry},
 };
 use kagari_vm::vm::native::PreparedNativeEntry;
 use {
@@ -65,11 +67,11 @@ pub enum NativePreparationError {
 impl KagariRuntime {
     /// Preparation performs no script execution. Trusted backend implementations
     /// supply products; runtime installation binds them to this runtime's versions.
-    pub fn prepare_native(
+    pub fn prepare_native<'a>(
         &self,
         program: &PreparedProgram,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         backend: &mut dyn CodegenBackend,
         cancel: &CancellationToken,
     ) -> Result<PreparedNativeEntry, NativePreparationError> {
@@ -78,13 +80,11 @@ impl KagariRuntime {
         if !program.bytecode().same_version(module.verified_program()) {
             return Err(NativePreparationError::WrongVersion);
         }
-        let function = module
-            .bytecode
-            .functions
-            .iter()
-            .find(|function| function.name == entry)
-            .ok_or_else(|| NativePreparationError::MissingEntry(entry.into()))?
-            .id;
+        let entry = entry.into();
+        let (owner, function) = entry
+            .resolve(module)
+            .ok_or_else(|| NativePreparationError::MissingEntry(entry.label().into()))?;
+        let module = &owner;
         let configuration = backend.configuration();
         let unsupported = |message: String| PreparedNativeEntry::Unsupported {
             backend: configuration.backend.clone(),

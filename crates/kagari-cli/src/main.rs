@@ -13,7 +13,7 @@ use kagari_embed::{
 use kagari_runtime::{
     error::RuntimeError,
     host::{HostError, HostFunction},
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     value::Value,
 };
 use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
@@ -332,7 +332,7 @@ fn execute_entry(
 ) -> Result<ExecutionReport, CliError> {
     if !jit {
         return runtime
-            .execute(loaded, "main", &[], context)
+            .execute(loaded, ProgramEntry::Main, &[], context)
             .map_err(print_embedding_error);
     }
     execute_entry_with_jit(runtime, program, loaded, context)
@@ -348,10 +348,16 @@ fn execute_entry_with_jit(
     let mut backend = CraneliftBackend::for_host()
         .map_err(|error| CliError::message(1, format!("failed to initialize JIT: {error}")))?;
     let prepared = runtime
-        .prepare_native(program, loaded, "main", &mut backend, &context.cancellation)
+        .prepare_native(
+            program,
+            loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &context.cancellation,
+        )
         .map_err(|error| CliError::message(1, format!("native preparation failed: {error}")))?;
     runtime
-        .execute_prepared(loaded, "main", &[], context, &prepared)
+        .execute_prepared(loaded, ProgramEntry::Main, &[], context, &prepared)
         .map_err(print_embedding_error)
 }
 

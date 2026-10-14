@@ -8,8 +8,8 @@ use crate::{
 
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
-    RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, resource::RuntimeLimits,
-    session::ExecutionOptions, value::Value,
+    RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, module::entry::ProgramEntry,
+    resource::RuntimeLimits, session::ExecutionOptions, value::Value,
 };
 use kagari_types::host_interface::standard_log;
 use std::{
@@ -42,9 +42,9 @@ fn async_owned_drive_contract() {
             state.kept = [state.sum, state.kept[0]];
             state.kept
         }
-        fn spin() { while true {} }
-        fn recurse() -> i32 { recurse() }
-        fn ping() -> i32 { 7 }
+        pub fn spin() { while true {} }
+        pub fn recurse() -> i32 { recurse() }
+        pub fn ping() -> i32 { 7 }
     "#,
     );
     let ping = program.records().modules[program.records().root.index()]
@@ -81,7 +81,7 @@ fn async_owned_drive_contract() {
         .unwrap();
     let loaded = runtime.load_program("owned", program).unwrap();
     let vm = Vm::new(runtime);
-    let synchronous = vm.execute(&loaded, "main").unwrap();
+    let synchronous = vm.execute(&loaded, ProgramEntry::Main).unwrap();
     let Value::Array(expected) = synchronous.return_value.value(vm.runtime().gc()).unwrap() else {
         panic!("array output")
     };
@@ -89,10 +89,20 @@ fn async_owned_drive_contract() {
     assert_eq!(expected, vec![Value::I32(9), Value::I32(1)]);
     events.lock().unwrap().clear();
     let first = vm
-        .start(&loaded, "main", &[], ExecutionOptions::default())
+        .start(
+            &loaded,
+            ProgramEntry::Main,
+            &[],
+            ExecutionOptions::default(),
+        )
         .unwrap();
     let second = vm
-        .start(&loaded, "main", &[], ExecutionOptions::default())
+        .start(
+            &loaded,
+            ProgramEntry::Main,
+            &[],
+            ExecutionOptions::default(),
+        )
         .unwrap();
     assert!(
         events.lock().unwrap().is_empty(),
@@ -154,7 +164,7 @@ fn async_owned_drive_contract() {
     let queued = vm
         .start(
             &loaded,
-            "main",
+            ProgramEntry::Main,
             &[],
             ExecutionOptions {
                 cancellation: cancellation.clone(),
@@ -202,7 +212,12 @@ fn async_owned_drive_contract() {
     assert!(exhausted, "slicing cannot reset call-depth protection");
 
     let abandoned = vm
-        .start(&loaded, "main", &[], ExecutionOptions::default())
+        .start(
+            &loaded,
+            ProgramEntry::Main,
+            &[],
+            ExecutionOptions::default(),
+        )
         .unwrap();
     assert!(matches!(
         vm.drive(&abandoned, slice).unwrap(),
@@ -238,13 +253,13 @@ fn async_owned_drive_contract() {
 fn async_owned_drive_contract_iterator_invalidation() {
     let program = compile_test_bytecode(
         r#"
-        fn make() -> Vec<i32> { Vec::from([1, 2, 3]) }
-        fn sum(items: Vec<i32>) -> i32 {
+        pub fn make() -> Vec<i32> { Vec::from([1, 2, 3]) }
+        pub fn sum(items: Vec<i32>) -> i32 {
             var sum = 0;
             for value in items { sum += value; print("item"); }
             sum
         }
-        fn ping() -> i32 { 42 }
+        pub fn ping() -> i32 { 42 }
     "#,
     );
     let artifact = round_trip_bytecode(program);

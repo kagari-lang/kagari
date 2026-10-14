@@ -4,7 +4,6 @@ mod tasks;
 mod typed;
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},
-    module::BytecodeModule,
     program::BytecodeProgram,
 };
 use kagari_common::identity::{metadata::DefinitionMetadata, table::DefinitionId};
@@ -13,7 +12,7 @@ use kagari_runtime::{
     error::RuntimeError,
     error_trace::ResultFailure,
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     reload::ReloadValidationError,
     session::{ExecutionSession, ExecutionTrace},
     value::Value,
@@ -134,14 +133,22 @@ impl Vm {
         Ok(session)
     }
 
-    pub fn execute(&self, module: &LoadedModule, entry: &str) -> Result<ExecutionReport, VmError> {
+    /// Execute a public path or the explicitly selected zero-argument root entry.
+    pub fn execute<'a>(
+        &self,
+        module: &LoadedModule,
+        entry: impl Into<ProgramEntry<'a>>,
+    ) -> Result<ExecutionReport, VmError> {
+        let entry = entry.into();
         let _session = self.begin_execution(module)?;
         self.runtime
             .validate_loaded_module(module)
             .map_err(VmError::RuntimeError)?;
-        let entry_name = entry.to_owned();
-        let entry = find_function_ref(&module.bytecode, &entry_name)?;
-        let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
+        let entry_name = entry.label().to_owned();
+        let (module, function) = entry
+            .resolve(module)
+            .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
+        let mut executor = Executor::new(&self.runtime, &module, function, &[])?;
         let return_value = executor.run()?;
         let failure = self.runtime.result_failure(&return_value);
         let return_value = self
@@ -188,18 +195,4 @@ impl Vm {
             .map_err(VmError::RuntimeError)?;
         Executor::new_interface(&self.runtime, resolved, &args)?.run()
     }
-}
-
-fn find_function_ref(module: &BytecodeModule, name: &str) -> Result<FunctionRef, VmError> {
-    let mut matches = module
-        .functions
-        .iter()
-        .filter(|function| function.name == name);
-    let first = matches
-        .next()
-        .ok_or_else(|| VmError::MissingFunction(name.to_owned()))?;
-    if matches.next().is_some() {
-        return Err(VmError::AmbiguousFunction(name.to_owned()));
-    }
-    Ok(first.id)
 }

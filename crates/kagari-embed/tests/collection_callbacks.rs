@@ -54,7 +54,7 @@ impl Test for Tester {
     fn calls(self) -> i32 { self.state.calls }
     fn size(self) -> usize { self.left.len() }
 }
-fn make() -> Test {
+pub fn make() -> Test {
     val state = State { mode: 0, calls: 0 };
     val left: Vec<Item> = Vec::new();
     val right: Vec<Item> = Vec::new();

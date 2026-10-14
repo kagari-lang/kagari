@@ -12,6 +12,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::GcHeapConfig,
     host::HostFunction,
+    module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
         context::CallContext, declarations::FunctionDecl, module::NativeModule, types::Type,
@@ -157,7 +158,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();
             let vm = Vm::new(runtime);
-            let result = vm.execute(&loaded, "main");
+            let result = vm.execute(&loaded, ProgramEntry::Main);
             if fails {
                 assert!(
                     matches!(result, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
@@ -181,7 +182,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
 #[test]
 fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session() {
     let program = compile_test_bytecode(
-        "fn main() -> i32 { val kept = [42]; boundary::choose(true, || { host::log(\"cancel\"); kept[0] }) } fn ready() -> i32 { 7 }",
+        "fn main() -> i32 { val kept = [42]; boundary::choose(true, || { host::log(\"cancel\"); kept[0] }) } pub fn ready() -> i32 { 7 }",
     );
     for encoded in [false, true] {
         let token = CancellationToken::default();
@@ -205,7 +206,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         let session = vm.runtime().begin_execution(&loaded, options).unwrap();
 
         assert!(
-            matches!(vm.execute(&loaded, "main"), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::Cancelled)
+            matches!(vm.execute(&loaded, ProgramEntry::Main), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::Cancelled)
         );
         assert_eq!(*effects.lock().unwrap(), 1);
         assert_clean(&vm);
@@ -269,7 +270,7 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
             .unwrap();
         let mut vm = Vm::new(runtime);
         vm.attach_debug_session(debug).unwrap();
-        let error = vm.execute(&loaded, "main").unwrap_err();
+        let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         let trace = error.trace().unwrap();
         assert_eq!(trace.frames.len(), 2);
         assert_eq!(trace.frames[1].function_name, "main");
@@ -376,7 +377,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
             .unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
-            vm.execute(&loaded, "main")
+            vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -393,7 +394,7 @@ fn native_callbacks_invoke_the_retained_closure_generation_after_replacement() {
     let program = |number| {
         compile_test_bytecode(&format!(
             r#"
-fn make() -> fn() -> i32 {{ || {{ boundary::choose(true, || {number}) }} }}
+pub fn make() -> fn() -> i32 {{ || {{ boundary::choose(true, || {number}) }} }}
 fn consume(callback: fn() -> i32) -> i32 {{ boundary::choose(true, callback) }}
 fn main() -> i32 {{ host::log("invoke"); 0 }}
 "#
@@ -456,7 +457,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         );
         assert_ne!(new.key(), old_key);
         assert_eq!(
-            vm.execute(&new, "main")
+            vm.execute(&new, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -476,7 +477,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
 #[test]
 fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
     let program = compile_test_bytecode(
-        "fn main() -> i32 { boundary::choose(true, || { host::log(\"effect\"); 42 }) } fn ready() -> i32 { 7 }",
+        "fn main() -> i32 { boundary::choose(true, || { host::log(\"effect\"); 42 }) } pub fn ready() -> i32 { 7 }",
     );
     for encoded in [false, true] {
         let mut cancellations = 0;
@@ -504,7 +505,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             let vm = Vm::new(runtime);
             let session = vm.runtime().begin_execution(&loaded, options).unwrap();
             vm.runtime().attach_execution_observer().unwrap();
-            match vm.execute(&loaded, "main") {
+            match vm.execute(&loaded, ProgramEntry::Main) {
                 Ok(report) => {
                     assert_eq!(
                         report
@@ -601,7 +602,7 @@ fn native_poll_observes_cancellation_and_return_cannot_swallow_it() {
         let vm = Vm::new(runtime);
         let session = vm.runtime().begin_execution(&loaded, options).unwrap();
 
-        let error = vm.execute(&loaded, "main").unwrap_err();
+        let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         assert!(
             matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::Cancelled)
         );

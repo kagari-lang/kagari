@@ -1,6 +1,7 @@
 use super::*;
 use crate::tests::common::standard_runtime;
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_runtime::module::entry::ProgramEntry;
 
 #[test]
 fn debug_session_resolves_breakpoints_and_inspects_live_locals() {
@@ -53,7 +54,7 @@ fn main() -> i32 {
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
     let report = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect("debugged function should execute");
 
     assert_eq!(
@@ -150,7 +151,7 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session).unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -244,7 +245,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
     let error = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect_err("unreachable should trap");
 
     assert!(matches!(error.cause(), VmError::Trap("unreachable")));

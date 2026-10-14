@@ -1,5 +1,6 @@
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_runtime::module::entry::ProgramEntry;
 use std::{
     ffi::c_void,
     sync::{
@@ -18,6 +19,7 @@ use kagari_embed::{
         KagariEngine,
         source::{ArtifactOptions, NativeInputExport},
     },
+    error::{EmbeddingError, RuntimeFailureKind},
     program::{PreparedProgram, ProgramPreparationError, native::NativePreparationError},
 };
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
@@ -144,9 +146,17 @@ fn context() -> ExecutionContext {
 }
 
 fn prepare(engine: &KagariEngine, native: NativeInputExport) -> PreparedProgram {
+    prepare_source(engine, native, "fn main() {}")
+}
+
+fn prepare_source(
+    engine: &KagariEngine,
+    native: NativeInputExport,
+    source: &str,
+) -> PreparedProgram {
     let artifact = engine
         .compile_to_artifact(
-            SourceFile::new("shared", "fn main() {}"),
+            SourceFile::new("shared", source),
             ArtifactOptions {
                 native_input: native,
                 ..Default::default()
@@ -159,7 +169,11 @@ fn prepare(engine: &KagariEngine, native: NativeInputExport) -> PreparedProgram 
 #[test]
 fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
     let engine = KagariEngine::default();
-    let program = prepare(&engine, NativeInputExport::PortableMir);
+    let program = prepare_source(
+        &engine,
+        NativeInputExport::PortableMir,
+        "mod implementation { pub fn unit() {} } pub use crate::implementation::unit as run; pub use crate as again; fn main() {}",
+    );
     let copy = program.clone();
     let context = context();
     let mut a = engine.runtime(context.clone());
@@ -169,15 +183,45 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
     let mut backend = Backend::default();
     let dropped = backend.dropped.clone();
     let pa = a
-        .prepare_native(&program, &ma, "main", &mut backend, &Default::default())
+        .prepare_native(
+            &program,
+            &ma,
+            "again::run",
+            &mut backend,
+            &Default::default(),
+        )
         .unwrap();
     let pb = b
-        .prepare_native(&copy, &mb, "main", &mut backend, &Default::default())
+        .prepare_native(&copy, &mb, "again::run", &mut backend, &Default::default())
         .unwrap();
     assert_eq!(backend.calls, 1);
+    let PreparedNativeEntry::Native(installed) = &pa else {
+        panic!("native fixture should compile");
+    };
+    assert_eq!(
+        installed.module().bytecode.identity.path,
+        ["implementation"]
+    );
+    assert!(matches!(
+        a.prepare_native(&program, &ma, "main", &mut backend, &Default::default()),
+        Err(NativePreparationError::MissingEntry(name)) if name == "main"
+    ));
+    assert_eq!(backend.calls, 1);
+    let mismatch = a
+        .execute_prepared(&ma, ProgramEntry::Main, &[], &context, &pa)
+        .unwrap_err();
+    assert!(
+        matches!(mismatch, EmbeddingError::Runtime { kind: RuntimeFailureKind::BytecodeVerification, message, .. } if message.contains("different function or execution version"))
+    );
     backend.option = "alternate".into();
     let alternate = a
-        .prepare_native(&program, &ma, "main", &mut backend, &Default::default())
+        .prepare_native(
+            &program,
+            &ma,
+            "again::run",
+            &mut backend,
+            &Default::default(),
+        )
         .unwrap();
     assert_eq!(backend.calls, 2);
     drop(backend);
@@ -186,11 +230,14 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     for (runtime, module, prepared) in [(&mut a, &ma, &pa), (&mut b, &mb, &pb)] {
         let report = runtime
-            .execute_prepared(module, "main", &[], &context, prepared)
+            .execute_prepared(module, "again::run", &[], &context, prepared)
             .unwrap();
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     }
-    assert!(b.execute_prepared(&mb, "main", &[], &context, &pa).is_err());
+    assert!(
+        b.execute_prepared(&mb, "again::run", &[], &context, &pa)
+            .is_err()
+    );
     drop(pa);
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     drop(pb);
@@ -208,7 +255,13 @@ fn rejects_equal_but_distinct_versions_before_compiling() {
     let loaded = runtime.load_program(&first, Default::default()).unwrap();
     let mut backend = Backend::default();
     assert!(matches!(
-        runtime.prepare_native(&second, &loaded, "main", &mut backend, &Default::default()),
+        runtime.prepare_native(
+            &second,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default()
+        ),
         Err(NativePreparationError::WrongVersion)
     ));
     assert_eq!(backend.calls, 0);
@@ -226,7 +279,7 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
         .prepare_native(
             &bytecode,
             &loaded,
-            "main",
+            ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
@@ -235,7 +288,7 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
     assert_eq!(backend.calls, 0);
     assert_eq!(
         runtime
-            .execute_prepared(&loaded, "main", &[], &context, &missing)
+            .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &missing)
             .unwrap()
             .jit
             .unwrap()
@@ -248,7 +301,13 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
     for _ in 0..2 {
         assert!(matches!(
             runtime
-                .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
+                .prepare_native(
+                    &program,
+                    &loaded,
+                    ProgramEntry::Main,
+                    &mut backend,
+                    &Default::default()
+                )
                 .unwrap(),
             PreparedNativeEntry::Unsupported { .. }
         ));
@@ -257,7 +316,13 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
     backend.mode = 2;
     for _ in 0..2 {
         assert!(matches!(
-            runtime.prepare_native(&program, &loaded, "main", &mut backend, &Default::default()),
+            runtime.prepare_native(
+                &program,
+                &loaded,
+                ProgramEntry::Main,
+                &mut backend,
+                &Default::default()
+            ),
             Err(NativePreparationError::Compile(_))
         ));
     }
@@ -276,13 +341,19 @@ fn cancellation_discards_compilation_results_and_can_be_retried() {
         ..Default::default()
     };
     assert!(matches!(
-        runtime.prepare_native(&program, &loaded, "main", &mut backend, &cancel),
+        runtime.prepare_native(&program, &loaded, ProgramEntry::Main, &mut backend, &cancel),
         Err(NativePreparationError::Cancelled)
     ));
     assert_eq!(backend.dropped.load(Ordering::SeqCst), 1);
     backend.cancel_during_compile = None;
     runtime
-        .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
         .unwrap();
     assert_eq!(backend.calls, 2);
 }
@@ -335,18 +406,36 @@ fn bounded_cache_keeps_existing_entries_usable_after_capacity_is_reached() {
     for index in 0..4096 {
         backend.option = index.to_string();
         runtime
-            .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
+            .prepare_native(
+                &program,
+                &loaded,
+                ProgramEntry::Main,
+                &mut backend,
+                &Default::default(),
+            )
             .unwrap();
     }
     backend.option = "overflow".into();
     assert!(matches!(
-        runtime.prepare_native(&program, &loaded, "main", &mut backend, &Default::default()),
+        runtime.prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default()
+        ),
         Err(NativePreparationError::CacheLimit)
     ));
     assert_eq!(backend.calls, 4096);
     backend.option = "0".into();
     runtime
-        .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
         .unwrap();
     assert_eq!(backend.calls, 4096);
 }
@@ -361,7 +450,7 @@ fn pre_cancelled_requests_do_not_compile() {
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(matches!(
-        runtime.prepare_native(&program, &loaded, "main", &mut backend, &cancel),
+        runtime.prepare_native(&program, &loaded, ProgramEntry::Main, &mut backend, &cancel),
         Err(NativePreparationError::Cancelled)
     ));
     assert_eq!(backend.calls, 0);
@@ -382,7 +471,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         .prepare_native(
             &old_program,
             &old,
-            "main",
+            ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
@@ -395,7 +484,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         .prepare_native(
             &candidate,
             &other,
-            "main",
+            ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
@@ -418,7 +507,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         .prepare_native(
             &candidate,
             &published,
-            "main",
+            ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
@@ -428,7 +517,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         runtime.prepare_native(
             &old_program,
             &published,
-            "main",
+            ProgramEntry::Main,
             &mut backend,
             &Default::default()
         ),
@@ -436,13 +525,13 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
     ));
     assert!(
         runtime
-            .execute_prepared(&published, "main", &[], &context, &old_native)
+            .execute_prepared(&published, ProgramEntry::Main, &[], &context, &old_native)
             .is_err()
     );
     for (module, native) in [(&old, &old_native), (&published, &new_native)] {
         assert_eq!(
             runtime
-                .execute_prepared(module, "main", &[], &context, native)
+                .execute_prepared(module, ProgramEntry::Main, &[], &context, native)
                 .unwrap()
                 .jit
                 .unwrap()
@@ -452,7 +541,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
     }
     assert_eq!(
         other_runtime
-            .execute_prepared(&other, "main", &[], &context, &other_native)
+            .execute_prepared(&other, ProgramEntry::Main, &[], &context, &other_native)
             .unwrap()
             .jit
             .unwrap()

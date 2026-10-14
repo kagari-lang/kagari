@@ -1,5 +1,6 @@
 //! Failure preserves completed work and releases every temporary root/lease.
 use super::*;
+use kagari_runtime::module::entry::ProgramEntry;
 use std::sync::atomic::Ordering;
 
 fn failed_array(source: &str, expected: &[i32], calls: usize) {
@@ -17,7 +18,7 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
         .load_program("failure", program(source, &[&probe.module]))
         .unwrap();
     let vm = Vm::new(runtime);
-    assert!(vm.execute(&loaded, "main").is_err());
+    assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), calls);
     let Value::GcHandle(array) = probe
         .retained

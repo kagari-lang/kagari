@@ -3,6 +3,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     frame::ExecutionFrame,
+    module::entry::ProgramEntry,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -194,7 +195,7 @@ fn native_operation_guards_release_on_unwind() {
         Some(&native),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -219,7 +220,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
             val counter = new(); val offset = [40];
             remember(|value| value + offset[0] + bump(counter)); invoke(1)
         }
-        fn run() -> i32 { invoke(1) }
+        pub fn run() -> i32 { invoke(1) }
     "#;
     let (vm, loaded) = compile(source, Some(&native));
     vm.runtime()
@@ -229,7 +230,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         })
         .unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -289,7 +290,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
             Value::I32(44)
         );
         assert_eq!(
-            vm.execute(&replacement, "main")
+            vm.execute(&replacement, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())

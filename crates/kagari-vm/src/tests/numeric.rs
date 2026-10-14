@@ -23,8 +23,9 @@ const INTEGERS: [(&str, u32, bool); 10] = [
 
 fn check(source: &str, entries: &[String], traps: bool) {
     println!("numeric source: {source}");
-    let source_program =
-        compile_test_bytecode(&format!("{source}\nfn numeric_ready() -> bool {{ true }}"));
+    let source_program = compile_test_bytecode(&format!(
+        "{source}\npub fn numeric_ready() -> bool {{ true }}"
+    ));
     let decoded = round_trip_bytecode(source_program.clone());
     // These fixtures only use scalar locals. Install/load once per artifact
     // route; the successful probe after every entry checks independent calls
@@ -34,7 +35,7 @@ fn check(source: &str, entries: &[String], traps: bool) {
         let loaded = runtime.load_program("numeric", program).unwrap();
         let vm = Vm::new(runtime);
         for entry in entries {
-            let result = vm.execute(&loaded, entry);
+            let result = vm.execute(&loaded, entry.as_str());
             if traps {
                 assert!(
                     matches!(result, Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ScriptTrap),
@@ -83,7 +84,7 @@ fn all_integer_widths_cover_arithmetic_bits_comparisons_and_concrete_generics() 
                      && plus(a, b) == 9{ty} && (a as f64) == 6.0f64
                      {negation}
                  }}
-                 fn main_{ty}() -> bool {{ calc_{ty}(6{ty}, 3{ty}) }}\n"
+                 pub fn main_{ty}() -> bool {{ calc_{ty}(6{ty}, 3{ty}) }}\n"
         ));
         entries.push(format!("main_{ty}"));
     }
@@ -109,7 +110,7 @@ fn integer_overflow_and_zero_divisors_trap_at_every_source_width() {
         ] {
             source.push_str(&format!(
                 "fn calc_{ty}_{name}(a: {ty}, b: {ty}) -> {ty} {{ a {op} b }}
-                 fn main_{ty}_{name}() -> bool {{ calc_{ty}_{name}({left}{ty}, {right}{ty}) == 0{ty} }}\n"
+                 pub fn main_{ty}_{name}() -> bool {{ calc_{ty}_{name}({left}{ty}, {right}{ty}) == 0{ty} }}\n"
             ));
             entries.push(format!("main_{ty}_{name}"));
         }
@@ -122,7 +123,7 @@ fn integer_overflow_and_zero_divisors_trap_at_every_source_width() {
             ] {
                 source.push_str(&format!(
                     "fn calc_min_{ty}_{name}(a: {ty}, b: {ty}) -> {ty} {{ {body} }}
-                     fn main_min_{ty}_{name}() -> bool {{ calc_min_{ty}_{name}({min}{ty}, -1{ty}) == 0{ty} }}\n"
+                     pub fn main_min_{ty}_{name}() -> bool {{ calc_min_{ty}_{name}({min}{ty}, -1{ty}) == 0{ty} }}\n"
                 ));
                 entries.push(format!("main_min_{ty}_{name}"));
             }
@@ -145,7 +146,7 @@ fn floats_use_their_source_precision_and_ieee_comparisons() {
                     && nan != nan && !(nan < a) && -0.0{ty} == 0.0{ty}
                     && (a as i32) == 6
                 }}
-                fn main_{ty}() -> bool {{ calc_{ty}(6.0{ty}, 3.0{ty}) }}\n"
+                pub fn main_{ty}() -> bool {{ calc_{ty}(6.0{ty}, 3.0{ty}) }}\n"
         ));
         entries.push(format!("main_{ty}"));
     }
@@ -173,7 +174,7 @@ fn numeric_conversions_preserve_all_supported_domains() {
             .join(" && ");
         source.push_str(&format!(
             "fn calc_{ty}(a: {ty}) -> bool {{ {checks} }}
-             fn main_{ty}() -> bool {{ calc_{ty}({input}{ty}) }}\n"
+             pub fn main_{ty}() -> bool {{ calc_{ty}({input}{ty}) }}\n"
         ));
         entries.push(format!("main_{ty}"));
     }
@@ -184,7 +185,7 @@ fn numeric_conversions_preserve_all_supported_domains() {
         .join(" && ");
     source.push_str(&format!(
         "fn calc_bool(a: bool, b: bool) -> bool {{ {checks} }}
-         fn main_bool() -> bool {{ calc_bool(true, false) }}"
+         pub fn main_bool() -> bool {{ calc_bool(true, false) }}"
     ));
     entries.push("main_bool".into());
     check(&source, &entries, false);

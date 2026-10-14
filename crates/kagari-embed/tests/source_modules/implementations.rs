@@ -7,6 +7,7 @@ use kagari_bytecode::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_contract::types::PublicItem;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -65,7 +66,7 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
             .unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -115,7 +116,7 @@ fn main() -> i32 {
             .unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -204,14 +205,14 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -272,14 +273,14 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -340,14 +341,14 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -551,14 +552,14 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -653,7 +654,12 @@ fn dependency_generic_instances_follow_transitive_method_calls() {
         .load_program(&loaded_program, Default::default())
         .unwrap();
     let report = runtime
-        .execute(&loaded, "main", &[], &ExecutionContext::default())
+        .execute(
+            &loaded,
+            ProgramEntry::Main,
+            &[],
+            &ExecutionContext::default(),
+        )
         .unwrap();
     assert_eq!(
         report
@@ -712,14 +718,14 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -768,7 +774,7 @@ fn public_generic_inherent_members_execute_across_source_and_artifact_modules() 
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc()),

@@ -7,6 +7,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::GcHeapConfig,
     module::VerifiedProgram,
+    module::entry::ProgramEntry,
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -102,7 +103,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
             .load_verified_program("primitives", verified.clone())
             .unwrap();
         let vm = Vm::new(runtime);
-        let report = vm.execute(&owner, "main").unwrap();
+        let report = vm.execute(&owner, ProgramEntry::Main).unwrap();
         assert_eq!(
             report.return_value.value(vm.runtime().gc()),
             Some(Value::U64(if index == 0 { 8 } else { 82 }))

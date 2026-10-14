@@ -1,7 +1,10 @@
 //! Short host-driven activations of runtime-owned executions.
 use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::KagariRuntime};
 use kagari_runtime::{
-    gc::roots::RootedValue, module::LoadedModule, session::owned::OwnedExecution, value::Value,
+    gc::roots::RootedValue,
+    module::{LoadedModule, entry::ProgramEntry},
+    session::owned::OwnedExecution,
+    value::Value,
 };
 use kagari_vm::{error::VmError, vm::owned::DriveResult as VmDriveResult};
 use std::num::NonZeroUsize;
@@ -18,14 +21,15 @@ impl KagariRuntime {
     /// Queue a pinned entry and retain its arguments without executing its body.
     /// The baseline owned driver is interpreted. Native preparation of a resume
     /// body reports Unsupported before compilation; select this path explicitly.
-    pub fn start(
+    pub fn start<'a>(
         &self,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         arguments: &[Value],
         context: &ExecutionContext,
     ) -> RunResult<OwnedExecution> {
-        context.validate_for_execute(entry)?;
+        let entry = entry.into();
+        context.validate_for_execute(entry.label())?;
         self.vm
             .start(module, entry, arguments, context.runtime_options())
             .map_err(EmbeddingError::vm)

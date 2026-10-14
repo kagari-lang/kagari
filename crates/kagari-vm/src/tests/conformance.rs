@@ -11,6 +11,7 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
+    module::entry::ProgramEntry,
     resource::RuntimeLimits,
     value::{StructValueField, Value},
 };
@@ -42,7 +43,9 @@ fn main() -> i32 {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -85,9 +88,10 @@ fn missing_entry_is_rejected_before_execution() {
 }
 
 #[test]
-fn ambiguous_entry_is_rejected_on_all_load_routes() {
+fn public_entries_use_verified_identity_despite_duplicate_display_names() {
     let (definitions, mut bytecode) =
-        compile_test_bytecode("fn first() -> i32 { 1 } fn second() -> i32 { 2 }").into_parts();
+        compile_test_bytecode("pub fn first() -> i32 { 1 } pub fn second() -> i32 { 2 }")
+            .into_parts();
     let second = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
@@ -109,19 +113,21 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
             .unwrap();
         let vm = Vm::new(runtime);
         for jit in [false, true] {
-            let error = if jit {
-                let prepared = native_fixtures::unsupported();
-                vm.execute_prepared(&loaded, "first", &prepared)
-                    .unwrap_err()
-            } else {
-                vm.execute(&loaded, "first").unwrap_err()
-            };
-            assert!(
-                matches!(error, VmError::AmbiguousFunction(ref name) if name == "first"),
-                "{encoded}/{jit}: {error:?}"
-            );
-
-            assert_eq!(vm.runtime().gc().active_roots(), 0);
+            for (path, expected) in [("first", 1), ("second", 2)] {
+                let report = if jit {
+                    let prepared = native_fixtures::unsupported();
+                    vm.execute_prepared(&loaded, path, &prepared).unwrap()
+                } else {
+                    vm.execute(&loaded, path).unwrap()
+                };
+                assert_eq!(
+                    report.return_value.value(vm.runtime().gc()),
+                    Some(Value::I32(expected)),
+                    "{encoded}/{jit}/{path}"
+                );
+                drop(report);
+                assert_eq!(vm.runtime().gc().active_roots(), 0);
+            }
         }
     }
 }
@@ -131,7 +137,7 @@ fn interpreter_conformance_classifies_failure_paths() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val values = [1]; values[3] }");
     let vm = Vm::new(runtime);
     let error = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect_err("out of bounds index should trap");
     assert!(
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds)
@@ -154,7 +160,7 @@ fn interpreter_conformance_classifies_failure_paths() {
         .expect("module should load");
     let vm = Vm::new(runtime);
     let error = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect_err("resource limit should be classified");
     assert!(matches!(
         error,
@@ -197,7 +203,9 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
     assert_eq!(
         report
             .return_value
@@ -311,7 +319,9 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report

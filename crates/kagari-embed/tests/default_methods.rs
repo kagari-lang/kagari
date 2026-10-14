@@ -10,6 +10,7 @@ use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::identity as library;
@@ -305,7 +306,7 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -730,7 +731,7 @@ fn shared_helpers_are_materialized_in_their_declaring_module() {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

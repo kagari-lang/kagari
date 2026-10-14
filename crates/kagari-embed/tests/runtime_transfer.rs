@@ -1,6 +1,7 @@
 #![cfg(feature = "source")]
 
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use std::thread;
@@ -14,7 +15,7 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
         .compile_to_artifact(
             SourceFile::new(
                 "transfer.kgr",
-                "fn main() -> [i32] { [40] } fn healthy() -> i32 { 42 }",
+                "fn main() -> [i32] { [40] } pub fn healthy() -> i32 { 42 }",
             ),
             Default::default(),
         )
@@ -24,7 +25,7 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let root = runtime
-        .execute(&loaded, "main", &[], &context)
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap()
         .return_value;
     drop(program);

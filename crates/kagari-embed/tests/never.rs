@@ -5,16 +5,17 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{host::HostFunction, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_types::host_interface::standard_log;
 use std::sync::{Arc, Mutex};
 
-fn execute(source: &str, entry: &str, expected: i32) {
+fn execute(source: &str, entry: ProgramEntry<'_>, expected: i32) {
     execute_entries(source, &[(entry, expected)]);
 }
 
-fn execute_entries(source: &str, entries: &[(&str, i32)]) {
+fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -66,7 +67,7 @@ fn execute_entries(source: &str, entries: &[(&str, i32)]) {
                     .value(runtime.runtime().gc())
                     .expect("retained execution result"),
                 Value::I32(expected),
-                "{entry}, encoded={encoded}, jit={jit}"
+                "{entry:?}, encoded={encoded}, jit={jit}"
             );
             drop(result);
             assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -108,7 +109,7 @@ fn matrix(value: ()) -> [[i32]] { [[0]] }
             "fn run_{name}(count: Count, array: [i32]) -> i32 {{
                 var tuple = (1, true); {body}
              }}
-             fn {name}() -> i32 {{
+             pub fn {name}() -> i32 {{
                 val count = Count {{ value: 1 }}; val array = [10];
                 run_{name}(count, array) + count.value + array[0]
              }}\n"
@@ -116,7 +117,7 @@ fn matrix(value: ()) -> [[i32]] { [[0]] }
     }
     let entries: Vec<_> = cases
         .iter()
-        .map(|&(name, _, expected)| (name, expected))
+        .map(|&(name, _, expected)| (ProgramEntry::Export(name), expected))
         .collect();
     execute_entries(&source, &entries);
 }
@@ -225,7 +226,7 @@ fn never_calls_branches_and_generic_arguments() {
     execute(
         r#"
 fn fail() -> ! { val zero = 0; 1 / zero; loop {} }
-fn forever() -> ! { loop {} }
+pub fn forever() -> ! { loop {} }
 fn absurd(x: !) -> i32 { x }
 fn absurd_generic<T>(x: !) -> T { x }
 fn impossible_branch(x: !) -> i32 { if true { x } else { 1 } }
@@ -239,7 +240,7 @@ fn main() -> i32 {
 }
 
 "#,
-        "main",
+        ProgramEntry::Main,
         42,
     );
 }
@@ -288,7 +289,7 @@ fn main() -> i32 {
     contextual + next
 }
 "#,
-        "main",
+        ProgramEntry::Main,
         42,
     );
 }
@@ -305,9 +306,9 @@ fn fail(values: Vec<i32>) -> ! { values.push(20); print("before"); val zero = 0;
 fn later(values: Vec<i32>) -> i32 { print("after"); values.push(99); 99 }
 fn consume(a: i32, b: i32) -> i32 { a + b }
 fn main() -> i32 { val values = Vec::from([1]); consume(fail(values), later(values)) }
-fn forever() -> ! { loop {} }
+pub fn forever() -> ! { loop {} }
 fn impossible(value: !) -> i32 { value }
-fn healthy() -> i32 { 42 }
+pub fn healthy() -> i32 { 42 }
 "#,
             ),
             Default::default(),
@@ -347,7 +348,9 @@ fn healthy() -> i32 { 42 }
             ))
             .unwrap();
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
-        let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+        let error = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
         assert_eq!(*effects.lock().unwrap(), vec!["before"]);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -394,7 +397,7 @@ fn main() -> i32 {
     else { 42 }
 }
 "#,
-        "main",
+        ProgramEntry::Main,
         42,
     );
 }
@@ -417,7 +420,7 @@ fn main() -> i32 {
     match copied { Ok(value) => value, Err(error) => error }
 }
 "#,
-        "main",
+        ProgramEntry::Main,
         42,
     );
 }

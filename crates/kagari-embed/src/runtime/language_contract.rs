@@ -21,7 +21,7 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     gc::GcHeap,
     host::{HostError, HostFunction},
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::conversion::context::ConversionContext,
     reload::ReloadValidationError,
     resource::RuntimeLimits,
@@ -372,7 +372,13 @@ fn execute_route(
     match route {
         Route::Jit | Route::ArtifactJit => {
             let prepared = runtime
-                .prepare_native(program, loaded, "main", backend, &Default::default())
+                .prepare_native(
+                    program,
+                    loaded,
+                    ProgramEntry::Main,
+                    backend,
+                    &Default::default(),
+                )
                 .unwrap();
             if case.require_native {
                 assert!(
@@ -383,7 +389,9 @@ fn execute_route(
             }
             // Retain the VM's exact error variants in this compiler/SDK contract
             // matrix. Native preparation uses the public SDK's trusted handoff.
-            let outcome = runtime.vm.execute_prepared(loaded, "main", &prepared);
+            let outcome = runtime
+                .vm
+                .execute_prepared(loaded, ProgramEntry::Main, &prepared);
             if case.require_native
                 && let Ok(report) = &outcome
             {
@@ -394,7 +402,7 @@ fn execute_route(
             }
             outcome
         }
-        _ => runtime.vm.execute(loaded, "main"),
+        _ => runtime.vm.execute(loaded, ProgramEntry::Main),
     }
 }
 

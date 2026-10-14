@@ -13,6 +13,7 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 
@@ -73,7 +74,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -121,7 +122,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     ));
     assert_eq!(
         runtime
-            .execute(&old, "main", &[], &context)
+            .execute(&old, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -130,7 +131,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     );
     assert_eq!(
         runtime
-            .execute(&current, "main", &[], &context)
+            .execute(&current, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

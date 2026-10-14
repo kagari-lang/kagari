@@ -870,13 +870,51 @@ No format/ABI version bump is needed for these unpublished development changes.
   native/generic/member evidence, GC, cancellation, candidate isolation and reload.
   Runtime library Clippy, structure (1,147 files), formatting and diff checks pass.
   No carried failures. Full workspace/backend/feature/platform CI remains unrun.
-- Next: PK03 VM/SDK direct public host-callable paths and explicit CLI entry invocation,
-  including native preparation of exported dependency targets. Follow with
+- PK03 direct entry checkpoint: VM ordinary/typed/owned/prepared execution and SDK
+  native preparation select verified export slots through `ProgramEntry`. Strings
+  mean public paths; `Main` is the separate zero-argument root capability. The CLI
+  selects `Main` explicitly. Native compilation/cache/install matching and typed
+  conversion use the resolved member, preserving version correspondence. Removed
+  private display-name scanning and its obsolete runtime ambiguity error.
+- Source callers use explicit `Main` for script execution and public declarations
+  for other host entries. The typed native example exposes an argument-taking
+  `split_text` export; the async task example exposes `handle` and `ping`. Some
+  dynamic test helpers and low-level hand-authored bytecode fixtures still require
+  review; this checkpoint does not claim complete consumer migration.
+- Direct-entry evidence: VM `--test package_exports` passes source-free public
+  aliases/cycles, typed arguments, owned driving, fallback and private/generic path
+  rejection on root/child handles. The VM conformance case
+  `public_entries_use_verified_identity_despite_duplicate_display_names` passes
+  direct/artifact/fallback lookup despite duplicate implementation display names.
+  SDK `--test native_preparation
+  caches_products_across_runtimes_and_retains_them_after_backend_drop` passes with
+  re-exported targets, target-module assertions, private `main` rejection and
+  prepared-target mismatch rejection. Runtime/VM/SDK library Clippy passes. CLI
+  `--features jit` check and `emits_and_runs_kbc_artifacts_through_cli_pipeline`
+  pass. The four SDK dynamic-helper test targets `never`, `artifact_features`,
+  `async_execution` and `syntax_examples` compile; their runtime migration audit
+  remains pending. Structure scans 1,149 files without violations; formatting and
+  diff checks pass.
+- Carried test failure, owned by the immediate PK03 consumer follow-up:
+  `cargo test -p kagari-vm --lib executes_runtime_reflect_type_of_helper` fails with
+  `MissingFunction("main")`. Its hand-authored bytecode deliberately has no export
+  graph, canonical function identity or closed source signature. Audit other raw
+  fixtures in VM `tests/common`, `execution`, `helpers`, `jit`, `installed_access`
+  and `native_wait`: retain their actual opcode/host/GC/debugger assertions and use
+  explicit low-level executable references or correctly authored export contracts;
+  never restore a production name-scan fallback or fabricate semantic evidence.
+- Consumer follow-up also audits dynamic entry helpers in SDK `never`,
+  `artifact_features`, `operator_traits`, `iteration_traits`, `syntax_examples`,
+  `async_execution`, and VM native-boundary storage/interfaces. Literal named-entry
+  source declarations were migrated; dynamically supplied names need corresponding
+  public declarations or explicit root-entry selection. Preserve trap classifications
+  so missing-entry errors cannot falsely satisfy tests expecting script failures.
+- Next: finish that finite entry-consumer migration and its affected checks, then
   SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
   but SDK and CLI do not yet expose it. Native-provider inputs must contribute their
-  own contract fingerprint at compiler handoff. No carried compile/test failure at
-  this source integration checkpoint; exhaustive backend/feature/platform CI remains
-  unrun. No whole-workspace Cargo suite was run locally.
+  own contract fingerprint at compiler handoff. The carried raw-fixture failure is
+  not final acceptance. Full workspace/backend/feature/platform CI remains unrun;
+  no whole-workspace Cargo suite was run locally.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.

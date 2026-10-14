@@ -3,6 +3,7 @@ use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetada
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{
     host::HostFunction,
+    module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, registration::FunctionSpec,
         typed::NativeContext,
@@ -64,7 +65,9 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
         let context = ExecutionContext::default();
         let mut runtime = session.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
+        let result = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap();
         assert_eq!(
             result.return_value.value(runtime.runtime().gc()).unwrap(),
             Value::I32(answer)

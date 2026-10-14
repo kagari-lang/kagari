@@ -1,7 +1,7 @@
 //! Host entry conversion delegates to the VM's common runtime conversion scope.
 use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::KagariRuntime};
 use kagari_runtime::{
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments},
@@ -57,14 +57,15 @@ impl KagariRuntime {
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))
     }
 
-    pub fn execute_typed<A: IntoKagariArguments, R: FromKagari>(
+    pub fn execute_typed<'a, A: IntoKagariArguments, R: FromKagari>(
         &self,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
         context: &ExecutionContext,
     ) -> RunResult<R> {
-        context.validate_for_execute(entry)?;
+        let entry = entry.into();
+        context.validate_for_execute(entry.label())?;
         let _session = self
             .vm
             .runtime()

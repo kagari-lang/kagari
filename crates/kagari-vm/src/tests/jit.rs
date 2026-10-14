@@ -8,6 +8,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register},
     module::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
+        entry::ProgramEntry,
     },
 };
 use kagari_common::{
@@ -80,10 +81,10 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             assert_eq!(binding.index(), 1);
             let vm = Vm::new(runtime);
             let report = if jit {
-                vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &native_fixtures::unsupported())
                     .unwrap()
             } else {
-                vm.execute(&loaded, "main").unwrap()
+                vm.execute(&loaded, ProgramEntry::Main).unwrap()
             };
             assert_eq!(
                 report
@@ -118,7 +119,7 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
     let prepared = native_fixtures::unsupported();
 
     let report = vm
-        .execute_prepared(&loaded, "main", &prepared)
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
         .expect("unsupported JIT compilation should fall back");
 
     assert_eq!(
@@ -155,7 +156,7 @@ fn main() -> (usize, usize, i32) {
     let prepared = native_fixtures::unsupported();
 
     let report = vm
-        .execute_prepared(&loaded, "main", &prepared)
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
         .expect("unsupported JIT compilation should fall back");
 
     assert!(
@@ -184,7 +185,7 @@ fn remainder_uses_interpreter_fallback_with_identical_result() {
     let (runtime, loaded) = common::load_bytecode_program("jit_remainder", module.clone());
     let vm = Vm::new(runtime);
     let interpreted = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -193,7 +194,9 @@ fn remainder_uses_interpreter_fallback_with_identical_result() {
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_remainder", module);
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
-    let report = vm.execute_prepared(&loaded, "main", &prepared).unwrap();
+    let report = vm
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+        .unwrap();
     assert_eq!(
         report
             .return_value
@@ -229,7 +232,7 @@ fn main() -> i32 {
     let (runtime, loaded) = common::load_bytecode_program("jit_closure", module.clone());
     let vm = Vm::new(runtime);
     let interpreted = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -238,7 +241,9 @@ fn main() -> i32 {
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_closure", module);
     let vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
-    let report = vm.execute_prepared(&loaded, "main", &prepared).unwrap();
+    let report = vm
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+        .unwrap();
     assert_eq!(
         report
             .return_value
@@ -272,7 +277,7 @@ fn ordinary_interpreter_execution_has_no_jit_report() {
     let vm = Vm::new(runtime);
 
     let report = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect("interpreter execution should succeed");
 
     assert_eq!(
@@ -310,7 +315,7 @@ fn jit_native_execution_reports_installed_artifact() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, "main", &prepared)
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
         .expect("native JIT execution should succeed");
 
     assert_eq!(
@@ -352,7 +357,7 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, "main", &prepared)
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
         .expect("installed JIT implementation should execute");
 
     assert_eq!(
@@ -385,7 +390,7 @@ fn jit_debug_session_falls_back_without_safe_debug_metadata() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, "main", &prepared)
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
         .expect("debugger should force interpreter fallback when JIT metadata is missing");
 
     assert_eq!(
@@ -422,7 +427,7 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, "main", &prepared)
+        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
         .expect("metadata alone cannot supply native debug callbacks");
 
     assert_eq!(

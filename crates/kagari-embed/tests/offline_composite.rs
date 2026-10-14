@@ -8,6 +8,7 @@ use kagari_embed::{
 };
 use kagari_runtime::{
     host::{HostError, HostFunction},
+    module::entry::ProgramEntry,
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -140,14 +141,14 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         let retained = report.return_value;
@@ -311,14 +312,14 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
                     .prepare_native(
                         &loaded_program,
                         &loaded,
-                        "main",
+                        ProgramEntry::Main,
                         &mut backend,
                         &context.cancellation,
                     )
                     .unwrap();
-                runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+                runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
-                runtime.execute(&loaded, "main", &[], &context)
+                runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
             }
             .unwrap();
             assert_eq!(

@@ -2,6 +2,7 @@ use super::*;
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 use kagari_runtime::host::{HostError, HostPathAdapter, PreparedHostPathWrite};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_types::host_interface::path::{
     HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
     HostVirtualSegmentDeclaration,
@@ -136,14 +137,14 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -348,14 +349,14 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -548,14 +549,14 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                         .prepare_native(
                             &loaded_program,
                             &loaded,
-                            "main",
+                            ProgramEntry::Main,
                             &mut backend,
                             &context.cancellation,
                         )
                         .unwrap();
-                    runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+                    runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
                 } else {
-                    runtime.execute(&loaded, "main", &[], &context)
+                    runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
                 };
                 if let Some(expected) = expected {
                     result.unwrap();

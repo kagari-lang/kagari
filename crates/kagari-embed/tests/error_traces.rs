@@ -8,6 +8,7 @@ use kagari_embed::{
     program::PreparedProgram,
     runtime::LoadOptions,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{error_trace::MAX_ERROR_FRAMES, value::Value};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_vm::vm::native::PreparedNativeEntry;
@@ -26,7 +27,9 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    let error = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap_err();
     let trace = error.error_trace().unwrap();
     assert_eq!(
         trace
@@ -81,15 +84,15 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
             assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap_err();
         traces.push(error.error_trace().unwrap().clone());
@@ -138,14 +141,14 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         let failure = report.failure.unwrap();
@@ -264,7 +267,9 @@ fn main()->Result<i32,String>{recur(160)}
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
+    let report = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap();
     let trace = report.failure.unwrap().trace;
     assert_eq!(trace.frames.len(), MAX_ERROR_FRAMES);
     assert_eq!(trace.omitted_frames, 162 - MAX_ERROR_FRAMES);
@@ -292,7 +297,7 @@ fn none_and_handled_errors_do_not_become_execution_failures() {
             .unwrap();
         assert!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .failure
                 .is_none()
@@ -317,7 +322,9 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     let old = runtime
         .load_program(&old_program, Default::default())
         .unwrap();
-    let report = runtime.execute(&old, "main", &[], &context).unwrap();
+    let report = runtime
+        .execute(&old, ProgramEntry::Main, &[], &context)
+        .unwrap();
     let root = report.return_value;
     let failure = report.failure.unwrap();
     let new = runtime
@@ -329,7 +336,7 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
         )
         .unwrap();
     let new_report = runtime
-        .execute(&new, "main", &[], &context)
+        .execute(&new, ProgramEntry::Main, &[], &context)
         .unwrap()
         .failure
         .unwrap();
@@ -392,7 +399,7 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
         )
         .unwrap();
     let failure = runtime
-        .execute(&loaded, "main", &[], &context)
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap()
         .failure
         .unwrap();
@@ -426,7 +433,9 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
         .load_program(&loaded_program, Default::default())
         .unwrap();
     let cancellation = support::cancel_after(runtime.runtime(), &loaded, 10);
-    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    let error = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap_err();
     drop(cancellation);
     assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
     assert_eq!(
@@ -448,7 +457,12 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
     assert!(!runtime.runtime().is_quarantined());
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &ExecutionContext::default())
+            .execute(
+                &loaded,
+                ProgramEntry::Main,
+                &[],
+                &ExecutionContext::default()
+            )
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -517,7 +531,7 @@ fn imported_error_frames_keep_their_own_source_locations() {
         .load_program(&loaded_program, Default::default())
         .unwrap();
     let trace = runtime
-        .execute(&loaded, "main", &[], &context)
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap()
         .failure
         .unwrap()

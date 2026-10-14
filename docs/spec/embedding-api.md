@@ -531,6 +531,18 @@ preserve identity and share retention; dropping the last handle permits collecti
 `ScriptValue` forwards an exact declared generic value without erasing its type.
 Ordinary field/collection reads and callback results need no manual root operation.
 
+VM and SDK direct execution (`execute`, `execute_typed`, `start`,
+`execute_prepared`) and SDK `prepare_native` accept `ProgramEntry` from
+`kagari_runtime::module::entry`. A string converts to `ProgramEntry::Export` and
+selects only a checked public path. Use `ProgramEntry::Main` to explicitly invoke
+the root's separately verified zero-argument script entry, including a private
+`main`; the CLI does this for both interpreter and prepared native execution.
+A string `"main"` has no special visibility privilege. Re-exported paths use the
+target module for conversion, native compilation/cache keys and installed-code
+matching. Missing entries fail before script execution, and implementation display
+names do not participate in selection. Ordinary typed paths can accept arguments;
+the explicit root entry remains zero-argument.
+
 `Runtime::bind_function` resolves verified public paths from the Program root,
 including re-exports into dependencies, and returns a typed `PinnedFunction`.
 Passing a child module handle does not change that lookup root. Private declarations,

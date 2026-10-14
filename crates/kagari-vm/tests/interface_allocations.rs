@@ -26,7 +26,7 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             source.push_str(&format!("fn m{index}(self) -> i32 {{ 1 }}"));
         }
         source.push_str(
-            "} fn make() -> Bench { Worker {} } fn call(value: Bench) -> i32 { value.m0() }",
+            "} pub fn make() -> Bench { Worker {} } fn call(value: Bench) -> i32 { value.m0() }",
         );
         let mut sources = SourceDatabase::default();
         let root = sources
@@ -121,7 +121,7 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
         for index in 0..width {
             source.push_str(&format!("fn m{index}(self) -> i32 {{ 1 }}"));
         }
-        source.push_str("} fn make() -> Child { Worker {} }");
+        source.push_str("} pub fn make() -> Child { Worker {} }");
         let (vm, loaded) = load(&source);
         let declaration = loaded
             .bytecode
@@ -213,7 +213,7 @@ impl List<i32> for Sequence {
     fn is_empty(self) -> bool { self.items.is_empty() }
     fn get(self, index: usize) -> Option<i32> { self.items.get(index) }
 }
-fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
+pub fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
 "#,
     );
     let methods = ["reversed", "len"].map(|name| {

@@ -18,6 +18,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_types::{declaration::FnDecl, scalar::BuiltinType, ty::Ty};
@@ -62,7 +63,7 @@ fn execute(source: &str) {
     for _ in 0..3 {
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -278,7 +279,11 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
     let context = ExecutionContext::default();
     let mut runtime = engine(EngineConfig::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    assert!(runtime.execute(&loaded, "main", &[], &context).is_err());
+    assert!(
+        runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .is_err()
+    );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     assert_eq!(
         runtime.runtime().resources().counters().current_call_depth,
@@ -320,7 +325,7 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
             .unwrap();
         let session = runtime.runtime().begin_execution(&loaded, options).unwrap();
         runtime.runtime().attach_execution_observer().unwrap();
-        match runtime.execute(&loaded, "main", &[], &context) {
+        match runtime.execute(&loaded, ProgramEntry::Main, &[], &context) {
             Ok(report) => {
                 assert_eq!(
                     report

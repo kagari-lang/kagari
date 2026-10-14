@@ -7,7 +7,7 @@ use kagari_bytecode::{
     },
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord,
-        RootSlotLayout,
+        RootSlotLayout, entry::ProgramEntry,
     },
     program::{BytecodeProgram, ModuleRef},
 };
@@ -271,7 +271,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
         )
         .expect("module should load");
     let report = runtime
-        .execute(&loaded, "main", &[], &context)
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("entry should execute");
     assert_eq!(
         report
@@ -295,7 +295,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
 
     let report = runtime
-        .execute(&reloaded, "main", &[], &context)
+        .execute(&reloaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded entry should execute");
     assert_eq!(
         report
@@ -371,7 +371,7 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
     for _ in 0..2 {
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -383,14 +383,19 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
     context.cancellation.cancel();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err()
             .code(),
         "KG_RUNTIME_CANCELLED"
     );
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &ExecutionContext::default())
+            .execute(
+                &loaded,
+                ProgramEntry::Main,
+                &[],
+                &ExecutionContext::default()
+            )
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -437,7 +442,7 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
     );
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -535,7 +540,7 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
         .expect("module should load");
 
     let error = runtime
-        .execute(&loaded, "main", &[Value::I32(1)], &context)
+        .execute(&loaded, ProgramEntry::Main, &[Value::I32(1)], &context)
         .expect_err("argument passing is not implemented yet");
 
     assert_eq!(error.code(), "KG_RUNTIME_UNSUPPORTED_EXECUTION");
@@ -598,7 +603,7 @@ fn installed_host_path_mutation_uses_declared_access() {
 
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -653,7 +658,7 @@ fn installed_host_path_reads_need_no_permission_flags() {
 
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -707,7 +712,12 @@ fn installed_host_and_reflection_helpers_are_available() {
 
     assert_eq!(
         runtime
-            .execute(&print_module, "main", &[], &ExecutionContext::default())
+            .execute(
+                &print_module,
+                ProgramEntry::Main,
+                &[],
+                &ExecutionContext::default()
+            )
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -718,7 +728,12 @@ fn installed_host_and_reflection_helpers_are_available() {
         script_equal(
             runtime.runtime().gc(),
             &(runtime
-                .execute(&type_of_module, "main", &[], &ExecutionContext::default())
+                .execute(
+                    &type_of_module,
+                    ProgramEntry::Main,
+                    &[],
+                    &ExecutionContext::default()
+                )
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())

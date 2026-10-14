@@ -18,8 +18,8 @@ use std::collections::HashSet;
 fn program(answer: i32) -> DefinitionMetadata<BytecodeProgram> {
     with_state(compile_program(
         &format!(
-            "fn make() -> fn() -> i32 {{ val data = [{answer}]; || data[0] }} \
-             fn answer() -> i32 {{ {answer} }}"
+            "pub fn make() -> fn() -> i32 {{ val data = [{answer}]; || data[0] }} \
+             pub fn answer() -> i32 {{ {answer} }}"
         ),
         None,
     ))
@@ -42,7 +42,7 @@ fn generic_program() -> DefinitionMetadata<BytecodeProgram> {
         "use std::cmp::Ordering; \
          trait Keep { fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool { a.cmp(b); || a.cmp(b) == Ordering::Less } } \
          impl Keep for i32 {} \
-         fn make() -> fn() -> bool { val keeper: Keep = 0; keeper.keep(1, 2) }",
+         pub fn make() -> fn() -> bool { val keeper: Keep = 0; keeper.keep(1, 2) }",
         None,
     ))
 }

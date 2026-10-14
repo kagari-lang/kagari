@@ -3,13 +3,13 @@ use kagari_abi::native::BackendId;
 use kagari_runtime::{
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeError,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
 };
 
 use crate::{
     error::VmError,
     executor::Executor,
-    vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm, find_function_ref},
+    vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm},
 };
 
 /// A preparation result, with no compiler or MIR types in the VM contract.
@@ -27,15 +27,19 @@ pub enum PreparedNativeEntry {
 impl Vm {
     /// Execute already-prepared code or an explicit pre-entry fallback decision.
     /// This method never compiles and never restarts a partially executed native call.
-    pub fn execute_prepared(
+    pub fn execute_prepared<'a>(
         &self,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         prepared: &PreparedNativeEntry,
     ) -> Result<ExecutionReport, VmError> {
         let session = self.begin_execution(module)?;
         self.runtime.validate_loaded_module(module)?;
-        let function = find_function_ref(&module.bytecode, entry)?;
+        let entry = entry.into();
+        let (owner, function) = entry
+            .resolve(module)
+            .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
+        let module = &owner;
         let (backend, artifact, mut diagnostics) = match prepared {
             PreparedNativeEntry::Native(installed) => {
                 self.runtime.validate_loaded_module(installed.module())?;
@@ -100,7 +104,7 @@ impl Vm {
         Ok(ExecutionReport {
             module_name: module.name.clone(),
             epoch: module.epoch.0,
-            entry: entry.to_owned(),
+            entry: entry.label().to_owned(),
             failure,
             return_value,
             jit: Some(JitExecutionReport {

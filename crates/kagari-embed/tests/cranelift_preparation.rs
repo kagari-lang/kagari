@@ -5,6 +5,7 @@ use kagari_embed::{
     engine::{KagariEngine, source::ArtifactOptions},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -41,7 +42,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             .prepare_native(
                 &program,
                 &loaded,
-                "main",
+                ProgramEntry::Main,
                 &mut CraneliftBackend::for_host().unwrap(),
                 &context.cancellation,
             )
@@ -50,7 +51,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
 
         drop(program);
         let report = runtime
-            .execute_prepared(&loaded, "main", &[], &context, &prepared)
+            .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             .unwrap();
         assert_eq!(
             report
@@ -101,7 +102,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
             .prepare_native(
                 &program,
                 &loaded,
-                "main",
+                ProgramEntry::Main,
                 &mut CraneliftBackend::for_host().unwrap(),
                 &context.cancellation,
             )
@@ -109,7 +110,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
         assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
 
         let report = runtime
-            .execute_prepared(&loaded, "main", &[], &context, &prepared)
+            .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             .unwrap();
         assert_eq!(
             report
@@ -180,7 +181,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         .prepare_native(
             &old_program,
             &old,
-            "main",
+            ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
@@ -197,7 +198,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         .prepare_native(
             &candidate,
             &current,
-            "main",
+            ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
@@ -207,7 +208,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     drop(candidate);
     // Publication and later compilation must not replace the old function's pages.
     let report = runtime
-        .execute_prepared(&old, "main", &[], &context, &old_native)
+        .execute_prepared(&old, ProgramEntry::Main, &[], &context, &old_native)
         .unwrap();
     assert_eq!(
         report
@@ -226,7 +227,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             .unwrap();
         let collections = runtime.runtime().gc().stats().collections;
         let report = runtime
-            .execute_prepared(module, "main", &[], &context, native)
+            .execute_prepared(module, ProgramEntry::Main, &[], &context, native)
             .unwrap();
         assert_eq!(
             report

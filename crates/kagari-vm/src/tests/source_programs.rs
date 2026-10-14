@@ -11,6 +11,7 @@ use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::{ModuleIdentity, PackageId, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{RuntimeConfig, error::RuntimeErrorKind, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
@@ -63,9 +64,13 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                 let loaded = runtime.load_program("root", program.clone()).unwrap();
                 let vm = Vm::new(runtime);
                 let report = if jit {
-                    vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
+                    vm.execute_prepared(
+                        &loaded,
+                        ProgramEntry::Main,
+                        &native_fixtures::unsupported(),
+                    )
                 } else {
-                    vm.execute(&loaded, "main")
+                    vm.execute(&loaded, ProgramEntry::Main)
                 };
                 if overflow {
                     assert!(
@@ -114,7 +119,7 @@ fn cross_module_debug_frames_keep_their_member_identity() {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session).unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())

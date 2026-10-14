@@ -9,7 +9,7 @@ use kagari_runtime::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{GcHeapConfig, roots::RootedValue},
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::{
         binding::{NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -95,7 +95,7 @@ fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles()
     "#,
         &module.finish().unwrap(),
     );
-    let values: ScriptVec<i32> = vm.execute_typed(&loaded, "main", ()).unwrap();
+    let values: ScriptVec<i32> = vm.execute_typed(&loaded, ProgramEntry::Main, ()).unwrap();
     vm.runtime().collect_garbage().unwrap();
     let mut cx = NativeContext::new(vm.runtime(), &loaded).unwrap();
     assert_eq!(values.len(&cx).unwrap(), 3);
@@ -187,7 +187,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     assert!(
         script_equal(
             vm.runtime().gc(),
-            &(vm.execute(&loaded, "main")
+            &(vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -259,7 +259,7 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
         &module,
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -302,7 +302,7 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
         &module,
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -386,12 +386,12 @@ fn invalid_typed_registration_is_atomic_and_failed_output_preserves_callback_eff
         r#"
         use example::typed::{broken, trap};
         fn main() -> i32 { broken() }
-        fn fails() { trap(); }
-        fn healthy() -> i32 { 42 }
+        pub fn fails() { trap(); }
+        pub fn healthy() -> i32 { 42 }
     "#,
         &module,
     );
-    assert!(vm.execute(&loaded, "main").is_err());
+    assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(effects.load(Ordering::SeqCst), 1);
     assert!(vm.execute(&loaded, "fails").is_err());
     assert_eq!(
@@ -437,10 +437,10 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     .unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
-        fn echo(value: Result<Option<Vec<(String, i32)>>, String>) -> Result<Option<Vec<(String, i32)>>, String> { value }
-        fn retain(value: Vec<i32>) -> Vec<i32> { value }
-        fn tuple(value: (i32, i32)) -> (i32, i32) { value }
-        fn unit() {}
+        pub fn echo(value: Result<Option<Vec<(String, i32)>>, String>) -> Result<Option<Vec<(String, i32)>>, String> { value }
+        pub fn retain(value: Vec<i32>) -> Vec<i32> { value }
+        pub fn tuple(value: (i32, i32)) -> (i32, i32) { value }
+        pub fn unit() {}
     "#,
         &module,
     );
@@ -509,7 +509,7 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
     let (vm, loaded) = source_free_vm(
         r#"
         use example::typed::effect;
-        fn run(value: i32) -> i32 { effect(); value }
+        pub fn run(value: i32) -> i32 { effect(); value }
     "#,
         &module,
     );
@@ -545,8 +545,8 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     .unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
-        fn make() -> Vec<i32> { val values = Vec::new(); values.push(42); values }
-        fn idle() {}
+        pub fn make() -> Vec<i32> { val values = Vec::new(); values.push(42); values }
+        pub fn idle() {}
     "#,
         &module,
     );
@@ -590,13 +590,13 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
         .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = source_free_vm(
-        "use example::typed::gather; fn main() -> Vec<i32> { gather() } fn healthy() -> i32 { 42 }",
+        "use example::typed::gather; fn main() -> Vec<i32> { gather() } pub fn healthy() -> i32 { 42 }",
         &module,
     );
     let mut options = vm.runtime().execution_options();
     options.cancellation = cancellation;
     let session = vm.runtime().begin_execution(&loaded, options).unwrap();
-    assert!(vm.execute(&loaded, "main").is_err());
+    assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(steps.load(Ordering::SeqCst), 3);
     drop(session);
     assert_eq!(

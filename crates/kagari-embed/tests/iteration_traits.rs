@@ -14,7 +14,8 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::{
-    native::conversion::context::ConversionContext, session::ExecutionOptions, value::Value,
+    module::entry::ProgramEntry, native::conversion::context::ConversionContext,
+    session::ExecutionOptions, value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_types::{
@@ -140,14 +141,14 @@ fn execute(source: &str) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -238,11 +239,11 @@ fn native_iterators_validate_revisions_and_survive_gc_and_failure() {
             SourceFile::new(
                 "iterator-resources.kgr",
                 r#"
-fn fail()->i32{val a=Vec::from([20]);for x in a {a.push(1);}0}
-fn nested()->i32{val a=Vec::from([20]);for x in a {for y in a {break;}a.push(1);}0}
-fn manual()->i32{val a=Vec::from([20]);val c=a.iter();c.next();a.push(1);c.next();0}
-fn trap()->i32{val a=Vec::from([20]);for x in a {return x/0;}0}
-fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
+pub fn fail()->i32{val a=Vec::from([20]);for x in a {a.push(1);}0}
+pub fn nested()->i32{val a=Vec::from([20]);for x in a {for y in a {break;}a.push(1);}0}
+pub fn manual()->i32{val a=Vec::from([20]);val c=a.iter();c.next();a.push(1);c.next();0}
+pub fn trap()->i32{val a=Vec::from([20]);for x in a {return x/0;}0}
+pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
 "#,
             ),
             Default::default(),

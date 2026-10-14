@@ -8,6 +8,7 @@ use kagari_embed::{
     program::PreparedProgram,
     runtime::LoadOptions,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{host::HostFunction, value::Value};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::host_interface::{
@@ -190,14 +191,14 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                     .prepare_native(
                         &loaded_program,
                         &loaded,
-                        "main",
+                        ProgramEntry::Main,
                         backend,
                         &context.cancellation,
                     )
                     .unwrap();
-                runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+                runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
-                runtime.execute(&loaded, "main", &[], &context)
+                runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
             }
             .unwrap();
             assert_eq!(
@@ -280,7 +281,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     assert!(calls.lock().unwrap().is_empty());
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

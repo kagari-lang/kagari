@@ -2,7 +2,8 @@
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_runtime::{
-    Runtime, module::VerifiedProgram, native::module::NativeModule, value::Value,
+    Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
+    value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
@@ -168,7 +169,7 @@ fn main() {
     );
     let vm = Vm::new(first_runtime);
     assert!(matches!(
-        vm.execute(&first, "main")
+        vm.execute(&first, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())

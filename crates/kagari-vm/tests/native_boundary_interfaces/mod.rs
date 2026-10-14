@@ -5,6 +5,7 @@ use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
+    module::entry::ProgramEntry,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -80,7 +81,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
             val value: Item = source.identity(Item { value: 21 });
             value.value + source.identity(21)
         }
-        fn overridden() -> i32 { val source: Identity<i32> = 1; source.identity(42) }
+        pub fn overridden() -> i32 { val source: Identity<i32> = 1; source.identity(42) }
         struct Holder<T> { val value: T }
         impl<T> Identity<Option<T>> for Holder<T> {}
         trait Relay {
@@ -92,7 +93,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
             }
         }
         impl Relay for i32 {}
-        fn nested() -> i32 {
+        pub fn nested() -> i32 {
             val relay: Relay = 0;
             relay.relay(Item { value: 42 }).value
         }
@@ -102,7 +103,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
             }
         }
         impl BoundedRelay for i32 {}
-        fn bounded() -> i32 {
+        pub fn bounded() -> i32 {
             val relay: BoundedRelay = 0;
             val value = relay.invoke(Number {}, Item { value: 21 });
             relay.invoke(0, value).value * 2
@@ -139,7 +140,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     let loaded = runtime.load_program("shared-native", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -216,11 +217,11 @@ fn registered_default_calls_the_selected_receiver_operation() {
         impl Read for Number { fn read(self) -> i32 { 21 } }
         fn main() -> i32 { Number {}.twice() }
         fn dynamic(value: Read) -> i32 { value.twice() }
-        fn run_dynamic() -> i32 { dynamic(Number {}) }
+        pub fn run_dynamic() -> i32 { dynamic(Number {}) }
         "#,
         Some(&module),
     );
-    for entry in ["main", "run_dynamic"] {
+    for entry in [ProgramEntry::Main, ProgramEntry::Export("run_dynamic")] {
         assert_eq!(
             vm.execute(&loaded, entry)
                 .unwrap()
@@ -247,7 +248,7 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -272,7 +273,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     let loaded = runtime.load_program("round-trip", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -352,12 +353,12 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
             val view: List<i32> = values;
             for item in view { values.push(item); }
         }
-        fn trap() { mutate(Vec::from([1, 2])); }
+        pub fn trap() { mutate(Vec::from([1, 2])); }
     "#,
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -366,7 +367,7 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
     );
     assert!(vm.execute(&loaded, "trap").is_err());
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -405,7 +406,7 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -442,7 +443,7 @@ fn default_map_and_set_iterate_through_readonly_parent_views() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -524,7 +525,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     let loaded = runtime.load_program("native-constraint", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -561,7 +562,7 @@ fn main() -> i32 {
     let loaded = runtime.load_program("shared-helper", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -633,10 +634,10 @@ trait Forward { fn forward<T>(self, value: T) -> T { singleton(identity(value))[
 struct Source {}
 impl Forward for Source {}
 struct Item { val value: i32 }
-fn receiver() -> Forward { Source {} }
+pub fn receiver() -> Forward { Source {} }
 trait Run { fn run(self, source: Forward) -> i32 { source.forward(Item { value: 42 }).value } }
 impl Run for i32 {}
-fn runner() -> Run { 7 }
+pub fn runner() -> Run { 7 }
 "#;
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
@@ -773,7 +774,7 @@ fn main() -> i32 {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -849,7 +850,7 @@ fn main() -> i32 {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())

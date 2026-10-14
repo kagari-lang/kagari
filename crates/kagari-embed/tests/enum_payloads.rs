@@ -6,7 +6,7 @@ use kagari_contract::types::PublicItem;
 use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{
     error::RuntimeErrorKind,
-    module::{EnumVariantRef, LoadedModule},
+    module::{EnumVariantRef, LoadedModule, entry::ProgramEntry},
     reflection,
     value::{EnumTag, Value},
     value_semantics::script_equal,
@@ -61,7 +61,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     let option = variant(&loaded, "Option");
     let holder = variant(&loaded, "Holder");
     let report = runtime
-        .execute(&loaded, "main", &[], &Default::default())
+        .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
         .unwrap();
     let root = report.return_value;
     let Value::Enum(handle) = root
@@ -244,7 +244,7 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &Default::default())
+            .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -338,7 +338,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     // The original entry remains usable after rejection.
     assert!(
         runtime
-            .execute(&loaded, "main", &[], &Default::default())
+            .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .is_ok()
     );
     let body_edit = compile(&engine, &source.replace("{ 42 }", "{ 43 }"));

@@ -7,6 +7,7 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
@@ -30,7 +31,7 @@ fn execute(source: &str) {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &Default::default())
+            .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -177,7 +178,7 @@ fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &Default::default())
+                .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())

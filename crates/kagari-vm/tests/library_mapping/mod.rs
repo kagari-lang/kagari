@@ -1,5 +1,6 @@
 use super::{Probe, program, run};
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, language::Protocol};
@@ -77,7 +78,7 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
         .load_program("map", program(source, &[&library, &probe.module]))
         .unwrap();
     let vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
+    let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
     assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
     let Value::GcHandle(array) = probe
         .retained
@@ -111,7 +112,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let probe = Probe::new();
     let source = r#"
          use test::probe::tick;
-        fn make() -> Iterator<Item = (i32,i32)> {
+        pub fn make() -> Iterator<Item = (i32,i32)> {
             Vec::from([100,200]).map(|item| item).zip(Vec::from([10,20]).map(|item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 }))
         }
     "#;
@@ -178,7 +179,7 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
         &mut runtime,
     )
     .unwrap();
-    let loaded = runtime.load_program("map", program(r#"struct Source { var done: bool } impl Iterator for Source { type Item=i32; fn next(self)->Option<i32> { if self.done { None } else { self.done=true; Some(42) } } } fn make()->Iterator<Item=i32> { Source { done:false }.map(|item|item) }"#, &[&library])).unwrap();
+    let loaded = runtime.load_program("map", program(r#"struct Source { var done: bool } impl Iterator for Source { type Item=i32; fn next(self)->Option<i32> { if self.done { None } else { self.done=true; Some(42) } } } pub fn make()->Iterator<Item=i32> { Source { done:false }.map(|item|item) }"#, &[&library])).unwrap();
     let vm = Vm::new(runtime);
     let iterator = vm
         .execute(&loaded, "make")
@@ -236,7 +237,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         .load_program("map", program(source, &[&library]))
         .unwrap();
     let vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
+    let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
     assert!(
         format!("{error:?}").contains("recursive next on the same lazy iterator"),
         "{error:?}"
@@ -264,7 +265,7 @@ impl Iterator for Source {
         match value { Some(item)=>Some(item+bias()), None=>None }
     }
 }
-fn make()->Iterator<Item=(i32,i32)> {
+pub fn make()->Iterator<Item=(i32,i32)> {
     val offset=Vec::from([1]);
     Source { values:Vec::from([10,20]),position:0usize }.map(|item|item+offset[0])
         .zip(Source {values:Vec::from([30,40]),position:0usize}.map(|item|item+offset[0]))

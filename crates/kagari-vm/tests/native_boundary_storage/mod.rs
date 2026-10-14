@@ -2,6 +2,7 @@ use crate::{compile, publish_unused_version};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::{GcHeap, GcObjectKind, HeapObjectId},
+    module::entry::ProgramEntry,
     range::index_bound,
     reflection,
     value::{Value, ValueCategory},
@@ -13,9 +14,9 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
     let (vm, loaded) = compile(
         r#"use core::ops::Bound;
         enum ForeignBound { Unbounded }
-        fn valid() -> Bound<usize> { Bound::Unbounded }
-        fn wrong_argument() -> Bound<i32> { Bound::Unbounded }
-        fn wrong_owner() -> ForeignBound { ForeignBound::Unbounded }
+        pub fn valid() -> Bound<usize> { Bound::Unbounded }
+        pub fn wrong_argument() -> Bound<i32> { Bound::Unbounded }
+        pub fn wrong_owner() -> ForeignBound { ForeignBound::Unbounded }
         "#,
         None,
     );
@@ -61,7 +62,7 @@ fn assigns_stable_object_identity_and_kind() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -112,7 +113,7 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
         None,
     );
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -168,7 +169,7 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
         None,
     );
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -222,7 +223,7 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -285,7 +286,7 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
         None,
     );
     let Value::GcHandle(array) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -312,7 +313,7 @@ fn removal_results_distinguish_absence_from_stale_handle_errors() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -389,7 +390,7 @@ fn native_array_helpers_mutate_and_return_options() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -437,7 +438,7 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -488,7 +489,7 @@ fn collection_revisions_distinguish_replacements_from_structural_writes() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -543,7 +544,7 @@ fn native_map_and_set_allocations_update_resource_counters() {
         None,
     );
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -586,7 +587,7 @@ use std::hash::{Hash};
     "#,
         None,
     );
-    vm.execute(&loaded, "main").unwrap();
+    vm.execute(&loaded, ProgramEntry::Main).unwrap();
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(vm.runtime().gc().allocated_objects(), 0);

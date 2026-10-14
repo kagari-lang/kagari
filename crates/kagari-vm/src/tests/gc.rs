@@ -11,7 +11,8 @@ use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, gc::GcHeapConfig, resource::RuntimeLimits, value::Value,
+    Runtime, RuntimeConfig, gc::GcHeapConfig, module::entry::ProgramEntry, resource::RuntimeLimits,
+    value::Value,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -30,7 +31,7 @@ fn runtime() -> Runtime {
 #[test]
 fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints() {
     let module = compile_test_bytecode(
-        "fn make() -> [i32] { [42] } fn main() -> [i32] { val kept = make(); val other = [1, 2]; kept }",
+        "pub fn make() -> [i32] { [42] } fn main() -> [i32] { val kept = make(); val other = [1, 2]; kept }",
     );
     for encoded in [false, true] {
         for jit in [false, true] {
@@ -44,10 +45,10 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             let loaded = runtime.load_program("gc.kgr", program).unwrap();
             let vm = Vm::new(runtime);
             let report = if jit {
-                vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &native_fixtures::unsupported())
                     .unwrap()
             } else {
-                vm.execute(&loaded, "main").unwrap()
+                vm.execute(&loaded, ProgramEntry::Main).unwrap()
             };
             let Value::Array(array) = report
                 .return_value
@@ -97,7 +98,7 @@ fn main() -> i32 {
     let mut runtime = runtime();
     let loaded = runtime.load_program("closure_gc.kgr", module).unwrap();
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").unwrap();
+    let report = vm.execute(&loaded, ProgramEntry::Main).unwrap();
     assert_eq!(
         report
             .return_value
@@ -112,7 +113,7 @@ fn main() -> i32 {
 
 #[test]
 fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
-    let module = compile_test_bytecode("fn make() -> fn() -> i32 { || 42 }");
+    let module = compile_test_bytecode("pub fn make() -> fn() -> i32 { || 42 }");
     let foreign_runtime = runtime();
     let mut owner_runtime = runtime();
     let loaded = owner_runtime
@@ -163,8 +164,8 @@ fn malformed_closure_function_is_rejected_before_execution() {
 
 #[test]
 fn rooted_closure_retains_its_old_program_after_new_publish() {
-    let old = compile_test_bytecode("fn make() -> fn() -> i32 { || 41 }");
-    let new = compile_test_bytecode("fn make() -> fn() -> i32 { || 42 }");
+    let old = compile_test_bytecode("pub fn make() -> fn() -> i32 { || 41 }");
+    let new = compile_test_bytecode("pub fn make() -> fn() -> i32 { || 42 }");
     let mut runtime = runtime();
     let loaded = runtime.load_program("closure_epoch.kgr", old).unwrap();
     let mut vm = Vm::new(runtime);
@@ -203,7 +204,9 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let native =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
     let vm = Vm::new(runtime);
-    let report = vm.execute_prepared(&loaded, "main", &native).unwrap();
+    let report = vm
+        .execute_prepared(&loaded, ProgramEntry::Main, &native)
+        .unwrap();
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     assert_eq!(
         report
@@ -223,7 +226,7 @@ fn traps_release_frame_roots_and_call_depth() {
         let mut runtime = runtime();
         let loaded = runtime.load_program("gc.kgr", module.clone()).unwrap();
         let vm = Vm::new(runtime);
-        assert!(vm.execute(&loaded, "main").is_err());
+        assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
         assert_eq!(vm.runtime().gc().active_roots(), 0);
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
         vm.runtime().collect_garbage().unwrap();
@@ -249,7 +252,7 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
         .unwrap();
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session).unwrap();
-    vm.execute(&loaded, "main").unwrap();
+    vm.execute(&loaded, ProgramEntry::Main).unwrap();
     let binding = vm
         .debug_session()
         .unwrap()
@@ -293,7 +296,7 @@ fn main() -> i32 {
     let mut runtime = runtime();
     let loaded = runtime.load_program("growing_windows", program).unwrap();
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").unwrap();
+    let report = vm.execute(&loaded, ProgramEntry::Main).unwrap();
     assert_eq!(
         report.return_value.value(vm.runtime().gc()),
         Some(Value::I32(74))

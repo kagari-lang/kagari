@@ -9,6 +9,7 @@ use crate::{
     vm::Vm,
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{RuntimeConfig, host::HostFunction, value::Value};
 use kagari_types::host_interface::standard_log;
 
@@ -71,9 +72,9 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             vm.attach_debug_session(debug).unwrap();
             let prepared = native_fixtures::unsupported();
             let report = if jit {
-                vm.execute_prepared(&loaded, "main", &prepared)
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
             } else {
-                vm.execute(&loaded, "main")
+                vm.execute(&loaded, ProgramEntry::Main)
             }
             .unwrap();
             assert_eq!(

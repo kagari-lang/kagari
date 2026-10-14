@@ -11,6 +11,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -55,14 +56,14 @@ fn execute(source: &str) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -230,7 +231,7 @@ impl Fn<(i32,)> for Failure { type Output=i32;
  fn call(self, args:(i32,))->i32 { val zero = 0; args[0] / zero }
 }
 fn main(){ val mapped = Vec::from([1]).map(Failure{}); mapped.next(); }
-fn healthy()->i32{42}
+pub fn healthy()->i32{42}
 "#,
             ),
             Default::default(),
@@ -243,7 +244,11 @@ fn healthy()->i32{42}
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    assert!(runtime.execute(&loaded, "main", &[], &context).is_err());
+    assert!(
+        runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .is_err()
+    );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     assert_eq!(
         runtime

@@ -10,6 +10,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_types::ty::Ty;
 use std::sync::{
     Arc,
@@ -88,7 +89,7 @@ fn portable_artifact_executes_without_source_compilation() {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -266,7 +267,7 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -395,10 +396,16 @@ mod native {
         let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let prepared = runtime
-            .prepare_native(&program, &loaded, "main", &mut Backend, &Default::default())
+            .prepare_native(
+                &program,
+                &loaded,
+                ProgramEntry::Main,
+                &mut Backend,
+                &Default::default(),
+            )
             .unwrap();
         let report = runtime
-            .execute_prepared(&loaded, "main", &[], &context, &prepared)
+            .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             .unwrap();
         assert_eq!(
             report
@@ -427,14 +434,14 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
         .prepare_native(
             &program,
             &loaded,
-            "main",
+            ProgramEntry::Main,
             &mut CraneliftBackend::for_host().unwrap(),
             &Default::default(),
         )
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
     let report = runtime
-        .execute_prepared(&loaded, "main", &[], &context, &prepared)
+        .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         .unwrap();
     assert_eq!(
         report

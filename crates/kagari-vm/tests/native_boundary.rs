@@ -6,7 +6,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     gc::mutations::PreparedCollectionCommit,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -129,7 +129,7 @@ fn scalar_function_executes_through_the_checked_registration() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -158,10 +158,10 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
         .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = compile(
-        "use example::bad::broken; fn main() -> i32 { broken() } fn healthy() -> i32 { 42 }",
+        "use example::bad::broken; fn main() -> i32 { broken() } pub fn healthy() -> i32 { 42 }",
         Some(&module),
     );
-    assert!(vm.execute(&loaded, "main").is_err());
+    assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(
         vm.execute(&loaded, "healthy")
             .unwrap()
@@ -190,7 +190,7 @@ fn foundation_defaults_execute_without_optional_modules() {
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -223,7 +223,7 @@ use std::hash::{Hash};
         None,
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -297,11 +297,11 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         trait Runner { fn run<T: Step>(self, item: T) -> i32 { repeat(item, 3) } }
         struct Source {}
         impl Runner for Source {}
-        fn shared() -> i32 { val source: Runner = Source {}; source.run(Counter { amount: 14 }) }
+        pub fn shared() -> i32 { val source: Runner = Source {}; source.run(Counter { amount: 14 }) }
     "#,
         Some(&module),
     );
-    for entry in ["main", "shared"] {
+    for entry in [ProgramEntry::Main, ProgramEntry::Export("shared")] {
         assert_eq!(
             vm.execute(&loaded, entry)
                 .unwrap()
@@ -408,11 +408,11 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, loaded) = compile(
-        "use example::objects::{Counter, new, read}; fn main() -> Counter<i32> { new() } fn answer() -> i32 { read(new()) }",
+        "use example::objects::{Counter, new, read}; fn main() -> Counter<i32> { new() } pub fn answer() -> i32 { read(new()) }",
         Some(&module),
     );
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -517,7 +517,7 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -571,7 +571,7 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -650,17 +650,17 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
             if transform(1, values, 2) != 42 { return -2; }
             if alias[0] == 20 && alias[1] == 22 { 42 } else { -3 }
         }
-        fn guarded() -> i32 {
+        pub fn guarded() -> i32 {
             val values = Vec::from([1, 2]);
             for value in values { transform(1, values, value); }
             0
         }
-        fn healthy() -> i32 { transform(1, Vec::from([9, 10]), 2) }
+        pub fn healthy() -> i32 { transform(1, Vec::from([9, 10]), 2) }
     "#,
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -681,7 +681,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
 #[test]
 fn typed_sequence_bulk_changes_validate_before_committing_and_trace_reference_elements() {
     let (vm, loaded) = compile(
-        "struct Node { val value: i32 } fn values() -> Vec<i32> { Vec::from([1, 2, 3, 4]) } fn nodes() -> Vec<Node> { Vec::from([Node { value: 42 }]) }",
+        "struct Node { val value: i32 } pub fn values() -> Vec<i32> { Vec::from([1, 2, 3, 4]) } pub fn nodes() -> Vec<Node> { Vec::from([Node { value: 42 }]) }",
         None,
     );
     let value = vm
@@ -863,7 +863,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
         format!("use example::scalar_arrays::*; fn main() -> bool {{ {statements} true }}");
     let (vm, loaded) = compile(&source, Some(&module));
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -913,11 +913,11 @@ use std::hash::{Hash};
         }
         impl Eq for Key {}
         impl Hash for Key { fn hash(self) -> i64 { collect() } }
-        fn failing() -> i32 {
+        pub fn failing() -> i32 {
             val map = HashMap::new();
             map.insert(Key { value: 99 }, 1); map.insert(Key { value: 1 }, 2); 0
         }
-        fn healthy() -> i32 {
+        pub fn healthy() -> i32 {
             val map = HashMap::new();
             map.insert(Key { value: 1 }, 20); map.insert(Key { value: 2 }, 22);
             val set = HashSet::new();
@@ -958,10 +958,10 @@ use std::hash::{Hash};
         impl PartialEq for Key { fn eq(self, other: Key) -> bool { self.value == other.value } }
         impl Eq for Key {}
         impl Hash for Key { fn hash(self) -> i64 { 7 } }
-        fn empty_map() -> HashMap<i32, i32> { HashMap::new() }
-        fn empty_set() -> HashSet<i32> { HashSet::new() }
-        fn custom() -> HashMap<Key, i32> { HashMap::new() }
-        fn key() -> Key { Key { value: 1 } }
+        pub fn empty_map() -> HashMap<i32, i32> { HashMap::new() }
+        pub fn empty_set() -> HashSet<i32> { HashSet::new() }
+        pub fn custom() -> HashMap<Key, i32> { HashMap::new() }
+        pub fn key() -> Key { Key { value: 1 } }
     "#,
         None,
     );
@@ -1057,9 +1057,9 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
         r#"use std::iter::{CollectionCursor};
 
         use example::cursors::hold;
-        fn cursor() -> CollectionCursor<i32> { [20, 22].iter() }
-        fn first() -> i32 { match hold().next() { Some(value) => value, None => -1 } }
-        fn rest() -> i32 { var total = 0; for value in hold() { total = total + value; } total }
+        pub fn cursor() -> CollectionCursor<i32> { [20, 22].iter() }
+        pub fn first() -> i32 { match hold().next() { Some(value) => value, None => -1 } }
+        pub fn rest() -> i32 { var total = 0; for value in hold() { total = total + value; } total }
     "#,
         Some(&module),
     );
@@ -1173,8 +1173,8 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         r#"
         use example::provided::{Counter, new, read, missing_payload};
         fn main() -> Counter { new(Vec::from([42])) }
-        fn healthy() -> i32 { read(new(Vec::from([42]))) }
-        fn invalid() -> Counter { missing_payload() }
+        pub fn healthy() -> i32 { read(new(Vec::from([42]))) }
+        pub fn invalid() -> Counter { missing_payload() }
     "#,
         Some(&module),
     );
@@ -1184,7 +1184,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     };
     assert!(error.message().contains("explicitly supplied payload"));
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())

@@ -25,6 +25,7 @@ use kagari_embed::{
 };
 use kagari_runtime::{
     host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    module::entry::ProgramEntry,
     value::Value,
 };
 
@@ -160,7 +161,9 @@ fn main() {
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
+    let result = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap();
     assert_eq!(
         result
             .return_value

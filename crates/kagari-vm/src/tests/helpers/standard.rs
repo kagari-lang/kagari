@@ -1,6 +1,7 @@
 use super::*;
 use crate::tests::common::load_bytecode_program;
 use crate::tests::common::round_trip_bytecode;
+use kagari_runtime::module::entry::ProgramEntry;
 
 use kagari_runtime::value_semantics::script_equal;
 
@@ -30,7 +31,9 @@ fn executes_source_lowered_declared_host_log() {
         .expect("print module should load");
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -60,7 +63,9 @@ fn main()->(usize,bool,usize,bool){
     let decoded = round_trip_bytecode(program);
     let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert!(
         script_equal(
@@ -96,7 +101,9 @@ fn main() -> usize {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -122,7 +129,9 @@ fn main() -> i32 {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report

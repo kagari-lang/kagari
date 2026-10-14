@@ -12,6 +12,7 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{Runtime, native::module::NativeModule, value::Value};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::ty::Ty;
@@ -53,14 +54,14 @@ fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
                 .prepare_native(
                     &program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -167,7 +168,7 @@ fn main() -> i32 { read(Number { value: 20 }) + direct(Number { value: 22 }) }
             .unwrap();
         assert_eq!(
             runtime
-                .execute(&program, "main", &[], &context)
+                .execute(&program, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -203,7 +204,7 @@ struct Number { val value: i32 }
 impl Read for Number { fn read(self) -> i32 { self.value } }
 impl Child for Number { fn extra(self) -> i32 { 1 } }
 fn parent(value: Read) -> i32 { value.read() }
-fn boxed(value: Child) -> Read { value }
+pub fn boxed(value: Child) -> Read { value }
 fn main() -> i32 {
     val child: Child = Number { value: 14 };
     val parent_view: Read = child;
@@ -223,7 +224,7 @@ fn main() -> i32 {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&program, "main", &[], &context)
+            .execute(&program, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -240,7 +241,7 @@ trait Child<T>: Read<T> {}
 struct Holder<T> { val value: T }
 impl<T> Read<T> for Holder<T> { fn read(self) -> T { self.value } }
 impl<T> Child<T> for Holder<T> {}
-fn boxed<T>(value: Holder<T>) -> Child<T> { value }
+pub fn boxed<T>(value: Holder<T>) -> Child<T> { value }
 fn parent(value: Child<i32>) -> Read<i32> { value }
 fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
 "#;
@@ -254,7 +255,7 @@ fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&program, "main", &[], &context)
+            .execute(&program, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -303,7 +304,7 @@ struct Number {}
 impl Read for Number { fn read(self) -> i32 { answer() } }
 impl Child for Number {}
 fn answer() -> i32 { 42 }
-fn boxed() -> Child { Number {} }
+pub fn boxed() -> Child { Number {} }
 fn main() -> i32 { boxed().read() }
 "#;
     let artifact = compile(source).unwrap();
@@ -359,7 +360,7 @@ fn main() -> i32 { boxed().read() }
         .reload_artifact(&loaded, "inheritance", replacement, &Default::default())
         .unwrap();
     assert_eq!(
-        vm.execute(&new, "main")
+        vm.execute(&new, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())

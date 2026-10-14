@@ -5,6 +5,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use std::sync::{
@@ -29,7 +30,7 @@ fn execute(source: &str) {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -289,7 +290,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap_err()
                 .code(),
             "KG_RUNTIME_CANCELLED"

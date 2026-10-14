@@ -1,5 +1,6 @@
 #![cfg(feature = "source")]
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_runtime::module::entry::ProgramEntry;
 #[path = "support/native_enums.rs"]
 mod provider;
 use kagari_embed::{
@@ -54,7 +55,7 @@ fn native_registered_enums_execute_from_serialized_artifacts_with_traced_payload
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         for _ in 0..3 {
             let report = runtime
-                .execute(&loaded, "main", &[], &Default::default())
+                .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
                 .unwrap();
             assert_eq!(
                 report
@@ -92,7 +93,7 @@ fn native_enum_operations_reject_wrong_payloads_members_and_indices() {
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert!(
             runtime
-                .execute(&loaded, "main", &[], &Default::default())
+                .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
                 .is_err(),
             "{body}"
         );

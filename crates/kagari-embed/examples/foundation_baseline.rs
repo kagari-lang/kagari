@@ -5,7 +5,8 @@ use std::{hint::black_box, sync::Arc, time::Instant};
 
 use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_runtime::{
-    Runtime, module::VerifiedProgram, native::module::NativeModule, value::Value,
+    Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
+    value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
@@ -95,7 +96,7 @@ fn main() {
     const CALLS: u32 = 10_000;
     for _ in 0..100 {
         black_box(
-            vm.execute(&first_loaded, "main")
+            vm.execute(&first_loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -106,7 +107,7 @@ fn main() {
     let mut checksum = 0_i64;
     for _ in 0..CALLS {
         let Value::I32(value) = vm
-            .execute(&first_loaded, "main")
+            .execute(&first_loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())

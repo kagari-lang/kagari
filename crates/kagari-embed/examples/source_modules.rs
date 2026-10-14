@@ -1,5 +1,6 @@
 //! Query source dependencies, then encode, load and execute their shared program.
 
+use kagari_runtime::module::entry::ProgramEntry;
 use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
 
 use kagari_bytecode::artifact::KbcArtifact;
@@ -125,7 +126,9 @@ fn main() {
     let program =
         PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
+    let report = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap();
     assert_eq!(
         report
             .return_value
@@ -134,11 +137,15 @@ fn main() {
         kagari_runtime::value::Value::I32(42)
     );
     let mut second = engine.runtime(ExecutionContext::default());
-    assert!(second.execute(&loaded, "main", &[], &context).is_err());
+    assert!(
+        second
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .is_err()
+    );
     let second_loaded = second.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         second
-            .execute(&second_loaded, "main", &[], &context)
+            .execute(&second_loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(second.runtime().gc())

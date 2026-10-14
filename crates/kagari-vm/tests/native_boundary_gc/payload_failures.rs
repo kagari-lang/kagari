@@ -1,6 +1,7 @@
 use crate::{compile, compile_program};
 use kagari_runtime::{
     error::RuntimeErrorKind,
+    module::entry::ProgramEntry,
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -79,7 +80,7 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
     let source = "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }";
     let (vm, loaded) = compile(source, Some(&native));
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -121,7 +122,7 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
         Some(&module(&faults)),
     );
     let values = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -160,7 +161,7 @@ fn roots_do_not_keep_heap_payloads_alive_after_teardown() {
         .begin_execution(&loaded, vm.runtime().execution_options())
         .unwrap();
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())

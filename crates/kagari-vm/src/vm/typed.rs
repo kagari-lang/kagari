@@ -2,11 +2,11 @@
 use crate::{
     error::VmError,
     executor::{Executor, native::invoke_script},
-    vm::{Vm, find_function_ref},
+    vm::Vm,
 };
 use kagari_runtime::{
     error::RuntimeError,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::{
         conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
         function_handle::PinnedFunction,
@@ -30,17 +30,20 @@ impl Vm {
         function.call(&mut cx, arguments).map_err(VmError::from)
     }
 
-    /// Execute a named entry with one outer argument tuple and an owned result.
-    /// This uses the same explicit entry policy as `execute`. Cached public
-    /// function/member binding is a separate, visibility-checked operation.
-    pub fn execute_typed<A: IntoKagariArguments, R: FromKagari>(
+    /// Execute a public path or explicit root entry with an owned typed result.
+    /// Conversion uses the verified target's semantic signature and supplying module.
+    pub fn execute_typed<'a, A: IntoKagariArguments, R: FromKagari>(
         &self,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         arguments: A,
     ) -> Result<R, VmError> {
         self.runtime.validate_loaded_module(module)?;
-        let function = find_function_ref(&module.bytecode, entry)?;
+        let entry = entry.into();
+        let (owner, function) = entry
+            .resolve(module)
+            .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
+        let module = &owner;
         let body = module
             .bytecode
             .functions

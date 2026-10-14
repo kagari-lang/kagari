@@ -5,6 +5,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef, verify_program},
 };
 use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value_semantics::script_equal;
 
 #[test]
@@ -17,10 +18,10 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     assert_eq!(foreign.key(), local.key());
     let vm = Vm::new(second);
     assert!(
-        matches!(vm.execute(&foreign, "main"), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ModuleValidation)
+        matches!(vm.execute(&foreign, ProgramEntry::Main), Err(VmError::RuntimeError(ref error)) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
     assert_eq!(
-        vm.execute(&local, "main")
+        vm.execute(&local, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -33,7 +34,9 @@ fn foreign_loaded_module_is_rejected_before_execution() {
 fn executes_simple_arithmetic_function() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -208,7 +211,9 @@ fn unsupported_dynamic_invocation_is_rejected() {
 fn executes_if_control_flow() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { if true { 1 } else { 2 } }");
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -228,7 +233,9 @@ fn main() -> i32 { callee() }
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -256,7 +263,9 @@ fn main() -> i32 {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -289,7 +298,7 @@ fn main() -> i32 { middle() }
 
     let vm = Vm::new(runtime);
     let error = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect_err("third frame should exceed call depth");
 
     assert!(matches!(
@@ -331,7 +340,7 @@ fn unreachable_instruction_is_a_script_trap() {
 
     let vm = Vm::new(runtime);
     let error = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect_err("unreachable should trap");
 
     assert!(matches!(error.cause(), VmError::Trap("unreachable")));
@@ -343,7 +352,9 @@ fn executes_array_index_access() {
     let (runtime, loaded) =
         load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -367,7 +378,9 @@ fn main() -> i32 {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -382,7 +395,9 @@ fn main() -> i32 {
 fn executes_tuple_literal_return() {
     let (runtime, loaded) = load_test_module("fn main() -> (bool, bool) { (true, false) }");
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert!(
         script_equal(
@@ -412,7 +427,9 @@ fn main() -> Point {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     let Value::Struct(handle) = report
         .return_value
@@ -460,7 +477,7 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
     let vm = Vm::new(runtime);
     vm.execute(&loaded, "init").unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -474,7 +491,7 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
             .is_err()
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -485,7 +502,7 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
         .write_module_slot(&loaded, slot, Value::I32(9))
         .unwrap();
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -546,7 +563,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
 
     let vm = Vm::new(runtime);
     let old_report = vm
-        .execute(&first_loaded, "main")
+        .execute(&first_loaded, ProgramEntry::Main)
         .expect("old active epoch should remain executable");
     let latest = vm
         .runtime()
@@ -554,7 +571,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .latest("hot_reload.kgr")
         .expect("latest module epoch should be visible");
     let latest_report = vm
-        .execute(&latest, "main")
+        .execute(&latest, ProgramEntry::Main)
         .expect("new call should use latest epoch");
 
     assert_eq!(second_loaded.epoch, latest.epoch);

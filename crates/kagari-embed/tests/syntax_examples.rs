@@ -1,6 +1,7 @@
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, error::EmbeddingError, program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
@@ -133,7 +134,7 @@ fn grouped_standard_globs_execute() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -167,7 +168,7 @@ fn nested_inline_modules_resolve_qualified_members() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -213,7 +214,7 @@ fn main() -> i32 {
     0
 }
 
-fn after_trap() -> i32 { 42 }
+pub fn after_trap() -> i32 { 42 }
 "#;
     let engine = execution::engine(Default::default());
     let artifact = engine
@@ -231,7 +232,9 @@ fn after_trap() -> i32 { 42 }
             Default::default(),
         )
         .unwrap();
-    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    let error = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap_err();
     assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
     let result = runtime
         .execute(&loaded, "after_trap", &[], &context)
@@ -253,12 +256,12 @@ fn closure_trap_releases_execution_resources() {
             SourceFile::new(
                 "closure_trap.kgr",
                 r#"
-fn fail() -> i32 {
+pub fn fail() -> i32 {
     var count = 40;
     val fail = || { count = count + 1; 1 / 0 };
     fail()
 }
-fn after() -> i32 { 42 }
+pub fn after() -> i32 { 42 }
 "#,
             ),
             Default::default(),
@@ -294,10 +297,10 @@ fn remainder_matches_checked_arithmetic_contract() {
             SourceFile::new(
                 "remainder.kgr",
                 r#"
-fn integer() -> i32 { 42 % 5 }
-fn fractional() -> f32 { 5.5 % 2.0 }
-fn zero() -> i32 { val divisor = 0; 5 % divisor }
-fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
+pub fn integer() -> i32 { 42 % 5 }
+pub fn fractional() -> f32 { 5.5 % 2.0 }
+pub fn zero() -> i32 { val divisor = 0; 5 % divisor }
+pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
 "#,
             ),
             Default::default(),

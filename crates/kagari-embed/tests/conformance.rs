@@ -9,6 +9,7 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{LoadOptions, ReloadOptions},
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value_semantics::script_equal;
 
 use {
@@ -208,7 +209,7 @@ fn main() -> (usize, usize, usize, bool, i32) {
         .expect("builtin artifact should load");
 
     let report = runtime
-        .execute(&loaded, "main", &[], &context)
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("builtin surface should execute through embedding API");
 
     assert!(
@@ -291,7 +292,7 @@ pub fn main() -> usize {
         )
         .expect("compatible standard artifact should reload");
     let report = runtime
-        .execute(&reloaded, "main", &[], &context)
+        .execute(&reloaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded standard artifact should execute");
     assert_eq!(
         report

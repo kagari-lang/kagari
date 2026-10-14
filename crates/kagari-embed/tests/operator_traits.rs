@@ -12,6 +12,7 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::{language::Protocol, ty::Ty};
@@ -56,14 +57,14 @@ fn execute(source: &str) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -361,7 +362,7 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
             .unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -486,9 +487,9 @@ fn operator_traps_and_cancellation_release_execution_roots() {
 struct Number {val value:i32}
 impl Add<i32> for Number {type Output=i32;fn add(self,rhs:i32)->i32 {self.value/rhs}}
 impl Index<i32> for Number {type Output=i32;fn index(self,rhs:i32)->i32 {[self.value][rhs]}}
-fn fail_add()->i32 {Number{value:42}+0}
-fn fail_index()->i32 {Number{value:42}[2]}
-fn exhaust()->i32 {var n=1000;while n>0 {val a=Number{value:n};a+1;n-=1;}42}
+pub fn fail_add()->i32 {Number{value:42}+0}
+pub fn fail_index()->i32 {Number{value:42}[2]}
+pub fn exhaust()->i32 {var n=1000;while n>0 {val a=Number{value:n};a+1;n-=1;}42}
 fn main()->i32 {Number{value:42}+1}
 "#,
             ),
@@ -515,7 +516,7 @@ fn main()->i32 {Number{value:42}+1}
         assert!(!runtime.runtime().is_quarantined());
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())

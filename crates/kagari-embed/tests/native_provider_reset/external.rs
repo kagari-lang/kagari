@@ -6,6 +6,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use std::sync::{
     Arc,
@@ -27,7 +28,9 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
+    let result = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap();
     let root = runtime
         .runtime()
         .root_value(
@@ -68,7 +71,7 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

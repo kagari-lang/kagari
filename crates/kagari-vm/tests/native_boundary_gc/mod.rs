@@ -6,6 +6,7 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
 use kagari_runtime::{
     Runtime,
+    module::entry::ProgramEntry,
     value::{MapKey, Value},
     value_semantics::{format_value, script_equal},
 };
@@ -25,12 +26,12 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
             edges.insert(1, node);
             Some((Vec::from([node]),))
         }
-        fn garbage() -> HashSet<i32> { val set: HashSet<i32> = HashSet::new(); set.insert(1); set }
+        pub fn garbage() -> HashSet<i32> { val set: HashSet<i32> = HashSet::new(); set.insert(1); set }
     "#,
         None,
     );
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -72,7 +73,7 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
         None,
     );
     let value = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -107,7 +108,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -212,7 +213,7 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
         None,
     );
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -267,7 +268,7 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
         None,
     );
     let Value::GcHandle(object) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -363,7 +364,7 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         None,
     );
     let value = vm
-        .execute(&old, "main")
+        .execute(&old, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -400,7 +401,7 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     );
     assert_eq!(vm.runtime().gc().sequence_len(array), Some(2));
     assert_eq!(
-        vm.execute(&replacement, "main")
+        vm.execute(&replacement, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -424,7 +425,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
     "#;
     let (vm, old) = compile(source, None);
     let old_value = vm
-        .execute(&old, "main")
+        .execute(&old, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -437,7 +438,7 @@ fn recursive_element_contracts_reject_changed_nested_layouts_after_reload() {
         .reload_program(&old, "boundary", compile_program(&replacement, None))
         .unwrap();
     let new_value = vm
-        .execute(&current, "main")
+        .execute(&current, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())

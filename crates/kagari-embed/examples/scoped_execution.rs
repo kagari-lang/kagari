@@ -8,6 +8,7 @@ use kagari_embed::{
     program::PreparedProgram,
     runtime::LoadOptions,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 
@@ -35,7 +36,9 @@ fn main() {
     let context = ExecutionContext::default();
 
     for _ in 0..2 {
-        let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
+        let report = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap();
         assert_eq!(
             report
                 .return_value
@@ -49,7 +52,7 @@ fn main() {
     context.cancellation.cancel();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err()
             .code(),
         "KG_RUNTIME_CANCELLED"
@@ -57,7 +60,7 @@ fn main() {
     let fresh = ExecutionContext::default();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &fresh)
+            .execute(&loaded, ProgramEntry::Main, &[], &fresh)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -104,7 +107,7 @@ fn main() {
 
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &fresh)
+            .execute(&loaded, ProgramEntry::Main, &[], &fresh)
             .unwrap_err()
             .code(),
         "KG_BYTECODE_VERIFICATION_FAILED"

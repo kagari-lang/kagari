@@ -14,7 +14,7 @@ use kagari_runtime::{
     error::RuntimeError,
     host::{HostFunction, HostFunctionId, HostTypeRegistration},
     metadata::TypeId,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     value::Value,
 };
 use kagari_vm::{
@@ -103,23 +103,25 @@ impl KagariRuntime {
             .map_err(EmbeddingError::reload_validation)
     }
 
-    pub fn execute(
+    pub fn execute<'a>(
         &self,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
         context: &ExecutionContext,
     ) -> RunResult<ExecutionReport> {
+        let entry = entry.into();
         if !args.is_empty() {
             return Err(EmbeddingError::runtime(
                 RuntimeFailureKind::UnsupportedExecution,
                 format!(
-                    "entry `{entry}` received {} arguments, but argument passing is not implemented",
+                    "entry `{}` received {} arguments, but argument passing is not implemented",
+                    entry.label(),
                     args.len()
                 ),
             ));
         }
-        context.validate_for_execute(entry)?;
+        context.validate_for_execute(entry.label())?;
         let _session = self
             .vm
             .runtime()
@@ -128,19 +130,21 @@ impl KagariRuntime {
         self.vm.execute(module, entry).map_err(EmbeddingError::vm)
     }
 
-    pub fn execute_prepared(
+    pub fn execute_prepared<'a>(
         &self,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
         context: &ExecutionContext,
         prepared: &PreparedNativeEntry,
     ) -> RunResult<ExecutionReport> {
+        let entry = entry.into();
         if !args.is_empty() {
             return Err(EmbeddingError::runtime(
                 RuntimeFailureKind::UnsupportedExecution,
                 format!(
-                    "entry `{entry}` received {} arguments, but argument passing is not implemented",
+                    "entry `{}` received {} arguments, but argument passing is not implemented",
+                    entry.label(),
                     args.len()
                 ),
             ));

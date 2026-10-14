@@ -3,7 +3,7 @@ use demo::database;
 
 // Admission returns before the async closure starts. The scope owns the Task
 // even though this handler does not retain its handle.
-fn handle(scope: TaskScope) -> bool {
+pub fn handle(scope: TaskScope) -> bool {
     match scope.spawn(async || {
         var total = 0;
         for id in [1, 2] {
@@ -17,4 +17,4 @@ fn handle(scope: TaskScope) -> bool {
     }
 }
 
-fn ping() -> i32 { 42 }
+pub fn ping() -> i32 { 42 }

@@ -14,7 +14,7 @@ use kagari_runtime::{
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     error::RuntimeErrorKind,
     host::{HostBorrowKind, HostFunction},
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     resource::RuntimeLimits,
     value::Value,
 };
@@ -118,9 +118,9 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let vm = Vm::new(runtime);
             let prepared = native_fixtures::unsupported();
             let report = if jit {
-                vm.execute_prepared(&loaded, "main", &prepared)
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
             } else {
-                vm.execute(&loaded, "main")
+                vm.execute(&loaded, ProgramEntry::Main)
             }
             .unwrap();
             assert_eq!(
@@ -212,9 +212,9 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
 
                 let prepared = native_fixtures::unsupported();
                 let error = if jit {
-                    vm.execute_prepared(&loaded, "main", &prepared)
+                    vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
                 } else {
-                    vm.execute(&loaded, "main")
+                    vm.execute(&loaded, ProgramEntry::Main)
                 }
                 .unwrap_err();
                 let names = error
@@ -306,7 +306,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let loaded = runtime.load_program("inputs.kgr", module).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -363,9 +363,9 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             .unwrap();
         let new = vm.reload_program(&old, "versions.kgr", program(9)).unwrap();
         versions.lock().unwrap().extend([old.clone(), new.clone()]);
-        vm.execute(&old, "main").unwrap();
+        vm.execute(&old, ProgramEntry::Main).unwrap();
         drop(scope);
-        vm.execute(&new, "main").unwrap();
+        vm.execute(&new, ProgramEntry::Main).unwrap();
         assert_eq!(*observed.lock().unwrap(), [Value::I32(7), Value::I32(9)]);
     }
 }
@@ -396,7 +396,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -457,7 +457,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
                 }))
                 .unwrap();
             let module = compile_test_bytecode(
-                "fn main() -> i32 { val kept = [1]; print(\"cancel\"); 42 } fn ready() -> i32 { 7 }",
+                "fn main() -> i32 { val kept = [1]; print(\"cancel\"); 42 } pub fn ready() -> i32 { 7 }",
             );
             let loaded = runtime
                 .load_program("cancel.kgr", route(module, encoded))
@@ -468,9 +468,10 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let session = vm.runtime().begin_execution(&loaded, options).unwrap();
             let prepared = native_fixtures::unsupported();
             let error = if jit {
-                vm.execute_prepared(&loaded, "main", &prepared).unwrap_err()
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+                    .unwrap_err()
             } else {
-                vm.execute(&loaded, "main").unwrap_err()
+                vm.execute(&loaded, ProgramEntry::Main).unwrap_err()
             };
             assert!(
                 matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::Cancelled)
@@ -532,7 +533,9 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
             .stage_reload_program(&old, "staged.kgr", program())
             .unwrap();
         let vm = Vm::new(runtime);
-        let error = vm.execute(candidate.module(), "main").unwrap_err();
+        let error = vm
+            .execute(candidate.module(), ProgramEntry::Main)
+            .unwrap_err();
         assert!(
             matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
@@ -547,7 +550,9 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
                 .begin_candidate_initialization(&candidate)
                 .is_err()
         );
-        let error = vm.execute(candidate.module(), "main").unwrap_err();
+        let error = vm
+            .execute(candidate.module(), ProgramEntry::Main)
+            .unwrap_err();
         assert!(
             matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
         );
@@ -618,7 +623,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
             .load_program("host-origin.kgr", route(module, encoded))
             .unwrap();
         let vm = Vm::new(runtime);
-        let error = vm.execute(&loaded, "main").unwrap_err();
+        let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         assert_eq!(
             error
                 .trace()

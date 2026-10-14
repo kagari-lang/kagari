@@ -1,6 +1,7 @@
 //! O1 architecture baseline; run with default source/native features.
 //! `cargo run -p kagari-embed --example architecture_baseline`
 //! Timings include the counting allocator's atomic bookkeeping overhead.
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_stdlib::catalog as foundation_catalog;
 mod memory;
 
@@ -182,7 +183,13 @@ fn main() {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let before_native = live_bytes();
     let native = runtime
-        .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
         .unwrap();
     let cache_and_install_bytes = live_bytes() - before_native;
     drop(native);
@@ -194,7 +201,13 @@ fn main() {
         || {
             black_box(
                 runtime
-                    .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
+                    .prepare_native(
+                        &program,
+                        &loaded,
+                        ProgramEntry::Main,
+                        &mut backend,
+                        &Default::default(),
+                    )
                     .unwrap(),
             );
         },
@@ -202,7 +215,13 @@ fn main() {
         101,
     );
     let native = runtime
-        .prepare_native(&program, &loaded, "main", &mut backend, &Default::default())
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
         .unwrap();
     for use_native in [false, true] {
         let mut checksum = 0;
@@ -210,10 +229,12 @@ fn main() {
             || {
                 let report = if use_native {
                     runtime
-                        .execute_prepared(&loaded, "main", &[], &context, &native)
+                        .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &native)
                         .unwrap()
                 } else {
-                    runtime.execute(&loaded, "main", &[], &context).unwrap()
+                    runtime
+                        .execute(&loaded, ProgramEntry::Main, &[], &context)
+                        .unwrap()
                 };
                 if use_native {
                     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);

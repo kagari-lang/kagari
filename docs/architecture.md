@@ -65,7 +65,12 @@ are never compared by unrelated scoped ID numbers. Namespace equivalence joins
 matching states, preserving cycles without flattening or product-graph expansion.
 Typed runtime `bind_function` consumes those export slots and retains the target
 Program; explicit declaration/application binding continues to consume installed
-closed-entry evidence. VM/SDK direct named-call migration remains in the active plan.
+closed-entry evidence. Direct VM/SDK execution and native preparation use
+`ProgramEntry`: strings select public export paths, while `ProgramEntry::Main`
+selects the separate root entry. Typed conversion, owned execution and native
+installation use the resolved target module and its pinned Program. CLI execution
+selects `Main` explicitly. Remaining test/example consumer migration is recorded
+in the active plan.
 
 ## Workspace Shape
 

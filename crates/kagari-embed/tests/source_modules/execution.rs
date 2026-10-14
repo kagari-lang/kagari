@@ -5,6 +5,7 @@ use kagari_bytecode::{
     program::ModuleRef,
 };
 use kagari_contract::ids::FunctionRef;
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{host::HostFunction, module::ModuleEpochRetention, session::TraceValue};
 
 use kagari_embed::program::PreparedProgram;
@@ -65,7 +66,9 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
+        let report = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap();
         assert_eq!(
             report
                 .return_value
@@ -141,7 +144,12 @@ fn dependency_bindings_are_checked_before_execution() {
     assert_eq!(loaded.epoch.0, 1);
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &ExecutionContext::default())
+            .execute(
+                &loaded,
+                ProgramEntry::Main,
+                &[],
+                &ExecutionContext::default()
+            )
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -192,7 +200,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
         assert_eq!(
             runtime
-                .execute(&active, "main", &[], &context)
+                .execute(&active, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -262,7 +270,7 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     for (module, value) in [(&old, 1), (&new, 2), (&old, 1)] {
         assert_eq!(
             runtime
-                .execute(module, "main", &[], &context)
+                .execute(module, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -292,7 +300,7 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     assert_eq!(collected, old_members);
     assert_eq!(
         runtime
-            .execute(&new, "main", &[], &context)
+            .execute(&new, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

@@ -18,7 +18,6 @@ pub enum VmError {
         trace: Arc<ErrorTrace>,
     },
     MissingFunction(String),
-    AmbiguousFunction(String),
     MissingField(String),
     InvalidFunctionRef(FunctionRef),
     InvalidIndex(usize),

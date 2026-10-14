@@ -4,6 +4,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
@@ -48,14 +49,14 @@ fn execute(source: &str) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -163,7 +164,7 @@ fn formatter_traps_keep_the_origin_and_release_execution_roots() {
 struct Item { val log: Vec<i32> }
 impl Display for Item { fn display(self)->String { self.log.push(7); val zero=0;1/zero; "" } }
 fn main()->String { val log: Vec<i32> =Vec::from([]); f"{Item { log }} {{val too_large=2147483647;too_large+1}}" }
-fn healthy()->i32 {42}
+pub fn healthy()->i32 {42}
 "#;
     let artifact = engine
         .compile_to_artifact(
@@ -178,7 +179,9 @@ fn healthy()->i32 {42}
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    let error = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap_err();
     assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
     assert!(format!("{error:?}").contains("division by zero"));
     assert!(error.error_trace().unwrap().frames.len() >= 2);

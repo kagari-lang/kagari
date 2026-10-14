@@ -84,7 +84,7 @@ impl Test for State {
     fn alias(self, kind: i32) -> bool { alias(self, kind) }
     fn trace(self) -> i32 { self.trace }
 }
-fn make() -> Test { State { trace: 0 } }
+pub fn make() -> Test { State { trace: 0 } }
 fn operand(state: State, digit: i32, kind: i32) -> State {
     state.trace = state.trace * 10 + digit;
     val child: Child = state;

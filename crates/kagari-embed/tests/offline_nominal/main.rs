@@ -18,6 +18,7 @@ use kagari_runtime::{
         HostTypeRegistration, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
+    module::entry::ProgramEntry,
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
@@ -267,14 +268,14 @@ fn assert_source_index_path(field_prefix: bool) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(

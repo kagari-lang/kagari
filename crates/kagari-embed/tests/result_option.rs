@@ -7,6 +7,7 @@ use kagari_embed::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 
@@ -44,7 +45,7 @@ fn fail(error: Source) -> Result<i32, Target> {
     Ok(value?)
 }
 fn main() -> Result<i32, Target> { fail(Source { calls: 0 }) }
-fn after() -> i32 { 42 }
+pub fn after() -> i32 { 42 }
 "#;
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
@@ -62,7 +63,9 @@ fn after() -> i32 { 42 }
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    let error = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap_err();
     assert!(
         format!("{error:?}").contains("division by zero"),
         "{error:?}"
@@ -128,14 +131,14 @@ fn execute(source: &str) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -417,7 +420,7 @@ fn propagation_does_not_catch_traps_or_termination_and_releases_frames() {
                 r#"
 fn fail()->Result<i32, String> { val zero = 0; Ok(42 / zero) }
 fn main()->Result<i32, String> { for x in [1, 2] { fail()?; } Ok(42) }
-fn after()->i32 { 42 }
+pub fn after()->i32 { 42 }
 "#,
             ),
             Default::default(),
@@ -430,7 +433,12 @@ fn after()->i32 { 42 }
         .load_program(&loaded_program, Default::default())
         .unwrap();
     let error = runtime
-        .execute(&loaded, "main", &[], &ExecutionContext::default())
+        .execute(
+            &loaded,
+            ProgramEntry::Main,
+            &[],
+            &ExecutionContext::default(),
+        )
         .unwrap_err();
     assert!(format!("{error:?}").contains("division by zero"));
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
@@ -439,7 +447,7 @@ fn after()->i32 { 42 }
 
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &limited)
+            .execute(&loaded, ProgramEntry::Main, &[], &limited)
             .unwrap_err()
             .code(),
         "KG_RUNTIME_CANCELLED"
@@ -450,7 +458,7 @@ fn after()->i32 { 42 }
     cancelled.cancellation.cancel();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &cancelled)
+            .execute(&loaded, ProgramEntry::Main, &[], &cancelled)
             .unwrap_err()
             .code(),
         "KG_RUNTIME_CANCELLED"

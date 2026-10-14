@@ -31,7 +31,7 @@ fn main() {
                 "typed.kgr",
                 r#"
         use application::text::split;
-        fn main(text: String) -> Vec<String> { split(text, ",") }
+        pub fn split_text(text: String) -> Vec<String> { split(text, ",") }
     "#,
             ),
             Default::default(),
@@ -43,7 +43,7 @@ fn main() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let fields: Vec<String> = runtime
-        .execute_typed(&loaded, "main", ("hello,雪,".to_owned(),), &context)
+        .execute_typed(&loaded, "split_text", ("hello,雪,".to_owned(),), &context)
         .unwrap();
     assert_eq!(fields, ["hello", "雪", ""]);
     println!("{fields:?}");

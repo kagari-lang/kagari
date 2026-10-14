@@ -7,6 +7,7 @@ use kagari_hir::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     gc::roots::RootedValue,
+    module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
         declarations::FunctionDecl, module::NativeModule, types::Type, views::ValueHandle,
@@ -71,7 +72,7 @@ fn run(text: &str) -> Value {
         .load_program("sort", program(text, &[&library]))
         .unwrap();
     let vm = Vm::new(runtime);
-    vm.execute(&loaded, "main")
+    vm.execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -203,7 +204,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         .load_program("sort", program(source, &[&library, &probe.module]))
         .unwrap();
     let vm = Vm::new(runtime);
-    assert!(vm.execute(&loaded, "main").is_err());
+    assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
     let Value::GcHandle(array) = probe
         .retained
@@ -282,7 +283,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             .load_program("sort", program(&source, &[&library, &probe.module]))
             .unwrap();
         let vm = Vm::new(runtime);
-        let error = vm.execute(&loaded, "main").unwrap_err();
+        let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
         assert!(
             format!("{error:?}").contains("guarded callback"),
             "{error:?}"

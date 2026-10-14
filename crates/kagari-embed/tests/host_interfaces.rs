@@ -17,7 +17,7 @@ use kagari_embed::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::module::NativeModule,
     value::Value,
 };
@@ -242,14 +242,14 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -348,7 +348,7 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -826,7 +826,7 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -1068,7 +1068,7 @@ fn interface_method_results_validate_nested_host_roots() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

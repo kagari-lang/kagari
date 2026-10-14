@@ -11,6 +11,7 @@ use kagari_common::identity::{
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::callable::witness::OperationWitness;
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{Runtime, native::module::NativeModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
@@ -112,7 +113,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         let loaded = runtime.load_program("native-imports", program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
-            vm.execute(&loaded, "main")
+            vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -259,7 +260,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         let loaded = runtime.load_program("native-collections", program).unwrap();
         let vm = Vm::new(runtime);
         assert_eq!(
-            vm.execute(&loaded, "main")
+            vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -328,7 +329,7 @@ pub fn answer() -> i32 {
     let loaded = runtime.load_program("native-witnesses", decoded).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())

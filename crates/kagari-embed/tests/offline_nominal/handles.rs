@@ -3,6 +3,7 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_contract::{representation::semantic_representation, types::PublicItem};
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_types::ty::Ty;
 use std::sync::{
     Arc, Mutex,
@@ -211,14 +212,14 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                     .prepare_native(
                         &loaded_program,
                         &loaded,
-                        "main",
+                        ProgramEntry::Main,
                         backend,
                         &context.cancellation,
                     )
                     .unwrap();
-                runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+                runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
-                runtime.execute(&loaded, "main", &[], &context)
+                runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
             }
             .unwrap();
             assert_eq!(
@@ -337,14 +338,14 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -412,7 +413,7 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &Default::default())
+            .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

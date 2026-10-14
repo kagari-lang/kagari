@@ -5,6 +5,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 
 use kagari_runtime::value::Value;
@@ -49,14 +50,14 @@ fn execute(source: &str) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -226,7 +227,9 @@ fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+        let error = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap_err();
         assert!(
             format!("{error:?}").contains("overflow"),
             "{expression}: {error:?}"

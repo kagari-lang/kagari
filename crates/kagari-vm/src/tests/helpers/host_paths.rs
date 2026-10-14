@@ -14,6 +14,7 @@ use kagari_runtime::{
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     host::{HostCallContext, HostPathDescriptorId},
     jit_abi::jit_poll_execution,
+    module::entry::ProgramEntry,
 };
 use kagari_types::host_interface::{HostParameter, HostPassingStyle, value_type::HostValueType};
 use std::sync::{Arc, Mutex};
@@ -111,7 +112,9 @@ fn executes_runtime_host_helper_call() {
         .expect("helper module should load");
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -186,9 +189,10 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let loaded = runtime.load_program("fault.kgr", program).unwrap();
             let vm = Vm::new(runtime);
             let error = if jit {
-                vm.execute_prepared(&loaded, "main", &prepared).unwrap_err()
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+                    .unwrap_err()
             } else {
-                vm.execute(&loaded, "main").unwrap_err()
+                vm.execute(&loaded, ProgramEntry::Main).unwrap_err()
             };
             assert!(
                 matches!(error, VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
@@ -206,8 +210,8 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
             let before = vm.runtime().resources().counters();
             for error in [
-                vm.execute(&scalar, "main").unwrap_err(),
-                vm.execute_prepared(&scalar, "main", &scalar_entry)
+                vm.execute(&scalar, ProgramEntry::Main).unwrap_err(),
+                vm.execute_prepared(&scalar, ProgramEntry::Main, &scalar_entry)
                     .unwrap_err(),
             ] {
                 assert!(
@@ -315,9 +319,9 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .unwrap();
             let prepared = native_fixtures::unsupported();
             let report = if jit {
-                vm.execute_prepared(&loaded, "main", &prepared)
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
             } else {
-                vm.execute(&loaded, "main")
+                vm.execute(&loaded, ProgramEntry::Main)
             }
             .unwrap();
             assert_eq!(
@@ -408,7 +412,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
         .unwrap();
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").unwrap();
+    let report = vm.execute(&loaded, ProgramEntry::Main).unwrap();
 
     assert_eq!(
         report
@@ -488,7 +492,7 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
 
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -594,9 +598,10 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             let vm = Vm::new(runtime);
             let value = if jit {
                 let prepared = native_fixtures::unsupported();
-                vm.execute_prepared(&loaded, "main", &prepared).unwrap()
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+                    .unwrap()
             } else {
-                vm.execute(&loaded, "main").unwrap()
+                vm.execute(&loaded, ProgramEntry::Main).unwrap()
             };
             assert_eq!(
                 value

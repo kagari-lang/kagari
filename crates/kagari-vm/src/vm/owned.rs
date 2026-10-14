@@ -2,12 +2,12 @@
 use crate::{
     error::VmError,
     executor::{DriveOutcome, Executor},
-    vm::{Vm, find_function_ref},
+    vm::Vm,
 };
 use kagari_runtime::{
     error::RuntimeError,
     gc::roots::RootedValue,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     session::{ExecutionOptions, owned::OwnedExecution},
     value::Value,
 };
@@ -21,17 +21,21 @@ pub enum DriveResult {
 }
 
 impl Vm {
-    pub fn start(
+    pub fn start<'a>(
         &self,
         module: &LoadedModule,
-        entry: &str,
+        entry: impl Into<ProgramEntry<'a>>,
         arguments: &[Value],
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, VmError> {
-        let entry = find_function_ref(&module.bytecode, entry)?;
+        self.runtime.validate_loaded_module(module)?;
+        let entry = entry.into();
+        let (module, function) = entry
+            .resolve(module)
+            .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
         Ok(self
             .runtime
-            .start_owned_execution(module, entry, arguments, options)?)
+            .start_owned_execution(&module, function, arguments, options)?)
     }
 
     /// Queue a cold Future as a root; drive exactly one layer without flattening.

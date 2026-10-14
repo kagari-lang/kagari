@@ -5,6 +5,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 
@@ -23,7 +24,7 @@ fn run(source: &str, expected_error: Option<&str>) {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let result = runtime.execute(&loaded, "main", &[], &context);
+    let result = runtime.execute(&loaded, ProgramEntry::Main, &[], &context);
     match expected_error {
         None => assert_eq!(
             result

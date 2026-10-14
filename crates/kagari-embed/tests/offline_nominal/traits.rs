@@ -2,6 +2,7 @@ use super::*;
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_contract::types::PublicItem;
 use kagari_embed::{context::JitPolicy, program::PreparedProgram};
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_types::host_interface::type_declaration::PathAccess;
 use std::sync::{Arc, Mutex};
@@ -435,14 +436,14 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(

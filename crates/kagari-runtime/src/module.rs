@@ -3,6 +3,7 @@ pub(crate) mod collection;
 pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
+pub mod entry;
 pub mod execution;
 mod exports;
 pub(crate) mod layout_admission;

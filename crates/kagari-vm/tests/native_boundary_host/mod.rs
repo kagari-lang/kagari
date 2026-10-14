@@ -11,7 +11,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
     metadata::TypeId,
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     native::module::NativeModule,
     value::Value,
 };
@@ -81,7 +81,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let program = compile_program(
         r#"use std::collections::{HashMap, HashSet, List};
 
-        fn fixtures() -> ([i32], [bool], HashMap<String,[i32]>, HashMap<String,[bool]>, HashSet<String>, HashSet<i32>, Vec<i32>, List<i32>) {
+        pub fn fixtures() -> ([i32], [bool], HashMap<String,[i32]>, HashMap<String,[bool]>, HashSet<String>, HashSet<i32>, Vec<i32>, List<i32>) {
             val array = [7]; val wrong_array = [true];
             val map: HashMap<String,[i32]> = HashMap::new(); map.insert("k", array);
             val wrong_map: HashMap<String,[bool]> = HashMap::new(); wrong_map.insert("k", wrong_array);
@@ -436,7 +436,7 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     let loaded = runtime.load_program("host-storage", program).unwrap();
     let mut vm = Vm::new(runtime);
     let Value::Tuple(values) = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
         .value(vm.runtime().gc())

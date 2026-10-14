@@ -6,6 +6,7 @@ use crate::{
     tests::common::{compile_test_bytecode, standard_runtime},
     vm::Vm,
 };
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 
 fn debug_runtime(_module_name: &str) -> Runtime {
@@ -50,7 +51,7 @@ fn main() -> i32 {
     };
 
     let report = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect("debugged module should execute");
     assert_eq!(
         report
@@ -140,7 +141,7 @@ fn main() -> i32 {
         DebugAdapterResponse::StepConfigured
     );
 
-    vm.execute(&loaded, "main")
+    vm.execute(&loaded, ProgramEntry::Main)
         .expect("debugged module should execute");
     let flushed = adapter
         .flush_events(&vm)

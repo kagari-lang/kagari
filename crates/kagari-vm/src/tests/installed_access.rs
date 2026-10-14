@@ -10,7 +10,8 @@ use kagari_bytecode::instruction::{
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
-    RuntimeConfig, host::HostFunction, value::Value, value_semantics::script_equal,
+    RuntimeConfig, host::HostFunction, module::entry::ProgramEntry, value::Value,
+    value_semantics::script_equal,
 };
 use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
 
@@ -76,7 +77,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
     let host_vm = Vm::new(host_runtime);
     assert_eq!(
         host_vm
-            .execute(&host_module, "main")
+            .execute(&host_module, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(host_vm.runtime().gc())
@@ -113,7 +114,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
         script_equal(
             reflection_vm.runtime().gc(),
             &(reflection_vm
-                .execute(&reflection_module, "main")
+                .execute(&reflection_module, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(reflection_vm.runtime().gc())
@@ -175,7 +176,9 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
         )
         .expect("module should load");
     let reflection_vm = Vm::new(metadata_only);
-    reflection_vm.execute(&reflection_module, "main").unwrap();
+    reflection_vm
+        .execute(&reflection_module, ProgramEntry::Main)
+        .unwrap();
 
     let debug_runtime = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()

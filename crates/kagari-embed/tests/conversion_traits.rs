@@ -2,6 +2,7 @@
 #[path = "support/execution.rs"]
 mod execution;
 use execution::Route;
+use kagari_runtime::module::entry::ProgramEntry;
 
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_embed::{
@@ -168,7 +169,7 @@ fn main()->i32 {match propagate(){Err(w)=>total(w),Ok(x)=>x}}
         .unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())
@@ -359,7 +360,9 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+        let error = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap_err();
         assert!(
             format!("{error:?}").contains("integer overflow"),
             "{error:?}"

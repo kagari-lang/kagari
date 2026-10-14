@@ -5,6 +5,7 @@ use kagari_runtime::{
     error::RuntimeError,
     frame::ExecutionFrame,
     host::{HostError, HostFunction},
+    module::entry::ProgramEntry,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -91,7 +92,7 @@ fn main() {
     runtime.runtime().attach_execution_observer().unwrap();
     assert_eq!(
         runtime
-            .execute(&loaded, "main", &[], &context)
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
             .value(runtime.runtime().gc())

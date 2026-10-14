@@ -9,6 +9,7 @@ use kagari_embed::{
 };
 use kagari_runtime::{
     host::HostFunction,
+    module::entry::ProgramEntry,
     native::{conversion::context::ConversionContext, types::Type},
     value::Value,
 };
@@ -61,14 +62,14 @@ fn execute(source: &str) {
                 .prepare_native(
                     &loaded_program,
                     &loaded,
-                    "main",
+                    ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
                 .unwrap();
-            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
-            runtime.execute(&loaded, "main", &[], &context)
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap();
         assert_eq!(
@@ -142,7 +143,9 @@ fn shifts_reject_negative_and_width_counts() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+        let error = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap_err();
         assert!(format!("{error:?}").contains("shift out of range"));
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
     }
@@ -229,7 +232,9 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         panic!("Vec memory fixture")
     };
     *memory_slot.lock().unwrap() = Some(memory);
-    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    let error = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap_err();
     assert!(
         format!("{error:?}").contains("shift out of range"),
         "{error:?}"
@@ -371,7 +376,9 @@ fn ordinary_narrow_remainder_and_compound_arithmetic_still_trap() {
             .load_program(&program_program, Default::default())
             .unwrap();
         assert!(
-            runtime.execute(&program, "main", &[], &context).is_err(),
+            runtime
+                .execute(&program, ProgramEntry::Main, &[], &context)
+                .is_err(),
             "{body}"
         );
     }

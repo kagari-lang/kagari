@@ -2,6 +2,7 @@
 #[path = "support/execution.rs"]
 mod execution;
 use execution::Route;
+use kagari_runtime::module::entry::ProgramEntry;
 
 mod support;
 use kagari_bytecode::program::{identity, verify_program};
@@ -489,7 +490,7 @@ impl Test for Tester {
  fn calls(self)->i32 {self.state.calls}
  fn clear(self){self.set.clear();}
 }
-fn make()->(Test,HashSet<Key>) {
+pub fn make()->(Test,HashSet<Key>) {
  val set:HashSet<Key> = HashSet::new();val state=State{mode:0,calls:0};
  set.insert(Key{id:1,owner:set,state:state});
  val tester:Test=Tester{set:set,key:Key{id:2,owner:set,state:state},state:state};
@@ -700,7 +701,7 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
             .unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -763,7 +764,7 @@ fn explicit_enum_hash_is_stable_across_variant_reordering() {
             .unwrap();
         hashes.push(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())

@@ -6,6 +6,7 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 use kagari_runtime::{
+    module::entry::ProgramEntry,
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -134,7 +135,7 @@ fn concrete_native_results_construct_declared_interfaces_in_generic_calls() {
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert_eq!(
             runtime
-                .execute(&loaded, "main", &[], &context)
+                .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
                 .value(runtime.runtime().gc())
@@ -240,7 +241,11 @@ fn native_result_conversion_validates_the_rust_body_value() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    assert!(runtime.execute(&loaded, "main", &[], &context).is_err());
+    assert!(
+        runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .is_err()
+    );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     assert!(!runtime.runtime().is_quarantined());
 }

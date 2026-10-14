@@ -2,6 +2,7 @@ use super::*;
 use crate::tests::common::module_program;
 use crate::tests::{common, common::standard_runtime};
 use kagari_bytecode::instruction::ConstantId;
+use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value_semantics::script_equal;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -30,7 +31,9 @@ fn executes_runtime_reflect_type_of_helper() {
     );
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert!(
         script_equal(
@@ -73,7 +76,7 @@ fn runtime_reflection_helpers_use_declared_metadata() {
     assert!(
         script_equal(
             vm.runtime().gc(),
-            &(vm.execute(&loaded, "main")
+            &(vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -122,7 +125,7 @@ fn declared_reflection_reads_are_available() {
         .unwrap();
     let vm = Vm::new(metadata_only);
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -177,7 +180,7 @@ fn declared_reflection_writes_are_available() {
         )
         .unwrap();
     let vm = Vm::new(read_only);
-    vm.execute(&loaded, "main").unwrap();
+    vm.execute(&loaded, ProgramEntry::Main).unwrap();
 }
 
 #[test]
@@ -230,7 +233,9 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
     );
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -289,7 +294,9 @@ fn executes_runtime_reflect_set_index_helper() {
     );
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     let Value::Array(handle) = report
         .return_value
@@ -308,7 +315,9 @@ fn executes_runtime_reflect_set_index_helper() {
 fn executes_source_lowered_type_of_helper() {
     let (runtime, loaded) = load_reflection_test_module("fn main() -> String { type_of(7) }");
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert!(
         script_equal(
@@ -337,7 +346,9 @@ fn main() -> i32 {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -359,7 +370,9 @@ fn main() -> [i32] {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     let Value::Array(handle) = report
         .return_value
@@ -391,7 +404,9 @@ fn main() -> i32 {
 "#,
     );
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert_eq!(
         report
@@ -416,7 +431,9 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
     );
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
     assert!(
         script_equal(

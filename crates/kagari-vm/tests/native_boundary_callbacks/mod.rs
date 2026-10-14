@@ -1,6 +1,7 @@
 //! Function arguments, generic conversion and retained callback lifetimes.
 use super::{compile, compile_program};
 use kagari_runtime::{
+    module::entry::ProgramEntry,
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -72,13 +73,13 @@ fn function_arguments_call_captured_script_closures_synchronously() {
             val result = apply(|value| { calls += 1; value + offset[0] }, 0, 3);
             if calls == 3 { result } else { -1 }
         }
-        fn trapped() -> i32 { apply(|value| 10 / value, 0, 1) }
-        fn healthy() -> i32 { apply(|value| value + 1, 40, 2) }
+        pub fn trapped() -> i32 { apply(|value| 10 / value, 0, 1) }
+        pub fn healthy() -> i32 { apply(|value| value + 1, 40, 2) }
     "#,
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -147,12 +148,12 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
     let old = r#"
         use example::retained::{remember, invoke};
         fn main() -> i32 { val offset = [41]; remember(|value| value + offset[0]); invoke(1) }
-        fn run() -> i32 { invoke(1) }
+        pub fn run() -> i32 { invoke(1) }
     "#;
     let (vm, loaded) = compile(old, Some(&module));
     let old_key = loaded.key();
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -178,7 +179,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         Value::I32(42)
     );
     assert_eq!(
-        vm.execute(&replacement, "main")
+        vm.execute(&replacement, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -259,7 +260,7 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -333,7 +334,7 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -382,7 +383,7 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         Some(&module),
     );
     assert_eq!(
-        vm.execute(&loaded, "main")
+        vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
