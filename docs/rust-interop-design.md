@@ -1145,6 +1145,55 @@ atomic loan acquisition, scalar script reads/prepared assignments, checked porta
 field operations and pinned-projector execution integration remain RF04/RF02/RF05.
 The combined checklist remains open and exhaustive matrices remain CI-owned.
 
+### RF04/RF05 checkpoint: common atomic borrowed argument packs
+
+The existing bind adapter now accepts a shared/mutable free-function input and
+all four two-input shared/mutable combinations, followed by owned arguments (total
+arity at most twelve). The first input may instead be the explicitly declared
+Opaque method receiver; the second reference input is an external scoped location.
+One method body serves Opaque and external receivers. There is no new invocation
+entrypoint, general FromKagari for Rust references, or simultaneous Opaque payload
+borrowing model. Runtime-owned payload access retains its original GC loan and
+storage edit proof; external references use the existing scoped path owner.
+
+The contextual invocation still roots the complete pack and decodes owned inputs
+before acquiring loans. The scoped owner validates every target/capability, acquires
+all path records under one cleanup guard, and only then computes raw field pointers
+and constructs HRTB references. A rejected later acquisition releases earlier records
+without callback entry. Callback error/unwind releases the complete pack and preserves
+completed writes. Result conversion follows release. Single scoped loans use the same
+pack path. No bookkeeping borrow or mutable ancestor spans callback execution.
+
+Integration initially failed because native module authoring still rejected Ref
+parameters, then because TypeArgument lacked reference-target derivation. The first
+failure occurred at ModuleBuilder::finish (unsupported initial native API type); the
+second occurred during tick's native call (derived type parameter). Both are repaired:
+native authoring admits already-checked direct parameter views, without admitting
+view implementation receivers/bound targets, and reference derivation reuses the
+existing origin-preserving TypeArgument child mechanism. Storage, return, capture,
+suspension and target validation remain in their original contract owners.
+
+Focused results passed: source-free native boundary free-function packs with
+disjoint generated fields, shared weakening, duplicate unique rejection before
+callback and once-only completed owned-conversion effects; the same mutable pair
+method on Opaque and external receivers; six existing receiver/generic/trait/take/
+scope regressions; three production borrowed callback compile-fail doctests.
+The actual atomic-path kernel passed normally and under Miri (nightly-2026-07-27,
+aarch64-apple-darwin, MIRIFLAGS unset, workspace test profile/default parallelism,
+default Miri target). It exercises all four combinations, partial acquisition
+cleanup, ancestor conflict, error/unwind and retained writes. Scoped runtime/types/
+VM Clippy, structure (1223 files, zero violations), formatting and diff checks passed.
+No carried build/test failure remains; exhaustive matrices remain CI-owned.
+
+RF04 remains open for script scalar reads/prepared assignments and pinned-projector
+execution; RF02 owns checked portable field operations. RF05 still owns SDK context,
+live-host migration and final source-free/capability integration. During that integration,
+audit weak Ref parameters and raw/reflective callback forwarding: formal shared access
+must not become a mutable capability merely because the original caller supplied
+RefMut. Any necessary temporary capability restriction must preserve the original
+mutable alias and use the common checked location owner. This is an existing
+no-upgrade requirement, not a new permission matrix or a claim of an observed exploit.
+
 ## Acceptance and verification
 
 Required coverage includes:

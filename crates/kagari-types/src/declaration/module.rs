@@ -482,7 +482,7 @@ impl ModuleDecl {
         for function in functions {
             supported_type(&function.return_type, definitions)?;
             for parameter in &function.params {
-                supported_type(&parameter.ty, definitions)?;
+                supported_parameter(&parameter.ty, definitions)?;
             }
             for bound in &function.bounds {
                 supported_type(&bound.ty, definitions)?;
@@ -513,7 +513,9 @@ fn supported_type(ty: &Ty, definitions: &DefinitionTable) -> Result<(), Declarat
                 pending.extend(items);
             }
             Ty::Function { params, result } => {
-                pending.extend(params);
+                for parameter in params {
+                    supported_parameter(parameter, definitions)?;
+                }
                 pending.push(result);
             }
             Ty::Projection {
@@ -563,6 +565,16 @@ fn supported_type(ty: &Ty, definitions: &DefinitionTable) -> Result<(), Declarat
         }
     }
     Ok(())
+}
+
+fn supported_parameter(ty: &Ty, definitions: &DefinitionTable) -> Result<(), DeclarationError> {
+    // Position/target/escape validation already ran on the declaration. Admit
+    // views only as direct synchronous inputs, including callable signatures.
+    // This does not extend native implementation receivers or bound targets.
+    match ty {
+        Ty::Reference { target, .. } => supported_type(target, definitions),
+        _ => supported_type(ty, definitions),
+    }
 }
 
 fn supported_constraint(

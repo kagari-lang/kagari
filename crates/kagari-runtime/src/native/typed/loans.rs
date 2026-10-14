@@ -1,4 +1,5 @@
 //! Lifetime-aware callbacks use the ordinary declaration and conversion boundary.
+pub mod pairs;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -64,16 +65,25 @@ pub struct Shared<T, A>(PhantomData<(T, A)>);
 #[doc(hidden)]
 pub struct Mutable<T, A>(PhantomData<(T, A)>);
 
-fn check_receiver(declaration: &FnDecl, access: ReferenceAccess, arity: usize) -> NativeResult<()> {
-    if declaration.params.len() != arity
-        || !declaration.params.first().is_some_and(|p| p.name == "self")
-        || declaration.method_policy.receiver_access != Some(access)
-    {
+fn check_receiver(
+    declaration: &FnDecl,
+    access: ReferenceAccess,
+    arity: usize,
+) -> NativeResult<Option<ReferenceAccess>> {
+    let first = declaration.params.first();
+    let receiver = declaration.method_policy.receiver_access;
+    let valid = match receiver {
+        Some(required) => required == access && first.is_some_and(|p| p.name == "self"),
+        None => first.is_some_and(
+            |p| matches!(&p.ty, Ty::Reference { access: required, .. } if *required == access),
+        ),
+    };
+    if declaration.params.len() != arity || !valid {
         return Err(RuntimeError::metadata_conflict(
             "borrowed callback differs from declared receiver access or argument count",
         ));
     }
-    Ok(())
+    Ok(receiver)
 }
 
 pub(super) fn check_receiver_storage(
@@ -143,7 +153,7 @@ macro_rules! receiver_adapters {
                 + Send + Sync + 'static,
         {
             fn prepare(self, declaration: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
-                check_receiver(declaration, ReferenceAccess::Shared, 1 + $count)?;
+                let receiver_access = check_receiver(declaration, ReferenceAccess::Shared, 1 + $count)?;
                 let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
                     move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), false>| {
@@ -156,7 +166,7 @@ macro_rules! receiver_adapters {
                         }
                     },
                 );
-                binding.receiver_access = Some(ReferenceAccess::Shared);
+                binding.receiver_access = receiver_access;
                 Ok(binding)
             }
         }
@@ -170,7 +180,7 @@ macro_rules! receiver_adapters {
                 + Send + Sync + 'static,
         {
             fn prepare(self, declaration: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
-                check_receiver(declaration, ReferenceAccess::Mutable, 1 + $count)?;
+                let receiver_access = check_receiver(declaration, ReferenceAccess::Mutable, 1 + $count)?;
                 let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
                     move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), true>| {
@@ -183,7 +193,7 @@ macro_rules! receiver_adapters {
                         }
                     },
                 );
-                binding.receiver_access = Some(ReferenceAccess::Mutable);
+                binding.receiver_access = receiver_access;
                 Ok(binding)
             }
         }

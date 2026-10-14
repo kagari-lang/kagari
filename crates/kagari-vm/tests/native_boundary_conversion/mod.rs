@@ -1,4 +1,5 @@
 mod dto;
+mod scoped_pairs;
 mod scoped_struct;
 mod vector_edits;
 use crate::{compile_program, publish_unused_version, support::round_trip_program};

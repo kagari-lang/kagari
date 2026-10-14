@@ -229,7 +229,13 @@ pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
         | Ty::NativeObject(nominal)
         | Ty::Trait(nominal) => nominal.arguments.get(index),
         Ty::Tuple(items) => items.get(index),
-        Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) if index == 0 => {
+        Ty::Array(item)
+        | Ty::Set(item, _)
+        | Ty::Iter(item)
+        | Ty::Range(item, _)
+        | Ty::Reference { target: item, .. }
+            if index == 0 =>
+        {
             Some(item)
         }
         Ty::Map { key, value, .. } => match index {

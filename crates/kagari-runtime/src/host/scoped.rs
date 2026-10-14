@@ -1,4 +1,6 @@
 //! External root records share the existing frame and whole-object loan owner.
+#[cfg(test)]
+mod tests;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -20,6 +22,7 @@ use kagari_types::{reference::ReferenceAccess, ty::Ty};
 use std::{
     any::TypeId,
     mem::size_of,
+    ptr,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -61,6 +64,32 @@ struct ScopedPlace {
 // borrow ends, its guard removes the frame and every address. Runtime therefore
 // retains its Send contract only when no external address can be transferred.
 unsafe impl Send for ScopedRoot {}
+
+macro_rules! pair_loans {
+    ($name:ident, $a1:ident, $a2:ident; [$($mut1:ident)?], [$($mut2:ident)?]) => {
+        impl HostBorrowTable {
+            pub(crate) fn $name<T: Send + 'static, U: Send + 'static, R>(
+                &self, runtime: &Runtime, first: ScopedHostView, second: ScopedHostView,
+                f: impl for<'loan> FnOnce(&'loan $($mut1)? T, &'loan $($mut2)? U) -> NativeResult<R>,
+            ) -> NativeResult<R> {
+                self.with_scoped_loans(runtime, [
+                    (first, TypeId::of::<T>(), ReferenceAccess::$a1),
+                    (second, TypeId::of::<U>(), ReferenceAccess::$a2),
+                ], |[first, second]| {
+                    // SAFETY: Exact Rust target identities and both capabilities
+                    // were checked; the complete pack excludes incompatible loans
+                    // before projection/reference construction. HRTB prevents escape.
+                    unsafe { f(&$($mut1)? *first.cast::<T>(), &$($mut2)? *second.cast::<U>()) }
+                })
+            }
+        }
+    };
+}
+
+pair_loans!(read_pair, Shared, Shared; [], []);
+pair_loans!(read_edit_pair, Shared, Mutable; [], [mut]);
+pair_loans!(edit_read_pair, Mutable, Shared; [mut], []);
+pair_loans!(edit_pair, Mutable, Mutable; [mut], [mut]);
 
 impl HostBorrowTable {
     /// The caller keeps T borrowed and Runtime exclusively reserved until frame
@@ -222,43 +251,67 @@ impl HostBorrowTable {
         access: ReferenceAccess,
         f: impl FnOnce(*mut T) -> NativeResult<R>,
     ) -> NativeResult<R> {
+        self.with_scoped_loans(runtime, [(view, TypeId::of::<T>(), access)], |[pointer]| {
+            f(pointer.cast::<T>())
+        })
+    }
+
+    /// Complete validation and acquisition precede every raw field calculation
+    /// and reference. The one guard releases partial packs on failure/unwind.
+    pub(crate) fn with_scoped_loans<R, const N: usize>(
+        &self,
+        runtime: &Runtime,
+        requests: [(ScopedHostView, TypeId, ReferenceAccess); N],
+        f: impl FnOnce([*mut (); N]) -> NativeResult<R>,
+    ) -> NativeResult<R> {
         runtime.resources().poll_execution()?;
-        if !view.access.permits(access) {
-            return Err(RuntimeError::host_borrow_conflict(
-                "shared view cannot grant mutable access",
-            ));
-        }
-        let (pointer, place) = self.with_root(view, |root| {
-            let place = &root.places[view.place];
-            if place.rust_type != TypeId::of::<T>() {
-                return Err(invalid());
+        let mut prepared = Vec::new();
+        prepared
+            .try_reserve_exact(N)
+            .map_err(|_| RuntimeError::resource_limit("host loan pack"))?;
+        for (view, rust_type, access) in requests {
+            if !view.access.permits(access) {
+                return Err(RuntimeError::host_borrow_conflict(
+                    "shared view cannot grant mutable access",
+                ));
             }
-            place.target.validate(runtime)?;
-            Ok((root.pointer, place.clone()))
-        })?;
-        let loan = self.enter_frame_in(Some(runtime.resources()))?;
-        self.borrow_record(
-            &loan,
-            FrameBorrowRecord {
-                object_id: view.object,
-                borrow_kind: if access == ReferenceAccess::Mutable {
-                    HostBorrowKind::Unique
-                } else {
-                    HostBorrowKind::Shared
-                },
-                type_id: None,
-                path: place.path.clone(),
-            },
-        )?;
-        let mut pointer = pointer;
-        for projector in place.projectors.iter() {
-            // SAFETY: Validated generated direct fields start at the scope-reserved
-            // live root. No ancestor reference is formed; this path loan is active.
-            pointer = unsafe { (projector.project)(pointer) };
+            let (pointer, place) = self.with_root(view, |root| {
+                let place = &root.places[view.place];
+                if place.rust_type != rust_type {
+                    return Err(invalid());
+                }
+                place.target.validate(runtime)?;
+                Ok((root.pointer, place.clone()))
+            })?;
+            prepared.push((view.object, pointer, place, access));
         }
-        // The temporary loan frame releases its counts on all exits, including
-        // unwind. No table borrow spans callback execution or nested validation.
-        let result = f(pointer.cast::<T>());
+        let loan = self.enter_frame_in(Some(runtime.resources()))?;
+        for (object, _, place, access) in &prepared {
+            self.borrow_record(
+                &loan,
+                FrameBorrowRecord {
+                    object_id: *object,
+                    borrow_kind: if *access == ReferenceAccess::Mutable {
+                        HostBorrowKind::Unique
+                    } else {
+                        HostBorrowKind::Shared
+                    },
+                    type_id: None,
+                    path: place.path.clone(),
+                },
+            )?;
+        }
+        let mut pointers = [ptr::null_mut(); N];
+        for (slot, (_, mut pointer, place, _)) in prepared.into_iter().enumerate() {
+            for projector in place.projectors.iter() {
+                // SAFETY: A validated generated inline chain starts at the live
+                // reserved root. Every loan in the pack is already active; raw
+                // calculations never create an intermediate ancestor reference.
+                pointer = unsafe { (projector.project)(pointer) };
+            }
+            pointers[slot] = pointer;
+        }
+        let result = f(pointers);
         drop(loan);
         result
     }

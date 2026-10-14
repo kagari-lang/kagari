@@ -491,9 +491,21 @@ disjoint. Any overlapping loan involving a writer rejects before constructing a
 Rust reference. Active ancestor/child loans block replacement; an idle view resolves
 the current reserved root and raw field chain on its next access. Generated code
 uses raw field addresses without creating an ancestor reference. Scope exit revokes
-child locations along with their root. Script field operations and atomic borrowed
-argument packs remain pending in RF02/RF04; the Rust scoped field boundary is
-implemented independently of those execution admission gates.
+child locations along with their root. Script field operations remain pending in
+RF02/RF04; the Rust scoped field boundary is implemented independently of those
+execution admission gates.
+
+The common bind adapter supports one borrowed free-function input or two borrowed
+inputs in shared/mutable combinations, followed by owned inputs (at most twelve
+arguments total). The first input can also be an Opaque method receiver declared
+with the matching receiver access. Reference parameters require external locations;
+they cannot reinterpret ordinary GC structs or retained handle wrappers as payload
+pointers. Owned inputs convert before loan acquisition. The complete external pack
+is checked/acquired before raw projection or reference creation. Conflicting packs
+release partial acquisitions without callback entry; completed conversions/writes
+remain observable. Loans release before owned result conversion. Opaque's original
+GC payload loan remains active during its callback and does not acquire external
+reentry capabilities by analogy.
 
 Borrowed host values are the important case for low-copy interop.
 

@@ -1405,6 +1405,13 @@ records actual-pointer Miri coverage of disjoint reentry, ancestor conflicts,
 replacement and unwind. Atomic native packs and source/portable field operations
 remain open; this checkpoint does not close RF04 or combined acceptance.
 
+The RF04/RF05 common-pack checkpoint now supplies atomic external path acquisition
+and mixed Opaque/external method input adaptation through the existing bind owner.
+The [interop ledger](rust-interop-design.md#rf04rf05-checkpoint-common-atomic-borrowed-argument-packs)
+records source-free tests, actual-pack Miri and repaired native authoring/target
+derivation gaps. RF04/RF02 field execution, pinned projectors and RF05 SDK/live-host/
+capability integration remain open; no combined completion is claimed.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
