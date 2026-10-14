@@ -52,16 +52,22 @@ shared output storage always checks and compiles inputs.
 
 ## Cranelift AOT deployment
 
-[The Cranelift AOT plan](cranelift-aot-plan.md) owns A01-A04: shared JIT/object
-lowering, a linked native bundle, compiler-free loading and deployment validation.
-The plan is prepared; implementation has not started. This is the next selected
-native track, limited to the existing zero-argument scalar subset on x86_64 Windows
-MSVC. Runtime invocation and retained versions remain shared with JIT.
+[Scalar AOT deployment](spec/aot.md) is implemented for x86_64 Windows MSVC.
+JIT and object emission share lowering and invocation context. Build hosts emit
+an immutable bytecode/DLL/manifest bundle; compiler-free hosts load and install it
+through existing runtime version and lifetime checks. Wider native coverage and
+the call-stack decision remain deferred independently.
 
-The deployment proof requires actual native execution in a separate process whose
-production dependencies exclude source analysis, MIR/compiler and Cranelift.
-LLVM, Linux AOT, cross-compilation and wider native language coverage are deferred.
-This track does not activate the call-stack decision or synchronous expansion.
+Focused local deployment, ABI, JIT preparation, VM and CLI checks passed, including
+an independent loader process with no source/MIR/compiler/Cranelift dependencies.
+The Windows AOT CI job and exhaustive workspace/feature/platform matrix remain
+pending CI execution; focused local checks are not complete CI acceptance.
+
+Linux AOT, cross-compilation, LLVM and wider native language coverage remain queued.
+Before registry publication of an AOT-enabled Rust SDK, replace its conservative
+workspace-source build fingerprint inputs with an explicit packaged build contract;
+deployed host binaries already need no source checkout. Publication and that
+packaging change are not activated by scalar deployment support.
 
 ## Cranelift synchronous execution
 
@@ -76,7 +82,7 @@ Native acceptance requires actual compiled script bodies and separately identifi
 runtime helpers/mixed callees, with source-free artifacts, GC/reentry, cancellation
 and pinned reload evidence. Async suspension, native debugging, automatic hotness,
 LLVM, AOT and machine-code persistence are outside J01-J06; the separate
-[AOT plan](cranelift-aot-plan.md) owns the selected deployment work. NC and HR/SA21 remain
+[AOT contract](spec/aot.md) describes the implemented scalar deployment route. NC and HR/SA21 remain
 independent migrations; reuse their current contracts instead of activating them.
 
 ## Toolchain distribution and modes

@@ -20,7 +20,7 @@ checked HIR --compiler source--> verified MIR --compiler core--> verified byteco
 - `kagari-mir` owns concrete typed CFGs, verification, sealed analyses, portable
   encoding and bounded public optimization passes. It does not depend on HIR.
 - `kagari-compiler` owns source lowering, reachable monomorphization, MIR-to-bytecode
-  emission, canonical artifact correspondence and native link construction.
+  emission, canonical artifact correspondence and native input correspondence.
 - `kagari-abi` owns physical representations, helper signatures, native calling
   conventions, version constants, physical descriptors and executable page owners.
 - `kagari-contract` owns semantic types/layouts, checked call/operation contracts
@@ -28,7 +28,7 @@ checked HIR --compiler source--> verified MIR --compiler core--> verified byteco
 - `kagari-codegen` owns the compilation interface and diagnostics. It consumes MIR
   and ABI, without runtime, bytecode, frontend or concrete backend dependencies.
 - `kagari-codegen-cranelift` owns MIR-to-CLIF legalization, host ISA selection,
-  machine-code generation and executable page lifetime.
+  shared JIT/object lowering, target selection and executable page lifetime.
 - `kagari-runtime` owns installation, generation/authority checks, sessions, frames,
   helper implementations and invocation. The VM consumes prepared native entries.
 - `kagari` orchestrates preparation, caching, linking and execution. Concrete
@@ -75,7 +75,7 @@ Equal configurations must permit reuse of compiled products. Unsupported input i
 distinct from compiler or link errors and must be reported before script effects.
 
 Implementing this trait is unsafe: successful products must implement the exact
-verified function's semantics, logical charges, roots and host native ABI, retain
+verified function's semantics, polling points, roots and host native ABI, retain
 all referenced code/links, and never unwind through C frames. Native code is trusted
 host code. Safe descriptor validation cannot prove arbitrary executable pointers
 or machine instructions correct.
@@ -96,15 +96,17 @@ Send bounds while execution remains exclusive; see
 
 ## Links and Runtime ABI
 
-The compiler constructs an immutable `NativeLinkDescription` from explicitly
-supplied helper symbols. Generated code must use the declared helper identity,
-signature and address. Missing, duplicate or malformed required links are compiler
-errors. Backends do not inspect runtime internals to resolve them.
+`NativeLinkDescription::scalar` describes portable helper identities and physical
+signatures. Missing, duplicate or malformed requirements are compiler errors.
+Runtime constructs an invocation-local `NativeInvocationContext` with an opaque
+runtime pointer and immutable `NativeHelperTable`. Generated code loads helpers
+from this table; it never persists process addresses or inspects Rust Runtime
+layout. Context/table pointers remain valid through invocation and cannot escape.
 
 The current zero-argument scalar entry uses the C ABI:
 
 ```text
-(runtime: *const c_void, result: *mut JitValue) -> i32 status
+(context: *const NativeInvocationContext, result: *mut JitValue) -> i32 status
 ```
 
 `kagari-abi::native_call` defines tagged Unit/Bool/i32 results and status codes.
@@ -150,8 +152,8 @@ Flags alone cannot provide debugger semantics.
 Reload publishes a new immutable version. Existing native entries retain the exact
 old version and pages while reachable; they cannot masquerade as entries for the
 new version. Failed publication leaves current entrypoints intact. Interpreter cache
-records are separate from native code ownership. Machine-code persistence across
-process restarts is not supported.
+records are separate from native code ownership. The [AOT deployment contract](aot.md) separately defines persistent native
+bundles and their trusted loading boundary.
 
 ## Current Cranelift Subset
 
@@ -168,13 +170,13 @@ reload and GC boundaries. Compiler errors must not be mislabeled unsupported.
 
 ## Future Backends
 
-Expand Cranelift coverage as a separate track before introducing LLVM. New support
+Wider Cranelift coverage and LLVM remain deferred independent tracks. New support
 must consume the same concrete MIR facts and explicit link/ABI descriptions, retain
 correct roots and versions and satisfy the behavior matrix. No placeholder LLVM
 crate, duplicate runtime or second implementation of source semantics is required.
-Module/AOT compilation, physical GC maps and native debugger callbacks need their
-own explicit contracts and acceptance tests; they are not implicitly provided by
-the current function compiler. Shareable code owners allow separate runtime
+Scalar AOT uses the separate ObjectBackend emission contract and the shared
+invocation ABI; see [AOT](aot.md). General module compilation, physical GC maps
+and native debugger callbacks remain unsupported. Shareable code owners allow separate runtime
 installations, not concurrent entry into one runtime.
 
 ## Async backend boundary

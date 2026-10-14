@@ -303,11 +303,11 @@ mod native {
     use kagari_mir::instruction::{Constant, Instruction, Terminator};
     use kagari_runtime::jit_abi::jit_poll_execution;
     use kagari_vm::vm::JitExecutionStatus;
-    use std::{ffi::c_void, sync::Arc};
+    use std::sync::Arc;
     use {
         kagari_abi::{
             native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-            native_call::{JIT_STATUS_OK, JitValue},
+            native_call::{JIT_STATUS_OK, JitValue, NativeInvocationContext},
         },
         kagari_contract::{
             ids::FunctionRef,
@@ -322,9 +322,12 @@ mod native {
 
     struct Backend;
 
-    unsafe extern "C" fn forty_two(runtime: *const c_void, result: *mut JitValue) -> i32 {
+    unsafe extern "C" fn forty_two(
+        runtime: *const NativeInvocationContext,
+        result: *mut JitValue,
+    ) -> i32 {
         for offset in 0..2 {
-            let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
+            let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), offset) };
             if status != JIT_STATUS_OK {
                 return status;
             }

@@ -7,7 +7,7 @@ use {
         native_call::{
             JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INTEGER_OVERFLOW,
             JIT_STATUS_INVALID_HEAP_REFERENCE, JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK,
-            JIT_STATUS_RESOURCE_LIMIT, JitCompiledFunction, JitValue,
+            JIT_STATUS_RESOURCE_LIMIT, JitCompiledFunction, JitValue, NativeInvocationContext,
         },
         representation::ValueType,
         version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
@@ -20,7 +20,7 @@ use crate::{
     backend::BackendInvocationError,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
-    jit_abi::decode_native_value,
+    jit_abi::{NATIVE_HELPERS, decode_native_value},
     module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
     value::Value,
 };
@@ -60,7 +60,7 @@ impl Runtime {
     /// # Safety
     /// The product must be generated for this exact verified module and pinned program,
     /// this host target, and the current Kagari native/helper ABI. Its entry must obey
-    /// `JitCompiledFunction`, including logical charges, roots and helper contracts.
+    /// `JitCompiledFunction`, including polling points, roots and helper contracts.
     /// The owner must retain all referenced executable pages and links while any clone
     /// of the product exists. Native code must not unwind through the C ABI.
     /// Descriptor validation cannot establish these properties for arbitrary pointers.
@@ -147,7 +147,11 @@ impl Runtime {
         // retains the product and versions, and the active frame supplies context.
         let function = unsafe { mem::transmute::<usize, JitCompiledFunction>(address) };
         let mut result = JitValue::default();
-        let status = unsafe { function((self as *const Self).cast(), &mut result) };
+        let context = NativeInvocationContext {
+            runtime: (self as *const Self).cast(),
+            helpers: &NATIVE_HELPERS,
+        };
+        let status = unsafe { function(&context, &mut result) };
         self.resources()
             .ensure_execution_allowed()
             .map_err(runtime_failure)?;

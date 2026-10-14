@@ -1,3 +1,4 @@
+use crate::native_call::NATIVE_HELPER_SIGNATURES;
 use crate::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use std::fmt;
 
@@ -87,23 +88,32 @@ pub enum NativeType {
     I64,
 }
 
-/// Runtime-owned process address. Compiler orchestration supplies the ABI signature.
-#[derive(Debug, Clone)]
-pub struct NativeHelperSymbol {
-    pub symbol: String,
-    pub address: usize,
-}
-
-#[derive(Debug, Clone)]
+/// Portable requirement; actual process bindings live in NativeHelperTable.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeHelperDeclaration {
     pub symbol: String,
-    pub address: usize,
     pub parameters: Vec<NativeType>,
     pub results: Vec<NativeType>,
 }
 
-/// Explicit symbol bindings are supplied before compilation or script effects.
+/// Explicit physical requirements consumed by either compilation mode.
 #[derive(Debug, Clone, Default)]
 pub struct NativeLinkDescription {
     pub helpers: Vec<NativeHelperDeclaration>,
+}
+
+impl NativeLinkDescription {
+    /// The scalar invocation ABI's complete helper requirements.
+    pub fn scalar() -> Self {
+        Self {
+            helpers: NATIVE_HELPER_SIGNATURES
+                .iter()
+                .map(|signature| NativeHelperDeclaration {
+                    symbol: signature.symbol.into(),
+                    parameters: signature.parameters.to_vec(),
+                    results: signature.results.to_vec(),
+                })
+                .collect(),
+        }
+    }
 }

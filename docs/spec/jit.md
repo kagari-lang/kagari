@@ -35,20 +35,23 @@ is not evidence that a function compiled.
 
 Locals, control flow, calls, GC-bearing values, other numeric families and
 remainder/division currently use interpreter fallback. Extending this coverage is
-separate follow-up work. LLVM, AOT, optimizing tiers, speculative inlining,
-deoptimization, tracing JIT and persisted machine code remain outside this baseline.
+separate follow-up work. LLVM, optimizing tiers, speculative inlining, deoptimization and tracing JIT
+remain outside this baseline. [AOT deployment](aot.md) persists the same scalar
+subset through a separate object/link/load route.
 
 ## Runtime ABI and Safepoints
 
-The scalar entry accepts opaque runtime and result pointers and returns an ABI status.
+The scalar entry accepts invocation-context and result pointers and returns an ABI status.
+The context borrows an opaque runtime pointer and immutable runtime helper table.
 Result tags/fields and helper signatures live in `kagari-abi`; runtime Rust `Value`
 layout is not a machine-code contract. Backend implementation is trusted unsafe host
 code and must retain callable pages/links and avoid unwinding across the C ABI.
 
 Every logical instruction and return visits the declared step helper with the sealed
 logical offset. Runtime records the origin, observes terminal state/cancellation,
-collects at the safepoint and charges the verified point before the operation runs.
-Optimized MIR retains logical charges. Overflow and resource exhaustion must agree
+collects at the safepoint before the operation runs. Optimized MIR preserves
+required polling and observable effects; there is no instruction charging.
+Overflow and resource exhaustion must agree
 with the interpreter in trap order, source location and completed effects.
 
 Current scalar safepoints have empty root maps. Future GC-bearing support requires

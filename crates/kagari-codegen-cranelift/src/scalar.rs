@@ -19,13 +19,15 @@ pub(super) struct LoweredValue {
 
 pub(super) fn emit_resource_check(
     builder: &mut FunctionBuilder<'_>,
-    consume_step: ir::FuncRef,
+    consume_step: (ir::SigRef, ir::Value),
     runtime_ptr: ir::Value,
     helper_error_block: ir::Block,
     offset: usize,
 ) {
     let offset = builder.ins().iconst(types::I64, offset as i64);
-    let call = builder.ins().call(consume_step, &[runtime_ptr, offset]);
+    let call = builder
+        .ins()
+        .call_indirect(consume_step.0, consume_step.1, &[runtime_ptr, offset]);
     let status = builder.inst_results(call)[0];
     let ok = builder
         .ins()

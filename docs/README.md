@@ -13,7 +13,7 @@ behavior; queued designs do not imply implemented APIs.
 | Failure and execution | [Failure semantics](spec/failure-semantics.md), [execution](spec/execution.md), [runtime](spec/runtime.md), [security/access](spec/security.md), [error reporting](spec/error-reporting.md) |
 | Host integration | [Embedding](spec/embedding-api.md), [host interop](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
 | Modules and reload | [Packages/workspaces](spec/packages.md), [Modules](spec/modules.md), [loading](spec/module-loading.md), [activation](spec/module-activation.md) |
-| Executable products | [Bytecode](spec/bytecode.md), [artifacts](spec/artifacts.md), [backend contract](spec/codegen-backend.md), [JIT](spec/jit.md) |
+| Executable products | [Bytecode](spec/bytecode.md), [artifacts](spec/artifacts.md), [backend contract](spec/codegen-backend.md), [JIT](spec/jit.md), [AOT deployment](spec/aot.md) |
 | Tooling | [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
 
 ## Implementation references
@@ -35,9 +35,6 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Cranelift AOT deployment](cranelift-aot-plan.md): A01-A04 are planned and
-  unstarted; deploy the existing scalar subset as a Windows native bundle and
-  load it in a compiler-free host while sharing JIT lowering/runtime contracts.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and

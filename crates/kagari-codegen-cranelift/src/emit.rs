@@ -9,12 +9,12 @@ use crate::{
 
 use cranelift_codegen::{
     Context,
-    ir::{AbiParam, InstBuilder, types},
+    ir::{AbiParam, InstBuilder, MemFlagsData, types},
     isa::TargetIsa,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{Linkage, Module, default_libcall_names};
+use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
 use kagari_codegen::{BackendConfiguration, BackendFunctionInput, diagnostic::BackendCompileError};
 use kagari_mir::{
     function::MirFunction,
@@ -72,6 +72,36 @@ pub(super) fn compile(
     configuration: &BackendConfiguration,
     input: BackendFunctionInput<'_>,
 ) -> Result<NativeCompilationProduct, BackendCompileError> {
+    let jit = JITBuilder::with_isa(isa, default_libcall_names());
+    let mut memory = CodeMemory(Mutex::new(Some(JITModule::new(jit))));
+    let module = memory
+        .0
+        .get_mut()
+        .expect("exclusive owner")
+        .as_mut()
+        .expect("new owner");
+    let (id, mut artifact) = lower(module, configuration, input)?;
+    module
+        .finalize_definitions()
+        .map_err(|e| internal_error(format!("finalize native entry: {e}")))?;
+    let ExecutableEntryPoint::Symbol(symbol) = artifact.code.entry else {
+        unreachable!("lowered symbol")
+    };
+    artifact.code.entry = ExecutableEntryPoint::Native {
+        symbol,
+        address: module.get_finalized_function(id) as usize,
+    };
+    Ok(NativeCompilationProduct {
+        artifact,
+        owner: Arc::new(memory),
+    })
+}
+
+pub(super) fn lower<M: Module>(
+    module: &mut M,
+    configuration: &BackendConfiguration,
+    input: BackendFunctionInput<'_>,
+) -> Result<(FuncId, ExecutableFunctionArtifact), BackendCompileError> {
     let function = input.function();
     check_subset(function)?;
     let helpers = &input.links().helpers;
@@ -81,8 +111,8 @@ pub(super) fn compile(
     let helper = matching
         .next()
         .ok_or_else(|| internal_error("missing execution polling helper"))?;
-    if matching.next().is_some()
-        || helper.address == 0
+    if helpers.len() != 1
+        || matching.next().is_some()
         || helper.parameters != [NativeType::Pointer, NativeType::I64]
         || helper.results != [NativeType::I32]
     {
@@ -90,33 +120,21 @@ pub(super) fn compile(
             "invalid execution polling helper declaration",
         ));
     }
-    let mut jit = JITBuilder::with_isa(isa, default_libcall_names());
-    jit.symbol(&helper.symbol, helper.address as *const u8);
-    let mut memory = CodeMemory(Mutex::new(Some(JITModule::new(jit))));
-    let module = memory
-        .0
-        .get_mut()
-        .expect("code owner is never locked")
-        .as_mut()
-        .expect("new code owner");
     let pointer_type = module.target_config().pointer_type();
     let mut helper_sig = module.make_signature();
     helper_sig
         .params
         .extend([AbiParam::new(pointer_type), AbiParam::new(types::I64)]);
     helper_sig.returns.push(AbiParam::new(types::I32));
-    let helper_id = module
-        .declare_function(&helper.symbol, Linkage::Import, &helper_sig)
-        .map_err(|e| internal_error(format!("declare helper: {e}")))?;
     // Each product has an independent module, so symbols need no global counter.
-    let symbol = format!("kagari_jit_{}", function.id.index());
+    let symbol = format!("kagari_native_{}", function.id.index());
     let mut signature = module.make_signature();
     signature
         .params
         .extend([AbiParam::new(pointer_type), AbiParam::new(pointer_type)]);
     signature.returns.push(AbiParam::new(types::I32));
     let id = module
-        .declare_function(&symbol, Linkage::Local, &signature)
+        .declare_function(&symbol, Linkage::Export, &signature)
         .map_err(|e| internal_error(format!("declare native entry: {e}")))?;
     let mut context = Context::new();
     context.func.signature = signature;
@@ -136,9 +154,22 @@ pub(super) fn compile(
         let overflow = builder.create_block();
         builder.switch_to_block(entry);
         builder.append_block_params_for_function_params(entry);
-        let runtime_ptr = builder.block_params(entry)[0];
+        let context_ptr = builder.block_params(entry)[0];
+        let runtime_ptr = builder
+            .ins()
+            .load(pointer_type, MemFlagsData::trusted(), context_ptr, 0);
+        let helpers = builder.ins().load(
+            pointer_type,
+            MemFlagsData::trusted(),
+            context_ptr,
+            i32::from(module.target_config().pointer_bytes()),
+        );
+        let poll = builder
+            .ins()
+            .load(pointer_type, MemFlagsData::trusted(), helpers, 0);
         let result_ptr = builder.block_params(entry)[1];
-        let consume_step = module.declare_func_in_func(helper_id, builder.func);
+        let poll_signature = builder.import_signature(helper_sig);
+        let consume_step = (poll_signature, poll);
         let mut temps = vec![None; function.temps.len()];
         for (index, instruction) in block.instructions.iter().enumerate() {
             let point = facts.instruction(index).expect("sealed point facts");
@@ -230,22 +261,15 @@ pub(super) fn compile(
         .define_function(id, &mut context)
         .map_err(|e| internal_error(format!("define native entry: {e}")))?;
     module.clear_context(&mut context);
-    module
-        .finalize_definitions()
-        .map_err(|e| internal_error(format!("finalize native entry: {e}")))?;
-    let address = module.get_finalized_function(id) as usize;
     let mut artifact = ExecutableFunctionArtifact::new(
         configuration.backend.clone(),
         configuration.target.clone(),
         FunctionRef::new(function.id.index()),
     );
-    artifact.code.entry = ExecutableEntryPoint::Native { symbol, address };
+    artifact.code.entry = ExecutableEntryPoint::Symbol(symbol);
     artifact.safepoints = safepoints;
     artifact.code.traps = traps;
-    Ok(NativeCompilationProduct {
-        artifact,
-        owner: Arc::new(memory),
-    })
+    Ok((id, artifact))
 }
 
 fn safepoint(instruction_offset: usize) -> ExecutableSafepoint {

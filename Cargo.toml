@@ -50,6 +50,7 @@ cranelift-frontend = "0.136.2"
 cranelift-jit = "0.136.2"
 cranelift-module = "0.136.2"
 cranelift-native = "0.136.2"
+cranelift-object = "0.136.2"
 smallvec = "1.16.3"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"

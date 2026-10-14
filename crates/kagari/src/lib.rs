@@ -4,6 +4,8 @@
 //! `source` adds analysis and artifact emission; `native` adds frontend-free MIR
 //! preparation and trusted backend integration. Defaults enable both. Concrete
 //! native backends are supplied by the host and are not production dependencies.
+#[cfg(feature = "aot-load")]
+pub mod aot;
 pub mod context;
 pub mod engine;
 pub mod error;

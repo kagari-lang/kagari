@@ -1,3 +1,4 @@
+mod aot;
 mod args;
 mod project;
 
@@ -42,6 +43,8 @@ fn main() -> ExitCode {
 
 fn run_cli(cli: Cli) -> Result<(), CliError> {
     match cli.command {
+        Command::BuildAot { source, output } => aot::build(&source, &output),
+        Command::RunAot { bundle } => aot::run(&bundle),
         Command::Project { action, options } => project::run(action, options, cli.jit),
         Command::Parse { source } => parse_source(&source),
         Command::Check { source } => check_source(&source),
@@ -378,6 +381,20 @@ mod tests {
 
     #[test]
     fn parses_pipeline_commands() {
+        assert_eq!(
+            parse(&["build-aot", "main.kgr", "-o", "release.aot"]).command,
+            Command::BuildAot {
+                source: PathBuf::from("main.kgr"),
+                output: PathBuf::from("release.aot")
+            }
+        );
+        assert_eq!(
+            parse(&["run-aot", "release.aot"]).command,
+            Command::RunAot {
+                bundle: PathBuf::from("release.aot")
+            }
+        );
+        assert!(Cli::parse(["run-aot", "release.aot", "--jit"].map(str::to_owned)).is_err());
         assert_eq!(
             parse(&["parse", "main.kgr"]),
             Cli {

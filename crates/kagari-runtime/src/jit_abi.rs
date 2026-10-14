@@ -1,20 +1,19 @@
 use crate::{Runtime, error::RuntimeErrorKind, value::Value};
-use kagari_abi::{
-    native::NativeHelperSymbol,
-    native_call::{
-        JIT_POLL_EXECUTION_SYMBOL, JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT,
-        JIT_STATUS_INVALID_HEAP_REFERENCE, JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK,
-        JIT_STATUS_RESOURCE_LIMIT, JIT_VALUE_TAG_BOOL, JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT,
-        JitValue,
-    },
+use kagari_abi::native_call::{
+    JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INVALID_HEAP_REFERENCE,
+    JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT, JIT_VALUE_TAG_BOOL,
+    JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitValue, NativeHelperTable,
+};
+use std::ffi::c_void;
+
+/// Immutable bindings borrowed by each native invocation.
+pub static NATIVE_HELPERS: NativeHelperTable = NativeHelperTable {
+    poll_execution: poll_from_context,
 };
 
-/// Process-lifetime symbols, independent of any runtime instance or host binding.
-pub fn native_helper_symbols() -> Vec<NativeHelperSymbol> {
-    vec![NativeHelperSymbol {
-        symbol: JIT_POLL_EXECUTION_SYMBOL.into(),
-        address: jit_poll_execution as *const () as usize,
-    }]
+unsafe extern "C" fn poll_from_context(runtime: *const c_void, offset: u64) -> i32 {
+    // SAFETY: the invocation context holds the live runtime for this call.
+    unsafe { jit_poll_execution(runtime.cast(), offset) }
 }
 
 /// Publish a verified program point, poll cancellation and service GC.

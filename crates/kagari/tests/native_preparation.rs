@@ -1,12 +1,9 @@
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::module::entry::ProgramEntry;
-use std::{
-    ffi::c_void,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use kagari::{
@@ -23,12 +20,11 @@ use kagari_codegen::{
     diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
 };
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
-use kagari_runtime::jit_abi::jit_poll_execution;
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use {
     kagari_abi::{
         native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-        native_call::{JIT_STATUS_OK, JitValue},
+        native_call::{JIT_STATUS_OK, JitValue, NativeInvocationContext},
     },
     kagari_contract::{
         ids::FunctionRef,
@@ -48,9 +44,9 @@ impl Drop for Owner {
     }
 }
 
-unsafe extern "C" fn unit(runtime: *const c_void, result: *mut JitValue) -> i32 {
+unsafe extern "C" fn unit(runtime: *const NativeInvocationContext, result: *mut JitValue) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
+        let status = unsafe { ((*(*runtime).helpers).poll_execution)((*runtime).runtime, offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -117,11 +113,6 @@ unsafe impl CodegenBackend for Backend {
             panic!("unit fixture input");
         };
         assert!(matches!(block.terminator, Some(Terminator::Return(Some(value))) if value == *dst));
-        assert_eq!(input.links().helpers.len(), 1);
-        assert_eq!(
-            input.links().helpers[0].address,
-            jit_poll_execution as *const () as usize
-        );
         let configuration = self.configuration();
         let mut artifact = ExecutableFunctionArtifact::new(
             configuration.backend,

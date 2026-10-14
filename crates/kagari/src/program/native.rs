@@ -1,4 +1,5 @@
 //! Compile once per immutable program/configuration; install separately per runtime.
+use kagari_abi::native::NativeLinkDescription;
 use std::sync::Arc;
 
 use kagari_bytecode::program::ModuleRef;
@@ -6,12 +7,10 @@ use kagari_codegen::{
     BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_compiler::native_links::{NativeLinkError, build_native_links};
 use kagari_mir::ids::InstanceId;
 use kagari_runtime::{
     backend::BackendInvocationError,
     error::RuntimeError,
-    jit_abi::native_helper_symbols,
     module::{LoadedModule, entry::ProgramEntry},
 };
 use kagari_vm::vm::native::PreparedNativeEntry;
@@ -56,8 +55,6 @@ pub enum NativePreparationError {
     InvalidProduct,
     #[error("native compilation cache entry limit exceeded")]
     CacheLimit,
-    #[error("native link construction failed: {0}")]
-    Links(#[from] NativeLinkError),
     #[error("native installation failed: {0}")]
     Installation(#[from] BackendInvocationError),
     #[error("runtime validation failed: {0}")]
@@ -124,7 +121,7 @@ impl KagariRuntime {
             CachedFunction::Native(product) => {
                 // SAFETY: the unsafe backend contract establishes callable code and
                 // retained memory. Canonical correspondence and shared version identity
-                // bind the exact function/program; symbols come from runtime itself.
+                // bind the exact function/program; invocation supplies runtime-owned helpers.
                 let installed = unsafe { self.runtime().install_native_function(module, product)? };
                 Ok(PreparedNativeEntry::Native(installed))
             }
@@ -151,7 +148,7 @@ impl PreparedProgram {
             .as_ref()
             .expect("native input checked before compilation");
         let module = &mir.modules()[key.module.index()];
-        let links = build_native_links(&native_helper_symbols())?;
+        let links = NativeLinkDescription::scalar();
         let input =
             BackendFunctionInput::new(module, InstanceId::new(key.function.index()), &links)
                 .ok_or(NativePreparationError::InvalidProduct)?;

@@ -1,5 +1,6 @@
 //! Host-native compilation of verified MIR. Execution belongs to the runtime.
 mod emit;
+mod object;
 mod scalar;
 #[cfg(test)]
 mod tests;
@@ -8,7 +9,7 @@ use cranelift_codegen::{
     isa::TargetIsa,
     settings::{self, Configurable, Flags},
 };
-use cranelift_native::builder as native_builder;
+use cranelift_native::builder_with_options;
 use kagari_codegen::{
     BackendConfiguration, BackendFunctionInput, CodegenBackend,
     diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
@@ -34,7 +35,40 @@ impl fmt::Debug for CraneliftBackend {
 
 impl CraneliftBackend {
     pub fn for_host() -> Result<Self, CraneliftBackendError> {
-        let isa = host_isa()?;
+        Self::from_isa(host_isa(true)?)
+    }
+
+    /// Baseline x86_64 Windows MSVC code, independent of build-host CPU extensions.
+    pub fn for_aot() -> Result<Self, CraneliftBackendError> {
+        if !cfg!(all(
+            target_arch = "x86_64",
+            target_os = "windows",
+            target_env = "msvc"
+        )) {
+            return Err(CraneliftBackendError {
+                message: "AOT currently requires x86_64 Windows MSVC".into(),
+            });
+        }
+        let isa = host_isa(false)?;
+        if isa
+            .isa_flags()
+            .iter()
+            .any(|flag| flag.as_bool() != Some(false))
+        {
+            return Err(CraneliftBackendError {
+                message: "unexpected non-baseline x64 ISA defaults".into(),
+            });
+        }
+        let mut backend = Self::from_isa(isa)?;
+        backend.configuration.options.push((
+            "isa-settings".into(),
+            backend.configuration.target.features.join(","),
+        ));
+        backend.configuration.target.features = vec!["sse2".into()];
+        Ok(backend)
+    }
+
+    fn from_isa(isa: Arc<dyn TargetIsa>) -> Result<Self, CraneliftBackendError> {
         let mut features = isa
             .isa_flags()
             .iter()
@@ -63,7 +97,7 @@ impl CraneliftBackend {
 // SAFETY: emission accepts only the verified straight-line scalar subset, uses
 // sealed logical offsets for every helper boundary, and implements the native ABI.
 // Each product owns a finalized module and its pages independently of this backend.
-// Helpers are taken from the caller's explicit ABI link description; compilation
+// Helper requirements use the explicit ABI description and invocation context; compilation
 // invokes no script code. Configuration includes the host ISA and all codegen flags.
 unsafe impl CodegenBackend for CraneliftBackend {
     fn configuration(&self) -> BackendConfiguration {
@@ -90,16 +124,16 @@ impl CraneliftBackendError {
     }
 }
 
-fn host_isa() -> Result<Arc<dyn TargetIsa>, CraneliftBackendError> {
+fn host_isa(infer_native: bool) -> Result<Arc<dyn TargetIsa>, CraneliftBackendError> {
     let mut flags = settings::builder();
-    for (name, value) in [("use_colocated_libcalls", "false"), ("is_pic", "false")] {
+    for (name, value) in [("use_colocated_libcalls", "false"), ("is_pic", "true")] {
         flags
             .set(name, value)
             .map_err(|error| CraneliftBackendError {
                 message: error.to_string(),
             })?;
     }
-    native_builder()
+    builder_with_options(infer_native)
         .map_err(|error| CraneliftBackendError {
             message: error.to_string(),
         })?

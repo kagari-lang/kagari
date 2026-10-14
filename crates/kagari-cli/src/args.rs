@@ -11,6 +11,13 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
+    BuildAot {
+        source: PathBuf,
+        output: PathBuf,
+    },
+    RunAot {
+        bundle: PathBuf,
+    },
     Parse {
         source: PathBuf,
     },
@@ -129,7 +136,7 @@ impl Cli {
         }
         let explicit = matches!(
             first.as_str(),
-            "parse" | "check" | "emit" | "build" | "run" | "run-artifact"
+            "parse" | "check" | "emit" | "build" | "run" | "run-artifact" | "build-aot" | "run-aot"
         );
         let rest = &parsed.positionals[usize::from(explicit)..];
         if rest.len() > 1 {
@@ -142,10 +149,10 @@ impl Cli {
         if parsed.jit_option && !matches!(name, "run" | "run-artifact" | "implicit") {
             return Err(CliError::message(2, "JIT options apply only to execution"));
         }
-        if parsed.project.output.is_some() && !matches!(name, "emit" | "build") {
+        if parsed.project.output.is_some() && !matches!(name, "emit" | "build" | "build-aot") {
             return Err(CliError::message(
                 2,
-                "--output applies only to emit or build",
+                "--output applies only to emit, build or build-aot",
             ));
         }
         if matches!(name, "check" | "build" | "run") && rest.is_empty() {
@@ -174,6 +181,14 @@ impl Cli {
             .map(PathBuf::from)
             .ok_or_else(|| CliError::message(2, "missing source or artifact path"))?;
         let command = match name {
+            "build-aot" => Command::BuildAot {
+                output: parsed
+                    .project
+                    .output
+                    .unwrap_or_else(|| source.with_extension("aot")),
+                source,
+            },
+            "run-aot" => Command::RunAot { bundle: source },
             "parse" => Command::Parse { source },
             "check" => Command::Check { source },
             "emit" => Command::Emit {
@@ -206,6 +221,8 @@ pub(crate) fn usage() -> String {
     [
         "usage:",
         "  kg parse <script.kgr>",
+        "  kg build-aot <script.kgr> [-o bundle-dir] (feature aot; KAGARI_AOT_LINKER selects linker)",
+        "  kg run-aot <trusted-bundle-dir> (feature aot; executes trusted native code)",
         "  kg check [script.kgr] [project options]",
         "  kg build [-o artifact.kbc] [project options]",
         "  kg emit [-o artifact.kbc] <script.kgr>",

@@ -24,4 +24,5 @@ kagari-vm.workspace = true
 
 [features]
 default = []
+aot = ["dep:kagari-codegen-cranelift", "kagari/aot-build"]
 jit = ["dep:kagari-codegen-cranelift", "kagari/native"]

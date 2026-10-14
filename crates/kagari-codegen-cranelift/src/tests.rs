@@ -1,15 +1,12 @@
 use super::*;
 use kagari::engine::KagariEngine;
-use kagari_compiler::{
-    bytecode::lower_program_to_bytecode, native_links::build_native_links,
-    source::program::lower_program_to_mir,
-};
+use kagari_abi::native::NativeLinkDescription;
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeErrorKind,
-    jit_abi::native_helper_symbols,
     native::module::NativeModule,
     resource::RuntimeLimits,
     value::Value,
@@ -52,7 +49,7 @@ fn compile(
     backend: &mut CraneliftBackend,
     mir: &VerifiedMirProgram,
 ) -> Result<NativeCompilationProduct, BackendCompileError> {
-    let links = build_native_links(&native_helper_symbols()).unwrap();
+    let links = NativeLinkDescription::scalar();
     let module = root(mir);
     backend.compile_function(
         BackendFunctionInput::new(module, module.functions[0].id, &links).unwrap(),
@@ -200,12 +197,12 @@ fn cranelift_backend_requires_precise_stack_maps_for_gc_values() {
 fn malformed_helper_links_fail_compilation_without_becoming_fallback() {
     let mir = mir("fn main() -> i32 { 42 }");
     let mut backend = CraneliftBackend::for_host().unwrap();
-    let valid = build_native_links(&native_helper_symbols()).unwrap();
+    let valid = NativeLinkDescription::scalar();
     for kind in 0..4 {
         let mut links = valid.clone();
         match kind {
             0 => links.helpers.clear(),
-            1 => links.helpers[0].address = 0,
+            1 => links.helpers[0].symbol = "unknown".into(),
             2 => links.helpers[0].parameters.clear(),
             _ => links.helpers.push(links.helpers[0].clone()),
         }

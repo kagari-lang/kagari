@@ -118,10 +118,10 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
 | kagari-contract | Executable envelopes, checked call/layout/operation contracts, physical lowering and linked verification |
 | kagari-mir | Typed CFGs, verification, bounded analyses/passes and portable encoding |
-| kagari-compiler | Checked source lowering, specialization, bytecode emission and native links |
+| kagari-compiler | Checked source lowering, specialization, bytecode emission and native input correspondence |
 | kagari-bytecode | Interpreter model, independent verification, codec and artifact envelope |
 | kagari-codegen | Compilation-only verified MIR interface |
-| kagari-codegen-cranelift | Scalar native emission and executable code ownership |
+| kagari-codegen-cranelift | Shared scalar JIT/object emission and executable code ownership |
 | kagari-runtime | Values, GC, host state, sessions, native registration/calls and reload |
 | kagari-vm | Interpreter/frame driver, debugger and prepared tier selection |
 | kagari | Host SDK, preparation and execution orchestration |
@@ -135,7 +135,13 @@ Compiler core works without `source`.
 Backends depend on codegen/MIR/ABI and backend libraries, not runtime, compiler,
 bytecode or SDK. ABI has no frontend/build-time source generator dependency.
 Source-based dev-dependencies do not change those production constraints.
-LLVM remains deferred; no placeholder backend crate is required.
+LLVM remains deferred; no placeholder backend crate is required. Scalar AOT uses
+Cranelift object output and platform linking. SDK `aot-load` gates trusted DLL
+loading independently of source/MIR/compiler dependencies; `aot-build` adds object
+orchestration. Contract owns bounded persistent metadata, ABI owns invocation
+context/helper layout, and runtime retains the existing installation/lifetime
+boundary. See [AOT deployment](spec/aot.md), including the unpublished workspace
+build-fingerprint policy.
 
 Native artifacts split physical `kagari-abi::native::NativeArtifact` from
 contract-owned executable function identity, logical stack maps and debug metadata.
@@ -1407,7 +1413,7 @@ waiting on the executing host thread; live command control and DAP remain unimpl
 Attached observers force pre-entry fallback when native code lacks callbacks.
 Ordinary reflection stays within declared metadata and member adapters.
 
-## Baseline Cranelift JIT
+## Baseline Cranelift native execution
 
 The compilation-only CodegenBackend consumes verified MIR and explicit helper
 links. Products own executable pages independently of backend lifetime; installed
@@ -1420,7 +1426,8 @@ Wider native support needs a concrete call/result/status ABI, real native-root
 publication, checked cross-module targets and conservative call effects. Logical
 stack-map schemas alone do not establish GC integration. The outstanding
 [architecture review](review.md#native-expansion-gates)
-records those gates. See [JIT](spec/jit.md) and [backend contract](spec/codegen-backend.md).
+records those gates. See [JIT](spec/jit.md), [AOT deployment](spec/aot.md) and
+[backend contract](spec/codegen-backend.md).
 
 ## Contract and common responsibility cleanup
 
@@ -1603,8 +1610,8 @@ parallel model:
 | ABI data | Existing structures | Required content |
 | --- | --- | --- |
 | Lowered value representations | ValueType | Scalar slot representations, heap/host references and tagged shared-generic values; no nominal type arguments or collection kinds |
-| Machine helper signatures and links | NativeType, NativeHelperSignature, NativeHelperSymbol, NativeHelperDeclaration, NativeLinkDescription | Machine parameter/result kinds, helper symbols and resolved process addresses |
-| Native entry/result convention | JitCompiledFunction, JitValue, JIT status/value tags | Physical entry signature, `repr(C)` result fields, tags and status codes |
+| Machine helper signatures and links | NativeType, NativeHelperSignature, NativeHelperDeclaration, NativeLinkDescription, NativeHelperTable | Machine parameter/result kinds, portable helper requirements and invocation-time process bindings |
+| Native entry/result convention | JitCompiledFunction, NativeInvocationContext, JitValue, JIT status/value tags | Physical entry signature, `repr(C)` result fields, tags and status codes |
 | Target and executable entry descriptors | BackendId, BackendTarget, ExecutableEntryPoint; physical portions of ExecutableFunctionArtifact | Target triple, pointer width, features, ABI identifiers, entry symbol/address and emitted code offsets |
 | Executable memory lifetime | NativeCodeOwner, physical product portion of NativeCompilationProduct | An opaque owner retaining executable pages while installed code is reachable; no backend implementation or runtime state |
 | Physical safe points and roots | Physical portions of ExecutableSafepoint/ExecutableStackMap when supported | Native code offsets and real machine root locations understood by the runtime/backend |

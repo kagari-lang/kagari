@@ -1,6 +1,9 @@
 use kagari_abi::{
     native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-    native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
+    native_call::{
+        JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue,
+        NativeInvocationContext,
+    },
 };
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -28,7 +31,7 @@ use kagari_vm::{
     error::VmError,
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-use std::{ffi::c_void, sync::Arc};
+use std::sync::Arc;
 
 fn compile(source: &str, optimize: bool) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
@@ -67,9 +70,12 @@ struct StaticCode;
 
 impl NativeCodeOwner for StaticCode {}
 
-unsafe extern "C" fn native_unit(runtime: *const c_void, result: *mut JitValue) -> i32 {
+unsafe extern "C" fn native_unit(
+    runtime: *const NativeInvocationContext,
+    result: *mut JitValue,
+) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -80,8 +86,8 @@ unsafe extern "C" fn native_unit(runtime: *const c_void, result: *mut JitValue) 
     JIT_STATUS_OK
 }
 
-unsafe extern "C" fn native_trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
-    let status = unsafe { jit_poll_execution(runtime.cast(), 0) };
+unsafe extern "C" fn native_trap(runtime: *const NativeInvocationContext, _: *mut JitValue) -> i32 {
+    let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), 0) };
     if status == JIT_STATUS_OK {
         JIT_STATUS_INTEGER_OVERFLOW
     } else {

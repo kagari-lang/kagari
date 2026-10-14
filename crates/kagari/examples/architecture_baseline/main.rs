@@ -1,6 +1,7 @@
 //! O1 architecture baseline; run with default source/native features.
 //! `cargo run -p kagari --example architecture_baseline`
 //! Timings include the counting allocator's atomic bookkeeping overhead.
+use kagari_abi::native::NativeLinkDescription;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_stdlib::catalog as foundation_catalog;
 mod memory;
@@ -10,11 +11,11 @@ use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::map::DefinitionContext;
-use kagari_compiler::{native_links::build_native_links, source::lower::lower_to_mir};
+use kagari_compiler::source::lower::lower_to_mir;
 use kagari_contract::native::NativeCompilationProduct;
 use kagari_hir::analyze_source;
 use kagari_mir::{ids::InstanceId, verify::verify_mir};
-use kagari_runtime::{jit_abi::native_helper_symbols, value::Value};
+use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use kagari_vm::vm::JitExecutionStatus;
 use memory::{CountingAllocator, live_bytes};
@@ -165,7 +166,7 @@ fn main() {
         "new_runtime_and_shared_program_link",
         101,
     );
-    let links = build_native_links(&native_helper_symbols()).unwrap();
+    let links = NativeLinkDescription::scalar();
     let input = BackendFunctionInput::new(&mir, InstanceId::new(0), &links).unwrap();
     let mut backend = CraneliftBackend::for_host().unwrap();
     // Retain products outside timed calls so page freeing is not compile time.

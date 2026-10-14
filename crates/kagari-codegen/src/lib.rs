@@ -1,5 +1,6 @@
 //! Native compilation consumes verified MIR and immutable ABI/link descriptions.
 pub mod diagnostic;
+pub mod object;
 use crate::diagnostic::BackendCompileError;
 use kagari_mir::{
     analysis::FunctionAnalysis, function::MirFunction, ids::InstanceId, verify::VerifiedMirModule,
@@ -67,7 +68,7 @@ pub struct BackendConfiguration {
 ///
 /// # Safety
 /// Given verified input and correctly bound helper symbols, successful products
-/// must implement that exact function's semantics, point charges, roots and native
+/// must implement that exact function's semantics, polling points, roots and native
 /// ABI without unwinding across C boundaries. Code must run on this host, including
 /// its instruction-set features. Products must retain all executable pages and
 /// referenced links independently of the backend's lifetime and later compiles.

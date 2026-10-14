@@ -1,6 +1,9 @@
 use kagari_abi::{
     native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-    native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
+    native_call::{
+        JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue,
+        NativeInvocationContext,
+    },
     representation::ValueType,
 };
 use kagari_bytecode::{
@@ -32,12 +35,9 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::ty::{NominalTy, Ty};
-use std::{
-    ffi::c_void,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 #[derive(Debug)]
@@ -99,9 +99,12 @@ fn program() -> DefinitionMetadata<BytecodeProgram> {
     .unwrap()
 }
 
-unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i32 {
+unsafe extern "C" fn execute(
+    runtime: *const NativeInvocationContext,
+    result: *mut JitValue,
+) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -112,8 +115,8 @@ unsafe extern "C" fn execute(runtime: *const c_void, result: *mut JitValue) -> i
     JIT_STATUS_OK
 }
 
-unsafe extern "C" fn trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
-    let status = unsafe { jit_poll_execution(runtime.cast(), 0) };
+unsafe extern "C" fn trap(runtime: *const NativeInvocationContext, _: *mut JitValue) -> i32 {
+    let status = unsafe { jit_poll_execution((*runtime).runtime.cast(), 0) };
     if status == JIT_STATUS_OK {
         JIT_STATUS_INTEGER_OVERFLOW
     } else {
@@ -121,7 +124,10 @@ unsafe extern "C" fn trap(runtime: *const c_void, _: *mut JitValue) -> i32 {
     }
 }
 
-unsafe extern "C" fn bad_result(runtime: *const c_void, result: *mut JitValue) -> i32 {
+unsafe extern "C" fn bad_result(
+    runtime: *const NativeInvocationContext,
+    result: *mut JitValue,
+) -> i32 {
     let status = unsafe { execute(runtime, result) };
     if status == JIT_STATUS_OK {
         unsafe {

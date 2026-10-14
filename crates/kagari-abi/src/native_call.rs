@@ -36,7 +36,7 @@ pub const JIT_VALUE_TAG_BOOL: u8 = 1;
 pub const JIT_VALUE_TAG_I32: u8 = 2;
 
 pub type JitCompiledFunction =
-    unsafe extern "C" fn(runtime: *const c_void, result: *mut JitValue) -> i32;
+    unsafe extern "C" fn(context: *const NativeInvocationContext, result: *mut JitValue) -> i32;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,4 +76,20 @@ impl Default for JitValue {
     fn default() -> Self {
         Self::unit()
     }
+}
+
+/// Invocation-local bindings shared by JIT and persisted scalar code.
+/// The runtime and immutable helper table must outlive the call; code cannot retain them.
+#[repr(C)]
+#[derive(Debug)]
+pub struct NativeInvocationContext {
+    pub runtime: *const c_void,
+    pub helpers: *const NativeHelperTable,
+}
+
+/// Process bindings, never serialized in native deployment artifacts.
+#[repr(C)]
+#[derive(Debug)]
+pub struct NativeHelperTable {
+    pub poll_execution: unsafe extern "C" fn(*const c_void, u64) -> i32,
 }

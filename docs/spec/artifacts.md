@@ -14,7 +14,8 @@ The semantic bytecode model is defined in [bytecode.md](bytecode.md).
 ## Artifact Role
 
 A `.kbc` artifact is precompiled Kagari bytecode plus metadata.
-It is not native code.
+It is not native code. [AOT bundles](aot.md) pair verified bytecode with a separately
+trusted native image and deployment manifest.
 It is not trusted without validation.
 
 Artifacts may be used by:
