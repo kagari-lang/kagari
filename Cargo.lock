@@ -522,6 +522,7 @@ dependencies = [
 name = "kagari-hir"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "kagari-common",
  "kagari-contract",
  "kagari-source",

@@ -1,12 +1,13 @@
 //! Source analysis and artifact emission are optional SDK capabilities.
 use crate::{
     BytecodeArtifact, CompileResult,
-    engine::KagariEngine,
+    engine::{KagariEngine, packages::PackageBuildInput},
     error::{CompilationPhase, EmbeddingDiagnostic, EmbeddingError},
 };
 
+use blake3::Hasher;
 use kagari_bytecode::{
-    artifact::{ArtifactBuildOptions, KbcArtifact},
+    artifact::{ArtifactBuildOptions, KAGARI_COMPILER_FINGERPRINT, KbcArtifact},
     native_input::PortableMir,
 };
 use kagari_common::{
@@ -67,7 +68,7 @@ fn analysis_error(error: AnalysisError) -> EmbeddingError {
 pub struct CheckedModule {
     pub source_name: String,
     program: CheckedProgram,
-    package_inputs: Option<ProgramInputs>,
+    package_inputs: Option<PackageBuildInput>,
 }
 
 impl CheckedModule {
@@ -85,7 +86,15 @@ impl CheckedModule {
     /// later source edits or engine queries. Manually supplied source snapshots
     /// have no acquisition provenance and return `None`.
     pub fn package_inputs(&self) -> Option<&ProgramInputs> {
-        self.package_inputs.as_ref()
+        self.package_inputs.as_ref().map(PackageBuildInput::sources)
+    }
+
+    /// The checked package's source, provider and query-setting input identity.
+    /// Lowering options and emitted bytes are separate artifact-storage inputs.
+    pub fn package_fingerprint(&self) -> Option<&str> {
+        self.package_inputs
+            .as_ref()
+            .map(PackageBuildInput::fingerprint)
     }
 }
 
@@ -120,6 +129,36 @@ pub enum NativeInputExport {
 }
 
 impl KagariEngine {
+    /// Identifies captured package inputs in this engine's compilation environment.
+    ///
+    /// Includes exact source selections/bytes/aliases, complete installed native and
+    /// offline Host declarations, parser/constant/diagnostic limits and the compiler
+    /// contract identifier. It excludes runtime state/callback captures and physical
+    /// tooling origins. This does not check source or validate an executable product.
+    /// Lowering options and emitted artifact bytes must also participate in product
+    /// storage; the identifier alone never authorizes skipping artifact validation.
+    pub fn package_fingerprint(
+        &self,
+        inputs: &ProgramInputs,
+        cancel: &CancellationToken,
+    ) -> CompileResult<String> {
+        let environment = self
+            .analysis
+            .borrow()
+            .environment_fingerprint(cancel)
+            .map_err(analysis_error)?;
+        let mut hash = Hasher::new_derive_key("kagari package compiler input v1");
+        for field in [
+            inputs.fingerprint(),
+            environment.as_str(),
+            KAGARI_COMPILER_FINGERPRINT,
+        ] {
+            hash.update(&(field.len() as u64).to_le_bytes());
+            hash.update(field.as_bytes());
+        }
+        Ok(hash.finalize().to_hex().to_string())
+    }
+
     pub fn set_const_limits(&self, limits: ConstLimits) {
         self.analysis.borrow_mut().set_const_limits(limits);
     }
@@ -188,7 +227,7 @@ impl KagariEngine {
             })?
             .id();
         let mut checked = self.compile_snapshot(source, file, cancel)?;
-        checked.package_inputs = Some(inputs.clone());
+        checked.package_inputs = Some(PackageBuildInput::capture(self, inputs, cancel)?);
         Ok(checked)
     }
 

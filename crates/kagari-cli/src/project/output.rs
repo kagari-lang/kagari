@@ -5,7 +5,6 @@
 
 use crate::CliError;
 use blake3::Hasher;
-use kagari_package::snapshot::ProgramInputs;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, ErrorKind, Read, Write},
@@ -16,11 +15,11 @@ use std::{
 
 pub(super) fn publish(
     workspace: &Path,
-    inputs: &ProgramInputs,
+    input_fingerprint: &str,
     bytes: &[u8],
 ) -> Result<PathBuf, CliError> {
     let mut hash = Hasher::new_derive_key("kagari project output v1");
-    hash.update(inputs.fingerprint().as_bytes());
+    hash.update(input_fingerprint.as_bytes());
     hash.update(bytes);
     let directory = workspace.join("target/kagari/programs");
     fs::create_dir_all(&directory).map_err(io_error)?;

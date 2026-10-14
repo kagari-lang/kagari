@@ -1,5 +1,6 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
+mod input_fingerprint;
 mod namespace_queries;
 
 use crate::{
@@ -791,6 +792,8 @@ pub struct AnalysisDatabase {
     native_sources: Option<Vec<DeclarationSource>>,
     /// Parsed/lowered installed declaration sources, initialized once per registration setup.
     native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
+    /// Portable provider/settings identity, invalidated by every environment setter.
+    environment_fingerprint: OnceCell<String>,
 }
 
 impl Default for AnalysisDatabase {
@@ -815,6 +818,7 @@ impl Default for AnalysisDatabase {
             native_modules: vec![],
             native_sources: None,
             native_files: OnceCell::new(),
+            environment_fingerprint: OnceCell::new(),
         }
     }
 }
@@ -824,6 +828,7 @@ impl AnalysisDatabase {
     /// The first declaration query imports the complete batch into this database's context;
     /// providers may originate in independent identity scopes.
     pub fn set_native_modules(&mut self, modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>) {
+        self.environment_fingerprint.take();
         self.native_modules = modules;
         self.native_sources = None;
         self.native_files.take();
@@ -853,6 +858,7 @@ impl AnalysisDatabase {
     /// Sets the per-analysis diagnostic budget, clearing body/file caches when it changes.
     pub fn set_max_semantic_diagnostics(&mut self, limit: usize) {
         if self.max_semantic_diagnostics != limit {
+            self.environment_fingerprint.take();
             self.max_semantic_diagnostics = limit;
             self.body_cache.clear();
             self.files.clear();
@@ -862,6 +868,7 @@ impl AnalysisDatabase {
     /// Sets constant-evaluation limits, clearing body/file caches when they change.
     pub fn set_const_limits(&mut self, limits: ConstLimits) {
         if self.const_limits != limits {
+            self.environment_fingerprint.take();
             self.const_limits = limits;
             self.body_cache.clear();
             self.files.clear();
@@ -875,6 +882,7 @@ impl AnalysisDatabase {
             return;
         }
         self.parse_limits = limits;
+        self.environment_fingerprint.take();
         self.native_files.take();
         self.declaration_cache = None;
         self.signature_cache = None;
@@ -885,6 +893,7 @@ impl AnalysisDatabase {
     /// Replaces Host inputs; the first declaration query adopts their identities into this analysis.
     /// Later query reuse compares the immutable Host revision, independently of definition IDs.
     pub fn set_host_declarations(&mut self, hosts: Arc<HostDeclarations>) {
+        self.environment_fingerprint.take();
         self.hosts = hosts;
         self.adopted_hosts.take();
     }

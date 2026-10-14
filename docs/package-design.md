@@ -32,7 +32,8 @@ implemented inputs from pending compiler/runtime integration; publication is not
 - Script workspace discovery and selection are implemented in `kagari-package`;
   whole-workspace graph locking and immutable Program input capture are implemented;
   checked analysis, exports and SDK captured-package compilation are integrated.
-  CLI/shared storage and affected-root reporting remain pending. The repository's Cargo
+  CLI/shared storage and provider-aware affected-root reporting are integrated.
+  Specification/example consolidation and final acceptance audit remain. The repository's Cargo
   workspace groups Kagari's Rust implementation crates, not user script packages.
 
 Re-audit these foundations at activation. Existing specifications govern until
@@ -598,7 +599,7 @@ separate queued scope; do not pull them into PK03 through generic "CLI integrati
   capture source snapshots and extract exact Program closures. Test locked/offline
   distinctions, preserved unrelated selections and closure conflicts with supported
   local/host sources. No remote solver is required.
-- [ ] PK03: Integrate in buildable checkpoints. First pass a virtual resolved graph
+- [x] PK03: Integrate in buildable checkpoints. First pass a virtual resolved graph
   through root/visibility/alias migration, checked package scopes, artifact export
   metadata and multiple host calls. Then connect disk/workspace selection, CLI and
   shared build storage to that same path. Finally connect reverse-dependency
@@ -970,10 +971,36 @@ No format/ABI version bump is needed for these unpublished development changes.
   with its explicit import. Formatting and diff checks pass. No carried build/test
   failures; this is focused CLI/affected-consumer evidence, not exhaustive native or
   workspace acceptance. Full feature/backend/platform CI remains unrun locally.
-- Next: native-provider input fingerprints and affected-root reporting. Provider
-  contracts must participate before any product reuse that skips compilation.
-  Dependency invalidation must include generic bodies, embedded constants and
-  alias/selection-only changes. Keep existing per-Program reload and pinned generations.
+- PK03 input identity checkpoint: complete native contracts reuse the canonical
+  definition/wire records, including visibility, aliases, implementation selectors,
+  defaults, callable requirements and concrete results. Portable map/set keys are
+  sorted after ID conversion. Offline Host encoding reuses its existing codec.
+  HIR owns a cached environment fingerprint, invalidated by provider and query-limit
+  setters; physical presentation locations and runtime captures are excluded.
+- SDK checked results retain combined source/selection/alias, provider/settings and
+  compiler-contract identity. CLI output addresses now include this checked key plus
+  actual emitted bytes. This remains output storage, not a cache skipping compilation
+  or validation, and is not a compiler source-revision compatibility promise.
+- `PackageBuildSet` compares full immutable root-closure keys to report selected
+  dependents and removed roots. This realizes reverse-dependent invalidation without
+  maintaining a second mutable index. Hosts associate families with installations,
+  compile candidates and advance their baseline after successful existing reload;
+  no automatic unload or multi-Program atomicity is introduced.
+- Focused input identity evidence: the native canonical-encoding unit test and HIR
+  environment-identity unit test pass. SDK `--test package_inputs --no-fail-fast`
+  passes both selected tests: generic/ordinary bodies, constants, aliases, exact
+  versions, removed roots and provider/settings changes report the expected roots;
+  unchanged siblings remain unaffected. The reported changed root supplies the
+  actual source-free reload candidate; new calls return 43 while retained calls
+  remain pinned to 42. Cancellation and retained checked keys are covered.
+- Types/HIR/SDK library Clippy and the 1,159-file structure scan pass. CLI
+  `project_builds_select_roots_and_store_independent_artifacts` passes against the
+  real standard providers, including unchanged-product reuse and edited dependencies.
+  Formatting and diff checks pass. No carried build/test failure. Full
+  feature/backend/platform CI remains unrun.
+- PK03 is complete at the selected integration boundaries. PK04 consolidates the
+  specification and executable package/host examples, audits remaining acceptance
+  against the existing contract owners, and removes the completed implementation plan.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.

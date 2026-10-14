@@ -3,6 +3,8 @@ pub mod builder;
 #[cfg(feature = "source")]
 mod declarations;
 #[cfg(feature = "source")]
+pub mod packages;
+#[cfg(feature = "source")]
 pub mod source;
 use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, error::EmbeddingError,

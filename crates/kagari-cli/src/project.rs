@@ -95,7 +95,13 @@ fn run_from(
             fs::write(&path, &bytes).map_err(io_error)?;
             path
         } else {
-            output::publish(&workspace, inputs, &bytes)?
+            output::publish(
+                &workspace,
+                checked
+                    .package_fingerprint()
+                    .expect("checked package inputs"),
+                &bytes,
+            )?
         };
         println!("built {name}: {}", path.display());
         if action == ProjectAction::Run {

@@ -1,9 +1,12 @@
 #![cfg(feature = "source")]
 
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{map::DefinitionContext, metadata::DefinitionMetadata},
+};
 use kagari_embed::{
     BytecodeArtifact,
-    engine::{KagariEngine, source::CheckedModule},
+    engine::{KagariEngine, packages::PackageBuildSet, source::CheckedModule},
     error::EmbeddingError,
     program::PreparedProgram,
 };
@@ -14,8 +17,12 @@ use kagari_package::{
     modules::VirtualSources,
     project::{ProjectInputs, ProjectOptions},
     snapshot::ProgramInputs,
+    workspace::MemberSelection,
 };
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_types::host_interface::{
+    HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+};
 use std::{
     fs,
     path::PathBuf,
@@ -128,7 +135,14 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
     assert_eq!(inputs.fingerprint(), memory.fingerprint());
     let engine = KagariEngine::default();
     let cancel = CancellationToken::default();
+    let initial = PackageBuildSet::capture(&engine, &project, &cancel).unwrap();
     let original = engine.compile_package(inputs, &cancel).unwrap();
+    let fingerprint = engine.package_fingerprint(inputs, &cancel).unwrap();
+    assert_eq!(original.package_fingerprint(), Some(fingerprint.as_str()));
+    assert_eq!(
+        fingerprint,
+        engine.package_fingerprint(&memory, &cancel).unwrap()
+    );
     assert!(original.module_identity().path.is_empty());
     assert_eq!(
         original.package_inputs().unwrap().fingerprint(),
@@ -137,6 +151,10 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
     let snapshot = engine.source_snapshot();
     let root = snapshot.module(original.module_identity()).unwrap().clone();
     let unchanged = engine.compile_package(inputs, &cancel).unwrap();
+    assert_eq!(
+        original.package_fingerprint(),
+        unchanged.package_fingerprint()
+    );
     assert!(Arc::ptr_eq(
         engine
             .source_snapshot()
@@ -153,9 +171,21 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
     ));
     assert_eq!(engine.source_snapshot().revision(), snapshot.revision());
 
-    let changed_inputs = capture(&virtual_inputs(43), "app");
+    let changed_project =
+        ProjectInputs::load(&virtual_inputs(43), "app", &Default::default(), &cancel).unwrap();
+    let next = PackageBuildSet::capture(&engine, &changed_project, &cancel).unwrap();
+    let changes = next.changes_since(&initial);
+    assert!(changes.removed.is_empty());
+    assert_eq!(changes.rebuild, [inputs.root().family.clone()].into());
+    let candidate = &next.programs()[changes.rebuild.first().unwrap()];
+    let changed_inputs = candidate.sources();
     assert_ne!(inputs.fingerprint(), changed_inputs.fingerprint());
-    let changed = engine.compile_package(&changed_inputs, &cancel).unwrap();
+    let changed = engine.compile_package(changed_inputs, &cancel).unwrap();
+    assert_eq!(changed.package_fingerprint(), Some(candidate.fingerprint()));
+    assert_ne!(
+        original.package_fingerprint(),
+        changed.package_fingerprint()
+    );
     // Workspace membership does not check or expose another root's source bodies.
     let invalid = capture(&virtual_inputs(43), "other");
     assert!(matches!(
@@ -199,4 +229,130 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         43
     );
     assert_eq!(runtime.call(&pinned, (), &Default::default()).unwrap(), 42);
+    let definitions = DefinitionContext::new().unwrap();
+    let interface = HostInterface {
+        functions: vec![
+            HostFunctionDeclaration::new(&definitions, "unused.number", vec![], HostValueType::I32)
+                .unwrap(),
+        ],
+        ..Default::default()
+    };
+    engine
+        .set_host_interface(
+            DefinitionMetadata::checked(definitions.snapshot(), interface, &cancel).unwrap(),
+        )
+        .unwrap();
+    assert_ne!(
+        fingerprint,
+        engine.package_fingerprint(inputs, &cancel).unwrap(),
+        "provider changes invalidate even unchanged source"
+    );
+    assert_eq!(
+        original.package_fingerprint(),
+        Some(fingerprint.as_str()),
+        "checked input identity is retained"
+    );
+    let isolated = engine.new_session(Default::default());
+    assert_eq!(
+        fingerprint,
+        isolated.package_fingerprint(inputs, &cancel).unwrap(),
+        "fresh sessions retain only native providers"
+    );
+}
+
+#[test]
+fn selected_root_changes_follow_transitive_inputs_and_provider_contracts() {
+    let engine = KagariEngine::default();
+    let capture = |files: Vec<(&str, String)>| {
+        let input = VirtualSources::new(
+            files
+                .into_iter()
+                .map(|(name, text)| (name.into(), Arc::from(text))),
+            &Default::default(),
+        )
+        .unwrap();
+        let project = ProjectInputs::load(
+            &input,
+            "",
+            &ProjectOptions {
+                selection: MemberSelection::Workspace,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        PackageBuildSet::capture(&engine, &project, &Default::default()).unwrap()
+    };
+    let initial = capture(files(42));
+    let same = capture(files(42));
+    assert!(same.changes_since(&initial).rebuild.is_empty());
+    for (path, from, to, expected) in [
+        (
+            "rules/src/lib.kgr",
+            "BASE }",
+            "BASE + 1 }",
+            vec!["app", "rules"],
+        ),
+        ("rules/src/lib.kgr", "{ 9 }", "{ 10 }", vec!["app", "rules"]),
+        (
+            "rules/src/lib.kgr",
+            "BASE: i32 = 42",
+            "BASE: i32 = 43",
+            vec!["app", "rules"],
+        ),
+        ("rules/Kagari.toml", "1.0.0", "1.1.0", vec!["app", "rules"]),
+        (
+            "app/Kagari.toml",
+            "rules = {",
+            "renamed = { package = 'rules',",
+            vec!["app"],
+        ),
+    ] {
+        let mut input = files(42);
+        let text = &mut input.iter_mut().find(|(name, _)| *name == path).unwrap().1;
+        assert!(text.contains(from));
+        *text = text.replace(from, to);
+        let changes = capture(input).changes_since(&initial);
+        let mut names = changes
+            .rebuild
+            .iter()
+            .map(|family| family.name())
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, expected, "{path}: {from}");
+        assert!(changes.removed.is_empty());
+    }
+    let mut reduced = files(42);
+    reduced[0].1 = reduced[0].1.replace("['app', 'other']", "['app']");
+    let changes = capture(reduced).changes_since(&initial);
+    assert!(changes.rebuild.is_empty());
+    assert_eq!(
+        changes
+            .removed
+            .iter()
+            .map(|family| family.name())
+            .collect::<Vec<_>>(),
+        ["other"]
+    );
+    engine.set_max_semantic_diagnostics(23);
+    let changes = capture(files(42)).changes_since(&initial);
+    assert_eq!(
+        changes.rebuild.len(),
+        3,
+        "environment changes affect every selected root"
+    );
+    assert!(changes.removed.is_empty());
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    let project = ProjectInputs::load(
+        &virtual_inputs(42),
+        "app",
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        PackageBuildSet::capture(&engine, &project, &cancelled),
+        Err(EmbeddingError::Cancelled)
+    ));
 }

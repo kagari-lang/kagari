@@ -44,7 +44,8 @@ fixture migration is complete. Shared project acquisition and SDK captured-packa
 compilation now use the same local/virtual input path, with retained snapshots and
 source-free reload coverage. CLI project check/build/run, member and lock selection,
 and shared immutable output storage are integrated. Provider-aware input fingerprints
-and affected-root reporting remain.
+and selected-root change reporting connect dependency edits to existing pinned reload.
+PK04 specification/example consolidation and the final focused acceptance audit remain.
 Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,

@@ -33,10 +33,26 @@ source acquisition provenance; no package acquisition runs during execution.
 CLI project commands use these same inputs, select roots before execution and publish
 one shared workspace lock. Each selected package produces a separate Program.
 Generated declaration views and immutable outputs share the workspace build directory;
-outputs include captured-input and emitted-content identity and do not bypass source
+outputs include checked-input and emitted-content identity and do not bypass source
 checking. See [CLI loading](spec/module-loading.md#cli-loading) for selectors and the
-command-line filesystem policy. Provider-aware build-input keys and affected-root
-reporting remain in the active package plan.
+command-line filesystem policy.
+
+`ModuleDecl::compiler_input_bytes` encodes the complete native declaration contract
+using the existing portable definition/wire records. `AnalysisDatabase` owns and
+caches the provider/settings fingerprint, invalidating it at environment setters.
+It includes offline Host contracts and parser/constant/diagnostic limits, excluding
+runtime callback captures and physical tooling origins. The SDK combines this with
+the exact package source/selection/alias closure and compiler contract identifier;
+`CheckedModule` retains the identity of what was checked. This is input identity,
+not executable evidence or a promise to reuse products across compiler revisions.
+
+SDK `PackageBuildSet` compares each selected root's complete immutable closure key.
+An implementation, generic body, constant, alias, exact selection or provider change
+therefore reports every selected dependent root, without a second mutable reverse
+index. Removed roots are reported separately. Hosts associate families with their
+own installations, compile affected candidates and advance their installed baseline
+only after successful explicit reload. No installation is automatically unloaded,
+no cross-Program atomic publication is implied, and old calls retain pinned code.
 
 Immutable `ProgramInputs` retains one exact dependency closure and hands external/root files
 to `kagari-source`; HIR derives inline modules from those same captured bytes.

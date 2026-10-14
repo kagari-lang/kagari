@@ -151,8 +151,10 @@ Workspace ownership, dependency names and source visibility remain package/HIR r
 
 All project members share `<workspace>/target/kagari`: generated native declaration
 views live under `declarations`, and complete `.kbc` products under `programs`.
-Products are addressed by captured source inputs and emitted bytes; unchanged output
-bytes can share a file, while edits retain earlier products. Publication of shared
+Products are addressed by checked source/selection/alias inputs, native and offline
+Host contracts, query limits, the compiler contract identifier and emitted bytes.
+Matching complete inputs and output bytes can share a file; edits retain earlier
+products. Publication of shared
 products is atomic and checks existing bytes before reuse. This is output storage,
 not a cache that skips source checking or compilation. `build -o PATH` selects an
 explicit output and therefore requires exactly one selected package.

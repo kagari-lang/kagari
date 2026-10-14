@@ -733,6 +733,11 @@ impl HostDeclarations {
         self.revision
     }
 
+    /// Canonical compilation input, excluding tooling locations and process revisions.
+    pub(crate) fn compiler_input_bytes(&self) -> Result<Vec<u8>, HostInterfaceError> {
+        self.interface.to_bytes(&self.definitions)
+    }
+
     pub(crate) fn source_path(
         &self,
         root: &DefinitionId,
