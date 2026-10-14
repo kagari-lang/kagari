@@ -28,7 +28,7 @@ use kagari_mir::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::ty::Ty;
-use std::{collections::HashSet, slice};
+use std::{collections::HashSet, iter, slice};
 
 mod abi;
 mod debug;
@@ -257,8 +257,43 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         )
         .map_err(|_| MirLoweringError::Cancelled)?,
     );
-    let host_types = host::collect(
-        &module.names.hosts,
+    planner.host_types.extend(
+        module_host::type_references(
+            abi.native_declarations
+                .iter()
+                .flat_map(|declaration| {
+                    declaration
+                        .function
+                        .params
+                        .iter()
+                        .map(|param| &param.ty)
+                        .chain(iter::once(&declaration.function.return_type))
+                })
+                .chain(planner.native_targets.iter().flat_map(|import| {
+                    import
+                        .signature
+                        .params
+                        .iter()
+                        .chain(iter::once(&import.signature.result))
+                }))
+                .chain(functions.iter().flat_map(|function| {
+                    function
+                        .semantic
+                        .params
+                        .values()
+                        .chain(function.semantic.result.iter())
+                        .chain(function.semantic.locals.values())
+                        .chain(function.semantic.registers.values())
+                })),
+            &options.cancel,
+        )
+        .map_err(|_| MirLoweringError::Cancelled)?,
+    );
+    let host::Dependencies {
+        legacy: host_types,
+        shared: external_types,
+    } = host::collect(
+        module,
         planner.host_types,
         &functions,
         &options.cancel,
@@ -269,6 +304,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         native_targets: planner.native_targets,
         interface_instances: planner.interface_instances,
         host_types,
+        external_types,
         dependencies: module.names.imports.dependencies.clone(),
         structures,
         enumerations,

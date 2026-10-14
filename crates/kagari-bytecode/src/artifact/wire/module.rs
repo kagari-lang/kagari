@@ -24,7 +24,8 @@ use kagari_contract::{
     types::wire::{PublicItemRecord, module::TraitContractRecord},
 };
 use kagari_types::{
-    declaration::wire::native::NativeDeclarationRecord, host_interface::wire::HostInterfaceRecord,
+    declaration::wire::{declarations::TypeDeclarationRecord, native::NativeDeclarationRecord},
+    host_interface::wire::HostInterfaceRecord,
 };
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +83,8 @@ impl BytecodeProgramRecord {
 pub(in crate::artifact) struct BytecodeModuleRecord {
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     dependencies: Vec<ModuleRef>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    external_types: Vec<TypeDeclarationRecord>,
     host_interface: HostInterfaceRecord,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     native_imports: Vec<NativeImportRecord>,
@@ -124,6 +127,11 @@ impl BytecodeModuleRecord {
         check_cancel(cancel)?;
         Ok(Self {
             dependencies: value.dependencies.clone(),
+            external_types: value
+                .external_types
+                .iter()
+                .map(|value| TypeDeclarationRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
             host_interface: HostInterfaceRecord::encode(&value.host_interface, encoding, cancel)?,
             native_imports: value
                 .native_imports
@@ -189,6 +197,11 @@ impl BytecodeModuleRecord {
         check_cancel(cancel)?;
         Ok(BytecodeModule {
             dependencies: self.dependencies,
+            external_types: self
+                .external_types
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
             host_interface: self.host_interface.decode(decoding, cancel)?,
             native_imports: self
                 .native_imports

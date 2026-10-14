@@ -139,6 +139,7 @@ fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
         identity,
         dependencies,
         interface_instances: vec![],
+        external_types: vec![],
         host_types: vec![],
         structures: vec![],
         enumerations: vec![],

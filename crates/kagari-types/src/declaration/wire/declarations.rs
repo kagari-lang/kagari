@@ -2,7 +2,7 @@
 use crate::{
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, TraitDef,
-        TypeDef, TypeDefKind, VariantDef,
+        TypeDeclaration, TypeDef, TypeDefKind, VariantDef,
         host::HostFieldPolicy,
         wire::{
             leaf::{ConstraintRecord, ConversionAdapterRecord, NominalTyRecord},
@@ -525,6 +525,41 @@ impl AssociatedTypeFamilyRecord {
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
             value: self.value.decode(decoding, cancel)?,
+        })
+    }
+}
+
+/// Shared type schema paired with its file-local nominal declaration identity.
+#[derive(Serialize, Deserialize)]
+pub struct TypeDeclarationRecord {
+    declaration: PortableDefinitionRef,
+    definition: TypeDefRecord,
+}
+
+impl TypeDeclarationRecord {
+    /// Encode the identity and the original shared schema; carries no proof seal.
+    pub fn encode(
+        value: &TypeDeclaration,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(Self {
+            declaration: encoding.reference(value.declaration)?,
+            definition: TypeDefRecord::encode(&value.definition, encoding, cancel)?,
+        })
+    }
+
+    /// Decode facts in the supplied scope; semantic validation remains required.
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<TypeDeclaration, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(TypeDeclaration {
+            declaration: decoding.resolve(self.declaration)?,
+            definition: self.definition.decode(decoding, cancel)?,
         })
     }
 }

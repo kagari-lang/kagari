@@ -20,6 +20,9 @@ impl RemapDefinitions for BytecodeModule {
         mapper.check()?;
         Ok(BytecodeModule {
             dependencies: self.dependencies.clone(),
+            external_types: map_sequence(&self.external_types, |value| {
+                value.remap_definitions(mapper)
+            })?,
             host_interface: self.host_interface.remap_definitions(mapper)?,
             native_imports: map_sequence(&self.native_imports, |value| {
                 (value).remap_definitions(mapper)
@@ -61,6 +64,9 @@ impl DefinitionReferences for BytecodeModule {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for value in &self.external_types {
+            value.visit_definition_ids(visit, cancel)?;
+        }
         self.host_interface.visit_definition_ids(visit, cancel)?;
         for value0 in &self.native_imports {
             (value0).visit_definition_ids(visit, cancel)?;

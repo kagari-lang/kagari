@@ -1628,6 +1628,48 @@ The previously recorded new external-type MissingBinding MIR error remains carri
 by HR02/RF05 dependency and metadata integration. This checkpoint does not satisfy
 that gate or complete the combined goal.
 
+### HR02 checkpoint: shared external dependencies in executable products
+
+The previously recorded new external-type `MissingBinding("nominal host type
+declaration")` failure is resolved. HIR exposes the original checked local/imported
+external TypeDef by its nominal ID. MIR dependency collection retains that schema
+with its ID in TypeDeclaration, the same identity-plus-shared-record pattern as
+NativeDeclaration. It does not translate fields or methods into the old Host DSL,
+create a Rust layout, or infer new semantics. Recursive external fields close and
+deduplicate this dependency set; ordinary DTO nominals are not added as live roots.
+
+MIR and bytecode carry these dependencies through bounded codecs and explicit
+scope remapping. The existing common type/public declaration validator checks the
+schema, names, private fields and policy. External identities in public records,
+native templates/targets/call signatures and executable semantic slots require a
+carried dependency. Old and shared records cannot claim the same ID. Program
+linking requires the carried shared schema to equal the actual TypeDef in its
+reachable defining module, so a self-consistent dependency copy cannot authorize
+different fields/access or substitute an unrelated provider. These checks add no
+native callback route and do not relax roots or borrow validation.
+
+Selected validation passed: the expanded existing external ABI contract case now
+analyzes a relay signature plus a private recursive external field, lowers the
+complete MIR provider closure, roundtrips/revalidates MIR and KBC, checks the KBC
+loader, and rejects independently valid readonly dependency copies that disagree
+with their defining module in both products. The existing legacy host import
+interning/tamper case and imported script trait implementation case passed. Initial
+mechanical code and test compilation mistakes (mapper method, declaration/name
+owner and an omitted artifact compatibility import) are repaired; there is no
+carried Rust build error. Library Clippy covered changed types/HIR/contract/MIR/
+bytecode/compiler owners, and compiler library/test Clippy passed. Structure
+(1236 Rust files, zero violations), formatting and diff passed. No unsafe/lifetime
+change; existing Miri loan/projector evidence remains applicable. Full workspace,
+feature/backend/platform validation remains CI-owned and unrun locally.
+
+NativeModule external-type execution is still gated: transactional runtime metadata
+and existing live-root/path consumers must consume the shared schema next. The
+legacy declarations remain only for their unmigrated consumers; HR03 must remove
+those records/registration paths after the existing manual path and trait coverage
+has migrated. The portable layout changed without identifier bumps under the
+unpublished-artifact policy; affected disposable fixtures remain batched at RF06.
+HR02/RF05 and the combined goal remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
@@ -1641,6 +1683,7 @@ that gate or complete the combined goal.
 RI progress remains in the interop plan. The combined order above is the sole
 cross-plan schedule; these lists are not duplicate RI checklists. Current state:
 API/lifetime prototype and RI01-RI02 schema/conversion implemented, no carried production build failure. The
-proof and focused results above establish the whole-object scope gate, but not
-generated projector or complete combined acceptance. Implementation checkpoints use Conventional Commits with the owning
+proof and focused results above establish the owned conversion, Opaque, scoped
+loan/projector and checked portable external-dependency slices. Live-root common
+registration/installation and complete combined acceptance remain outstanding. Implementation checkpoints use Conventional Commits with the owning
 phase trailer, for example `Plan-Phase: RF04`.

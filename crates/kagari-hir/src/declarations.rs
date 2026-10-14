@@ -1,5 +1,9 @@
 //! Declaration and binding identities owned by one semantic analysis.
-use kagari_types::{declaration::names::NameNamespace, host_interface, language::role::LangRole};
+use kagari_types::{
+    declaration::{TypeDef, names::NameNamespace},
+    host_interface,
+    language::role::LangRole,
+};
 
 use crate::{
     hir::{
@@ -645,6 +649,18 @@ impl Declarations {
     /// Clones the installed representation for a local opaque type, if registered.
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
         self.native_types.get(&id).cloned()
+    }
+
+    /// Borrows the checked external schema for a local or imported nominal identity.
+    /// This is declaration metadata, not a Rust layout or a GC object definition.
+    pub fn external_type(&self, id: DefinitionId) -> Option<&TypeDef> {
+        self.native_types().find_map(|kind| match kind {
+            NativeTypeKind::Host {
+                declaration,
+                definition,
+            } if *declaration == id => Some(definition.as_ref()),
+            _ => None,
+        })
     }
 
     /// Borrows the semantic identity assigned to a local implementation block.

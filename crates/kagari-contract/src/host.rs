@@ -13,7 +13,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::{FnDecl, TraitDef},
+    declaration::{FnDecl, TraitDef, TypeDeclaration},
     host_interface::{
         HostInterface,
         constraints::satisfies_standard_constraint,
@@ -26,6 +26,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     slice,
 };
+
+pub mod external;
 
 /// Check host method tables against the defining module's executable trait
 /// contracts, including declarations absent from its public ABI.
@@ -325,6 +327,16 @@ pub fn references(
         pending.extend(&layout.arguments);
         pending.extend(layout.variants.iter().flat_map(|variant| &variant.payload));
     }
+    type_references(pending, cancel)
+}
+
+/// Collect external identities recursively without treating ordinary DTO nominals
+/// as external storage. Cancellation is checked throughout the traversal.
+pub fn type_references<'ty>(
+    types: impl IntoIterator<Item = &'ty Ty>,
+    cancel: &CancellationToken,
+) -> Result<BTreeSet<DefinitionId>, Cancelled> {
+    let mut pending: Vec<_> = types.into_iter().collect();
     let mut result = BTreeSet::new();
     while let Some(ty) = pending.pop() {
         cancel.check()?;
@@ -351,6 +363,7 @@ pub fn references(
 
 pub fn validate(
     interface: &HostInterface,
+    external_types: &[TypeDeclaration],
     items: &[PublicItem],
     structures: &[StructLayout],
     enums: &[EnumLayout],
@@ -369,16 +382,46 @@ pub fn validate(
     }) {
         return Err(LayoutValidationError::Invalid);
     }
-    let ids: BTreeSet<_> = interface.types.iter().map(|ty| &ty.id).collect();
-    if references(items, structures, enums, cancel)
-        .map_err(|_| LayoutValidationError::Cancelled)?
-        .iter()
-        .all(|id| ids.contains(id))
-    {
+    let mut ids: BTreeSet<_> = interface.types.iter().map(|ty| ty.id).collect();
+    external::validate(external_types, cancel, definitions)?;
+    if external_types.iter().any(|ty| !ids.insert(ty.declaration)) {
+        return Err(LayoutValidationError::Invalid);
+    }
+    let mut required = references(items, structures, enums, cancel)
+        .map_err(|_| LayoutValidationError::Cancelled)?;
+    required.extend(
+        type_references(
+            external_types
+                .iter()
+                .flat_map(|ty| ty.definition.fields.iter().map(|field| &field.ty)),
+            cancel,
+        )
+        .map_err(|_| LayoutValidationError::Cancelled)?,
+    );
+    if required.iter().all(|id| ids.contains(id)) {
         Ok(())
     } else {
         Err(LayoutValidationError::Invalid)
     }
+}
+
+/// Require executable semantic types to use a declared external dependency.
+/// Callers validate dependency schemas first; the linked provider check follows.
+pub fn references_present<'ty>(
+    interface: &HostInterface,
+    external_types: &[TypeDeclaration],
+    types: impl IntoIterator<Item = &'ty Ty>,
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    let ids: BTreeSet<_> = interface
+        .types
+        .iter()
+        .map(|ty| ty.id)
+        .chain(external_types.iter().map(|ty| ty.declaration))
+        .collect();
+    Ok(type_references(types, cancel)?
+        .iter()
+        .all(|id| ids.contains(id)))
 }
 
 pub fn host_bridge_implementation<'a>(

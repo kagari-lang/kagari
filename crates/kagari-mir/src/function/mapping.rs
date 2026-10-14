@@ -22,6 +22,9 @@ impl RemapDefinitions for MirModule {
             interface_instances: map_sequence(&self.interface_instances, |value| {
                 (value).remap_definitions(mapper)
             })?,
+            external_types: map_sequence(&self.external_types, |value| {
+                value.remap_definitions(mapper)
+            })?,
             host_types: map_sequence(&self.host_types, |value| (value).remap_definitions(mapper))?,
             dependencies: self.dependencies.clone(),
             structures: map_sequence(&self.structures, |value| (value).remap_definitions(mapper))?,
@@ -44,6 +47,9 @@ impl DefinitionReferences for MirModule {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for value in &self.external_types {
+            value.visit_definition_ids(visit, cancel)?;
+        }
         for value0 in &self.native_targets {
             (value0).visit_definition_ids(visit, cancel)?;
         }

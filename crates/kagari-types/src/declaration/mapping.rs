@@ -1,8 +1,7 @@
 //! Scoped identity traversal for semantic declarations.
-use crate::declaration::NativeDeclaration;
 use crate::declaration::{
-    AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl, Param,
-    TraitDef, TypeDef, VariantDef,
+    AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl,
+    NativeDeclaration, Param, TraitDef, TypeDeclaration, TypeDef, VariantDef,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -411,5 +410,30 @@ impl DefinitionReferences for NativeDeclaration {
             (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())
+    }
+}
+
+impl RemapDefinitions for TypeDeclaration {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        mapper.check()?;
+        Ok(Self {
+            declaration: mapper.reference(&self.declaration)?,
+            definition: self.definition.remap_definitions(mapper)?,
+        })
+    }
+}
+
+impl DefinitionReferences for TypeDeclaration {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        check_cancel(cancel)?;
+        visit(&self.declaration)?;
+        self.definition.visit_definition_ids(visit, cancel)
     }
 }

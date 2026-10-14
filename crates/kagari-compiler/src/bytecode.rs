@@ -148,6 +148,7 @@ fn lower_linked_module(
     let interface_tables = collect_interface_tables(ir, program, &mut context.native_imports)?;
     let mut module = BytecodeModule {
         dependencies,
+        external_types: ir.external_types.clone(),
         host_interface: context.host_interface,
         native_imports: context.native_imports,
         native_declarations: ir.abi.native_declarations.clone(),

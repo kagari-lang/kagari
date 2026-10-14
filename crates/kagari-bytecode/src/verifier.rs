@@ -299,6 +299,7 @@ pub(super) fn verify_module_with_program(
     .map_err(|_| BytecodeVerificationError::InvalidEnumLayout)?;
     host::validate(
         &module.host_interface,
+        &module.external_types,
         &module.public_items,
         &module.structures,
         &module.enumerations,
@@ -306,6 +307,44 @@ pub(super) fn verify_module_with_program(
         definitions,
     )
     .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
+    if !host::references_present(
+        &module.host_interface,
+        &module.external_types,
+        module
+            .native_declarations
+            .iter()
+            .flat_map(|declaration| {
+                declaration
+                    .function
+                    .params
+                    .iter()
+                    .map(|param| &param.ty)
+                    .chain(iter::once(&declaration.function.return_type))
+            })
+            .chain(module.native_imports.iter().flat_map(|import| {
+                import
+                    .signature
+                    .params
+                    .iter()
+                    .chain(iter::once(&import.signature.result))
+            }))
+            .chain(module.functions.iter().flat_map(|function| {
+                let semantic = &function.metadata.semantic;
+                semantic
+                    .params
+                    .values()
+                    .chain(semantic.result.iter())
+                    .chain(semantic.locals.values())
+                    .chain(semantic.registers.values())
+            })),
+        &Default::default(),
+    )
+    .expect("bytecode verification uses an uncancelled token")
+    {
+        return Err(BytecodeVerificationError::InvalidHostInterface(
+            "missing external type dependency".into(),
+        ));
+    }
     if !host::trait_bindings_match(
         &module.host_interface,
         &module.identity,

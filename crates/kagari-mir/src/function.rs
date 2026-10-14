@@ -13,7 +13,10 @@ use kagari_contract::{
     slots::SemanticSlots,
     types::{ConcreteFunctionIdentity, ModuleContract},
 };
-use kagari_types::{host_interface::type_declaration::HostTypeDeclaration, ty::NominalTy};
+use kagari_types::{
+    declaration::TypeDeclaration, host_interface::type_declaration::HostTypeDeclaration,
+    ty::NominalTy,
+};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, iter};
 
@@ -29,6 +32,7 @@ pub struct MirModule {
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
+    pub external_types: Vec<TypeDeclaration>,
     pub host_types: Vec<HostTypeDeclaration>,
     pub dependencies: Vec<ModuleIdentity>,
     pub structures: Vec<StructLayout>,

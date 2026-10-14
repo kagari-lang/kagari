@@ -12,7 +12,9 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     exports::ProgramExports,
-    host, layout,
+    host,
+    host::external::bindings_match as external_bindings_match,
+    layout, types as abi,
     types::{InterfaceBridge, PublicItem, verify},
 };
 use kagari_types::{
@@ -218,6 +220,21 @@ pub(crate) fn verify_graph(
             .collect::<Vec<_>>();
         if !reachable.contains(&ModuleRef::new(index)) {
             closure.push(module);
+        }
+        if !external_bindings_match(
+            &module.external_types,
+            |id| {
+                closure.iter().find_map(|owner| {
+                    abi::type_contract(&owner.identity, &owner.public_items, &id, definitions)
+                })
+            },
+            &Default::default(),
+        )
+        .map_err(|_| BytecodeVerificationError::InvalidProgramGraph)?
+        {
+            return Err(BytecodeVerificationError::InvalidHostInterface(
+                "external type dependency disagrees with its defining module".into(),
+            ));
         }
         let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
             module.public_items.iter().filter_map(|item| {

@@ -63,6 +63,16 @@ pub struct ConstDef {
     pub value: String,
 }
 
+/// A shared type schema retained with its nominal identity across dependencies.
+/// For an external `game::Player`, the ID names that Struct declaration while
+/// `definition` owns its fields/access policy. This carries no Rust layout or proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDeclaration {
+    /// Nominal identity of the shared type schema, including private members.
+    pub declaration: DefinitionId,
+    pub definition: TypeDef,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeDef {
     pub name: String,

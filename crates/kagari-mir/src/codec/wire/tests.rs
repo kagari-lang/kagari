@@ -25,6 +25,7 @@ fn module(context: &DefinitionContext, name: &str) -> MirModule {
     MirModule {
         native_targets: vec![],
         interface_instances: vec![],
+        external_types: vec![],
         host_types: vec![],
         dependencies: vec![],
         structures: vec![],

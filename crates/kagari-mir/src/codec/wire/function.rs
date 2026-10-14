@@ -26,7 +26,10 @@ use kagari_contract::{
     slots::wire::SemanticSlotsRecord,
     types::wire::module::{ConcreteFunctionIdentityRecord, ModuleContractRecord},
 };
-use kagari_types::host_interface::wire::declarations::WireHostTypeDeclaration;
+use kagari_types::{
+    declaration::wire::declarations::TypeDeclarationRecord,
+    host_interface::wire::declarations::WireHostTypeDeclaration,
+};
 use serde::{Deserialize, Serialize};
 
 /// File-local MirModule facts; no verification evidence is serialized.
@@ -36,6 +39,8 @@ pub(crate) struct MirModuleRecord {
     native_targets: Vec<NativeImportRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     interface_instances: Vec<ConcreteFunctionIdentityRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
+    external_types: Vec<TypeDeclarationRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     host_types: Vec<WireHostTypeDeclaration>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
@@ -72,6 +77,11 @@ impl MirModuleRecord {
                 .interface_instances
                 .iter()
                 .map(|value| ConcreteFunctionIdentityRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            external_types: value
+                .external_types
+                .iter()
+                .map(|value| TypeDeclarationRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             host_types: value
                 .host_types
@@ -121,6 +131,11 @@ impl MirModuleRecord {
                 .collect::<Result<_, _>>()?,
             interface_instances: self
                 .interface_instances
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            external_types: self
+                .external_types
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,

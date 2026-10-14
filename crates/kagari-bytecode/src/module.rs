@@ -19,7 +19,7 @@ use kagari_contract::{
     types::{ConcreteFunctionIdentity, PublicItem, TraitContract},
 };
 use kagari_types::{
-    declaration::NativeDeclaration,
+    declaration::{NativeDeclaration, TypeDeclaration},
     host_interface::HostInterface,
     ty::{NominalTy, Ty},
 };
@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default)]
 pub struct BytecodeModule {
     pub dependencies: Vec<ModuleRef>,
+    pub external_types: Vec<TypeDeclaration>,
     pub host_interface: HostInterface,
     pub native_imports: Vec<NativeImport>,
     pub native_declarations: Vec<NativeDeclaration>,

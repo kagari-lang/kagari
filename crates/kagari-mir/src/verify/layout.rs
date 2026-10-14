@@ -11,7 +11,7 @@ use kagari_contract::{
 use kagari_types::{
     declaration::verify::validate_native_declarations, host_interface::HostInterface,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, iter};
 
 pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), MirVerificationError> {
     let mut functions = BTreeMap::new();
@@ -43,6 +43,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             types: module.host_types.clone(),
             functions: functions.into_values().collect(),
         },
+        &module.external_types,
         &module.abi.public_items,
         &module.structures,
         &module.enumerations,
@@ -55,6 +56,67 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             _ => Error::InvalidHostInterface,
         })
     })?;
+    if !host::references_present(
+        &HostInterface {
+            types: module.host_types.clone(),
+            ..Default::default()
+        },
+        &module.external_types,
+        module
+            .abi
+            .native_declarations
+            .iter()
+            .flat_map(|declaration| {
+                declaration
+                    .function
+                    .params
+                    .iter()
+                    .map(|param| &param.ty)
+                    .chain(iter::once(&declaration.function.return_type))
+            })
+            .chain(module.native_targets.iter().flat_map(|import| {
+                import
+                    .signature
+                    .params
+                    .iter()
+                    .chain(iter::once(&import.signature.result))
+            }))
+            .chain(module.functions.iter().flat_map(|function| {
+                function
+                    .semantic
+                    .params
+                    .values()
+                    .chain(function.semantic.result.iter())
+                    .chain(function.semantic.locals.values())
+                    .chain(function.semantic.registers.values())
+            }))
+            .chain(
+                module
+                    .functions
+                    .iter()
+                    .flat_map(|function| &function.blocks)
+                    .flat_map(|block| &block.instructions)
+                    .filter_map(|instruction| match instruction {
+                        Instruction::Call {
+                            callee: CallTarget::Native(import),
+                            ..
+                        } => Some(import),
+                        _ => None,
+                    })
+                    .flat_map(|import| {
+                        import
+                            .signature
+                            .params
+                            .iter()
+                            .chain(iter::once(&import.signature.result))
+                    }),
+            ),
+        context.cancel,
+    )
+    .map_err(|_| context.error(Error::Cancelled))?
+    {
+        return Err(context.error(Error::InvalidHostInterface));
+    }
     abi_verify::validate(
         &module.abi.public_items,
         &module.identity,

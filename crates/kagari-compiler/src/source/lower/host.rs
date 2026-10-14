@@ -3,11 +3,13 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::table::{DefinitionId, DefinitionTable},
 };
-use kagari_hir::host::HostDeclarations;
+use kagari_contract::host as module_host;
+use kagari_hir::AnalyzedModule;
 use kagari_mir::{
     function::MirFunction,
     instruction::{CallTarget, Instruction},
 };
+use kagari_types::declaration::TypeDeclaration;
 use kagari_types::host_interface::{
     path::HostPathSegmentDeclaration, type_declaration::HostTypeDeclaration,
 };
@@ -16,13 +18,18 @@ use std::{
     iter,
 };
 
+pub(super) struct Dependencies {
+    pub legacy: Vec<HostTypeDeclaration>,
+    pub shared: Vec<TypeDeclaration>,
+}
+
 pub(super) fn collect(
-    hosts: &HostDeclarations,
+    module: &AnalyzedModule,
     roots: BTreeSet<DefinitionId>,
     functions: &[MirFunction],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-) -> Result<Vec<HostTypeDeclaration>, MirLoweringError> {
+) -> Result<Dependencies, MirLoweringError> {
     let mut pending: Vec<_> = roots.into_iter().collect();
     for instruction in functions
         .iter()
@@ -66,24 +73,46 @@ pub(super) fn collect(
             callee: CallTarget::Native(import),
             ..
         } = instruction
-            && let Some(function) = &import.host
         {
-            for ty in function
-                .params
-                .iter()
-                .map(|p| &p.ty)
-                .chain(iter::once(&function.return_type))
-            {
-                pending.extend(ty.nominal_references().into_iter().cloned());
-            }
+            pending.extend(
+                module_host::type_references(
+                    import
+                        .signature
+                        .params
+                        .iter()
+                        .chain(iter::once(&import.signature.result)),
+                    cancel,
+                )
+                .map_err(|_| MirLoweringError::Cancelled)?,
+            );
         }
     }
     let mut declarations = BTreeMap::new();
+    let mut shared = BTreeMap::new();
     while let Some(id) = pending.pop() {
         cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-        if declarations.contains_key(&id) {
+        if declarations.contains_key(&id) || shared.contains_key(&id) {
             continue;
         }
+        if let Some(definition) = module.declarations.external_type(id) {
+            // Common schemas remain the semantic owner, including recursive members.
+            // Only external identities enter this closure, not ordinary DTO nominals.
+            for field in &definition.fields {
+                pending.extend(
+                    module_host::type_references([&field.ty], cancel)
+                        .map_err(|_| MirLoweringError::Cancelled)?,
+                );
+            }
+            shared.insert(
+                id,
+                TypeDeclaration {
+                    declaration: id,
+                    definition: definition.clone(),
+                },
+            );
+            continue;
+        }
+        let hosts = &module.names.hosts;
         let ty = hosts
             .nominal_type(&id)
             .and_then(|id| hosts.type_declaration(id))
@@ -103,5 +132,14 @@ pub(super) fn collect(
             .expect("checked Host type identities")
     });
     cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-    Ok(declarations)
+    let mut shared: Vec<_> = shared.into_values().collect();
+    shared.sort_by(|left, right| {
+        definitions
+            .compare(left.declaration, right.declaration)
+            .expect("checked external type identities")
+    });
+    Ok(Dependencies {
+        legacy: declarations,
+        shared,
+    })
 }

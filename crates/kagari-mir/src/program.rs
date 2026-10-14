@@ -1,6 +1,4 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
-use kagari_contract::representation::semantic_representation;
-use kagari_types::declaration::TypeDefKind;
 mod applications;
 mod bridges;
 pub mod construction;
@@ -27,10 +25,15 @@ use kagari_common::{
 use kagari_contract::{
     contracts,
     exports::{ProgramExports, entry_function_matches, public_function_matches},
-    host, types as abi,
+    host,
+    host::external::bindings_match as external_bindings_match,
+    layout::LayoutValidationError,
+    representation::semantic_representation,
+    types as abi,
     types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_types::{
+    declaration::TypeDefKind,
     host_interface::HostInterface,
     language::Protocol,
     ty::{Ty, inheritance, substitution::TypeTransformError},
@@ -287,6 +290,26 @@ pub fn verify_program(
                 (owner == index || dependencies.contains(&owner)).then_some(module)
             })
             .collect();
+        if !external_bindings_match(
+            &module.external_types,
+            |id| {
+                closure.iter().find_map(|owner| {
+                    abi::type_contract(&owner.identity, &owner.abi.public_items, &id, &definitions)
+                })
+            },
+            cancel,
+        )
+        .map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    LayoutValidationError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })? {
+            return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
+        }
         applications::validate(
             module,
             cancel,

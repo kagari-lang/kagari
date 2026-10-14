@@ -1,9 +1,18 @@
 use super::collect_module_abi;
+use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_bytecode::{
+    artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+    program::verified::VerifiedBytecodeProgram,
+};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::types::{PublicItem, verify};
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_mir::{
+    codec::{decode_program, encode_program},
+    program::verify_program as verify_mir_program,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     declaration::{
@@ -70,8 +79,8 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
     let mut database = AnalysisDatabase::default();
     database.set_native_modules(providers);
     let mut sources = SourceDatabase::default();
-    sources
-        .set("external-abi.kgr", "fn main() {}".into(), SourceLayer::Base)
+    let root = sources
+        .set("external-abi.kgr", "use example::roots::Player; pub fn relay(player: Player) -> Player { player } fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())
@@ -113,4 +122,70 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
         analyzed.definitions(),
     )
     .unwrap();
+    // This exercises the previously failing recursive external dependency through
+    // both portable products and rejects schema copies that disagree with providers.
+    let checked = snapshot.check_program(root, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let wire = encode_program(&mir, &Default::default()).unwrap();
+    let restored = decode_program(&wire, &Default::default()).unwrap();
+    assert_eq!(
+        wire,
+        encode_program(&restored, &Default::default()).unwrap()
+    );
+    let bytecode = lower_program_to_bytecode(&restored).unwrap();
+    let bytecode = bytecode
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    VerifiedBytecodeProgram::new(bytecode.clone(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(bytecode.clone(), ArtifactBuildOptions::default(), &context)
+            .unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
+    assert_eq!(
+        bytes,
+        decoded.records().to_bytes(decoded.definitions()).unwrap()
+    );
+    let decoded = decoded
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    decoded
+        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .unwrap();
+
+    let mut forged_mir = restored
+        .into_unverified()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let caller = forged_mir
+        .modules
+        .iter_mut()
+        .find(|module| module.identity == checked.root().lowered.source.module_identity().clone())
+        .unwrap();
+    assert_eq!(caller.external_types.len(), 1);
+    caller.external_types[0].definition.fields[0].mutable = false;
+    caller.external_types[0].definition.fields[0]
+        .host_policy
+        .as_mut()
+        .unwrap()
+        .path_access = PathAccess::ReadOnly;
+    assert!(verify_mir_program(forged_mir, &context, &Default::default()).is_err());
+
+    let mut forged_bytecode = bytecode;
+    let caller_index = forged_bytecode.root.index();
+    forged_bytecode.modules[caller_index].external_types[0]
+        .definition
+        .fields[0]
+        .mutable = false;
+    forged_bytecode.modules[caller_index].external_types[0]
+        .definition
+        .fields[0]
+        .host_policy
+        .as_mut()
+        .unwrap()
+        .path_access = PathAccess::ReadOnly;
+    assert!(VerifiedBytecodeProgram::new(forged_bytecode, &context).is_err());
 }
