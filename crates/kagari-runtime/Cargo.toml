@@ -8,6 +8,7 @@ license.workspace = true
 default = []
 jit = []
 execution-diagnostics = []
+serde = ["dep:serde"]
 
 [dependencies]
 kagari-types.workspace = true
@@ -17,6 +18,7 @@ kagari-contract.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true
 kagari-bytecode.workspace = true
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 kagari-derive.workspace = true

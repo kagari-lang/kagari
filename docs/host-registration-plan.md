@@ -1372,6 +1372,14 @@ feature/backend/platform coverage and projector Miri remain in their designated
 CI/RF04/RF06 scope.
 
 
+RI04's next owned-conversion checkpoint supplies direct optional Serde and static
+KagariSchema derive; its implementation and focused results are recorded in the
+[interop ledger](rust-interop-design.md#ri04-checkpoint-direct-optional-serde-and-static-serialization-schemas).
+It uses the same native bind/install boundary and checked object/conversion owners.
+Serialization metadata supplies no Rust projection proof; ordinary Struct lending
+and generated projectors remain the next RI04/RF04 integration slice. The earlier
+whole-object Miri selection still has no result. This does not close RF03-RF06.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

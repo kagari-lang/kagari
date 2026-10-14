@@ -78,7 +78,7 @@ impl ConversionContext<'_> {
             .map_err(|error| error.at_conversion(format_args!("variant {member}")))
     }
 
-    fn variant_layout(
+    pub(crate) fn variant_layout(
         &self,
         expected: &TypeArgument,
         value: &Value,
@@ -101,7 +101,10 @@ impl ConversionContext<'_> {
             .ok_or_else(|| RuntimeError::module_validation("enum conversion identity"))
     }
 
-    fn variant_fields(&self, layout: &EnumVariantRef) -> NativeResult<Vec<TypeArgument>> {
+    pub(crate) fn variant_fields(
+        &self,
+        layout: &EnumVariantRef,
+    ) -> NativeResult<Vec<TypeArgument>> {
         self.check_elements(layout.variant().payload.len())?;
         let mut fields = Vec::new();
         fields

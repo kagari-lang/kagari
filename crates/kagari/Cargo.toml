@@ -9,6 +9,7 @@ default = ["source", "native"]
 source = ["dep:kagari-source", "dep:kagari-package", "dep:kagari-compiler", "kagari-compiler/source", "dep:kagari-hir", "dep:kagari-syntax", "dep:kagari-mir", "dep:smallvec", "dep:blake3"]
 aot-load = ["dep:libloading", "dep:blake3"]
 aot-build = ["native", "aot-load"]
+serde = ["kagari-runtime/serde"]
 native = ["dep:kagari-codegen", "dep:kagari-compiler", "dep:kagari-mir"]
 
 [dependencies]
@@ -33,6 +34,7 @@ kagari-vm.workspace = true
 smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde.workspace = true
 kagari-derive.workspace = true
 bincode.workspace = true
 kagari-codegen-cranelift.workspace = true
@@ -64,3 +66,7 @@ required-features = ["aot-load"]
 
 [build-dependencies]
 blake3 = { version = "1", optional = true }
+
+[[example]]
+name = "serde_interop"
+required-features = ["source", "serde"]

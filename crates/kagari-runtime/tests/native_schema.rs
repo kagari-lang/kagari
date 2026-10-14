@@ -1,5 +1,7 @@
 //! Nominal DTO schemas share ordinary declarations and transactional installation.
 mod native_schema_derive;
+#[cfg(feature = "serde")]
+mod native_schema_serde;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,

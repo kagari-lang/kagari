@@ -307,6 +307,20 @@ impl<'runtime> ConversionContext<'runtime> {
         convert(&mut frame)
     }
 
+    #[cfg(feature = "serde")]
+    pub(crate) fn decode_scope<R>(
+        &mut self,
+        expected: &TypeArgument,
+        value: &Value,
+        decode: impl FnOnce(&mut Self) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        self.check_value(expected, value)?;
+        let _root = self.protect(value)?;
+        let mut frame = self.enter(identity(value))?;
+        frame.runtime.gc_safepoint()?;
+        decode(&mut frame)
+    }
+
     /// Validate a raw boundary value against its checked type and supplying
     /// generation. External references additionally require a live scope and
     /// sufficient access capability; this never dereferences their Rust storage.

@@ -100,6 +100,20 @@ impl<'runtime> ConversionContext<'runtime> {
 }
 
 impl StructEncoder<'_, '_> {
+    #[cfg(feature = "serde")]
+    pub(crate) fn field_with(
+        &mut self,
+        name: &str,
+        encode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument) -> NativeResult<Value>,
+    ) -> NativeResult<()> {
+        let field = self.object_type.field(name)?;
+        let argument = field.argument(self.cx.runtime())?;
+        self.builder.check_member(&field)?;
+        let value = encode(self.cx, &argument)
+            .map_err(|error| error.at_conversion(format_args!("field {name}")))?;
+        self.builder.set_value_in(self.cx, &field, value)
+    }
+
     /// Encode one named public field. Duplicate/missing fields reject; writing
     /// does not mutate an existing script object or the original Rust input.
     pub fn field<T: IntoKagari + 'static>(&mut self, name: &str, value: T) -> NativeResult<()> {
@@ -119,6 +133,28 @@ impl StructEncoder<'_, '_> {
 }
 
 impl StructDecoder<'_, '_> {
+    #[cfg(feature = "serde")]
+    pub(crate) fn names(&self) -> Vec<String> {
+        self.object_type.field_names()
+    }
+
+    #[cfg(feature = "serde")]
+    pub(crate) fn field_with<R>(
+        &mut self,
+        name: &str,
+        decode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument, &Value) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        let field = self.object_type.field(name)?;
+        let slot = field.check_owner(&self.object_type)?;
+        let argument = field.argument(self.cx.runtime())?;
+        let value = self
+            .values
+            .get(self.cx.runtime().gc(), slot)
+            .ok_or_else(|| RuntimeError::module_validation("struct conversion snapshot field"))?;
+        decode(self.cx, &argument, &value)
+            .map_err(|error| error.at_conversion(format_args!("field {name}")))
+    }
+
     /// Decode a field from the original snapshot. A child converter may collect
     /// or edit the input's aliases without changing later snapshot fields.
     pub fn field<T: FromKagari + 'static>(&mut self, name: &str) -> NativeResult<T> {

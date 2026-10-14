@@ -33,6 +33,8 @@ mod selected;
 pub mod selected_method;
 pub mod sequence;
 pub mod sequence_edit;
+#[cfg(feature = "serde")]
+pub mod serde;
 pub mod storage;
 pub(crate) mod storage_type;
 pub(crate) mod stored_selection;

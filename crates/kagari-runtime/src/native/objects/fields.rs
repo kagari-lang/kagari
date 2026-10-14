@@ -85,20 +85,8 @@ impl Runtime {
         &self,
         member: &ObjectField,
     ) -> NativeResult<Field<T>> {
-        member.object_type.validate(self)?;
-        let layout = &member.object_type.0.layout;
-        let (ty, _) = layout
-            .field_type(member.slot)
-            .ok_or_else(|| RuntimeError::module_validation("object field slot"))?;
-        let argument = self
-            .type_arguments(
-                layout.module(),
-                layout.type_bindings().cloned(),
-                slice::from_ref(ty),
-            )?
-            .pop()
-            .ok_or_else(|| RuntimeError::module_validation("object field scope"))?;
-        let cx = ConversionContext::new(self, layout.module())?;
+        let argument = member.argument(self)?;
+        let cx = ConversionContext::new(self, member.object_type.owner())?;
         cx.check_type::<T>(&argument)?;
         let mut cache = self
             .object_bindings
@@ -137,18 +125,40 @@ impl Runtime {
     }
 }
 
+impl ObjectField {
+    pub(crate) fn argument(&self, runtime: &Runtime) -> NativeResult<TypeArgument> {
+        self.object_type.validate(runtime)?;
+        let layout = &self.object_type.0.layout;
+        let (ty, _) = layout
+            .field_type(self.slot)
+            .ok_or_else(|| RuntimeError::module_validation("object field slot"))?;
+        runtime
+            .type_arguments(
+                layout.module(),
+                layout.type_bindings().cloned(),
+                slice::from_ref(ty),
+            )?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("object field scope"))
+    }
+
+    pub(crate) fn check_owner(&self, object_type: &ObjectType) -> NativeResult<usize> {
+        if !Arc::ptr_eq(&self.object_type.0, &object_type.0) {
+            return Err(RuntimeError::module_validation(
+                "field binding belongs to another applied type or generation",
+            ));
+        }
+        Ok(self.slot)
+    }
+}
+
 impl<T> Field<T> {
     pub fn is_mutable(&self) -> bool {
         self.record.member.object_type.0.layout.layout().fields[self.record.member.slot].mutable
     }
 
     pub(super) fn check_owner(&self, object_type: &ObjectType) -> NativeResult<usize> {
-        if !Arc::ptr_eq(&self.record.member.object_type.0, &object_type.0) {
-            return Err(RuntimeError::module_validation(
-                "field binding belongs to another applied type or generation",
-            ));
-        }
-        Ok(self.record.member.slot)
+        self.record.member.check_owner(object_type)
     }
 }
 

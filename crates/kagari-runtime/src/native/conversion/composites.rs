@@ -1,6 +1,7 @@
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
+    gc::roots::RootSet,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -66,37 +67,7 @@ impl<T: FromKagari> FromKagari for Vec<T> {
         expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        let Value::GcHandle(array) = value else {
-            return Err(RuntimeError::module_validation(
-                "Vec conversion requires a nominal sequence",
-            ));
-        };
-        let count =
-            cx.runtime().gc().sequence_len(*array).ok_or_else(|| {
-                RuntimeError::module_validation("Vec conversion sequence identity")
-            })?;
-        cx.check_elements(count)?;
-        // Snapshot before user-defined child conversion can reenter or mutate an alias.
-        let mut snapshot = Vec::new();
-        snapshot
-            .try_reserve_exact(count)
-            .map_err(|_| RuntimeError::resource_limit("Vec conversion snapshot"))?;
-        for index in 0..count {
-            cx.poll()?;
-            snapshot.push(
-                cx.runtime()
-                    .gc()
-                    .sequence_get(*array, index)
-                    .ok_or_else(|| {
-                        RuntimeError::module_validation("Vec conversion sequence element")
-                    })?,
-            );
-        }
-        let roots = cx
-            .runtime()
-            .gc()
-            .root_execution_values(snapshot)
-            .ok_or_else(|| RuntimeError::module_validation("Vec conversion snapshot roots"))?;
+        let (roots, count) = cx.snapshot_sequence(value)?;
         let element = cx.parameter(expected, 0)?;
         let mut result = Vec::new();
         result
@@ -299,4 +270,41 @@ fn enum_payload(
     Err(RuntimeError::module_validation(
         "enum conversion variant identity",
     ))
+}
+
+impl ConversionContext<'_> {
+    pub(crate) fn snapshot_sequence(&self, value: &Value) -> NativeResult<(RootSet, usize)> {
+        let Value::GcHandle(array) = value else {
+            return Err(RuntimeError::module_validation(
+                "Vec conversion requires a nominal sequence",
+            ));
+        };
+        let count =
+            self.runtime().gc().sequence_len(*array).ok_or_else(|| {
+                RuntimeError::module_validation("Vec conversion sequence identity")
+            })?;
+        self.check_elements(count)?;
+        // Snapshot before user-defined child conversion can reenter or mutate an alias.
+        let mut snapshot = Vec::new();
+        snapshot
+            .try_reserve_exact(count)
+            .map_err(|_| RuntimeError::resource_limit("Vec conversion snapshot"))?;
+        for index in 0..count {
+            self.poll()?;
+            snapshot.push(
+                self.runtime()
+                    .gc()
+                    .sequence_get(*array, index)
+                    .ok_or_else(|| {
+                        RuntimeError::module_validation("Vec conversion sequence element")
+                    })?,
+            );
+        }
+        let roots = self
+            .runtime()
+            .gc()
+            .root_execution_values(snapshot)
+            .ok_or_else(|| RuntimeError::module_validation("Vec conversion snapshot roots"))?;
+        Ok((roots, count))
+    }
 }

@@ -541,6 +541,35 @@ empty-container element contracts as well as each stored value. CallContext expo
 allocate_array and allocate_vec explicitly; native storage factories allocate
 fixed arrays with allocate_array.
 
+`ModuleBuilder::register_type::<T>()` stages a finite schema graph transactionally.
+`kagari_derive::KagariValue` supplies ordinary named structs and unit/tuple enums,
+using the existing rooted object/variant converters. It supports nongeneric owned
+fields with registered conversions; tuples/packed structs, unions and record enum
+variants require an explicitly authored adapter. Registering a data schema adds
+no Rust methods or Kagari trait impls. Opaque fields retain object identity instead
+of copying their Rust payload; see the [DTO/Opaque consumer](../../crates/kagari/examples/value_interop.rs).
+
+The optional runtime/SDK `serde` feature exposes `native::serde::Serde<T>` and
+`KagariSchema`. Use `kagari_derive::KagariSchema` for a static serialization schema,
+then register `Serde<T>` explicitly. The wrapper is absent from script signatures;
+outbound requires `Serialize`, inbound requires `DeserializeOwned`, independently.
+The adapter invokes Serde directly against checked declarations, with normal
+conversion roots, complete immediate-child snapshots, cycle/depth/work/string
+limits and cancellation. It does not build JSON, byte buffers or a dynamic value tree.
+String formatting through `collect_str` is charged before buffer growth.
+
+Automatic Serde schemas support the same primitives, owned String, Vec, tuples,
+Option/Result, named structs and unit/newtype/tuple enum variants. Symmetric short
+`rename`/`rename_all`, unconditional `skip` and `default` are supported. Names must
+remain script identifiers. Skipped fields have no script member; ordinary script
+structs still contain every declared field, so `default` does not admit incomplete
+GC objects. Flattening, conditional omission, asymmetric names, changed tagging,
+custom serializer attributes, borrowed/remote schemas and generic Opaque-ID encoding
+are rejected. A manual schema must match its actual serializer and passes the same
+value validation; no schema grants a Rust reference to GC storage or a field projector.
+Run the [Serde consumer](../../crates/kagari/examples/serde_interop.rs) with
+`cargo run -p kagari --example serde_interop --no-default-features --features source,serde`.
+
 An explicitly declared interface result can differ from the callback's concrete
 Rust result. Compilation selects its existing result adapter before execution;
 invocation validates the concrete value and applies that adapter without trait

@@ -53,6 +53,17 @@ pub(crate) struct TypeRecord {
 }
 
 impl ObjectType {
+    #[cfg(feature = "serde")]
+    pub(crate) fn field_names(&self) -> Vec<String> {
+        self.0
+            .layout
+            .layout()
+            .fields
+            .iter()
+            .map(|field| field.name.clone())
+            .collect()
+    }
+
     pub fn type_argument(&self) -> &TypeArgument {
         &self.0.argument
     }

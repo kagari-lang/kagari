@@ -1,3 +1,5 @@
+#[cfg(feature = "serde")]
+use crate::native::objects::fields::ObjectField;
 use crate::{
     error::RuntimeError,
     gc::roots::RootedValue,
@@ -64,11 +66,7 @@ impl ObjectBuilder {
     ) -> NativeResult<&mut Self> {
         self.object_type.validate(cx.runtime())?;
         let slot = field.check_owner(&self.object_type)?;
-        if self.fields[slot].is_some() {
-            return Err(RuntimeError::module_validation(
-                "duplicate object initializer",
-            ));
-        }
+        self.check_slot(slot)?;
         let root = cx.argument_scope(|cx| {
             let value = cx.encode_prepared(&field.record.argument, value)?;
             cx.runtime()
@@ -77,6 +75,38 @@ impl ObjectBuilder {
         })?;
         self.fields[slot] = Some(root);
         Ok(self)
+    }
+
+    fn check_slot(&self, slot: usize) -> NativeResult<()> {
+        if self.fields[slot].is_some() {
+            return Err(RuntimeError::module_validation(
+                "duplicate object initializer",
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "serde")]
+    pub(crate) fn check_member(&self, field: &ObjectField) -> NativeResult<()> {
+        self.check_slot(field.check_owner(&self.object_type)?)
+    }
+
+    #[cfg(feature = "serde")]
+    pub(crate) fn set_value_in(
+        &mut self,
+        cx: &mut ConversionContext<'_>,
+        field: &ObjectField,
+        value: Value,
+    ) -> NativeResult<()> {
+        let slot = field.check_owner(&self.object_type)?;
+        self.check_slot(slot)?;
+        cx.check_value(&field.argument(cx.runtime())?, &value)?;
+        self.fields[slot] = Some(
+            cx.runtime()
+                .root_value(value)
+                .ok_or_else(|| RuntimeError::module_validation("object initializer retention"))?,
+        );
+        Ok(())
     }
 
     pub fn build(self, cx: &mut NativeContext<'_>) -> NativeResult<Object> {

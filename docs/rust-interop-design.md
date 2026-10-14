@@ -92,8 +92,9 @@ and unit/tuple enums through that same schema/conversion owner. Automatic
 checks its Rust identity and maps only the Opaque wrapper to the module's nominal
 declaration. NativeData's existing proof grants its data/take flags; the default
 payload factory grants read-only traced storage. No Rust method or trait is inferred.
-Serde, ordinary Struct lending, generated projections, mixed loans and final SDK/
-legacy integration remain in RI04/RF04/RF05. The historical inventory below is the
+The optional direct Serde adapter and `KagariSchema` derive now use those same
+checked conversion boundaries. Ordinary Struct lending, generated projections,
+mixed loans and final SDK/legacy integration remain in RI04/RF04/RF05. The historical inventory below is the
 activation baseline, not a claim that these newer checkpoints remain unimplemented.
 
 Current owners are the [schema graph](../crates/kagari-runtime/src/native/schema.rs),
@@ -964,11 +965,66 @@ Scoped derive/runtime lib/schema Clippy and consumer-example Clippy passed.
 `Applied(Response { amount: 40 })`. This embedding consumer defines its own DTOs,
 enum and Opaque payload, compiles/loads an artifact and uses the ordinary typed
 call boundary. The example and mixed test require no new core type switches.
-Dedicated derive output does not yet supply inline projector facts. Optional Serde,
-ordinary Struct lending and projector integration remain RI04/RF04; RI04 stays open.
+Dedicated derive output does not yet supply inline projector facts. At this
+checkpoint optional Serde, ordinary Struct lending and projector integration remained
+RI04/RF04 work; the next checkpoint supplies Serde. RI04 stays open.
 The earlier whole-object Miri selection is still running under RF03, without a
 passing result. No generated unsafe projection exists in this derive slice. Full
 workspace/feature/backend/platform validation remains CI-owned.
+
+### RI04 checkpoint: direct optional Serde and static serialization schemas
+
+Runtime's opt-in `serde` feature supplies `Serde<T>` plus `KagariSchema`; SDK forwards
+that feature. Dedicated derive produces module-owned finite static declarations,
+with schema identity keyed by the wrapper, rather than discovering sample shapes.
+Primitive/composite schemas reuse the existing type constructors. Production
+Serializer/Deserializer invoke Serde directly: checked ObjectField preparation,
+ObjectBuilder initializers and complete struct/sequence/enum snapshots remain at
+their existing owners. Child adapters use ConversionContext roots, cycle/depth/node/
+string limits and cancellation. No JSON/buffer/tree intermediate, pointer
+reinterpretation, alternate call dispatcher or Serde Opaque-ID mapping is introduced.
+
+Supported automatic shapes are owned supported scalars/String, Vec, tuples,
+Option/Result, named structs and unit/newtype/tuple enums. Symmetric short names and
+rename_all follow Serde's field/variant casing; unconditional skip/default are
+honored, including skipped tuple/newtype payloads. Names must be script identifiers.
+Changed tagging, flattening, conditional omission, asymmetric/custom/borrow/remote
+attributes reject during derive. Unsupported scalar and Opaque fields have no schema.
+Serialize and DeserializeOwned are independent capabilities. GC structs always have
+all declared fields; default does not turn incomplete objects into valid inputs.
+Serde schemas describe serialization, never Rust field layout or projector safety.
+
+Six selected Serde cases passed across the schema test owner: source-free nominal
+round trips, all variant shapes, empty Vec/Option, Result, renames/skips/default,
+directional-only types, actual custom Serialize behavior, limits/error paths,
+visitor mutation+GC+unwind snapshots, cycles, bounded collect_str and duplicate-field
+preflight before child effects. The preexisting nested DTO/enum round-trip regression
+passed without the Serde feature after sharing sequence snapshot preparation.
+Ten compile-fail doctests reject the unsupported attribute/shape matrix and prove
+DeserializeOwned even with an explicitly authored borrowed schema. Initial consumer
+callbacks omitted the required owned NativeContext parameter; corrected the example,
+without adding a callback API. Initial structure/import warnings were corrected.
+No carried build or test failure remains.
+
+Local selection and actual results:
+
+- `cargo test -p kagari-runtime --features serde --test native_schema native_schema_serde`: five cases passed before the final two local repairs; the additional
+  `serde_formatted_output` case validates those repairs. Unchanged tests remain evidence.
+- `cargo test -p kagari-runtime --features serde --doc native::serde::KagariSchema`:
+  ten compile-fail cases passed, including the corrected explicit borrowed schema.
+- `cargo test -p kagari-runtime --test native_schema nested_dtos_and_enum_payloads`:
+  one directly affected shared-conversion regression passed.
+- Scoped derive/runtime/schema and SDK example Clippy, core runtime Clippy with
+  Serde disabled, structure, formatting and diff checks passed after the selected
+  repairs. The structure checker reviewed 1214 Rust files with zero findings.
+- `cargo run -p kagari --example serde_interop --no-default-features --features source,serde`:
+  passed; the consumer's compiled/loaded typed call prints `Applied(7, 20)`.
+
+RI04 still owns ordinary Struct descriptors and coordination with RF04's generated
+projectors; no projector or unsafe change is added by Serde. The earlier selected
+whole-object RF03 Miri invocation is still running, without a passing result. Full
+workspace/feature/backend/platform coverage and final projector Miri remain CI/
+RF04/RF06-owned; the combined plan remains open.
 
 ## Acceptance and verification
 

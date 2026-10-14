@@ -426,6 +426,7 @@ dependencies = [
  "kagari-types",
  "kagari-vm",
  "libloading",
+ "serde",
  "smallvec",
  "thiserror",
  "tokio",
@@ -630,6 +631,7 @@ dependencies = [
  "kagari-source",
  "kagari-stdlib",
  "kagari-types",
+ "serde",
  "thiserror",
 ]
 
