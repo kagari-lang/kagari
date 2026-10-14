@@ -1,6 +1,6 @@
 # Rust Value and Opaque Interoperability Plan
 
-Status: selected for the combined host/interop delivery; implementation unstarted.
+Status: active combined host/interop delivery; RI00 inventory checkpoint complete; RI01 schema implementation follows.
 This plan defines typed Rust value conversion and runtime-owned opaque objects. The user selected
 runtime ownership with checked host read/edit and explicit take; Rust and Kagari
 traits remain independent and require explicit script registration. Examples are
@@ -638,7 +638,7 @@ existing scoped borrow protections or typed-path behavior outside this scope.
 
 ## Implementation phases
 
-All phases are unstarted. Reconcile the existing GO foundation in RI00 and reuse
+RI00 inventory is recorded below. Reconcile the existing GO foundation in RI00 and reuse
 implemented nominal declarations, roots and typed adapters. Follow the combined
 order linked above rather than running this list as an isolated migration. RF01
 supplies the borrowed adapter proof before RI03; RI04 supplies the schema/derive
@@ -653,7 +653,7 @@ and Kagari traits kept independent. Exact facade/adapter signatures and broader
 payload capabilities require compile proofs; this checkpoint changes no runtime
 behavior and reports no test or performance result.
 
-- [ ] RI00: Re-audit the completed predecessor and existing tests. Decide trait
+- [x] RI00: Re-audit the completed predecessor and existing tests. Decide trait
   signatures, supported numeric/collection/enum forms, field exposure,
   Serde attribute matrix, fallible-call channel and destruction/thread policy.
   Fix ordinary-value alias/cycle behavior, catalog identity rules and phase scope.
@@ -688,6 +688,76 @@ owning follow-up phase here. Do not conceal failures with stubs or weakened test
 The default is a buildable checkpoint; any intermediate-breakage policy needs
 explicit approval when activating this plan. Implementation commits, when separately
 authorized, follow repository Conventional Commit and breaking-change rules.
+
+### RI00 activation inventory and decisions (2026-10-15)
+
+Reuse `native/conversion` directional traits and contexts. Existing primitive
+converters support unit/bool, i8/i16/i32/i64/isize, u8/u16/u32/u64/usize, f32/f64
+and String; integer decoding already uses checked widths. Initial automatic schemas
+cover named non-generic structs and unit/tuple enum variants, with tuples,
+Option/Result, Vec and explicit registered collections composing the same mapping.
+Unsupported char/i128/u128, borrowed strings/slices, unions, packed structs,
+variant-dependent projections and open Rust generic factories diagnose rather
+than coerce. Named enum payloads require a separately defined portable shape and
+are excluded from the initial automatic subset. Generic manual declarations and
+converters remain supported by existing checked applications.
+
+Fields exported by a DTO schema are public writable script fields. Registration
+supplies no methods or Kagari impls. Derives supply a short name (optional
+`#[kagari(name = "...")]`) and dependency graph, never a module-qualified process
+identity. Rust TypeId locates only local mappings; duplicate mappings in the same
+catalog reject, and independent catalogs may choose independent module names.
+A DTO and Opaque representation require distinct explicit binding types. Register
+complete headers before resolving recursive dependency edges, and validate the
+staged graph before publication; a failed registration publishes no usable subset.
+
+Owned conversion duplicates repeated noncyclic children into independent Rust
+values and rejects a cycle into an active owned conversion. Existing
+`ConversionContext::active` owns that rule, with bounded depth/nodes and scratch
+roots; Opaque/other retained handles preserve identity instead of decoding their
+contents. Into/From capabilities stay directional. `NativeResult<R>` carries call
+failure; business `Result<T,E>` remains ordinary script Result data. Output
+conversion failure preserves completed callback effects.
+
+Opaque replaces only the public NativeObject handle, using the same RootedValue,
+NativeType descriptor, program retention and GC slot/generation. Read retains
+NativePayload tracing/accounting. Direct edit initially retains NativeData's
+recursive fixed-size edge-free contract; managed script edges keep controlled
+setters. Extraction requires an explicit proven edge-free capability independent
+of Clone/Copy, so non-Clone payloads can be retained and supported payloads taken
+without copying. An empty runtime trace is not evidence for this capability.
+Managed script-edge extraction is excluded until ownership/root transfer is
+proved. RI03 adds this capability at the existing storage owner and atomically
+removes a validated slot after rejecting active loans/native operations; all old
+roots/aliases then fail generation/liveness checks. Failed take changes nothing.
+Reinsertion uses a new generational identity. Payload accounting is released by
+the heap owner, and destruction transfers exactly once to the caller.
+
+Payloads remain Send + 'static, without a blanket Sync requirement. Runtime
+teardown drops remaining payloads; retained handles cannot independently access
+storage after teardown. Drop cannot reenter script. External scope lending is
+separate from heap ownership and cannot take the host object. Existing
+HostResourceScope is a runtime root/borrow guard, not yet a Rust host-reference
+lifetime proof; RF01 supplies that proof and RF03 links actual lending.
+
+Optional Serde is explicit `Serde<T>` plus KagariSchema and directional
+Serialize/DeserializeOwned. Initial accepted shape: supported primitives,
+named structs, unit/newtype/tuple enum variants, tuples, Option/Result and supported
+collections. Symmetric short `rename`/`rename_all` and unconditional skip/default
+must agree between schema and conversion. Reject flatten, conditional omission,
+untagged/internal/adjacent tagging, asymmetric names, borrow, custom serializers,
+remote and opaque handles unless a separately authored matching schema/converter
+proves the shape. No sample serialization or opaque-ID encoding supplies schema.
+RI04 implements diagnostics against this finite matrix rather than silently
+using raw Rust fields when Serde changes representation.
+
+[HR01/RF01's ledger](host-registration-plan.md#progress-ledger) owns the shared
+migration/receiver/scope proof. RI00 does not build a competing adapter. Initial
+code inspection found no production failure; focused primitive/argument agreement
+checks are recorded there. Automatic schemas/derive, native extraction, scope/path
+execution and their tests are still required. Local acceptance selects those
+changed contracts plus directly affected regressions; exhaustive workspace,
+feature/backend/platform CI and actual projector Miri remain separately owned.
 
 ## Acceptance and verification
 

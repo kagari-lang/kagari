@@ -1,6 +1,6 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: selected combined execution plan; implementation is unstarted. The user
+Status: active combined execution plan; HR01/RF01 API/lifetime checkpoint complete; schema work follows. The user
 included Ref/RefMut in the same delivery as registration and Opaque. The
 [roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
 placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
@@ -19,7 +19,7 @@ Rust traits never automatically become Kagari trait implementations.
 
 The intended Rust boundary has three modes. Registration unification starts with
 by value. Reference behavior will be implemented in RF01-RF06 within the same delivery,
-with distinct gates from HR01-HR03 and RI03. None of these new phases has started.
+with distinct gates from HR01-HR03 and RI03. The initial API/lifetime proof is recorded in the progress ledger.
 
 | Mode | Ordinary struct representation and behavior | Status |
 | --- | --- | --- |
@@ -1034,10 +1034,82 @@ Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 ## Progress ledger
 
-- [ ] HR01: migration map, by-value contract and RI dependencies frozen.
+### HR01/RF01 inventory and API proof (2026-10-15)
+
+Baseline `c54001c5` had a clean workspace. Inventory confirms that storage,
+roots, conversion, installation and execution services already exist; this
+migration replaces registration ownership, not those services.
+
+| Existing owner/consumers | Destination and removal checkpoint |
+| --- | --- |
+| `native/builder.rs`, `builder/inherent.rs`, `builder/implementation.rs`; stdlib builders and application native modules | One declaration-aware `bind` adapter, retaining raw/primitive bindings and their allocation behavior. Consolidate `bind_with`, `bind_typed` and receiver-separated typed helpers in HR02/RF05; remove the old public builder entrypoints by HR03. |
+| `native/conversion/`, `native/typed.rs`, `native/objects/` | RI01 schema registration and RI02 nominal conversion use existing TypeArgument, roots, depth/node/cycle limits and checked object layouts. RI04 derives project those same contracts. No second root or invocation implementation. |
+| `native/payload/`, `native/storage.rs`, `gc/native.rs` | RI03 renames the public NativeObject handle to Opaque directly, adds extraction capability and atomic heap removal, and reuses non-reentrant read/edit loans. Internal GC storage records remain private. |
+| `types/host_interface/`, HIR `host.rs`/`host/origin.rs`, SDK `engine/source.rs::set_host_interface` | General type/function/member/impl facts move to ordinary ModuleDecl/NativeDeclaration and generated registration views in HR02. Portable roots/path requirements remain checked until RF05 migrates them; standalone HostInterface bytes/aggregation retire in HR03. |
+| Runtime `host.rs`, `host/registry.rs`, `host_scope.rs`, `host/borrows.rs`; VM host dispatch and path operations | Preserve owner/epoch, rooted temporaries, path preparation/commit, dirty paths and failure order. RF03 supplies branded external lending; RF04 supplies path-aware batch loans and generated projectors; RF05 routes live-host calls through the common native adapter. HR03 removes superseded registration, never live-host semantics. |
+| SDK `host_interfaces`, `collection_access`, `source_modules`, `offline_functions`/`offline_nominal`; runtime `host_registration`, `host_nominal`, `offline_host`/`offline_types`, `host_objects`/`host_scopes`/`host_borrows`; VM host boundary fixtures | Owned function cases migrate in HR02. Live-root/path/reentry/reload cases migrate in RF05, with source-free ownership cases retained separately. Existing manually adapted collections keep their checked storage/path behavior; collection-library migration stays excluded. |
+| Checked HIR/MIR/bytecode and contract host records; source-free loader | RF02 adds target/capability, receiver and non-escape facts. RF05 installs corresponding local storage/projector capabilities. Remove obsolete parallel host callable records only after their consumers migrate in HR03. Unsupported native reference bodies retain explicit interpreter selection. |
+
+The compile-only prototype is in
+[`tests/interop_api`](../crates/kagari-runtime/tests/interop_api/prototype.rs).
+It proves marker-disjoint owned/shared/mutable/raw/primitive adaptation through
+one `bind`, receiver-first tuples and mixed shared/mutable/owned arguments.
+Rust closure context parameters must be explicitly typed (`&mut NativeContext`
+or `&mut LoanContext`); untyped `_cx` did not satisfy trait inference. This is an
+API inference requirement, not a passing-mode enum or another binding entrypoint.
+Production adaptation will consume the declaration's arity/signature and retain
+contextual checks on every concrete generic application; the prototype does not
+claim production registration or runtime references are implemented.
+
+Scope spelling is corrected to `runtime.with_host_scope(|scope| { ...
+scope.execute_scoped(...) })`: the scope owns runtime access while lending host
+storage. The prototype uses an invariant fresh scope brand with an environment
+outliving the brand. `borrow`/`borrow_mut` reserve the host borrow for that brand,
+not just until a view's last use. Scope output is independent of the brand.
+Compiler rejection covers scope-token escape, root reaccess after consuming a
+view, root movement, callback borrowed output/retention and shared capability
+upgrade. The passing case admits successive shared/mutable scopes, two mutable
+inputs and mixed inputs. No unsafe dereference, widened lifetime or borrowed
+FromKagari implementation is used in this proof.
+
+Receiver facts belong in portable native declarations, not inferred Rust traits
+or codecs alone. Shared/Mutable requirements admit only a matching native target
+or scoped view with sufficient capability; GC DTO instances never become Rust
+references. Complete-pack type/value conversion precedes loans; validate storage,
+owner/scope/generation and acquire the batch before callbacks; release all loans
+before result conversion. LoanContext initially supplies cancellation without
+heap allocation or script execution; RF04 may expose checked disjoint external
+reentry, without changing Opaque's non-reentrant storage rule. Inline struct
+projectors use raw field addresses and acquire no ancestor references.
+
+The finite payload/value/Serde subset and identity decisions are recorded in
+[RI00](rust-interop-design.md#implementation-phases). The prototype is temporary
+proof, with removal owned by RF05/RF06 when these compile cases exercise production
+APIs. It is not a second public adapter implementation.
+
+Validation: `cargo test -p kagari-runtime --test interop_api` passed the executable
+compile-pass case and six diagnostic-checked compile-fail cases. The initial run
+expected a lifetime diagnostic for borrowed callback output; Rust correctly
+rejected it at adapter selection (`E0277`), so the expectation was corrected.
+`native_registration::explicit_binding_uses_the_same_signature_check` and
+`native_conversion::argument_signature_errors_precede_any_user_conversion_effects`
+passed as small regressions of the retained registration/conversion boundary.
+Structure passed (1177 files, zero findings). Initial format check found only
+new-driver layout; corrected before checkpoint. No Miri safety result is claimed:
+this prototype constructs no pointers. Actual projector Miri belongs to RF04/RF06;
+full workspace/feature/backend/platform checks remain CI-owned.
+The selected VM regression
+`typed_generic_native_selected_member_keeps_applied_object_results_and_rejects_other_shapes`
+also passed: installed contextual generic mappings preserve object identity and
+reject an incompatible concrete application before callback effects. Final
+structure/format/diff checks passed. HR01/RF01's proof gate is complete; production
+schema, scope and adapter delivery remains in the subsequent combined phases.
+
+
+- [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
-- [ ] RF01: compiling scope/adapter proof and finite capability contract frozen.
+- [x] RF01: compiling scope/adapter proof and finite capability contract frozen.
 - [ ] RF02: checked reference/receiver/escape and portable contracts implemented.
 - [ ] RF03: safe external scopes and whole-object loans implemented.
 - [ ] RF04: generated inline projections and atomic path loans implemented.
@@ -1046,7 +1118,7 @@ Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 RI progress remains in the interop plan. The combined order above is the sole
 cross-plan schedule; these lists are not duplicate RI checklists. Current state:
-planning updated, no implementation phase started, no carried build failure and no
-new Rust/Miri/benchmark result. Documentation validation does not establish API
-compilability. Implementation checkpoints use Conventional Commits with the owning
+API/lifetime prototype implemented, no carried production build failure. The
+proof and focused results above do not establish production scope/projector or
+complete combined acceptance. Implementation checkpoints use Conventional Commits with the owning
 phase trailer, for example `Plan-Phase: RF04`.
