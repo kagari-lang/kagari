@@ -998,6 +998,31 @@ No format/ABI version bump is needed for these unpublished development changes.
   real standard providers, including unchanged-product reuse and edited dependencies.
   Formatting and diff checks pass. No carried build/test failure. Full
   feature/backend/platform CI remains unrun.
+- PK04 example work: the first host sample build caught use of `Box<dyn Error>`
+  with the SDK's structured non-Error diagnostic type, and a compile cancellation
+  token where calls require `ExecutionContext`. The sample now uses explicit
+  stage diagnostics and the ordinary execution context; the rerun passes with
+  `on_login=40, tick=2, damage(21)=42`. No carried example build failure.
+- PK04 selected acceptance audit maps the original cases to the existing input,
+  workspace, graph, HIR, compiler/artifact, runtime/VM and SDK/CLI owners, rather
+  than rerunning unaffected suites. Added one missing behavior assertion to the
+  existing SDK scenario: a generic-body-only edit with unchanged constant/signatures
+  produces a decoded/reloaded candidate returning 44, while the original pinned
+  function still returns 42. The filtered SDK scenario passes.
+- PK04 runnable workspace demonstrates inheritance, declared child sources, a
+  library without main and multiple public aliases/functions from one Program.
+  CLI workspace check, locked workspace build and frozen default-root run pass.
+  The Rust host runs successfully and supplies the matching source namespace.
+- PK04 local checks: `cargo clippy -p kagari-embed --example package_workspace
+  --test package_inputs -- -D warnings` passes. The artifact-only SDK normal/build
+  dependency graph excludes package/source/compiler owners. Structure scans 1,160
+  Rust files with no violations; formatting, diff and local documentation links
+  pass. There are no carried failures. The full workspace/feature/backend/platform
+  CI matrix remains unrun; Unix symlink coverage is CI-only.
+- Lasting contracts are consolidated into `docs/spec/packages.md`, loading/embedding
+  specifications, architecture and the testing guide. Queued remote/distribution/
+  tooling choices and remaining CI acceptance move to the existing roadmap. Final
+  cleanup removes this completed implementation plan; Git history owns this ledger.
 - PK03 is complete at the selected integration boundaries. PK04 consolidates the
   specification and executable package/host examples, audits remaining acceptance
   against the existing contract owners, and removes the completed implementation plan.

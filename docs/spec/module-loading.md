@@ -12,72 +12,52 @@ Module execution semantics are defined in [modules.md](modules.md).
 - avoid hidden mutable module storage
 - keep host embedding policy in control of file-system access
 
-## Module Identity
+## Module Identity and Package Roots
 
-Each loaded module has:
+`ModuleIdentity { package: PackageId, path: Vec<String> }` is the portable logical
+identity. A package root has `path: []`; `mod combat` extends it to `["combat"]`.
+Physical source origins and file revisions are separate diagnostic inputs. Runtime
+handles and epochs identify an installation/generation, not another source field
+inside `ModuleIdentity`. [Package identity](packages.md#portable-identity) defines
+relocation-stable families and exact selections.
 
-```text
-ModuleIdentity {
-  package_id: PackageId,
-  module_path: ModulePath,
-  source_uri: SourceUri,
-  module_id: ModuleId
-}
-```
+An approved filesystem directory or virtual source tree supplies package inputs.
+The root manifest supplies a namespace, or the host supplies one; if both do, they
+must agree. The manifest and caller's dependency catalog define available source
+packages. Installed native APIs are explicit engine inputs. A root cannot grant
+native registration privileges through its name or source contents.
 
-`module_id` is the stable runtime identity used by module epochs, reload, bytecode artifacts, JIT artifacts, and diagnostics.
+Single-file embedding needs no manifest and synthesizes a distinct unnamed root
+whose package identity derives from the normalized source name. Hosts requiring
+identity across file moves can supply explicit module bindings. General package
+identity comes from the portable namespace/locator, not an absolute checkout path.
 
-The identity must not depend on temporary absolute paths when the module belongs to a package root.
-For embedded single-file scripts, the host supplies the package id and source uri.
+## Source Discovery and Imports
 
-## Package Root
+Sources use `.kgr`. A package's manifest selects one root, defaulting to
+`src/lib.kgr`. Discovery parses `mod` declarations before HIR analysis; it does
+not recursively compile every file in a directory.
 
-A package root is a host-approved directory or virtual source collection.
+For `mod foo;`, exactly one of `foo.kgr` and `foo/mod.kgr` must exist relative to
+the declaring module's directory. Both is an ambiguity; neither is a missing
+module. Children of `foo.kgr` are found beneath `foo/`, as are children of
+`foo/mod.kgr`. `mod foo { mod bar; }` searches `foo/bar.kgr` or `foo/bar/mod.kgr`.
+Inline modules share their containing physical source and retain their own logical
+path. Duplicate module identities or duplicate canonical physical sources are
+rejected. Undeclared files are ignored. Virtual inputs follow the same rules.
 
-Package roots define:
+Manifest, graph, traversal, source-byte and module-count limits bound acquisition.
+Filesystem inputs enforce canonical containment in the approved root, including
+symlinks. Discovery/capture errors and cancellation discard the candidate; source
+handoff publishes the complete immutable closure atomically. HIR does no IO.
 
-- package id
-- root source directory
-- allowed source file extension
-- optional artifact cache directory
-- import search policy
-- host installation defaults
-- host-provided dependency mappings
-
-The package manager name `kg` is reserved for future tooling, but the language runtime only requires the package-root abstraction.
-
-## Source Files
-
-Kagari source files use the `.kgr` extension.
-
-The loader may accept virtual source files supplied by a host application.
-Virtual source files still receive stable source uris for diagnostics, caching, and reload tracking.
-
-## Import Resolution
-
-Imports resolve through module paths, not arbitrary string paths.
-
-Resolution order:
-
-1. current package modules
-2. explicitly configured dependency packages
-3. host-provided virtual modules
-4. builtin modules
-
-The host may restrict which resolution roots are available.
-Failed imports produce diagnostics during loading or checking.
-
-## Source-to-Module Mapping
-
-Within a package root:
-
-```text
-foo/bar.kgr -> foo::bar
-foo/mod.kgr -> foo
-main.kgr -> package entry module, if selected by host or CLI
-```
-
-The exact physical layout can evolve, but a package must not contain two source files that resolve to the same module path.
+Imports use logical paths, not arbitrary string filesystem paths. `crate`, `self`
+and `super` select source namespaces; a direct dependency alias selects the exact
+root bound by that importing package. Transitive packages are accessible only
+through declared direct dependencies or accessible re-exports. Workspace siblings
+are not an ambient import search path. Installed provider aliases/preludes remain
+explicit analysis inputs. [Module name precedence and visibility](modules.md) own
+resolution; there is no separate loader fallback order.
 
 ## Builtin Modules
 
@@ -88,29 +68,26 @@ Builtin modules include standard language facilities defined in [builtins.md](bu
 
 ## Bytecode Artifact Loading
 
-The loader may load a `.kbc` artifact instead of source when:
+A complete `.kbc` Program can be loaded without source or package configuration.
+Bounded decoding and executable verification validate its identities, formats,
+root/member graph, public exports, layouts and call contracts before publication.
+Required native/Host bindings must match installed contracts. Runtime ownership,
+debug policy and reload compatibility remain independent checks; fingerprints do
+not bypass them. [Artifacts](artifacts.md) owns the exact envelope/linking contract.
 
-- the artifact module id matches the requested module
-- the artifact format version is supported
-- dependency fingerprints match
-- host registry fingerprints match
-- required runtime bindings are installed
-- debug metadata policy is satisfied
-
-Invalid or stale artifacts are rejected or ignored according to host policy.
-They must not be executed without verification.
+A host selecting a stored build product must also match its expected inputs.
+Source-free execution does not fetch current package versions or compare against
+an ambient checkout. Invalid artifacts never execute; choosing to rebuild instead
+belongs to host/tool policy.
 
 ## Module Cache
 
-The loader may cache:
-
-- parsed syntax trees
-- checked modules
-- bytecode artifacts
-- dependency fingerprints
-- diagnostics
-
-Cache entries are invalidated by source hash, dependency fingerprint, host registry fingerprint, compiler version, language version or installed interface changes.
+Analysis may reuse immutable syntax and checked query products under their source,
+selection and provider validity contracts. [Package build inputs](packages.md#build-inputs-and-updates)
+define complete closure/environment identity and affected-root reporting. Current
+CLI shared storage addresses emitted products but does not skip source checking or
+compilation. Future persisted compilation caches must also account for actual
+compiler revisions/options and continue executable validation.
 
 ## CLI Loading
 
@@ -173,7 +150,7 @@ The host controls:
 - available dependency packages
 - whether bytecode artifacts may be loaded
 - whether debug metadata may be loaded
-- whether dynamic module loading is allowed at runtime
+- which explicit host load/reload operations are available
 
 Scripts do not receive unrestricted file-system access through import syntax.
 
@@ -195,9 +172,9 @@ The loader supplies source and artifact identity data needed for diagnostics and
 
 Module loading is complete when:
 
-- module ids are stable across source, artifacts, reload, and diagnostics
+- logical module identities survive checkout relocation and agree across source and artifacts
 - imports resolve deterministically through package roots and host-provided dependencies
 - duplicate module paths are rejected
-- stale `.kbc` artifacts cannot execute
+- invalid artifacts and mismatched installed contracts are rejected before execution
 - loader cache invalidation respects source, dependency, compiler, runtime, and host registry fingerprints
 - CLI loading and embedding loading share the same semantics

@@ -229,6 +229,47 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         43
     );
     assert_eq!(runtime.call(&pinned, (), &Default::default()).unwrap(), 42);
+    // Changing only the generic implementation must rebuild its callers too;
+    // signatures and the dependency constant are unchanged in this generation.
+    let mut generic_files = files(43);
+    let rules = &mut generic_files
+        .iter_mut()
+        .find(|(name, _)| *name == "rules/src/lib.kgr")
+        .unwrap()
+        .1;
+    *rules = rules.replace("{ BASE }", "{ BASE + 1 }");
+    let generic_input = VirtualSources::new(
+        generic_files
+            .into_iter()
+            .map(|(name, text)| (name.into(), Arc::from(text))),
+        &cancel,
+    )
+    .unwrap();
+    let generic_project =
+        ProjectInputs::load(&generic_input, "app", &Default::default(), &cancel).unwrap();
+    let generic_set = PackageBuildSet::capture(&engine, &generic_project, &cancel).unwrap();
+    let generic_changes = generic_set.changes_since(&next);
+    assert_eq!(
+        generic_changes.rebuild,
+        [inputs.root().family.clone()].into()
+    );
+    let generic = engine
+        .compile_package(
+            generic_set.programs()[generic_changes.rebuild.first().unwrap()].sources(),
+            &cancel,
+        )
+        .unwrap();
+    let generic_program = prepare(&engine, &generic);
+    let generic_loaded = runtime
+        .reload_program(&reloaded, &generic_program, Default::default())
+        .unwrap();
+    assert_eq!(
+        runtime
+            .execute_typed::<(), i32>(&generic_loaded, "answer", (), &Default::default())
+            .unwrap(),
+        44
+    );
+    assert_eq!(runtime.call(&pinned, (), &Default::default()).unwrap(), 42);
     let definitions = DefinitionContext::new().unwrap();
     let interface = HostInterface {
         functions: vec![

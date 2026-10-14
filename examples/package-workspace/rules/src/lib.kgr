@@ -1,0 +1,5 @@
+const BONUS: i32 = 2;
+
+pub fn damage(power: i32) -> i32 { power * 2 }
+
+pub fn bonus<T>(ignored: T) -> i32 { BONUS }

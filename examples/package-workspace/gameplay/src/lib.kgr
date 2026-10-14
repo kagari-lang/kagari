@@ -1,0 +1,8 @@
+mod events;
+
+pub use self::events::on_login;
+pub use rules::damage;
+
+pub fn tick() -> i32 { rules::bonus(()) }
+
+fn main() -> i32 { on_login() + tick() }

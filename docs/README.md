@@ -12,7 +12,7 @@ behavior; queued designs do not imply implemented APIs.
 | Collections and native modules | [Collection interfaces/storage](spec/collection-access.md), [native declarations](spec/standard-declarations.md) |
 | Failure and execution | [Failure semantics](spec/failure-semantics.md), [execution](spec/execution.md), [runtime](spec/runtime.md), [security/access](spec/security.md), [error reporting](spec/error-reporting.md) |
 | Host integration | [Embedding](spec/embedding-api.md), [host interop](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
-| Modules and reload | [Modules](spec/modules.md), [loading](spec/module-loading.md), [activation](spec/module-activation.md) |
+| Modules and reload | [Packages/workspaces](spec/packages.md), [Modules](spec/modules.md), [loading](spec/module-loading.md), [activation](spec/module-activation.md) |
 | Executable products | [Bytecode](spec/bytecode.md), [artifacts](spec/artifacts.md), [backend contract](spec/codegen-backend.md), [JIT](spec/jit.md) |
 | Tooling | [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
 
@@ -44,8 +44,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   its implementation remains deferred, and DTO derives remain RI work.
 - [Rust value/opaque interoperability](rust-interop-design.md).
 - [Host API unification](host-api-refactor.md).
-- [Packages, dependency resolution and toolchain](package-design.md), including
-  [Rust distribution names and execution modes](package-design.md#toolchain-cli-and-execution-modes).
+- [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
+  SDK/CLI naming, formatting, linting and REPL; source packages are specified above.
 - [Compatible reload and state replacement](update-model-design.md).
 - [Interactive debugger](debugger-design.md): synchronous waiting on the executing
   host thread, followed by SDK control and IDE/DAP integration; not implemented.

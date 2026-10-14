@@ -22,35 +22,70 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
-## Source packages and workspaces
+## Package acceptance and follow-ups
 
-[PK00-PK04](package-design.md) are active following the 2026-10-14 implementation
-request. PK00 froze portable identities, acquisition/analysis input ownership,
-empty roots and host-callable export contracts. PK01 completed strict local/virtual
-inputs and workspace discovery/selection, with 17 focused contract tests passing.
-PK02 added whole-workspace locking and isolated Program source capture; 11 graph/lock
-contract tests passed. PK03 has `pub(crate)`, atomic captured-source publication, per-package import scopes,
-empty roots, full package/dependency checking and incremental scope invalidation.
-Checked Programs now capture public namespace/function exports and a separate CLI
-entry; public generic templates compile through source aliases. Focused source/HIR,
-compiler/source-free and SDK execution contracts pass; the plan records their scope.
-MIR and bytecode now retain and verify portable public export/entry evidence,
-including after identity import and source-free decoding. Runtime lookup retains
-verified callable slots through context import and generation changes. All reload
-routes compare public-path/entry contracts, including aliases, cycles and nominal
-signature types. Typed binding and direct VM/SDK calls use verified public paths,
-with explicit root entry selection for the CLI and native preparation. Consumer
-fixture migration is complete. Shared project acquisition and SDK captured-package
-compilation now use the same local/virtual input path, with retained snapshots and
-source-free reload coverage. CLI project check/build/run, member and lock selection,
-and shared immutable output storage are integrated. Provider-aware input fingerprints
-and selected-root change reporting connect dependency edits to existing pinned reload.
-PK04 specification/example consolidation and the final focused acceptance audit remain.
-Source distribution and joint compilation,
-one root with multiple exports, and one whole-workspace lock graph are confirmed.
-Each selected Program retains its own exact closure. Independent package binaries,
-multiple executable targets, SDK renaming, broader tooling and publication remain
-outside this initial delivery. The plan owns progress and focused acceptance.
+[Source packages and workspaces](spec/packages.md) define the implemented local and
+immutable-host source model, one-root/multiple-export Programs, whole-workspace
+locking and host-coordinated rebuild/reload. [Architecture](architecture.md#source-package-inputs)
+owns the acquisition/analysis/executable boundaries. The runnable
+[workspace and embedding examples](../examples/package-workspace/README.md) show
+current entrypoints; `kagari-cli` remains the executable name.
+
+The complete workspace/backend/feature/platform CI matrix remains unrun locally.
+Focused Windows coverage includes junction escape/alias checks; Unix symlink
+coverage and the exhaustive feature matrix remain CI responsibilities. Source-free
+production dependency guards live in `scripts/check_features.py`. These are CI
+acceptance items, not authorization to run a local full-workspace sweep.
+
+Remote registry/Git acquisition and publication, simultaneous revisions of one
+family within a Program, and explicit dependency-update CLI spelling remain queued.
+Independent package binaries and multiple executable targets are outside the
+current source-distribution model. Future persistent compilation caches must prove
+compiler revision/options and provider/source validity before skipping work; current
+shared output storage always checks and compiles inputs.
+
+## Toolchain distribution and modes
+
+The confirmed target product names are:
+
+| Role | Package / command |
+| --- | --- |
+| Embedding SDK | Rust package `kagari`, imported as `kagari` |
+| Installable toolchain | Rust package `kagari-cli`, executable `kg` |
+| Internal components | Existing responsibility-based `kagari-*` crates |
+
+The functional rename is queued: directly rename the current `kagari-embed` package
+and directory to `kagari`, update consumers and declare `kg` as the CLI binary.
+Do not add forwarding SDK packages, compatibility aliases or a second CLI command.
+The [Host API plan](host-api-refactor.md) owns API evolution independently.
+
+Dependency-free `kagari` and `kagari-cli` reservation packages at `0.0.0-reserved`
+were published on 2026-10-12 under separate authorization. The reservation SDK has
+no API and its `kg` executable rejects script commands. They are not functional
+releases. Before functional publication, verify component name ownership, add
+registry versions alongside workspace paths and publish the required dependency
+closure; omit unrelated implementation tools. Release automation, version policy
+and functional publication require their own activation. No package publication
+is authorized by the completed source-package implementation.
+
+The target CLI extends current check/build/run/file/artifact workflows with `kg fmt`,
+`kg lint` and `kg repl`. These modes remain unimplemented. CLI owns arguments and IO;
+formatting uses lossless syntax and needs no semantic resolution/downloads; semantic
+linting shares HIR checking inputs. Required language errors cannot be disabled as
+optional lint rules. Explicit public-function selection and argument forwarding,
+standalone dependency/host declaration policy and file-versus-project discovery
+need concrete mode contracts before implementation. Current private `main` handling
+remains the separate verified entry capability.
+
+A proposed REPL keeps analysis/runtime state and explicit GC-owned bindings/results:
+`val x = 10;` followed by `x + 2` displays `12`. Invalid syntax/types must not commit
+input. Traps retain completed side effects; persistence is not transactional rollback.
+Multiline input, expression results, declaration lifetime and reset behavior need
+acceptance criteria. Rejecting duplicate declarations with `:reset` is the initial
+proposal; redefinition/reload policy remains open. Reuse ordinary analysis, execution,
+cancellation, roots and pinned generations, without a second interpreter or new
+standalone top-level-statement rule. [Debugger tooling](debugger-design.md) owns its
+separately proposed debug/DAP modes.
 
 ## Library-owned native collections
 

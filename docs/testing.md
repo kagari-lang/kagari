@@ -12,6 +12,25 @@ SDK conformance tests retain the full checked source/artifact/backend path when
 that path establishes the contract. Do not remove source-free, actual-native,
 GC, cancellation or pinned-reload coverage to reduce execution time.
 
+## Package contract owners
+
+Select cases at the layer whose behavior changed; this table is not a local sweep.
+
+| Contract | Existing owner |
+| --- | --- |
+| Manifest inheritance, namespace/path policy, declared module trees and workspace selection | `kagari-package/tests/inputs.rs` and `workspace.rs` |
+| Shared locks, exact host integrity, cycles/diamonds, disjoint revisions and relocation | `kagari-package/tests/graph.rs` |
+| Importer aliases, empty roots, visibility, unused bodies, implementation-only dependencies and retained scopes | `kagari-package/tests/analysis.rs` and the HIR import/signature owners |
+| Canonical native contracts and provider/query-setting identity | `kagari-types` native compiler-input unit case and `kagari-hir` environment-identity unit case |
+| Public export target/signature validation and malformed source-free artifacts | Compiler/bytecode export cases and runtime/VM `package_exports` targets |
+| Exact SDK capture, affected roots, dependency constants/generic bodies and pinned reload through decoded artifacts | `kagari-embed/tests/package_inputs.rs` |
+| CLI discovery/selection, shared products, locked edits and standalone artifacts | `kagari-cli` project and artifact-pipeline cases |
+
+The [workspace/host example](../examples/package-workspace/README.md) is a runnable
+user workflow. It complements boundary assertions rather than duplicating another
+integration suite. CI owns the exhaustive feature/backend/platform matrix;
+`scripts/check_features.py` also checks source-free production dependencies.
+
 ## Prepare once, execute with fresh state
 
 Ordinary SDK tests can use

@@ -49,3 +49,7 @@ required-features = ["source"]
 [[example]]
 name = "host_objects"
 required-features = ["source"]
+
+[[example]]
+name = "package_workspace"
+required-features = ["source"]

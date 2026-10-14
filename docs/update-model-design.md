@@ -13,7 +13,7 @@ or closure migration is out of scope. Exact APIs, snapshot codec and scheduling
 choices remain proposals. This document authorizes no implementation or commit.
 Existing specifications remain authoritative until implementation updates them.
 
-The [package design](package-design.md) owns dependency selection and build identity;
+The [package specification](spec/packages.md) owns dependency selection and build identity;
 the [host API plan](host-api-refactor.md) owns embedding entrypoints. This document
 owns update compatibility and state cutover, using the interop, Native and execution
 protection contracts rather than duplicating them.

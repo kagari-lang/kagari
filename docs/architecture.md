@@ -24,6 +24,10 @@ For source-level data structures and ID lookup, start with the
 
 ## Source package inputs
 
+[Packages and workspaces](spec/packages.md) defines the manifest, identity, lock,
+entry and update contracts; [the workspace example](../examples/package-workspace/README.md)
+shows the CLI and SDK handoffs.
+
 `kagari-package` acquires and resolves sources before compilation. `ProjectInputs`
 combines workspace discovery, member selection, whole-workspace locking and isolated
 source capture. It returns a candidate lock; filesystem publication remains explicit.

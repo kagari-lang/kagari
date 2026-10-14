@@ -17,12 +17,12 @@ runtime contract. HA consumes that foundation. Its Function below remains a
 proposed logical latest-version entry; GO PinnedFunction handles retain one checked
 version and do not activate HA's update policy.
 
-The confirmed [Rust distribution naming](package-design.md#confirmed-naming-and-rust-distribution)
+The confirmed [Rust distribution naming](implementation-roadmap.md#toolchain-distribution-and-modes)
 assigns `kagari` to the embedding SDK, replacing the current `kagari-embed` package
 when implemented. That document owns package/CLI names; this plan owns SDK API
 evolution. Current-code links below retain their existing paths until migration.
 
-The later [package proposal](package-design.md) refines package identity and inputs.
+The [package specification](spec/packages.md) defines current package identity and inputs.
 The [update model](update-model-design.md) owns the compatible-update versus state-
 replacement boundary and refines the compatibility gates below. These are contract
 handoffs, not circular requirements to finish both implementations first.

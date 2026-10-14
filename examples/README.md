@@ -82,6 +82,13 @@ with EBNF rules and records forms that are still missing or unverified.
 
 - `syntax/callables.kgr`: unified `Fn` bounds, contextual closure inference, and stateful callable objects used as callbacks.
 
+## Packages and workspaces
+
+The [package workspace](package-workspace/README.md) contains two source packages,
+explicit workspace dependency inheritance, an external child module and multiple
+public host entries. Its README gives CLI check/build/run commands and a Rust host
+that invokes several exports from the same jointly compiled Program.
+
 ## Host-driven async tasks
 
 Run the deterministic [async_tasks host](../crates/kagari-embed/examples/async_tasks/main.rs):

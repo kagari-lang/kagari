@@ -3,6 +3,23 @@
 This document defines the Rust-facing API shape for embedding Kagari.
 It is a semantic API specification, not a commitment to exact Rust type names.
 
+## Source packages
+
+With the source feature enabled, `kagari-package::project::ProjectInputs::load`
+acquires a workspace or standalone package from a filesystem/virtual provider.
+`KagariEngine::compile_package` consumes one immutable `ProgramInputs` closure
+through the normal checked-program pipeline. `CheckedModule::package_inputs` and
+`package_fingerprint` retain the inputs actually checked; manually supplied source
+snapshots have no package acquisition provenance.
+
+`engine::packages::PackageBuildSet` reports selected roots affected by source,
+selection, alias, provider or query-setting changes. Hosts compile those candidates
+and explicitly publish through existing load/reload APIs; removal from the selection
+does not unload anything. See [packages](packages.md) for identity, locking and
+publication rules, and the [runnable host](../../crates/kagari-embed/examples/package_workspace.rs)
+for several calls into one package Program. Artifact-only SDK configurations have
+no package acquisition or source-analysis dependency.
+
 ## Source snapshots
 
 `FileAnalysis::signatures_reused()` and `FileSignatures::reused()` report whether
@@ -21,9 +38,9 @@ identity; virtual source URIs retain their scheme.
 Use `engine.bind_module(source_name, ModuleIdentity { package, path })` to bind a
 logical module before compilation. A second source cannot claim the same module.
 Rebinding creates a new revision and invalidates analysis, even when text is
-unchanged. Without an explicit binding, the normalized source name identifies a
-single-file module in the `source` package. `SourceSnapshot::module` resolves the
-binding to its effective source, including an overlay.
+unchanged. Without an explicit binding, the normalized source name identifies an
+unnamed root in its own `source-file:` package family. `SourceSnapshot::module`
+resolves the binding to its effective source, including an overlay.
 
 HIR analysis accepts source input so facts retain file/revision/module ownership.
 `CheckedModule::module_identity()` reports that identity; neither compile nor

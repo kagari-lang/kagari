@@ -198,7 +198,7 @@ append-only `SetBreakpoint` request is insufficient. Report verified locations a
 later resolution changes. Do not wait for an execution-ending `FlushEvents` to
 deliver the stop that the IDE must resume.
 
-The [toolchain design](package-design.md#toolchain-cli-and-execution-modes) owns
+The [toolchain roadmap](implementation-roadmap.md#toolchain-distribution-and-modes) owns
 `kg` and distribution naming. Candidate commands are `kg debug [file.kgr]` for a
 user-facing entry and `kg dap` for an IDE-facing service; neither spelling nor a
 terminal debugger UI is confirmed by this proposal. A stdio DAP endpoint must keep
