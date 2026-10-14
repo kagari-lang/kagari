@@ -1412,13 +1412,22 @@ records source-free tests, actual-pack Miri and repaired native authoring/target
 derivation gaps. RF04/RF02 field execution, pinned projectors and RF05 SDK/live-host/
 capability integration remain open; no combined completion is claimed.
 
+The RF02/RF04 script-field checkpoint supplies checked portable scoped aggregate
+facts, structured child locations, owned leaf reads and prepared assignments through
+the same generated path owner as borrowed packs. Source-free field/pack execution,
+forged capability rejection, root preparation/replacement and actual field-codec
+Miri pass. The [interop ledger](rust-interop-design.md#rf02rf04-checkpoint-checked-script-inline-field-execution)
+records local evidence, the repaired concrete-field transition and pending CI/KBC
+batch. This closes RF02/RF04's field/path gates; SDK/context/capability forwarding
+and live-host dirty-path migration remain RF05, followed by HR03/RF06/RI05 retirement.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
 - [x] RF01: compiling scope/adapter proof and finite capability contract frozen.
-- [ ] RF02: checked reference/receiver/escape and portable contracts implemented.
+- [x] RF02: checked reference/receiver/escape and portable contracts implemented.
 - [x] RF03: safe external scopes and whole-object loans implemented.
-- [ ] RF04: generated inline projections and atomic path loans implemented.
+- [x] RF04: generated inline projections and atomic path loans implemented.
 - [ ] RF05: common bind, SDK and source-free reference paths integrated.
 - [ ] RF06: focused safety/integration complete; CI/Miri status recorded separately.
 

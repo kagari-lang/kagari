@@ -1,4 +1,5 @@
 //! External root records share the existing frame and whole-object loan owner.
+mod fields;
 #[cfg(test)]
 mod tests;
 use crate::{
@@ -12,6 +13,7 @@ use crate::{
     module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
+        catalog::DeclarationCatalog,
         projection::GeneratedField,
         rust_type::{RustField, RustType},
     },
@@ -49,6 +51,7 @@ pub(super) struct ScopedRoot {
     owner: LoadedModule,
     access: ReferenceAccess,
     _program: ProgramLease,
+    catalog: DeclarationCatalog,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +169,7 @@ impl HostBorrowTable {
                 owner: descriptor.owner().clone(),
                 access,
                 _program: program,
+                catalog: descriptor.catalog().clone(),
             });
         }
         Ok(ScopedHostView {
@@ -322,16 +326,35 @@ impl HostBorrowTable {
         view: ScopedHostView,
         field: &RustField<T, F>,
     ) -> NativeResult<ScopedHostView> {
+        self.project_field(
+            runtime,
+            view,
+            &fields::ScopedField {
+                parent: field.parent.type_argument().clone(),
+                owner: field.parent.owner().clone(),
+                declaration: field.declaration,
+                projector: field.projector.clone(),
+                target: field.target.clone(),
+            },
+        )
+    }
+
+    fn project_field(
+        &self,
+        runtime: &Runtime,
+        view: ScopedHostView,
+        field: &fields::ScopedField,
+    ) -> NativeResult<ScopedHostView> {
         runtime.resources().poll_execution()?;
-        runtime.validate_loaded_module(field.parent.owner())?;
+        runtime.validate_loaded_module(&field.owner)?;
         field.target.validate(runtime)?;
         let place = self.with_root(view, |root| {
             let parent = &root.places[view.place];
-            if parent.rust_type != TypeId::of::<T>()
+            if parent.rust_type != field.projector.root
                 || !parent
                     .target
                     .view(&root.owner)
-                    .compatible(field.parent.type_argument().view(field.parent.owner()))
+                    .compatible(field.parent.view(&field.owner))
             {
                 return Err(invalid());
             }
@@ -348,7 +371,7 @@ impl HostBorrowTable {
                 .map_err(|_| RuntimeError::resource_limit("inline host projector capacity"))?;
             projectors.push(field.projector.clone());
             Ok(ScopedPlace {
-                rust_type: TypeId::of::<F>(),
+                rust_type: field.projector.target,
                 target: field.target.clone(),
                 path: path.into(),
                 projectors: projectors.into(),

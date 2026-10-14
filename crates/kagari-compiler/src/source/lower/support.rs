@@ -212,6 +212,10 @@ impl FunctionLowerer<'_, '_> {
             .aggregates
             .field(field)
             .expect("checked field contract");
+        let (receiver, reference) = match receiver {
+            TypeId::Reference { target, access } => (target.as_ref(), Some(*access)),
+            _ => (receiver, None),
+        };
         let owner = self.nominal_instance(receiver)?;
         if owner.declaration != field.owner {
             return Err(MirLoweringError::MissingBinding("field instance owner"));
@@ -219,6 +223,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(AggregateFieldRef {
             owner,
             slot: field.slot,
+            reference,
         })
     }
 

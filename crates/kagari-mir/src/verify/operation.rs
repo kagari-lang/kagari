@@ -19,6 +19,7 @@ use kagari_contract::{
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
     host_interface::{HostInterface, type_declaration::PathAccess},
+    reference::{ReferenceAccess, field_read_type},
     ty::Ty,
 };
 use std::collections::HashSet;
@@ -763,15 +764,40 @@ pub(super) fn verify(
             }
         }
         Instruction::ReadAggregateField { dst, base, field } => {
-            context.expect(base.ty, ValueType::HeapObject, "field base")?;
+            context.expect(
+                base.ty,
+                if field.reference.is_some() {
+                    ValueType::HostHandle
+                } else {
+                    ValueType::HeapObject
+                },
+                "field base",
+            )?;
             let target = module
                 .structure(&field.owner)
                 .and_then(|layout| layout.fields.get(field.slot).cloned())
                 .ok_or_else(|| context.error(Error::InvalidField))?;
-            context.expect(dst.ty, semantic_representation(&target.ty), "field read")?;
+            let ty = if let Some(access) = field.reference {
+                field_read_type(&target.ty, access, target.mutable)
+                    .ok_or_else(|| context.error(Error::InvalidField))?
+            } else {
+                target.ty
+            };
+            context.expect(dst.ty, semantic_representation(&ty), "field read")?;
         }
         Instruction::WriteAggregateField { base, field, value } => {
-            context.expect(base.ty, ValueType::HeapObject, "field base")?;
+            context.expect(
+                base.ty,
+                if field.reference.is_some() {
+                    ValueType::HostHandle
+                } else {
+                    ValueType::HeapObject
+                },
+                "field base",
+            )?;
+            if field.reference == Some(ReferenceAccess::Shared) {
+                return Err(context.error(Error::ReadOnlyField));
+            }
             let target = module
                 .structure(&field.owner)
                 .and_then(|layout| layout.fields.get(field.slot).cloned())

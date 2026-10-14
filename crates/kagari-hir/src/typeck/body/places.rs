@@ -13,7 +13,10 @@ use crate::{
     typeck::{
         BodyTypeEnv, body::BodyChecker, completion, scalar::ScalarValue, ty::display_type_id,
     },
-    types::{NominalType, TypeId, TypeSubstitution},
+    types::{
+        NominalType, TypeId, TypeSubstitution,
+        semantic::{lower_type, raise_type},
+    },
 };
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, table::DefinitionId};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
@@ -21,6 +24,7 @@ use kagari_types::{
     collection::CollectionAccess,
     declaration::names::NameNamespace,
     language::Protocol,
+    reference::{ReferenceAccess, field_read_type},
     scalar::{BuiltinType, IntegerType},
 };
 
@@ -55,7 +59,14 @@ impl<'a> BodyChecker<'a> {
                 let field = self.resolve_field(&base_ty, name)?;
                 let id = field.id;
                 let ty = field.ty.clone();
-                let writable = field.writeability.is_var();
+                let writable = field.writeability.is_var()
+                    && !matches!(
+                        base_ty,
+                        TypeId::Reference {
+                            access: ReferenceAccess::Shared,
+                            ..
+                        }
+                    );
                 self.type_table.insert_place_field(place_id, id);
                 self.type_table.insert_place(place_id, ty.clone());
                 writable.then_some(ty)
@@ -207,7 +218,7 @@ impl<'a> BodyChecker<'a> {
                     return Some(base_ty);
                 }
                 let field = self.resolve_field(&base_ty, name)?;
-                let (id, ty) = (field.id, field.ty.clone());
+                let (id, ty) = (field.id, self.field_read_type(&base_ty, &field)?);
                 self.type_table.insert_place_field(place_id, id);
                 Some(ty)
             }
@@ -295,6 +306,15 @@ impl<'a> BodyChecker<'a> {
                 let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
+                if matches!(
+                    base_ty,
+                    TypeId::Reference {
+                        access: ReferenceAccess::Shared,
+                        ..
+                    }
+                ) {
+                    return "shared reference cannot assign a host field".to_string();
+                }
                 match self.resolve_field(&base_ty, name) {
                     Some(field) if !field.writeability.is_var() => {
                         format!("`val` field `{name}` cannot be assigned")
@@ -351,7 +371,19 @@ impl<'a> BodyChecker<'a> {
                 );
             }
             // Read-only targets still provide RHS context and independent errors.
-            return field.ty;
+            if write {
+                return field.ty;
+            }
+            if let Some(ty) = self.field_read_type(receiver, &field) {
+                return ty;
+            }
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidReference {
+                    reason: "field read requires an inline struct or owned scalar/handle reader",
+                })
+                .with_span(self.lowered.source_map.expr_span(site)),
+            );
+            return TypeId::Error;
         }
         if !matches!(receiver, TypeId::Unknown | TypeId::Error) {
             self.diagnostics.push(
@@ -388,6 +420,10 @@ impl<'a> BodyChecker<'a> {
         receiver: &TypeId,
         field_name: &str,
     ) -> Option<FieldSignature> {
+        let receiver = match receiver {
+            TypeId::Reference { target, .. } => target.as_ref(),
+            _ => receiver,
+        };
         let TypeId::Struct(id) = receiver else {
             return None;
         };
@@ -421,6 +457,20 @@ impl<'a> BodyChecker<'a> {
             &field.ty.instantiate(&substitution),
         );
         Some(field)
+    }
+
+    fn field_read_type(&self, receiver: &TypeId, field: &FieldSignature) -> Option<TypeId> {
+        if field.ty.is_unresolved() {
+            return Some(field.ty.clone());
+        }
+        match receiver {
+            TypeId::Reference { access, .. } => {
+                field_read_type(&lower_type(&field.ty), *access, field.writeability.is_var())
+                    .as_ref()
+                    .map(raise_type)
+            }
+            _ => Some(field.ty.clone()),
+        }
     }
 
     pub(super) fn resolve_struct_id(&self, path: &str) -> Option<DefinitionId> {

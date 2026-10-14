@@ -7,7 +7,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, StructId},
     module::BytecodeModule,
 };
-use kagari_types::ty::Ty;
+use kagari_types::{reference::ReferenceAccess, ty::Ty};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FieldAccess {
@@ -23,6 +23,7 @@ pub(crate) struct PreparedFieldOperation {
     pub(crate) slot: u32,
     pub(crate) pc: usize,
     pub(crate) concrete: bool,
+    pub(crate) reference: Option<ReferenceAccess>,
 }
 
 impl PreparedFieldOperation {
@@ -62,6 +63,7 @@ impl PreparedFieldOperation {
             pc,
             structure: field.structure,
             slot: field.slot,
+            reference: field.reference,
         }
     }
 

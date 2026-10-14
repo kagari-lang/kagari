@@ -21,6 +21,11 @@ impl ExecutionCursor<'_> {
             .fields
             .get(index)
             .ok_or_else(|| self.invalid())?;
+        if operation.reference.is_some() {
+            return Ok(Some(CursorExit::Transition(PreparedTransition::Field {
+                index,
+            })));
+        }
         let Some(layout) = operation.concrete_layout(self.loaded).or_else(|| {
             self.links
                 .and_then(|links| links.ready_field_layout(operation.pc))

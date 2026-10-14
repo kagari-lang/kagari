@@ -1,4 +1,8 @@
 use super::source_free_vm;
+use kagari_bytecode::{
+    instruction::BytecodeInstruction,
+    program::{BytecodeProgram, verify_program},
+};
 use kagari_derive::KagariValue;
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
@@ -35,6 +39,7 @@ struct Inventory {
 struct Player {
     stats: Stats,
     inventory: Inventory,
+    name: String,
 }
 
 kagari_runtime::native_data! { struct Treasury { hp: i32 } }
@@ -209,49 +214,107 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
     let module = builder.finish().unwrap();
     let (mut vm, owner) = source_free_vm(
         r#"
-        use example::packs::{Stats, Inventory, heal, read_hp, both};
-        pub fn tick(stats: RefMut<Stats>, inventory: RefMut<Inventory>) -> i32 { heal(stats, inventory, 30) }
-        pub fn inspect(stats: Ref<Stats>) -> i32 { read_hp(stats) }
+        use example::packs::{Player, Stats, Inventory, heal, read_hp, both};
+        pub fn tick(player: RefMut<Player>) -> i32 { heal(player.stats, player.inventory, 30) }
+        pub fn inspect(player: Ref<Player>) -> i32 { read_hp(player.stats) + player.stats.hp - player.stats.hp }
+        pub fn replace(player: RefMut<Player>) -> i32 { player.stats = Stats { hp: 5 }; player.stats.hp += 1; player.stats.hp }
+        pub fn once(first: RefMut<Player>, second: RefMut<Player>) -> i32 {
+            var current = first;
+            current.stats.hp += { current = second; first.stats = Stats { hp: 9 }; 2 };
+            first.stats.hp + second.stats.hp
+        }
+        pub fn rename(player: RefMut<Player>) -> String { player.name = "changed"; player.name }
         pub fn duplicate(stats: RefMut<Stats>) -> i32 { both(stats, stats, 1) }
     "#,
         &module,
     );
     let player_type = vm.runtime().bind_rust_type::<Player>(&owner).unwrap();
+    // Inspect the already decoded source-free program; forged field capability
+    // facts must fail without trusting source analysis or runtime view contents.
+    let portable = BytecodeProgram {
+        root: owner.slot(),
+        exports: Default::default(),
+        modules: owner
+            .verified_program()
+            .modules()
+            .iter()
+            .map(|module| module.as_ref().clone())
+            .collect(),
+    };
+    for reference in [None, Some(ReferenceAccess::Mutable)] {
+        let mut forged = portable.clone();
+        let inspect = forged.modules[owner.slot().index()]
+            .functions
+            .iter_mut()
+            .find(|function| function.name == "inspect")
+            .unwrap();
+        let field = inspect
+            .instructions
+            .iter_mut()
+            .find_map(|instruction| match instruction {
+                BytecodeInstruction::ReadAggregateField { field, .. } => Some(field),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(field.reference, Some(ReferenceAccess::Shared));
+        field.reference = reference;
+        assert!(verify_program(&forged, owner.definitions()).is_err());
+    }
     let stats_field = vm
         .runtime()
         .bind_rust_field::<Player, Stats>(&player_type, "stats")
         .unwrap();
-    let inventory_field = vm
-        .runtime()
-        .bind_rust_field::<Player, Inventory>(&player_type, "inventory")
-        .unwrap();
     let mut player = Player {
         stats: Stats { hp: 40 },
         inventory: Inventory { gold: 25 },
+        name: "original".into(),
+    };
+    let mut other = Player {
+        stats: Stats { hp: 100 },
+        inventory: Inventory { gold: 1 },
+        name: "other".into(),
     };
     vm.runtime_mut()
         .with_host_scope(|scope| {
             let whole = scope.borrow_mut(&player_type, &mut player)?;
+            let second = scope.borrow_mut(&player_type, &mut other)?;
             let stats = whole.field(scope, &stats_field)?;
-            let inventory = whole.field(scope, &inventory_field)?;
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "tick", &[stats.value(), inventory.value()])?,
+                Vm::execute_scoped(scope, &owner, "tick", &[whole.value()])?,
                 Value::I32(70)
             );
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "inspect", &[stats.value()])?,
+                Vm::execute_scoped(scope, &owner, "inspect", &[whole.value()])?,
                 Value::I32(70)
             );
             assert!(Vm::execute_scoped(scope, &owner, "duplicate", &[stats.value()]).is_err());
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             assert_eq!(CONVERSIONS.load(Ordering::SeqCst), 1);
-            stats.edit(scope, |stats| {
-                stats.hp += 1;
+            assert_eq!(
+                Vm::execute_scoped(scope, &owner, "replace", &[whole.value()])?,
+                Value::I32(6)
+            );
+            stats.read(scope, |stats| {
+                assert_eq!(stats.hp, 6);
                 Ok(())
+            })?;
+            assert_eq!(
+                Vm::execute_scoped(scope, &owner, "once", &[whole.value(), second.value()])?,
+                Value::I32(111)
+            );
+            let renamed = Vm::execute_scoped(scope, &owner, "rename", &[whole.value()])?;
+            scope.execute(&[renamed], |runtime, values| {
+                let Value::Str(id) = values[0] else {
+                    panic!("string")
+                };
+                assert_eq!(&*runtime.gc().string(id).unwrap(), "changed");
+                Ok(Value::Unit)
             })?;
             Ok(())
         })
         .unwrap();
-    assert_eq!(player.stats.hp, 71);
+    assert_eq!(player.stats.hp, 11);
+    assert_eq!(other.stats.hp, 100);
+    assert_eq!(player.name, "changed");
     assert_eq!(player.inventory.gold, 20);
 }

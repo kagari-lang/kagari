@@ -1194,6 +1194,61 @@ RefMut. Any necessary temporary capability restriction must preserve the origina
 mutable alias and use the common checked location owner. This is an existing
 no-upgrade requirement, not a new permission matrix or a claim of an observed exploit.
 
+### RF02/RF04 checkpoint: checked script inline field execution
+
+Aggregate field operands distinguish GC storage from scoped access through portable
+nominal owner, arguments, slot and shared/mutable facts. HIR, MIR representations and
+source-free access-flow verification preserve structured child locations, owned leaf
+reads, shared write rejection and non-escape/capture rules. Reference root identity
+is captured before RHS evaluation. No Rust address, offset or function is serialized.
+Conservative native effects describe the allocating/reentrant execution boundary.
+
+Roots pin the generated catalog and program. Typed Rust field APIs and script access
+append inert locations through one path owner. Reads acquire a short shared leaf loan
+or publish a rooted nested view; strings and Opaque wrappers produce owned values.
+Rust owned containers have no implicit snapshot reader. FromKagari decoding completes
+before a write loan; replacement resolves current storage, modifies only F, releases
+the loan, then drops the displaced value. No mutable ancestor is constructed. GC
+struct access keeps its storage kernel and never casts to Rust. The installed schema
+owner rejects changed public DTO contracts; complete unchanged layouts remain
+compatible across reload and old scopes continue through pinned local proofs.
+
+Initial integration failed with "missing function layout operands": concrete fields
+had previously stayed in the closed cursor. The new open transition now reuses its
+sealed concrete layout and uses the applied-layout owner only when needed. This is
+resolved. Source fixture separators and minimal public constructor metadata were
+corrected without weakening validation. An initial identical-schema rejection
+expectation was corrected to follow existing complete-layout compatibility; the
+final test rejects changed installed schema before publication. No failure is carried.
+
+Focused validation passed:
+
+- HIR reference owner case: accepted inline reads/assignments, immutable child
+  weakening, and semantic rejection of shared writes, implicit snapshots, view
+  return/storage/capture and unsupported array field reads.
+- Source-free VM pack owner case: direct heal(player.stats, player.inventory, 30),
+  hp=70/gold=20, forged field storage/access rejection, DTO field replacement, scalar
+  compound assignment and string read/write. Rebinding the receiver local during
+  RHS preserves the prepared root; Stats replacement during RHS makes the compound
+  commit read current replacement contents (9+2=11).
+- Actual runtime field-codec fixture normally and under Miri: nested raw reads/writes,
+  shared/ancestor conflicts, idle replacement, live shared Stats during disjoint
+  String replacement, roots surviving collection and schema/reload admission.
+  Command: cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib
+  executable_inline_field_codecs -- --nocapture. Final execution: 56.09 seconds,
+  aarch64-apple-darwin, MIRIFLAGS unset, workspace test profile/default parallelism
+  and default Miri target; no frontend/stdlib execution inside the interpreted test.
+- Scoped Clippy for changed library owners, structure (1225 Rust files, zero
+  violations), formatting and diff checks. Final runtime/VM library Clippy and the
+  selected native_boundary test target Clippy also pass. Exhaustive workspace/features/backends/platforms
+  remain CI-owned; affected disposable KBC fixtures are batched at RF06. Unpublished
+  field wire changes retain existing format/ABI identifiers.
+
+RF02 and RF04's field/path contracts are implemented. RF05 owns formal capability
+forwarding, SDK context/backend integration and legacy live-host migration, including
+its existing dirty-path/commit reporting. HR02/HR03, RF06 and RI05 remain open;
+combined acceptance and goal completion are not claimed.
+
 ## Acceptance and verification
 
 Required coverage includes:

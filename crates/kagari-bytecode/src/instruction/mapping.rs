@@ -19,6 +19,7 @@ impl RemapDefinitions for FieldRef {
             structure: self.structure,
             arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,
             slot: self.slot,
+            reference: self.reference,
         })
     }
 }

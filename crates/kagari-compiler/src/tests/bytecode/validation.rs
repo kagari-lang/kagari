@@ -381,6 +381,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
                         structure: StructId::new(0),
                         arguments: vec![],
                         slot: 0,
+                        reference: None,
                     },
                     value: Register::new(1),
                 },

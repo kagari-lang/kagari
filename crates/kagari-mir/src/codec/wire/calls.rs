@@ -18,6 +18,7 @@ use kagari_contract::{
     native_import::wire::NativeImportRecord,
     standard::RuntimePrimitive,
 };
+use kagari_types::reference::ReferenceAccess;
 use kagari_types::{
     declaration::wire::leaf::NominalTyRecord, host_interface::wire::path::WireHostPathDeclaration,
     ty::wire::WireType,
@@ -29,6 +30,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct AggregateFieldRefRecord {
     owner: NominalTyRecord,
     slot: usize,
+    reference: Option<ReferenceAccess>,
 }
 
 impl AggregateFieldRefRecord {
@@ -43,6 +45,7 @@ impl AggregateFieldRefRecord {
         Ok(Self {
             owner: NominalTyRecord::encode(&value.owner, encoding, cancel)?,
             slot: value.slot,
+            reference: value.reference,
         })
     }
 
@@ -57,6 +60,7 @@ impl AggregateFieldRefRecord {
         Ok(AggregateFieldRef {
             owner: self.owner.decode(decoding, cancel)?,
             slot: self.slot,
+            reference: self.reference,
         })
     }
 }

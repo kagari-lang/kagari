@@ -21,7 +21,7 @@ use kagari_contract::{
 use kagari_types::{
     collection::CollectionAccess as Access,
     language::binding,
-    reference::ReferenceAccess,
+    reference::{ReferenceAccess, field_read_type},
     scalar::BuiltinType as B,
     ty::{NominalTy, Ty, access},
 };
@@ -370,30 +370,49 @@ pub(super) fn verify(
                     let layout = module.structures[field.structure.index()]
                         .apply(&field.arguments, &Default::default())
                         .ok_or_else(invalid)?;
-                    if let Some(Fact {
-                        ty: Some(Ty::Struct(ty)),
-                        ..
-                    }) = get(*base)
-                        && (ty.declaration != layout.declaration
-                            || ty.arguments != layout.arguments)
+                    let target = &layout.fields[field.slot as usize];
+                    let nominal = Ty::Struct(NominalTy {
+                        declaration: layout.declaration,
+                        arguments: layout.arguments.clone(),
+                        associated_types: Default::default(),
+                    });
+                    let receiver =
+                        field
+                            .reference
+                            .map_or(nominal.clone(), |access| Ty::Reference {
+                                target: Box::new(nominal),
+                                access,
+                            });
+                    if let Some(base) = get(*base)
+                        && !flows(&base, &receiver)
                     {
                         return Err(invalid());
                     }
-                    produced = Some((
-                        *dst,
-                        Fact::typed(layout.fields[field.slot as usize].ty.clone()),
-                    ));
+                    let ty = if let Some(access) = field.reference {
+                        field_read_type(&target.ty, access, target.mutable).ok_or_else(invalid)?
+                    } else {
+                        target.ty.clone()
+                    };
+                    produced = Some((*dst, Fact::typed(ty)));
                 }
                 I::WriteAggregateField { base, field, value } => {
                     let layout = module.structures[field.structure.index()]
                         .apply(&field.arguments, &Default::default())
                         .ok_or_else(invalid)?;
-                    if let Some(Fact {
-                        ty: Some(Ty::Struct(ty)),
-                        ..
-                    }) = get(*base)
-                        && (ty.declaration != layout.declaration
-                            || ty.arguments != layout.arguments)
+                    let nominal = Ty::Struct(NominalTy {
+                        declaration: layout.declaration,
+                        arguments: layout.arguments.clone(),
+                        associated_types: Default::default(),
+                    });
+                    let receiver =
+                        field
+                            .reference
+                            .map_or(nominal.clone(), |access| Ty::Reference {
+                                target: Box::new(nominal),
+                                access,
+                            });
+                    if let Some(base) = get(*base)
+                        && !flows(&base, &receiver)
                     {
                         return Err(invalid());
                     }

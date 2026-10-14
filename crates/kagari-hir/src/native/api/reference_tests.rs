@@ -36,6 +36,68 @@ fn scoped_reference_targets_forward_without_copy_or_capability_upgrade() {
         analysis.diagnostics()
     );
 
+    let analysis = analyze_source(
+        &SourceFile::new(
+            "fields.kgr",
+            r#"
+        struct Stats { var hp: i32 }
+        struct Player { var stats: Stats, val locked: Stats, var name: String }
+        fn inspect(stats: Ref<Stats>) -> i32 { stats.hp }
+        fn heal(stats: RefMut<Stats>) -> i32 { stats.hp += 1; stats.hp }
+        fn fields(player: RefMut<Player>) -> i32 {
+            val current = player.stats;
+            player.stats = Stats { hp: 5 };
+            player.name = "changed";
+            heal(current) + inspect(player.locked)
+        }
+    "#,
+        ),
+        catalog::shared().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    for source in [
+        "fn reject(p: Ref<Player>) { p.stats.hp = 1; }",
+        "fn reject(p: RefMut<Player>) -> Stats { p.stats }",
+        "fn reject(p: RefMut<Player>) -> RefMut<Stats> { p.stats }",
+        "fn reject(p: RefMut<Player>) { val saved = [p.stats]; }",
+        "fn reject(p: RefMut<Player>) { val saved = || p.stats.hp; }",
+        "fn reject(p: RefMut<Player>) -> i32 { heal(p.locked) }",
+        "fn reject(p: RefMut<Player>) { val saved = p.values; }",
+    ] {
+        let analysis = analyze_source(
+            &SourceFile::new(
+                "field-reject.kgr",
+                format!(
+                    r#"
+            struct Stats {{ var hp: i32 }}
+            struct Player {{ var stats: Stats, val locked: Stats, var values: [i32] }}
+            fn heal(stats: RefMut<Stats>) -> i32 {{ 1 }}
+            {source}
+        "#
+                ),
+            ),
+            catalog::shared().unwrap(),
+        )
+        .unwrap();
+        assert!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                d.kind,
+                DiagnosticKind::InvalidAssignmentTarget { .. }
+                    | DiagnosticKind::ArgumentTypeMismatch { .. }
+                    | DiagnosticKind::ReturnTypeMismatch { .. }
+                    | DiagnosticKind::InvalidReference { .. }
+                    | DiagnosticKind::InvalidClosureCapture { .. }
+            )),
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+    }
+
     for call in ["heal(value)", "inspect(Player { hp: 1 })"] {
         let analysis = analyze_source(
             &SourceFile::new(

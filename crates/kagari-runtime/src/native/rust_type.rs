@@ -76,6 +76,10 @@ impl<T> RustType<T> {
     pub(crate) fn program(&self) -> ProgramLease {
         self.record.program.clone()
     }
+
+    pub(crate) fn catalog(&self) -> &DeclarationCatalog {
+        &self.record.catalog
+    }
 }
 
 impl<T: Send + 'static> RustType<T> {

@@ -18,6 +18,10 @@ macro_rules! scalar {
             fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
                 Ok(Type::scalar(<Self as NativeScalar>::abi_type()))
             }
+
+            fn snapshot_field(&self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<Value> {
+                cx.encode_value(expected, *self)
+            }
         }
         impl IntoKagari for $ty {
             fn into_kagari(self, _: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
@@ -52,6 +56,21 @@ scalar!(
 impl KagariType for String {
     fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
         Ok(Type::scalar(BuiltinType::String))
+    }
+
+    fn snapshot_field(
+        &self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Value> {
+        cx.charge_string(self.len())?;
+        let mut copy = String::new();
+        copy.try_reserve_exact(self.len())
+            .map_err(|_| RuntimeError::resource_limit("String field snapshot capacity"))?;
+        copy.push_str(self);
+        let value = cx.runtime().gc().alloc_string(copy)?;
+        cx.check_value(expected, &value)?;
+        Ok(value)
     }
 }
 

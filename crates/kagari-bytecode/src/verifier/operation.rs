@@ -23,6 +23,7 @@ use kagari_contract::{
 };
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
+    reference::{ReferenceAccess, field_read_type},
     ty::Ty,
 };
 
@@ -676,24 +677,54 @@ pub(super) fn verify_instruction(
             }
         }
         BytecodeInstruction::ReadAggregateField { dst, base, field } => {
+            let reference = field.reference;
             let field = field_layout(module, function, field)?;
+            let ty = if let Some(access) = reference {
+                field_read_type(&field.ty, access, field.mutable).ok_or(
+                    BytecodeVerificationError::InvalidOperation {
+                        function: function.id,
+                        reason: "unsupported inline field read",
+                    },
+                )?
+            } else {
+                field.ty
+            };
             expect_register_ty(
                 function,
                 *dst,
-                semantic_representation(&field.ty),
+                semantic_representation(&ty),
                 "aggregate field dst",
             )?;
-            expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
+            expect_register_ty(
+                function,
+                *base,
+                if reference.is_some() {
+                    ValueType::HostHandle
+                } else {
+                    ValueType::HeapObject
+                },
+                "field base",
+            )?;
         }
         BytecodeInstruction::WriteAggregateField { base, field, value } => {
+            let reference = field.reference;
             let field = field_layout(module, function, field)?;
-            if !field.mutable {
+            if !field.mutable || reference == Some(ReferenceAccess::Shared) {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "write to read-only field",
                 });
             }
-            expect_register_ty(function, *base, ValueType::HeapObject, "field base")?;
+            expect_register_ty(
+                function,
+                *base,
+                if reference.is_some() {
+                    ValueType::HostHandle
+                } else {
+                    ValueType::HeapObject
+                },
+                "field base",
+            )?;
             expect_register_ty(
                 function,
                 *value,

@@ -7,7 +7,10 @@ use kagari_contract::{
     operations::IterOp,
     standard::RuntimePrimitive,
 };
-use kagari_types::ty::{NominalTy, Ty};
+use kagari_types::{
+    reference::ReferenceAccess,
+    ty::{NominalTy, Ty},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     hash::{Hash, Hasher},
@@ -110,6 +113,7 @@ pub struct FieldRef {
     pub structure: StructId,
     pub arguments: Vec<Ty>,
     pub slot: u32,
+    pub reference: Option<ReferenceAccess>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

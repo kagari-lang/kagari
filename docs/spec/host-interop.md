@@ -491,9 +491,35 @@ disjoint. Any overlapping loan involving a writer rejects before constructing a
 Rust reference. Active ancestor/child loans block replacement; an idle view resolves
 the current reserved root and raw field chain on its next access. Generated code
 uses raw field addresses without creating an ancestor reference. Scope exit revokes
-child locations along with their root. Script field operations remain pending in
-RF02/RF04; the Rust scoped field boundary is implemented independently of those
-execution admission gates.
+child locations along with their root.
+
+Checked aggregate field operands distinguish GC fields from scoped receiver access.
+HIR and source-free verification share the result rule: nested ordinary structs
+produce child views; supported scalar/string and retained handle readers produce
+owned values. A read-only field downgrades its child capability to shared. Runtime
+access requires the root's generated direct field proof and leaf reader; schema-only
+or Serde metadata supplies neither. Arrays, tuples, enums and collection element
+projections remain unsupported. Rust owned containers have no implicit snapshot
+reader. Opaque field reads clone the owning wrapper and retain its payload identity;
+they cannot dereference the wrapper as a payload loan.
+
+Assignment captures the receiver identity before evaluating its RHS. Owned field
+decoding finishes before path acquisition, then the raw chain resolves current
+storage and replaces exactly that field. Compound assignment reads the current
+terminal value after the RHS, preserving ordinary assignment order. If the RHS
+replaces player.stats with hp=9 and returns 2, player.stats.hp += rhs commits hp=11.
+Rebinding the receiver local during the RHS does not retarget the prepared root.
+The displaced Rust value is destroyed after the exclusive path loan ends; completed
+RHS/conversion effects survive later conflicts. Active equal/ancestor loans block
+replacement while proven sibling paths remain usable during synchronous reentry.
+
+Roots retain their immutable local projector catalog and program lease. Unchanged
+complete layouts remain compatible across reload under the existing rule; changed
+registered schemas reject installation. Portable field records contain owner/type
+identities, slot and access, never an address, offset or Rust function. New child
+views and string/handle values retain execution roots through frame publication.
+These allocating/reentrant operations have conservative native effects. Ordinary
+GC struct field kernels retain their heap behavior.
 
 The common bind adapter supports one borrowed free-function input or two borrowed
 inputs in shared/mutable combinations, followed by owned inputs (at most twelve

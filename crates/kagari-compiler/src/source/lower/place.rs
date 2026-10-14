@@ -121,6 +121,7 @@ impl FunctionLowerer<'_, '_> {
                     && matches!(
                         self.semantic_type(&root_type)?,
                         Ty::Trait(_)
+                            | Ty::Reference { .. }
                             | Ty::NativeObject(_)
                             | Ty::Struct(_)
                             | Ty::Array(_)

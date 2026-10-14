@@ -8,6 +8,7 @@ mod tuples;
 mod variants;
 
 use crate::{
+    error::RuntimeError,
     frame::types::arguments::TypeArgument,
     native::{
         binding::NativeResult, catalog::DeclarationCatalog, conversion::context::ConversionContext,
@@ -20,6 +21,19 @@ use crate::{
 /// This describes a type, never a sample value or a second declaration registry.
 pub trait KagariType {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type>;
+
+    /// Read an owned scalar or retained handle from an inline borrowed field.
+    /// Structured data is exposed as a location, never implicitly copied here.
+    #[doc(hidden)]
+    fn snapshot_field(
+        &self,
+        _: &mut ConversionContext<'_>,
+        _: &TypeArgument,
+    ) -> NativeResult<Value> {
+        Err(RuntimeError::module_validation(
+            "Rust field has no owned leaf reader",
+        ))
+    }
 
     /// Local layout proof emitted by the dedicated inline-struct derive. An
     /// ordinary conversion or serialization schema supplies no projection proof.
