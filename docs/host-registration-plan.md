@@ -1,12 +1,14 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: revised proposal for review; implementation is unstarted. Source baseline:
-`d3d25ceb`. The [roadmap](implementation-roadmap.md#review-follow-up-order) owns
-sequencing; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
-owns the finding and queued reference work. This document owns HR01-HR03,
-registration migration acceptance and the queued reference design. Start with the
+Status: selected combined execution plan; implementation is unstarted. The user
+included Ref/RefMut in the same delivery as registration and Opaque. The
+[roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
+placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
+owns the finding. This document owns HR01-HR03, RF01-RF06 and the combined order;
+[RI00-RI05](rust-interop-design.md#implementation-phases) retain their own schema,
+conversion, Opaque and derive responsibilities and progress ledger. Start with the
 [by-value example](#complete-example-player-by-value) or the
-[reference example](#complete-example-disjoint-player-fields) for the intended usage.
+[reference example](#complete-example-disjoint-player-fields).
 All new API spellings below are proposals, not currently callable APIs.
 The interop plan owns the selected
 [Opaque/Ref/RefMut relationship and host method API](rust-interop-design.md#relationship-to-ref-and-refmut).
@@ -16,14 +18,14 @@ Rust traits never automatically become Kagari trait implementations.
 ## Three passing modes
 
 The intended Rust boundary has three modes. Registration unification starts with
-by value. Reference behavior is designed below; its implementation remains queued
-outside HR01-HR03.
+by value. Reference behavior will be implemented in RF01-RF06 within the same delivery,
+with distinct gates from HR01-HR03 and RI03. None of these new phases has started.
 
 | Mode | Ordinary struct representation and behavior | Status |
 | --- | --- | --- |
 | By value | Convert Rust data to an ordinary Kagari object; conversion back produces an independent Rust value. | Current API design focus; reuse existing owned conversion foundations. |
-| By ref | `Ref<T>` is a scoped path handle; a native invocation temporarily receives `&T`. | Proposed below; implementation deferred. |
-| By ref mut | `RefMut<T>` is a scoped writable path handle; a native invocation temporarily receives `&mut T`. | Proposed below, including simultaneous disjoint field access; implementation deferred. |
+| By ref | `Ref<T>` is a scoped path handle; a native invocation temporarily receives `&T`. | RF01-RF06; unstarted. |
+| By ref mut | `RefMut<T>` is a scoped writable path handle; a native invocation temporarily receives `&mut T`. | RF01-RF06, including simultaneous disjoint field access; unstarted. |
 
 For an ordinary by-value struct, the boundary performs schema-directed conversion.
 It can allocate the Kagari object directly; no byte serialization or JSON round
@@ -81,8 +83,8 @@ this example and record the boundary to RI01/RI02/RI04. A manual adapter may pro
 the registration contract using existing conversion traits; it must not be
 presented as proof that the future derive is implemented.
 
-The [reference design](#queued-ref-and-refmut-design) covers borrowed inputs,
-generated struct projections and scoped entry without activating implementation.
+The [reference design](#ref-and-refmut-execution-contract) covers borrowed inputs,
+generated struct projections and scoped entry under RF01-RF06.
 Borrowed results, collection element projections and general relocation semantics
 remain separate extensions. SDK naming, collection migration, live module
 installation and R1 remain separate work.
@@ -286,7 +288,7 @@ the receiver first in that tuple, for example `(player, amount): (Player, i32)`.
 The method declaration still owns receiver identity, type and dispatch; treating
 its arguments uniformly does not turn it into a free function. The adapter must
 root and validate the complete argument pack before a converter can reenter.
-Receiver tuple position does not define passing semantics. The queued
+Receiver tuple position does not define passing semantics. The reference
 [receiver contract](#method-receivers-and-trait-selection) records the additional
 declaration, lookup and borrowing requirements before reference implementation.
 
@@ -358,9 +360,9 @@ before replacing APIs:
   machinery as another public passing mode or as the completed future ref API.
 
 HR01 must give each existing live-host consumer a concrete shared-contract
-migration destination. If removal depends on queued reference implementation,
-record that dependency and bound the current retirement scope explicitly before
-implementation. Do not promise complete legacy removal by deleting meaningful
+migration destination. Removal that depends on reference implementation must name
+its RF checkpoint; defer that retirement to HR03 after RF05 instead of keeping an
+indefinite bridge or deleting live-host behavior. Do not promise complete legacy removal by deleting meaningful
 behavior/tests, keeping forwarding APIs indefinitely or reintroducing reference
 adapters into the by-value example.
 
@@ -386,15 +388,15 @@ runtime-owned and scoped use. Opaque does not convert its payload into a GC DTO,
 provide unrestricted Deref/DerefMut, or silently take T during argument decoding.
 
 The ownership and method adapter changes belong to RI03; external reference
-scopes/projections belong to the reference follow-up below. They share checked
-invocation machinery but do not expand HR01-HR03. Ordinary DTO schemas remain a
+scopes/projections belong to RF01-RF06 in the same delivery. They share checked
+invocation machinery while preserving the HR phase boundaries. Ordinary DTO schemas remain a
 separate representation without automatic Rust method or trait exposure.
 
-## Queued Ref and RefMut design
+## Ref and RefMut execution contract
 
-This section records the target reference API; it does not expand HR01-HR03 into
-reference implementation. All reference syntax, type constructors and SDK helpers
-below are proposals. The current owned adapter cannot decode arbitrary Rust
+This section records the reference contract assigned to RF01-RF06. All reference
+syntax, type constructors and SDK helpers below remain target API sketches until
+their owning phase passes; recording a phase does not prove the API implemented. The current owned adapter cannot decode arbitrary Rust
 references through `FromKagari`; a lifetime-aware invocation adapter is required.
 
 ### Handles, schemas and generated projections
@@ -416,7 +418,7 @@ local field projections alongside its existing schema/conversion responsibilitie
 `register_type::<T>()` installs those projections when supported, against the same
 nominal type/field identities. Users do not implement path lookup, getters,
 `stats_mut` helpers or per-field access flags for these ordinary structures.
-RI continues to own schema/derive machinery; this reference follow-up owns the
+RI continues to own schema/derive machinery; RF04 owns the
 projection safety contract and its runtime integration.
 
 Member access on a structured host view yields another view:
@@ -724,13 +726,13 @@ Retained Opaque objects and GC-owned collection wrappers keep their separate
 storage contracts; registration unification does not grant access to their payloads
 as arbitrary Rust references.
 
-### Follow-up activation and validation
+### Reference validation
 
-Keep this follow-up under SA21 and the existing roadmap, after bounded registration
-unification. Before implementation, freeze the safe scope signatures and adapter
-compile proof, projection capability/derive boundary, checked frontend operations
-and source-free contract changes. Add its finite implementation phases here when
-activated; do not silently add them to HR01-HR03 or claim the example works today.
+RF01 freezes safe scope signatures and the adapter compile proof before production
+references can be exposed. RF02 owns checked frontend and portable contracts;
+RF03-RF05 implement scopes, projections and invocation. RF06 closes integration.
+The acceptance below belongs to those phases, not extra requirements to finish
+inside HR01-HR03. Exact API spelling is finalized by proof, not by the examples.
 
 Validation must cover disjoint mutable fields in one call and nested reentry;
 shared overlaps; rejection of duplicate, ancestor and whole-root conflicting
@@ -799,6 +801,41 @@ cache state. Include representative bulk calls and small frequent calls without
 assuming one is faster. Reuse focused correctness tests for GC/reentry/trap cleanup;
 no retained performance conclusion can be inferred from registration unification.
 
+## Combined delivery order
+
+Registration, Opaque and Ref/RefMut are one selected delivery. Keep responsibilities
+and progress at their existing owners; do not create a parallel umbrella checklist.
+This order supersedes standalone RI sequencing only at the explicit shared gates:
+
+| Order | Work | Required result before proceeding |
+| --- | --- | --- |
+| 1 | HR01 + RI00 + RF01 | One migration map and compiling API/lifetime proofs, including receiver metadata, scope ownership and the accepted payload/schema subset. |
+| 2 | RI01-RI02, then HR02 | Shared schema/conversion facts and one checked declaration/bind/install path; live-host consumers keep their current behavior. |
+| 3 | RI03 + RF02 | Runtime-owned Opaque read/edit/take and method adapters; reference types, escape rules and portable validation. RF02 consumes the receiver facts fixed in the first gate. |
+| 4 | RF03, then RI04 and RF04 | Safe external whole-object scopes, then derive-generated inline field projections and batch path loans. RF04 depends on RI04's schema/projection support. |
+| 5 | RF05 | One callable registration works for supported Opaque, Ref and RefMut inputs through SDK, VM and source-free loading. |
+| 6 | HR03, RF06 and RI05 | Remove migrated legacy registration, finish reference/interop acceptance, and move current contracts to their specification owners. |
+
+RI03 owns the common lifetime-aware native method adapter. RF01 establishes its
+compile proof early; RF05 extends it with scoped external/path argument sources,
+not a second callback system. RI04 owns schema/derive output; RF04 owns projector
+safety and path execution. Optional Serde retains its RI scope and is not a new
+reference prerequisite. The independent root/typed-call optimization follow-up,
+NC migration, Host API overhaul, general view trait forwarding, borrowed returns,
+async reference retention and wider native backend coverage are outside this delivery.
+
+Each checkpoint remains buildable. Early reference contracts must explicitly
+reject execution until the required runtime capabilities are installed; do not
+publish an apparently usable but incomplete feature or use production stubs.
+Run selected boundary tests as each owner becomes buildable; record unexpected
+integration failures and their exact follow-up phase without repeatedly rerunning
+unchanged failures. HR03 waits for dependent RF migration rather than prematurely
+removing host access; final local acceptance cannot retain known integration errors.
+Full CI acceptance stays separately reported and is never inferred from local tests.
+Pending supported-runner Miri/CI evidence permits subsequent local integration;
+a discovered safety failure must be repaired, and pending evidence cannot be
+reported as final safety acceptance.
+
 ## Implementation stages
 
 ### HR01: Map contracts and establish the bounded migration
@@ -813,13 +850,13 @@ capabilities required to make the complete example runnable and their owners.
 Align RI examples with explicit declaration plus `bind`; do not retain parallel
 signature-inference APIs. Record receiver metadata/lookup requirements and reserved
 reference-stage boundaries before freezing the owned method declaration surface.
-Compile the owned/raw/primitive prototype in HR01; lifetime-aware scoped adapters
-and any explicitly exposed view trait adaptation require their own proof before use.
+Compile the owned/raw/primitive prototype in HR01 and coordinate RF01's borrowed
+adapter proof; arbitrary view trait forwarding is not introduced by this delivery.
 
-Gate: general registration work is separated from queued reference implementation;
+Gate: registration responsibilities are separated from RF implementation;
 existing live-host behavior has an explicit migration disposition. State which
 by-value proof can use existing/manual converters and which user-facing conveniences
-remain RI dependencies. Do not mark the complete example implemented by assumption.
+are delivered by RI01/RI02/RI04. Do not mark the complete example implemented by assumption.
 
 ### HR02: Unify declarations, bindings and consumers
 
@@ -837,20 +874,136 @@ unvalidated conversions or a second signature authority to make a slice compile.
 
 Gate: shared registration and atomic rejection work through source and source-free
 consumers. The selected by-value case proves independent boundary values, ordinary
-script aliases and unchanged original host data. Deferred reference APIs are not
-part of the public acceptance example.
+script aliases and unchanged original host data. This checkpoint validates the
+by-value path; RF05 adds reference acceptance in the same delivery.
 
 ### HR03: Close integration and retire obsolete registration
 
 Complete the HR01 retirement map, including legacy interface aggregation/format
 and migrated registration APIs. Preserve existing host execution services where
 required by their consumers. Update specifications and examples with implemented
-contracts. Report remaining RI capabilities and deferred reference work explicitly.
+contracts after RF05 supplies the dependent reference paths. Keep registration
+retirement distinct from RF06 and RI05 final contract acceptance.
 
 Gate: all work in the bounded registration scope and its selected checks pass;
 legacy-removal dependencies are accounted for rather than hidden. Mark only the
-completed SA21 scope resolved. Move remaining work to its existing roadmap/review
-owner and remove this execution plan when its implementation is complete.
+completed registration scope resolved. Keep this plan until RF06 and the combined
+integration gates finish; then move durable contracts to their owners and remaining
+explicitly excluded work to the roadmap/review before retiring the plan.
+
+### RF01: Freeze scope and borrowed adapter contracts
+
+With HR01/RI00, inventory the actual host scopes, path commits, native payload
+access, typed bind adapters and executable receiver facts. Produce a compiling
+prototype for mixed owned/shared/mutable arguments and methods using the single
+bind entrypoint, including Opaque's native loans and external scoped inputs.
+Prove that the callback is valid for every invocation lifetime and cannot return
+or retain a borrowed output. Safe scope APIs must prevent conflicting host root
+access/movement and escaping view tokens. No general FromKagari for &T is allowed.
+
+Gate: passing compile examples plus compile-fail cases for callback/scope escape,
+root reaccess/movement and incompatible shared-to-mutable adaptation. Freeze the
+supported storage/projection capabilities and error ordering. Reuse this adapter
+proof for RI03; failed Rust inference/lifetime proofs require API correction here,
+not unsafe lifetime widening or a second binding entrypoint.
+
+### RF02: Check reference types and portable execution facts
+
+Add explicit Ref/RefMut target/capability facts to the existing type, HIR, MIR and
+executable contract owners. Check method receiver admission, left-to-right place
+preparation and initial non-escape rules: no reference storage in heap containers,
+closure capture, returned views, suspension or implicit snapshots. Register the
+required prelude/types through the ordinary declaration path. Rust traits do not
+supply Kagari impls; retain explicit script trait registration.
+
+Source-free verification must independently reject malformed target/member facts,
+capability upgrades and forbidden escape/suspension paths. Portable records carry
+field/type identities, never pointers or Rust offsets. Backend code consumes checked
+operations; unsupported native bodies select the existing interpreter route before
+entry instead of compiling fake reference support.
+
+Gate: focused accepted/rejected source cases and corrupted-artifact cases establish
+the same contracts. Execution explicitly checks installed capabilities until RF03-
+RF05 supply them. This phase does not infer Rust layout or claim runnable scope APIs.
+
+### RF03: Implement external scopes and whole-object loans
+
+Build safe scope entry/exit and checked external root registration on the existing
+host services. Scope/epoch, runtime owner, target schema, root alias identity and
+shared/mutable capability are validated before access. Host lending reserves storage
+for the scope; it is not an active native loan conflicting with all later accesses.
+Provide whole-object shared/exclusive invocation, keeping loan release and scope
+revocation deterministic on return, errors, cancellation, depth exhaustion and
+supported Rust unwind. An active external scope prevents incompatible runtime
+transfer. A Ref/RefMut can never take ownership of its host payload.
+
+Gate: the shared inspect and mutable heal examples run through focused runtime
+fixtures with shared-to-mutable rejection, overlapping reentry rejection, stale/
+foreign handle rejection and cleanup. Compile-fail scope guarantees from RF01 remain
+covered. No field disjointness is claimed until RF04 replaces whole-root overlap
+checking with the validated path model.
+
+### RF04: Generate inline projections and batch path loans
+
+Consume RI04's schema/derive descriptors to generate local raw field projectors for
+the finite ordinary inline-struct subset. Keep portable field identity separate
+from installed Rust layout and pin projector/schema generations across reload.
+Never materialize a mutable ancestor reference before projecting disjoint fields.
+Reject packed/union/variant-dependent/indexed or aliased-pointer projections until
+their storage proofs exist; no handwritten per-type dispatcher in generic runtime.
+
+Unify field operations and native argument access under one path overlap checker.
+Prepare the complete pack before atomic loan acquisition; equal and prefix paths
+conflict if either request is mutable, while proven diverging inline fields may
+coexist. Validate existing outer loans and release all partial acquisitions on
+failure. Reentry may access a disjoint path only under the proved external loan
+contract; do not loosen Opaque's non-reentrant payload borrowing by analogy.
+Idle views resolve current storage after permitted replacement; active loans block
+incompatible replacement/removal. Preserve prepared assignment commits and dirty
+path reporting for completed native writes.
+
+Gate: run the Stats/Inventory two-field example, shared overlap and duplicate/
+ancestor/whole-root rejection cases, partial-failure cleanup, replacement and
+pinned-projector checks. Generated projection code needs focused Miri evidence on
+a supported runner; code review and ordinary tests do not substitute for that gate.
+
+### RF05: Integrate one binding and SDK execution path
+
+Extend RI03's common adapter with external whole-object and field-path argument
+sources. SDK scoped execution, VM dispatch and source-free installation reuse the
+same declaration, receiver and complete-pack checks. One registered inspect/heal
+body serves Opaque and supported Ref/RefMut views; shared views cannot invoke mutable
+members. Mixed DTO/scalar/borrowed arguments retain roots across conversion and do
+not expose Rust references until conversion finishes. Result conversion runs after
+loans end, with required roots retained and completed effects preserved on errors.
+
+Migrate the live-host consumers assigned by HR01 without turning them into DTO
+snapshots. Include explicit Kagari trait binding and rejected implicit Rust-trait
+exposure; this is not authorization for general view-interface forwarding. Keep
+raw/primitive bindings and their existing warm allocation contract available.
+
+Gate: end-to-end SDK method/free-function cases, the full scope and projection
+examples, and source-free fixtures pass. An interpreter-only consumer remains
+frontend-free; backend selection is explicit and no unsupported native reference
+execution is counted as implemented. HR01's dependent legacy paths are ready for HR03.
+
+### RF06: Close reference safety and combined integration
+
+After HR03 retirement, consolidate the existing host scope/borrow/registration and
+SDK fixtures around the final API. Reuse cases establishing the same contract;
+retain distinct source-free, alias/generation, GC/root, cancellation, pinned reload,
+reentry and cleanup evidence. Cover unavailable Opaque receivers after take together
+with scoped view invalidation, without pretending their ownership rules are equal.
+Update the runnable examples and owning specifications with actual APIs; remove
+obsolete prototypes/bridges and carry no known local integration failure.
+
+Gate: selected Rust/compile-fail tests and structural/format/diff checks pass, and
+projector Miri plus exhaustive feature/backend/platform checks have an explicit
+CI status. If Miri cannot run locally, its runner configuration and pending result
+remain open acceptance; never label them passed. Report implementation completion
+separately from pending CI, with any required safety failure still blocking final
+acceptance. Coordinate RI05 documentation closure; only retire this plan after its
+HR/RF contracts and cross-plan integration obligations are fulfilled.
 
 ## Validation and acceptance
 
@@ -866,6 +1019,10 @@ Reuse existing test owners and add only uncovered contract cases:
 | Source-free contracts | Selected runtime `offline_host` and SDK `offline_nominal` cases; keep host-root cases distinct from by-value DTO cases. |
 | Preserved live-host consumers | Selected runtime `host_borrows`, `host_scopes`, `host_objects` and VM host-boundary cases for the actual migrated paths. |
 | Pinned execution | Small affected reload/reentry regression set; actual-native case only when the backend contract changes. |
+| RF01 lifetime proof | Focused Rust compile-pass/fail cases for the final scope and adapter API; escaping outputs, host root reaccess/movement and overlapping adapter implementations must reject. |
+| RF02 reference contracts | Affected HIR/bytecode verification owners: receiver capabilities, forbidden escape/suspension, and malformed source-free target/member facts. |
+| RF03-RF04 scope/path safety | Existing runtime `host_scopes`, `host_borrows`, `host_objects` owners plus generated-projector tests; same root, prefix/divergent paths, unwind cleanup, replacement and projector generation. Supported-runner Miri covers the unsafe projection boundary. |
+| RF05-RF06 combined delivery | SDK `host_interfaces` and `offline_nominal`, runtime native registration/conversion and selected VM boundary cases: one method registration across storage modes, mixed argument packs, Opaque take and view invalidation, explicit Kagari trait binding. |
 
 At implementation checkpoints select package/target/test-name filters, affected
 Clippy, structure/format/diff checks and, where dependency boundaries change,
@@ -879,20 +1036,17 @@ Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 - [ ] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
-- [ ] HR03: bounded retirement and focused integration complete.
+- [ ] HR03: dependent legacy retirement complete after RF05.
+- [ ] RF01: compiling scope/adapter proof and finite capability contract frozen.
+- [ ] RF02: checked reference/receiver/escape and portable contracts implemented.
+- [ ] RF03: safe external scopes and whole-object loans implemented.
+- [ ] RF04: generated inline projections and atomic path loans implemented.
+- [ ] RF05: common bind, SDK and source-free reference paths integrated.
+- [ ] RF06: focused safety/integration complete; CI/Miri status recorded separately.
 
-Design checkpoint: `register_type::<T>()` registers shared type/schema metadata;
-ordinary struct by-value conversion uses Kagari object storage. The queued
-Ref/RefMut proposal uses scoped path handles, generated structural projections and
-batch-checked disjoint loans. The review adds the conversion matrix, explicit
-receiver/trait selection proposal and method example, aligns RI registration
-sketches, and records root/typed-call costs with separate measurement ownership.
-All examples remain end-user targets with explicit implementation dependencies.
-Opaque now follows runtime ownership with checked read/edit/take, reusing existing
-NativeObject machinery under RI03. The old requirement for separate view trait
-impls is replaced by independent Rust/Kagari trait systems and explicit script
-registration; inherent methods are registered once for their host target type.
-Reference implementation and cost optimization remain outside HR01-HR03; no code
-changes, Cargo validation, benchmark results or runtime behavior changes are claimed.
-Implementation commits use Conventional Commits and phase trailers such as
-`Plan-Phase: HR02`.
+RI progress remains in the interop plan. The combined order above is the sole
+cross-plan schedule; these lists are not duplicate RI checklists. Current state:
+planning updated, no implementation phase started, no carried build failure and no
+new Rust/Miri/benchmark result. Documentation validation does not establish API
+compilability. Implementation checkpoints use Conventional Commits with the owning
+phase trailer, for example `Plan-Phase: RF04`.

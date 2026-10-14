@@ -1,11 +1,13 @@
 # Rust Value and Opaque Interoperability Plan
 
-Status: queued implementation, revised ownership/API proposal. This plan defines
-typed Rust value conversion and runtime-owned opaque objects. The user selected
+Status: selected for the combined host/interop delivery; implementation unstarted.
+This plan defines typed Rust value conversion and runtime-owned opaque objects. The user selected
 runtime ownership with checked host read/edit and explicit take; Rust and Kagari
 traits remain independent and require explicit script registration. Examples are
-target API sketches, not interfaces that exist today. This documentation revision
-does not activate implementation.
+target API sketches, not interfaces that exist today. The
+[combined delivery order](host-registration-plan.md#combined-delivery-order)
+coordinates HR01-HR03, RI00-RI05 and RF01-RF06 in the same selected scope; each
+plan retains its own responsibilities and progress.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns central runtime storage, automatic script-object roots, the Send runtime
@@ -21,9 +23,9 @@ unifies declaration/installation ownership and presents ordinary structs through
 by-value conversion to Kagari objects. Its complete example uses this plan's
 proposed value schema/derive API; it does not claim those capabilities already
 exist or move RI01/RI02/RI04 into a second implementation queue. The
-[queued Ref/RefMut design](host-registration-plan.md#queued-ref-and-refmut-design)
+[Ref/RefMut execution contract](host-registration-plan.md#ref-and-refmut-execution-contract)
 adds scoped path handles and generated projections for disjoint inline fields;
-reference implementation remains deferred. This plan continues to own DTO
+RF01-RF06 implement those capabilities in the same delivery. This plan owns DTO
 schema/conversion/derives and the runtime-owned Opaque contract. Registered host
 methods declare shared or mutable receiver access and acquire short checked loans
 from their actual storage owner. An Opaque handle is not a freely dereferenceable
@@ -66,7 +68,7 @@ uses its registered capability; no Rust reference is obtained by layout casting.
 - Runtime owns opaque payloads; both host access and registered methods use checked
   loans. Explicit take transfers ownership out and invalidates all old aliases.
 - Ref/RefMut lend host-owned data for a scope, reusing explicitly registered host
-  methods. Their implementation remains the separate reference-stage follow-up.
+  methods. RF01-RF06 own their implementation within the combined delivery.
 - Rust traits never automatically supply Kagari traits or methods. Script exposure
   requires explicit declarations and bindings, including explicit Kagari impls.
 - Registration and exposure authorize use under the current execution model.
@@ -76,7 +78,7 @@ Excluded here are raw script-visible Rust references, borrowed strings/slices,
 retained borrowed subobjects, general consuming-self adapters and open Rust generic
 factories. Scoped external Ref/RefMut construction and path projections remain in
 the reference plan. Runtime-owned shared/mutable method adapters belong to RI03,
-with lifetime machinery shared with that follow-up. Existing scoped borrow and
+with lifetime machinery proved in RF01 and reused in RF05. Existing scoped borrow and
 typed-path protections remain in force.
 
 ## Current implementation boundary
@@ -205,7 +207,7 @@ The proposed `module.register_type::<T>()` registers DTO schema/mapping metadata
 `register_type::<Opaque<T>>()` registers a native payload representation. Neither
 creates an object. Reference support reuses the selected target declaration;
 registering a DTO is not registration of an opaque representation or host methods.
-The reference follow-up extends derive output with checked
+RI04 and RF04 coordinate derive output with checked
 local projections for supported inline fields, under the reference plan's safety
 contract. An owned converter, custom schema or Serde mapping alone does not prove
 that a field can be borrowed from the original Rust representation.
@@ -329,7 +331,8 @@ The public naming transition must select one owner/API, updating consumers direc
 do not keep Opaque and NativeObject as parallel public lifetime implementations or
 compatibility aliases. Current NativeObject supports construction/read and limited
 edit; the proposed facade, general method adapter and ownership extraction below
-are not implemented. HR registration unification does not activate RI03.
+are not implemented. RI03 now belongs to the selected combined delivery; HR
+registration and RF reference phases retain their distinct acceptance gates.
 
 ### Relationship to Ref and RefMut
 
@@ -339,7 +342,7 @@ are not implemented. HR registration unification does not activate RI03.
 | `Ref<T>` | Host continues to own T. | Scope-bound shared access; no transfer, retention beyond scope or ownership extraction. |
 | `RefMut<T>` | Host continues to own T. | Scope-bound shared or exclusive access with dynamic conflict checks; no transfer or ownership extraction. |
 
-The latter two are [host location capabilities](host-registration-plan.md#queued-ref-and-refmut-design),
+The latter two are [host location capabilities](host-registration-plan.md#ref-and-refmut-execution-contract),
 not long-lived Rust references. All three can use explicitly registered host
 methods on the same native nominal type. The method's required access and the
 actual storage/handle capability determine whether invocation is admitted. No
@@ -635,13 +638,16 @@ existing scoped borrow protections or typed-path behavior outside this scope.
 
 ## Implementation phases
 
-All phases are unstarted. Reconcile the accepted GO foundation before activation;
-already implemented nominal declarations, roots and typed adapters are reused.
-Review the remaining RI-specific API gates below.
+All phases are unstarted. Reconcile the existing GO foundation in RI00 and reuse
+implemented nominal declarations, roots and typed adapters. Follow the combined
+order linked above rather than running this list as an isolated migration. RF01
+supplies the borrowed adapter proof before RI03; RI04 supplies the schema/derive
+capabilities required by RF04; RI05 closes integration after HR03 and RF05/RF06.
 
 Design checkpoint: runtime-owned Opaque with read/edit/take replaces independent
 external ownership in this proposal. RI03 reuses existing storage and owns the
-new extraction/receiver adapter work; external Ref/RefMut remains SA21 follow-up.
+new extraction/receiver adapter work; RF01-RF06 own external Ref/RefMut in the
+same delivery. No implementation is marked complete by this planning checkpoint.
 The selected API shape is explicit type/member registration plus bind, with Rust
 and Kagari traits kept independent. Exact facade/adapter signatures and broader
 payload capabilities require compile proofs; this checkpoint changes no runtime
@@ -652,8 +658,9 @@ behavior and reports no test or performance result.
   Serde attribute matrix, fallible-call channel and destruction/thread policy.
   Fix ordinary-value alias/cycle behavior, catalog identity rules and phase scope.
   Inventory NativeObject reuse, the single public handle migration, payload
-  capabilities and atomic take/invalidation. Separate explicit Kagari trait
-  registration from Rust trait implementations.
+  capabilities and atomic take/invalidation. Coordinate the shared descriptor and
+  lifetime proof with HR01/RF01; do not reimplement their binding prototype.
+  Separate explicit Kagari trait registration from Rust trait implementations.
 - [ ] RI01: Introduce portable nominal value schemas and registration graph
   validation. Integrate ordinary HIR types, checked contracts, linking and artifact
   validation. Test offline registration, missing dependencies and atomic rejection.
@@ -663,13 +670,18 @@ behavior and reports no test or performance result.
 - [ ] RI03: Build Opaque on existing runtime-owned storage/roots without T: Clone
   or parallel handle implementations. Add checked host read/edit/take, atomic alias
   invalidation and shared/mutable method adapters for proven payload capabilities.
-  Reuse common declaration/bind validation; require a compiling lifetime proof.
-  External Ref/RefMut scopes and path projections remain outside this phase.
+  Reuse common declaration/bind validation and RF01's compiling lifetime proof.
+  External Ref/RefMut scopes/projections are delivered by RF03-RF05, not RI03;
+  keep this phase's adapter extensible only for those concrete argument sources.
 - [ ] RI04: Implement `KagariValue`, schema generation and the explicit optional
   Serde adapter against the accepted subset. Add compile-fail tests and an external
   embedding consumer proving that new structs and opaque types need no core edits.
+  Coordinate finite inline field descriptors with RF04, which owns generated
+  projector safety and execution; no second schema or handwritten projection API.
 - [ ] RI05: Update SDK examples and interop/type/memory/reload specifications,
-  remove superseded binding models within scope, and run final acceptance.
+  remove superseded binding models within scope, and close integration with HR03
+  and RF06. Record local and CI/Miri acceptance separately; do not retire this plan
+  with required Opaque/reference integration outstanding.
 
 At each checkpoint record commands, actual results, any carried failures and their
 owning follow-up phase here. Do not conceal failures with stubs or weakened tests.

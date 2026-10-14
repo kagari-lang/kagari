@@ -188,6 +188,28 @@ Shared generic Add failed MIR lowering with
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains an
 open compiler follow-up; shared-identity benchmarks do not prove that capability.
 
+## Host registration and interop delivery
+
+The user selected registration, runtime-owned Opaque and scoped Ref/RefMut for one
+combined delivery. Implementation is unstarted. The
+[host plan](host-registration-plan.md#combined-delivery-order) owns the cross-plan
+order, HR01-HR03 and RF01-RF06; the [interop plan](rust-interop-design.md#implementation-phases)
+continues to own RI00-RI05 and its ledger. Existing NativeObject storage, roots,
+typed adapters and host borrow services are reused rather than rebuilt.
+
+Start with HR01/RI00/RF01 inventory and compiling API/lifetime proofs; establish
+schemas/conversions and unified registration; implement Opaque and portable reference
+contracts; add external scopes and generated inline projections; integrate one
+binding/SDK/source-free path; then retire dependent legacy registration and close
+HR/RF/RI acceptance. Opaque supports checked read/edit/take with alias invalidation.
+Ref/RefMut lend host-owned data and reuse explicit host methods. Rust traits never
+automatically supply Kagari impls. General view trait forwarding and borrowed
+returns remain excluded, along with the independent call-cost optimization track.
+
+Focused local checks and supported-runner projector Miri evidence have explicit
+owners in RF01-RF06. Full workspace/feature/backend/platform validation remains CI
+work; no new implementation, test or performance result is claimed by this plan.
+
 ## Other queued designs
 
 These are proposals, not active execution plans. Activation and exact sequencing
@@ -195,8 +217,6 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Unified host registration](host-registration-plan.md) | SA21 / HR01-HR03 are proposed and unstarted. Unify HostInterface declarations/bindings under NativeModule; ordinary by-value structs use Kagari objects. HR01 bounds legacy live-host migration and records RI conversion/derive dependencies. The queued Ref/RefMut design covers generated paths and disjoint field loans; reference implementation remains outside HR01-HR03. |
-| [Rust interoperability](rust-interop-design.md) | DTO derives, optional schema-backed Serde and runtime-owned Opaque handles with checked read/edit/take. Reuse NativeObject storage/roots; extraction and new method adapters remain queued. Ref/RefMut lend host-owned data and reuse explicit host member registration. Rust traits never implicitly supply Kagari impls. |
 | [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
 | [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
@@ -253,6 +273,8 @@ The following is the proposed default order for the unresolved [SA review](revie
 work, chosen to reduce replacement of newly implemented models. It does not
 activate implementation, settle open language/API choices or merge these findings
 into one migration. Each activated task retains a finite scope and focused gates.
+SA21 is explicitly selected in the combined delivery above; the other entries
+remain queued until separately selected.
 
 Ordinary collection-interface ownership is implemented. Current contracts live in
 [collection semantics](spec/collection-access.md), [value semantics](spec/value-semantics.md)
@@ -271,7 +293,7 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access): existing host registration unification | Follow [HR01-HR03](host-registration-plan.md): unify declaration/registration ownership and ordinary by-value binding. Inventory existing live-host consumers separately and bound retirement without replacing them with snapshots. The reference design is recorded in the same plan; its implementation remains queued. The full value example identifies its RI dependencies. |
+| 1 | [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access): existing host registration unification | Follow [HR01-HR03](host-registration-plan.md): unify declaration/registration ownership and ordinary by-value binding. Inventory existing live-host consumers separately and bound retirement without replacing them with snapshots. RF01-RF06 and RI00-RI05 now join the selected combined delivery; follow its shared dependency order and defer dependent legacy retirement until references integrate. |
 | 2 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
 | 3 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
 | 4 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
@@ -302,13 +324,13 @@ Important ordering constraints and limits:
   the full SA21 migration or persistent borrowed returns for NC implementation,
   or silently absorb host registration unification into NC scope.
 - SA21 typed Rust `&T`/`&mut T` inputs and generated field projections have a
-  [queued design](host-registration-plan.md#queued-ref-and-refmut-design) for scoped
-  handles and disjoint mutable fields. Implementation follows registration
-  unification and requires scope/adapter lifetime proofs; keep existing borrow/path
+  [execution contract](host-registration-plan.md#ref-and-refmut-execution-contract) for scoped
+  handles and disjoint mutable fields. RF01-RF06 implement them in the selected
+  combined delivery after their registration/RI dependencies; keep existing borrow/path
   checks during migration. The same plan owns the receiver conversion matrix,
   explicit host method/trait registration and a bounded root/typed-call cost follow-up;
-  these do not activate reference implementation or add performance gates to
-  HR01-HR03. Persistent borrowed returns remain a separate extension.
+  reference implementation now has its own RF gates, while cost optimization
+  remains outside the combined delivery. Persistent borrowed returns remain a separate extension.
 - [Focused validation policy](../AGENTS.md#verification-and-tooling) applies
   throughout: reuse already implemented preparation. Coordinate any further
   preparation changes with the existing [test preparation task](test-preparation-plan.md),

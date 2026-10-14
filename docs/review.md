@@ -395,10 +395,10 @@ the agreed future design only; implementation remains deferred.
 
 The next scope is merging the existing HostInterface into NativeModule.
 The [implementation plan and API proposal](host-registration-plan.md) owns
-HR01-HR03, registration API decisions, migration acceptance and progress.
-Implementation is unstarted. The public proposal uses ordinary by-value
-conversion into Kagari objects. The plan also records a queued Ref/RefMut design;
-its adapters and new field-view behavior remain unimplemented and outside HR01-HR03.
+HR01-HR03, RF01-RF06, registration/reference acceptance and the combined delivery
+order with RI00-RI05. Implementation is unstarted. Ordinary by-value conversion,
+runtime-owned Opaque and scoped Ref/RefMut are included in one selected delivery;
+their distinct phase owners preserve a finite migration and safety gates.
 Their metadata is not a required part of by-value usage.
 
 ### Registration unification
@@ -414,7 +414,7 @@ owners. Ordinary struct values use checked converters and normal Kagari fields.
 Inventory existing live-host/root/path consumers separately; preserve their checked
 execution while migrating declaration/install ownership. Freeze a bounded removal
 map before retiring the old aggregate, format and entrypoints, explicitly recording
-any dependency on deferred reference work. Reuse
+the RF checkpoint for any reference dependency. Reuse
 [unified library registration](architecture.md#unified-library-registration).
 
 Runtime-local host identities, scoped borrow checks and prepared path commits
@@ -425,9 +425,9 @@ require new script wrappers or unrestricted Rust references. Converting existing
 live host access to snapshots would change semantics and is not implied by this
 migration. DTO schema/derive dependencies remain owned by the interoperability plan.
 
-### Queued borrowing and field-view design
+### Scoped borrowing and field-view implementation
 
-The [reference proposal and complete example](host-registration-plan.md#queued-ref-and-refmut-design)
+The [reference proposal and complete example](host-registration-plan.md#ref-and-refmut-execution-contract)
 use `Ref<T>`/`RefMut<T>` path handles and derive-generated field projections.
 Register the target descriptor once; reference capabilities reuse its explicit
 host members and any validated projection schema. Native payload and ordinary DTO
@@ -444,8 +444,8 @@ adds the conversion matrix and shared/mutable host receiver requirements. Method
 are registered once for a host target type. Rust and Kagari traits are independent;
 script trait exposure requires explicit declaration/impl/binding registration,
 without imposing three separate view impls for ordinary method calls. Safe scope
-signatures and callback lifetimes still require compiling proofs before activation.
-Generated projections must not create overlapping ancestor references. Implementation remains queued;
+signatures and callback lifetimes require RF01 compiling proofs. Generated
+projections must not create overlapping ancestor references. RF01-RF06 remain unstarted;
 the proposal is not evidence that current typed adapters support Rust references.
 
 Persistent returns borrowed from an input are a separate optional extension.
@@ -459,14 +459,15 @@ the shared registration model and existing NativeObject storage/roots. The host
 moves T into runtime, accesses it through checked read/edit, or explicitly takes it
 back with atomic alias invalidation. Ref/RefMut instead lend host-owned storage.
 The new facade, extraction and method adapter capabilities remain unimplemented;
-this does not activate RI03 or expand HR01-HR03.
+RI03 and RF01-RF06 are now part of the selected combined delivery, with their own
+gates rather than additional work hidden inside HR01-HR03.
 
 The plan also owns the bounded
 [call-boundary cost follow-up](host-registration-plan.md#call-boundary-cost-follow-up):
 per-insertion root-table scans and repeated typed argument packing are confirmed
 by static inspection, without measured speed claims. Registration must preserve
-existing low-level allocation contracts. Reference implementation and performance
-optimization are separate from HR01-HR03 acceptance.
+existing low-level allocation contracts. RF phases own reference acceptance in the
+combined delivery; performance optimization remains a separate follow-up.
 
 ## SA22 Generic bounds do not supply interface construction witnesses
 

@@ -42,11 +42,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Unified host registration and API proposal](host-registration-plan.md):
-  SA21 / HR01-HR03 are unstarted; merge the existing host interface into
-  NativeModule, with complete by-value and Ref/RefMut API examples. The queued
-  reference design covers generated paths and disjoint field borrowing;
-  its implementation remains deferred, and DTO derives remain RI work.
-- [Rust value/opaque interoperability](rust-interop-design.md).
+  selected combined delivery with HR01-HR03 registration and RF01-RF06 scopes,
+  generated projections, disjoint field loans and common method binding. The plan
+  owns cross-plan sequencing and focused safety gates; implementation is unstarted.
+- [Rust value/opaque interoperability](rust-interop-design.md): RI00-RI05 join that
+  delivery with schemas/conversions, runtime-owned Opaque read/edit/take and derives.
 - [Host API unification](host-api-refactor.md).
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI naming, formatting, linting and REPL; source packages are specified above.
