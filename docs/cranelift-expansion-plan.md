@@ -74,18 +74,21 @@ Both routes retain the caller's exact dependency generations.
 ### ABI, admission and errors
 
 J01 records the exact physical ABI in kagari-abi: argument count/representation,
-result ownership, context/frame handles, status and error retrieval. Use explicit
-physical descriptors and runtime-owned handles or slots for reference-bearing
-values; never embed Rust Value, references, enum layouts or mutable heap pointers
+result ownership, context/frame handles, status and error retrieval. Before
+implementing this ABI, J01 settles the call-stack model described below, including
+any call-transfer/resume protocol needed by J03. Use explicit physical descriptors
+and runtime-owned handles or slots for reference-bearing values; never embed Rust Value, references, enum layouts or mutable heap pointers
 as an undocumented machine-code contract. Reserve no speculative alternate ABI.
 Scalar registers may remain unboxed inside a compiled function.
 
 SDK, VM, direct invocation and typed host-call entrypoints must agree on parameter
 admission, semantic types, heap ownership and return rooting. Generated code and
 helpers must not unwind through C frames. Runtime retains the structured error
-and trace while status transport indicates success/failure; all exits release the
-owned frame and roots exactly once. Polling preserves sticky cancellation and
-trap origins; do not reintroduce instruction charging or generic permissions.
+and trace while status transport distinguishes terminal success/failure and any
+nonterminal call transfer required by the selected model. Terminal exits release
+the owned frame and roots exactly once; a call transfer retains the caller state
+needed for resumption. Polling preserves sticky cancellation and trap origins;
+do not reintroduce instruction charging or generic permissions.
 
 Replace the old zero-argument API and affected consumers directly. Retain ABI
 identifiers but do not routinely bump them for this unpublished migration.
@@ -125,11 +128,42 @@ owns the interpreter executor and execution driver. Keep runtime independent of
 the VM crate. Refactor bytecode-specific wrappers onto shared services only where
 needed; do not expose private interpreter internals as a new backend interface.
 
-Preparation selects and installs reachable synchronous functions, handling cycles
-with a finite visited worklist and explicit bounds. Per-runtime installed handles
-stay separate from reusable compiled products. No compilation occurs in the
-execution loop. Preserve complete backend/configuration/version cache identity;
-do not cache transient errors as unsupported decisions.
+Preparation must cover dynamic targets as well as static call edges. The initial
+strategy conservatively inventories synchronous functions in each explicitly
+supplied PreparedProgram and its verified module closure, including closure bodies,
+interface implementations and existing specializations/shared bodies. Deferred
+async factories/resume bodies remain excluded. Hosts can supply additional exact
+Program versions for retained callbacks; an entry's static call graph cannot prove
+that all targets passed as values have been prepared. Walk supplied closures with
+a finite visited worklist and explicit bounds. Exceeding a preparation bound is
+an explicit error, not silent omission of supported targets. J03 defines the
+concrete preparation-set API; J05 connects dynamic target resolution to it.
+
+Runtime owns the installed-code lookup; the SDK owns compilation and preparation
+sets, and the VM driver consumes runtime selection services. Lookup binds runtime
+identity, exact Program/module generation, concrete function and complete backend
+configuration identity. Shared bodies retain their checked invocation environment separately;
+lookup cannot substitute another generation or environment by matching a name.
+Explicit preparation sets and active invocations lease installed entries. Removing
+the last lease removes the lookup entry and releases its code/version retention;
+active invocations keep their handles until completion. Retained script callbacks
+keep their existing script dependencies but do not implicitly compile code or
+permanently retain every native installation. Per-runtime installed handles stay
+separate from reusable compiled products, without a self-retaining registry cycle.
+J03 must define and validate publication and lease release before enabling lookup.
+
+No compilation occurs in the execution loop. A valid target absent from the selected
+preparation set runs through an explicit interpreter decision before that callee's
+effects, with a distinct unprepared-target diagnostic; this does not count as native
+coverage. Invalid/stale evidence and compiler/link failures remain errors. Preserve
+complete backend/configuration/version cache identity; do not cache transient errors
+or a target's merely unprepared state as unsupported decisions.
+
+For example, a new-version entry can receive a host-retained old-version closure.
+Preparing both exact versions lets the driver resolve and execute the old closure's
+body natively while retaining its original dependencies. Preparing only the new
+version selects interpretation for that closure before its effects; it must neither
+retarget to the new body nor compile on demand.
 
 The execution driver may select native or interpreter at a callee boundary and
 return to its caller, including host callbacks. This is normal mixed execution,
@@ -139,11 +173,27 @@ An observer conservatively selects interpretation for the entire execution.
 Unimplemented scheduling policies must be rejected explicitly rather than treated
 as automatic compilation; preserve explicit Enabled/Disabled entry behavior.
 
-Before enabling recursion, settle machine-stack use. Prefer a runtime-owned call
-driver/trampoline so script depth does not imply unbounded C-stack recursion. If
-a bounded native stack chain is selected, prove the bound and its interaction
-with configured script depth, mixed calls and synchronous host reentry on each
-supported platform. A script depth check alone is not a native-stack proof.
+J01 must settle machine-stack use before implementing the ABI or starting J02 CFG
+lowering; J03 implements calls using that decision. Prefer explicit call transfer to
+the VM execution driver using runtime-owned frames, so ordinary script depth does
+not imply unbounded C-stack recursion. Calling a helper that synchronously invokes
+the next body still retains the caller's machine frame and is not a stackless driver.
+
+For `f(x) { val y = g(x); y + x }`, a transfer-based design must save the continuation,
+the live `x` and the destination for `y`, then resume after the call exactly once.
+J01 records the physical transfer/return/failure statuses, continuation identity,
+live-value storage and frame ownership needed by J02 lowering and J03 dispatch.
+Reference-bearing continuation values must fit J04's root-publication contract.
+These internal call continuations do not authorize async suspension or host parking.
+
+If a bounded native stack chain is selected instead, J01 records its enforceable
+stack-space admission scheme and platform proof obligations, including generated
+frame sizes, helper/driver frames and synchronous host reentry. Before J03 enables
+recursion, validate the bound and its interaction with configured script depth and
+mixed calls on each supported platform. Explicit script continuations still require
+a separate bound for synchronous host reentry, whose host frames cannot be discarded.
+A script depth check alone is not a native-stack proof. Implement only the selected
+model; an unresolved decision blocks J01 exit rather than becoming a J03 ABI rewrite.
 
 ### GC roots and operation helpers
 
@@ -209,14 +259,18 @@ the break in commit bodies, and resolve it before starting the next phase.
 ### J01: ABI and explicit preparation
 
 - Refresh the baseline inventory, runtime frame ownership and policy behavior.
+- Select and record the call-stack model before ABI implementation: continuation
+  transfer/resume and live-value ownership, or an enforceable native-stack bound.
+  Include mixed execution and synchronous host reentry; J03 implements the calls.
 - Record exact scalar/reference transport, error, frame and helper contracts here
   before implementation. Implement scalar parameters/results across backend,
   runtime, VM and SDK; define reference admission for J04 without accepting it early.
 - Replace obsolete entry consumers and keep preparation/cache ownership explicit.
 - Prove zero/multiple parameters, representation rejection, stale/foreign handles,
   errors without C unwinding, source/artifact correspondence and explicit policy.
-- Exit: supported parameterized scalar functions really execute natively; legacy
-  zero-argument scalar behavior and pre-entry fallback remain correct.
+- Exit: the selected call model fixes the ABI/frame and CFG-lowering obligations
+  for J02/J03; supported parameterized scalar functions really execute natively.
+  Legacy zero-argument scalar behavior and pre-entry fallback remain correct.
 
 ### J02: scalar operations and CFGs
 
@@ -231,8 +285,14 @@ the break in commit bodies, and resolve it before starting the next phase.
 
 ### J03: checked calls and mixed execution
 
-- Implement program call evidence, shared call transitions, bounded recursive
-  preparation, code retention and execution-driver selection.
+- Implement program call evidence and the call transitions selected in J01.
+- Implement bounded preparation of explicitly supplied Program versions, including
+  inventory of dynamic-target bodies, and the runtime installation lookup/leases.
+  Verify exact version/configuration selection, release after the last lease,
+  active-call retention, preparation bounds and explicit unprepared-target fallback.
+  Dynamic invocation support remains J05; no runtime compilation is introduced.
+- Implement execution-driver selection and validate the selected stack model before
+  enabling recursion, including values surviving mixed-call return transitions.
 - Support same-module, cross-module/package and recursive scalar script calls;
   ensure specialized generic bodies use the same route.
 - Prove native-to-native, native-to-interpreter and interpreter-to-native calls,
@@ -258,6 +318,11 @@ the break in commit bodies, and resolve it before starting the next phase.
   Adapt ScriptInvoker/typed callback selection through the common driver.
 - Prove scoped borrow rejection, reentry, once-only mutation, callback errors,
   structural revision checks and callbacks/interfaces surviving reload.
+- Assert native execution for targets supplied through closure/interface parameters
+  and host-retained callbacks, including a new entry invoking an old-version target
+  absent from its static call graph. Prepare both versions explicitly; also prove
+  that omitting the old version selects interpretation once without retargeting,
+  replay or on-demand compilation. Exercise the same boundary through encoded input.
 - Exit: a representative cross-package collection-processing operation with a
   closure, interface call and host mutation executes its synchronous script bodies
   natively. Library helper calls are identified separately from interpreted callees.
@@ -322,9 +387,12 @@ not a passing local check; unresolved required rows prevent completion.
 ## Progress ledger
 
 - [x] Record bounded plan, baseline evidence, phase order and ownership.
-- [ ] J01: exact ABI/inventory decisions and scalar argument entry acceptance.
+- [x] Reconcile review: move call-model design to J01 and specify dynamic-target
+  preparation, installed-entry ownership and retained-version acceptance.
+- [ ] J01: call-stack model, exact ABI/inventory and scalar argument acceptance.
 - [ ] J02: scalar numeric/control-flow coverage and focused validation.
-- [ ] J03: checked calls, preparation closure and mixed-execution acceptance.
+- [ ] J03: checked calls, explicit preparation sets, installation leases and
+  mixed-execution acceptance.
 - [ ] J04: rooted values, aggregates and lifecycle acceptance.
 - [ ] J05: closures/interfaces/host/library coverage and reentry acceptance.
 - [ ] J06: inventory closure, focused final validation, measurements and docs.
@@ -332,7 +400,8 @@ not a passing local check; unresolved required rows prevent completion.
 
 Carried implementation errors: none; implementation has not started. No speedup
 measurements or new test results are claimed. Exact physical ABI and call-driver
-mechanics are J01/J03 design checkpoints under the contracts above, not reasons to
-silently reduce coverage. Record newly demonstrated blockers and bounded scope
-decisions here. Implementation commits use Conventional Commits and a
+mechanics must be settled in J01 before ABI/CFG implementation; J03 owns call
+implementation and the concrete preparation-set/installation API. These checkpoints
+do not authorize silently reducing coverage. Record newly demonstrated blockers
+and bounded scope decisions here. Implementation commits use Conventional Commits and a
 `Plan-Phase: J01` (or the corresponding phase) trailer.
