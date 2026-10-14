@@ -1670,6 +1670,28 @@ has migrated. The portable layout changed without identifier bumps under the
 unpublished-artifact policy; affected disposable fixtures remain batched at RF06.
 HR02/RF05 and the combined goal remain open.
 
+### HR02/RF05 checkpoint: installed authority for shared external schemas
+
+Runtime source-free loading now requires every carried external TypeDeclaration
+to equal its exact installed NativeModule catalog TypeDef. Installed external
+schemas, like ordinary value schemas, also require their defining module's public
+record to remain exact even if no callback imports it. Portable shape/provider
+validation alone cannot publish an uninstalled external identity. The existing
+transactional loader rejects before module publication; roots and callbacks are
+not fabricated to satisfy the check.
+
+The focused runtime loader boundary passed with a source-free external schema:
+loading without its installed contract rejects with the expected module-validation
+message and leaves the module store empty. Runtime library Clippy, structure
+(1236 Rust files, zero violations), fmt and diff passed. A preliminary attempt to
+put this loader assertion in the compiler ABI test failed because that crate has
+no direct runtime dependency. The assertion was moved to its runtime contract
+owner; the compiler test was restored and no new dependency was introduced.
+No unsafe/lifetime changes or new Miri requirement. Existing portable dependency
+and old host/trait regression results remain evidence; exhaustive CI scope is
+unrun. Runtime shared metadata/root installation and HR02/RF05 acceptance remain
+outstanding, with no carried Rust build failure.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

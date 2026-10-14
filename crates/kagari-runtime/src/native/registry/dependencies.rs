@@ -10,17 +10,18 @@ use kagari_types::{
     ty::Ty,
 };
 
-/// Registered ordinary schemas remain exact even when no callable imports them.
+/// Registered value/external schemas remain exact even without callable imports.
 pub(super) fn validate_installed_values(
     installed: &DeclarationCatalog,
     module: &BytecodeModule,
 ) -> Result<(), RuntimeError> {
     let definitions = installed.definitions();
-    for (id, expected) in installed
-        .types
-        .entries()
-        .filter(|(_, ty)| matches!(ty.kind, TypeDefKind::Struct | TypeDefKind::Enum))
-    {
+    for (id, expected) in installed.types.entries().filter(|(_, ty)| {
+        matches!(
+            ty.kind,
+            TypeDefKind::Struct | TypeDefKind::Enum | TypeDefKind::Host(_)
+        )
+    }) {
         let owner = definitions
             .resolve(id)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
@@ -32,6 +33,13 @@ pub(super) fn validate_installed_values(
         {
             return Err(RuntimeError::module_validation(
                 "registered value schema differs from its installed contract",
+            ));
+        }
+    }
+    for required in &module.external_types {
+        if installed.types.get_id(required.declaration) != Some(&required.definition) {
+            return Err(RuntimeError::module_validation(
+                "external type dependency lacks its exact installed contract",
             ));
         }
     }
@@ -200,4 +208,73 @@ fn implementation_matches(id: &DefinitionId, expected: &ImplDecl, actual: &Inter
                 .retain(|parameter| !expected.generic_params.contains(parameter));
             actual.methods.contains(&method)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Runtime, RuntimeConfig};
+    use kagari_bytecode::{
+        module::BytecodeModule,
+        program::{BytecodeProgram, ModuleRef},
+    };
+    use kagari_common::identity::{
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+        metadata::DefinitionMetadata,
+    };
+    use kagari_contract::types::PublicItem;
+    use kagari_types::declaration::{
+        TypeDeclaration, TypeDef, TypeDefKind,
+        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+        module::ModuleDecl,
+    };
+
+    #[test]
+    fn uninstalled_external_schema_cannot_publish_a_source_free_module() {
+        let context = DefinitionContext::new().unwrap();
+        let mut declaration = ModuleDecl::new(ModuleIdentity {
+            package: PackageId("example".into()),
+            path: vec!["roots".into()],
+        });
+        let definition = TypeDef {
+            name: "Player".into(),
+            kind: TypeDefKind::Host(HostTypePolicy {
+                ownership: HostTypeOwnership::HostRoot,
+                reflection: HostReflectionPolicy::Metadata,
+                path_access: PathAccess::ReadWrite,
+            }),
+            generic_params: vec![],
+            bounds: vec![],
+            fields: vec![],
+            variants: vec![],
+        };
+        declaration.types.push(definition.clone());
+        declaration.collect_definitions(&context).unwrap();
+        let id = declaration
+            .definition(DefinitionKind::Struct, "Player", &context.snapshot())
+            .unwrap();
+        let program = BytecodeProgram {
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                identity: declaration.identity,
+                public_items: vec![PublicItem::Type(definition.clone())],
+                external_types: vec![TypeDeclaration {
+                    declaration: id,
+                    definition,
+                }],
+                ..Default::default()
+            }],
+            exports: Default::default(),
+        };
+        let input =
+            DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap();
+        let mut runtime = Runtime::new(RuntimeConfig::default());
+        let error = runtime.load_program("external", input).unwrap_err();
+        assert!(
+            error
+                .message()
+                .contains("external type dependency lacks its exact installed contract"),
+            "{error}"
+        );
+        assert_eq!(runtime.modules().loaded_count(), 0);
+    }
 }
