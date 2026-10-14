@@ -38,6 +38,7 @@ use kagari_mir::{
     passes::PassOptions,
     program::ProgramErrorKind,
 };
+use kagari_package::{error::PackageError, snapshot::ProgramInputs};
 use kagari_source::{
     identity::FileId,
     source::SourceFile,
@@ -66,6 +67,7 @@ fn analysis_error(error: AnalysisError) -> EmbeddingError {
 pub struct CheckedModule {
     pub source_name: String,
     program: CheckedProgram,
+    package_inputs: Option<ProgramInputs>,
 }
 
 impl CheckedModule {
@@ -75,6 +77,15 @@ impl CheckedModule {
 
     pub fn program(&self) -> &CheckedProgram {
         &self.program
+    }
+
+    /// Exact captured source closure when compiled through `compile_package`.
+    ///
+    /// Retains source bytes, dependency aliases and selections independently of
+    /// later source edits or engine queries. Manually supplied source snapshots
+    /// have no acquisition provenance and return `None`.
+    pub fn package_inputs(&self) -> Option<&ProgramInputs> {
+        self.package_inputs.as_ref()
     }
 }
 
@@ -139,6 +150,46 @@ impl KagariEngine {
     pub fn compile_source(&self, source: SourceFile) -> CompileResult<CheckedModule> {
         let id = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
         self.compile_snapshot(self.source_snapshot(), id, &CancellationToken::default())
+    }
+
+    /// Checks one captured package and its complete declared dependency closure.
+    ///
+    /// Local and host virtual packages share this entrypoint. Acquisition and lock
+    /// publication belong to `kagari-package`; this method reads no filesystem and
+    /// performs no execution. It replaces this session's sources atomically, reusing
+    /// unchanged file identities. Earlier checked results and source snapshots keep
+    /// their original inputs. Installed native and offline host declarations remain
+    /// inputs of this engine. Use separate sessions for independently edited roots.
+    ///
+    /// Returns cancellation, invalid captured-source input or ordinary source
+    /// diagnostics. Captured-source validation or cancellation publishes no partial
+    /// batch; semantic diagnostics leave the captured sources available for tooling.
+    pub fn compile_package(
+        &self,
+        inputs: &ProgramInputs,
+        cancel: &CancellationToken,
+    ) -> CompileResult<CheckedModule> {
+        let source = inputs
+            .source_snapshot(&mut self.sources.borrow_mut(), cancel)
+            .map_err(|error| match error {
+                PackageError::Cancelled => EmbeddingError::Cancelled,
+                error => EmbeddingError::Source {
+                    message: error.to_string(),
+                },
+            })?;
+        let root = ModuleIdentity {
+            package: inputs.root().family.package_id(),
+            path: Vec::new(),
+        };
+        let file = source
+            .module(&root)
+            .ok_or_else(|| EmbeddingError::Source {
+                message: format!("captured package root is absent: {root}"),
+            })?
+            .id();
+        let mut checked = self.compile_snapshot(source, file, cancel)?;
+        checked.package_inputs = Some(inputs.clone());
+        Ok(checked)
     }
 
     pub fn set_source(
@@ -289,6 +340,7 @@ impl KagariEngine {
         Ok(CheckedModule {
             source_name: source.name().to_owned(),
             program,
+            package_inputs: None,
         })
     }
 

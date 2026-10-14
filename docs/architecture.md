@@ -24,8 +24,14 @@ For source-level data structures and ID lookup, start with the
 
 ## Source package inputs
 
-`kagari-package` acquires and resolves sources before compilation. Its immutable
-`ProgramInputs` retains one exact dependency closure and hands external/root files
+`kagari-package` acquires and resolves sources before compilation. `ProjectInputs`
+combines workspace discovery, member selection, whole-workspace locking and isolated
+source capture. It returns a candidate lock; filesystem publication remains explicit.
+SDK `KagariEngine::compile_package` publishes one capture to its source session and
+uses the existing checked-program and artifact pipeline. Checked results retain their
+source acquisition provenance; no package acquisition runs during execution.
+
+Immutable `ProgramInputs` retains one exact dependency closure and hands external/root files
 to `kagari-source`; HIR derives inline modules from those same captured bytes.
 `SourceDatabase::replace_captured` publishes the complete batch and package scopes
 atomically, preserves unchanged file IDs/revisions, and keeps diagnostic origins
@@ -80,7 +86,7 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-types | Semantic types, declarations, symbolic defaults, generic checks, numeric/collection/range semantics and offline host schemas |
 | kagari-source | Source documents/revisions, immutable package scopes, diagnostics, literal grammar, line indices and navigation provenance |
 | kagari-syntax | Lexer, parser, CST and AST views |
-| kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture and atomic handoff to source analysis; SDK/CLI integration is in progress |
+| kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture and atomic handoff to source analysis/SDK; CLI integration is in progress |
 | kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
 | kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
 | kagari-contract | Executable envelopes, checked call/layout/operation contracts, physical lowering and linked verification |

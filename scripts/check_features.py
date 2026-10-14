@@ -16,7 +16,7 @@ OUTPUT = ROOT / "target" / "architecture-features"
 
 
 def check_crate_boundaries(output: Path = OUTPUT) -> None:
-    source = {"kagari-source", "kagari-hir", "kagari-syntax"}
+    source = {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     execution = {"kagari-runtime", "kagari-vm", "kagari-embed", "kagari-bytecode"}
     constraints = {
@@ -112,14 +112,14 @@ def run(async_only: bool = False) -> None:
         packages = {line.split()[0] for line in graph.splitlines() if line}
         forbidden = set()
         if "source" not in features:
-            forbidden |= {"kagari-source", "kagari-hir", "kagari-syntax"}
+            forbidden |= {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
         if not features:
             forbidden |= {"kagari-compiler", "kagari-mir", "kagari-codegen", "kagari-codegen-cranelift"}
         if features == "source":
             forbidden |= {"kagari-codegen", "kagari-codegen-cranelift"}
         assert not packages & forbidden, (label, packages & forbidden)
         if "source" in features:
-            assert {"kagari-source", "kagari-hir", "kagari-syntax"} <= packages, label
+            assert {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"} <= packages, label
         selected = ["--test", "artifact_features", "source_free_async_execution_contract"] if async_only else []
         log_label = f"{label}-async" if async_only else label
         with (output / f"{log_label}-tests.log").open("w") as log:

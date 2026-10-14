@@ -504,6 +504,7 @@ dependencies = [
  "kagari-contract",
  "kagari-hir",
  "kagari-mir",
+ "kagari-package",
  "kagari-runtime",
  "kagari-source",
  "kagari-stdlib",

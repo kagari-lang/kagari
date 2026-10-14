@@ -13,5 +13,6 @@ pub mod lock;
 pub mod manifest;
 pub mod modules;
 pub mod path;
+pub mod project;
 pub mod snapshot;
 pub mod workspace;

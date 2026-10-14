@@ -31,7 +31,8 @@ implemented inputs from pending compiler/runtime integration; publication is not
   installation is a separate boundary, not an implicit package privilege.
 - Script workspace discovery and selection are implemented in `kagari-package`;
   whole-workspace graph locking and immutable Program input capture are implemented;
-  compiler integration remains pending. The repository's Cargo
+  checked analysis, exports and SDK captured-package compilation are integrated.
+  CLI/shared storage and affected-root reporting remain pending. The repository's Cargo
   workspace groups Kagari's Rust implementation crates, not user script packages.
 
 Re-audit these foundations at activation. Existing specifications govern until
@@ -475,17 +476,23 @@ module ownership determine the complete declaration identity.
 
 ## Compilation and update handoff
 
-The host API may accept a package input in addition to single-file sources:
+The SDK's `KagariEngine::compile_package` accepts immutable `ProgramInputs` and
+uses the same checked-program/artifact pipeline as single-file sources. It replaces
+one source session's captured closure atomically; retained checked results preserve
+their acquisition inputs and source snapshots. Independent roots may use separate
+engine sessions when they need independent incremental query state.
 
-```rust
-// Target API sketch, not a current method.
-let program = engine.compile(Source::package("Kagari.toml"))?;
-let script = runtime.load(&program)?;
-```
+`kagari-package::project::ProjectInputs::load` combines workspace discovery,
+selection, lock resolution and per-root capture for filesystem or virtual inputs.
+The caller supplies an approved provider root and invoking manifest directory;
+`ProjectOptions` carries optional namespace, member selection, immutable host
+providers, lock flags and resource limits. The result owns the entire resolved
+workspace graph and lock, plus captured inputs only for selected Programs. Loading
+is read-only; `Lockfile::publish` explicitly commits the candidate filesystem lock.
 
 Single-file embedding synthesizes a host-owned package identity and does not require
-a manifest on disk. The default facade should not expose every resolver record.
-An advanced resolved-source-graph input permits virtual sources and offline builds.
+a manifest on disk. These SDK/package entrypoints do not implement the separately
+queued Host API facade migration or CLI command selection.
 
 Confirmed initial model: script packages are distributed as source and compiled
 together with their resolved dependencies. Compilation selects a root's package
@@ -914,10 +921,34 @@ No format/ABI version bump is needed for these unpublished development changes.
   audit passes. VM/SDK library Clippy, structure (1,150 files), formatting and diff
   checks pass. No carried build/test failure; full feature/backend/platform CI and
   unselected subsystem cases remain unrun.
-- Next: SDK/CLI/shared storage and invalidation/reload. Package capture is connected
-  to HIR, but SDK and CLI do not yet expose it. Native-provider inputs must contribute
-  their own contract fingerprint at compiler handoff. Full workspace/backend/feature/
-  platform CI remains unrun; no whole-workspace Cargo suite was run locally.
+- PK03 SDK package checkpoint: `ProjectInputs::load` composes the existing workspace,
+  selection, lock and capture owners for both filesystem and virtual providers. Lock
+  publication remains explicit. `KagariEngine::compile_package` feeds one complete
+  captured closure into the existing checked source pipeline and retains its exact
+  acquisition provenance in `CheckedModule`. `kagari-package` is enabled only by the
+  SDK source feature; CI dependency guards now enforce this boundary.
+- SDK package evidence: `cargo test -p kagari-embed --test package_inputs` passes
+  disk/virtual family and fingerprint equivalence, member-local selection and shared
+  lock publication/frozen reread, unchanged source reuse, cancellation before source
+  publication, unrelated-member body isolation, retained results after switching
+  roots, public dependency aliases and generic calls using dependency constants.
+  Old/new results emit through artifact encode/decode after the engine moves to an
+  unrelated failing root. Reload returns the new constant while a retained typed
+  function still executes the old generation after GC. An initial incremental build
+  saw the new test import before the in-progress package module was rebuilt; the
+  coherent rerun passes with the module present.
+- SDK package checkpoint checks: SDK/package library Clippy passes, as does the
+  existing source-snapshot module-rebinding/artifact regression. The SDK's
+  no-default-features normal/build dependency graph excludes package/source analysis
+  and compilation. Structure scans 1,152 Rust files without violations; formatting,
+  Python syntax and diff checks pass. No carried build/test failures. This selected
+  scope covers the new handoff and an existing source-session boundary; the complete
+  feature/backend/platform test matrix remains CI-only and unrun locally.
+- Next: CLI project/member commands, shared build storage and affected-root reporting.
+  Native-provider inputs must contribute their own contract fingerprint before any
+  shared product reuse. Dependency invalidation must include generic bodies, embedded
+  constants and alias/selection-only changes. Full workspace/backend/feature/platform
+  CI remains unrun; no whole-workspace Cargo suite was run locally.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.
