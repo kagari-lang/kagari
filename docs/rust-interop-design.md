@@ -15,9 +15,14 @@ a second conversion or root system. Editing a runtime-owned payload does not gra
 exclusive access to an externally shared Opaque object.
 
 The [SA21 registration proposal](host-registration-plan.md#retained-opaque-integration)
-merges existing host declarations and installation into NativeModule. New Rust
-reference adapters and field projections are deferred. This plan continues to own
-retained Opaque storage/conversion through the shared registration model. An
+unifies declaration/installation ownership and presents ordinary structs through
+by-value conversion to Kagari objects. Its complete example uses this plan's
+proposed value schema/derive API; it does not claim those capabilities already
+exist or move RI01/RI02/RI04 into a second implementation queue. The
+[queued Ref/RefMut design](host-registration-plan.md#queued-ref-and-refmut-design)
+adds scoped path handles and generated projections for disjoint inline fields;
+reference implementation remains deferred. This plan continues to own DTO
+schema/conversion/derives and retained Opaque storage. An
 `Opaque<T>` callback uses an owning handle; it does not implicitly satisfy a
 scoped mutable input. Registered modifying methods own domain validation and safe
 interior mutation. Shared references and opaque handles may change interior state;
@@ -155,11 +160,19 @@ converted from Rust is a snapshot: mutating that script object does not update t
 original Rust object. Once created, it obeys ordinary Kagari shared-object rules;
 copying a script variable is not another deep serialization.
 
-The derive must make field exposure and script writeability explicit and documented.
-The proposed default is declared fields with read-only bindings; an explicit derive
-option may expose mutable script fields. Such mutation still affects only the
-converted snapshot. Unsupported field/variant forms produce diagnostics. A manual
-adapter is available for external types or deliberately different representations.
+The derive exports ordinary by-value struct fields as writable Kagari fields
+(`var` in the generated declaration). Script mutation affects only the converted
+object. Local binding reassignment follows the normal `val`/`var` rules separately
+from field mutation. Document which fields are exported; unsupported field/variant
+forms produce diagnostics. A manual adapter is available for external types or
+deliberately different representations.
+
+The proposed `module.register_type::<T>()` registers schema/mapping metadata;
+it does not create/copy an object or select a passing mode. Reference support uses
+the same nominal declarations. Its follow-up extends derive output with checked
+local projections for supported inline fields, under the reference plan's safety
+contract. An owned converter, custom schema or Serde mapping alone does not prove
+that a field can be borrowed from the original Rust representation.
 
 Mixed value and opaque data use the same recursion:
 
@@ -446,7 +459,7 @@ already implemented nominal declarations, roots and typed adapters are reused.
 Review the remaining RI-specific API gates below.
 
 - [ ] RI00: Re-audit the completed predecessor and existing tests. Decide trait
-  signatures, supported numeric/collection/enum forms, field exposure/writeability,
+  signatures, supported numeric/collection/enum forms, field exposure,
   Serde attribute matrix, fallible-call channel and destruction/thread policy.
   Fix ordinary-value alias/cycle behavior, catalog identity rules and phase scope.
 - [ ] RI01: Introduce portable nominal value schemas and registration graph

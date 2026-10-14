@@ -396,8 +396,10 @@ the agreed future design only; implementation remains deferred.
 The next scope is merging the existing HostInterface into NativeModule.
 The [implementation plan and API proposal](host-registration-plan.md) owns
 HR01-HR03, registration API decisions, migration acceptance and progress.
-Implementation is unstarted. New Rust reference adapters and field-view behavior
-are deferred rather than prerequisites for registration unification.
+Implementation is unstarted. The public proposal uses ordinary by-value
+conversion into Kagari objects. The plan also records a queued Ref/RefMut design;
+its adapters and new field-view behavior remain unimplemented and outside HR01-HR03.
+Their metadata is not a required part of by-value usage.
 
 ### Registration unification
 
@@ -407,32 +409,37 @@ and Engine installation. Host APIs separately use
 path bindings and runtime registration. Their overlapping declaration and install
 paths should become one NativeModule model.
 
-Move existing type/member/trait/path and passing/access contracts to their shared
-semantic and executable owners. Migrate source/tooling import, runtime bindings and
-source-free linking together; remove the old aggregate, format and registration
-entrypoints. Reuse [unified library registration](architecture.md#unified-library-registration).
+Move general type/member/function declarations to shared semantic and executable
+owners. Ordinary struct values use checked converters and normal Kagari fields.
+Inventory existing live-host/root/path consumers separately; preserve their checked
+execution while migrating declaration/install ownership. Freeze a bounded removal
+map before retiring the old aggregate, format and entrypoints, explicitly recording
+any dependency on deferred reference work. Reuse
+[unified library registration](architecture.md#unified-library-registration).
 
 Runtime-local host identities, scoped borrow checks and prepared path commits
 remain focused services. Preserve existing field/path semantics, roots, alias and
 escape checks, cancellation, schema ownership, atomic installation and pinned
 reentry/reload. Unification does not move external Rust state into the GC or
-require new script wrappers or unrestricted Rust references.
+require new script wrappers or unrestricted Rust references. Converting existing
+live host access to snapshots would change semantics and is not implied by this
+migration. DTO schema/derive dependencies remain owned by the interoperability plan.
 
-### Deferred borrowing and field-view design
+### Queued borrowing and field-view design
 
-Typed `&T`/`&mut T` native inputs, candidate script `Ref<T>`/`RefMut<T>` types,
-new scope-entry conveniences and new field projections need a later design.
-In particular, it must address simultaneous mutable access to disjoint fields
-of one host object. Independent projectors taking `&mut Player` cannot safely
-produce simultaneously live mutable field references by merely relaxing the
-runtime conflict check. The proposed whole-root restriction is not accepted as
-the final new API. Existing root-level checks remain in force during this migration.
+The [reference proposal and complete example](host-registration-plan.md#queued-ref-and-refmut-design)
+use `Ref<T>`/`RefMut<T>` path handles and derive-generated field projections.
+`register_type::<T>()` installs one type schema for all three passing modes.
+Native calls batch-check loans before constructing short-lived `&T`/`&mut T`;
+disjoint fields of one host object may be borrowed mutably at the same time.
+Users do not write path-to-field lookup callbacks. Existing root-level checks
+remain in force until their coherent path-aware replacement is implemented.
 
-The follow-up must settle projection ownership, disjoint access, alias/reentry
-validation, scope escape and field replacement/removal/relocation before coding.
-Retain the distinction between value copies, Kagari shared-object identities and
-host location views; views must not retain dangling Rust field addresses.
-No particular new wrapper spelling or replacement policy is frozen by this plan.
+The plan owns overlap rules, scope cleanup, reentry, replacement behavior and
+the finite inline-struct projection boundary. Safe scope signatures and callback
+lifetimes still require compiling proofs before activation. Generated projections
+must not create overlapping ancestor references. Implementation remains queued;
+the proposal is not evidence that current typed adapters support Rust references.
 
 Persistent returns borrowed from an input are a separate optional extension.
 They require origin/lifetime records, conflict protection, deterministic cleanup

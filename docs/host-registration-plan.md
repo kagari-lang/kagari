@@ -1,294 +1,207 @@
-# Host interface integration into NativeModule
+# Unified NativeModule registration and value/reference API proposal
 
-Status: scope agreed; implementation is unstarted. Planning baseline: `11be3667`.
-The [roadmap](implementation-roadmap.md#review-follow-up-order) owns sequencing;
-[SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
-owns the finding and deferred borrowing follow-up. This plan owns HR01-HR03,
-registration API proposals, migration acceptance and the progress ledger. Start
-with the [complete Player example](#complete-example-expose-a-rust-player) for
-the proposed usage.
-API sketches are proposals until implementation updates their specification owner.
+Status: revised proposal for review; implementation is unstarted. Source baseline:
+`d3d25ceb`. The [roadmap](implementation-roadmap.md#review-follow-up-order) owns
+sequencing; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
+owns the finding and queued reference work. This document owns HR01-HR03,
+registration migration acceptance and the queued reference design. Start with the
+[by-value example](#complete-example-player-by-value) or the
+[reference example](#complete-example-disjoint-player-fields) for the intended usage.
+All new API spellings below are proposals, not currently callable APIs.
 
-## Outcome and scope
+## Three passing modes
 
-Merge the existing HostInterface declaration and registration path into
-`NativeModule`. Standard-library, application native and existing host APIs use
-one declaration/binding/install model. Preserve existing observable host behavior.
+The intended Rust boundary has three modes. Registration unification starts with
+by value. Reference behavior is designed below; its implementation remains queued
+outside HR01-HR03.
 
-Included:
+| Mode | Ordinary struct representation and behavior | Status |
+| --- | --- | --- |
+| By value | Convert Rust data to an ordinary Kagari object; conversion back produces an independent Rust value. | Current API design focus; reuse existing owned conversion foundations. |
+| By ref | `Ref<T>` is a scoped path handle; a native invocation temporarily receives `&T`. | Proposed below; implementation deferred. |
+| By ref mut | `RefMut<T>` is a scoped writable path handle; a native invocation temporarily receives `&mut T`. | Proposed below, including simultaneous disjoint field access; implementation deferred. |
 
-- Existing host types, functions, methods, associated types, trait implementations,
-  declared fields and typed paths represented under shared module declarations.
-- Checked Rust bindings, transactional module installation, source/tooling imports,
-  executable contracts and source-free linking through that shared authority.
-- Migration of consumers and removal of obsolete HostInterface registration APIs,
-  duplicate records and the separate portable interface format.
+For an ordinary by-value struct, the boundary performs schema-directed conversion.
+It can allocate the Kagari object directly; no byte serialization or JSON round
+trip is needed. Once constructed, the object uses ordinary Kagari fields and GC
+ownership. Script field reads/writes do not call Rust field adapters, resolve host
+object IDs, acquire Rust borrow leases or commit changes to the original Rust object.
+Exported fields of ordinary by-value structs default to writable Kagari fields.
+Their schema records this as normal field metadata; local `val`/`var` continues
+to control binding reassignment independently of object-field mutation.
 
-Deferred: typed Rust `&T`/`&mut T` input adapters, new script `Ref<T>`/`RefMut<T>`
-types, new scoped-entry conveniences and new field projection/replacement semantics.
-Their design must address simultaneous mutable access to disjoint fields of one
-host object before activation; whole-root exclusion is not an accepted final
-solution for that new API. This task preserves existing scoped-borrow and typed-path
-checks and does not weaken them to approximate the deferred feature.
+The boundary conversion is distinct from script assignment. In script,
+`val alias = player` aliases the same Kagari object under existing value semantics.
+It does not run conversion again. Passing that object to an owned Rust `Player`
+parameter performs conversion and creates independent Rust data. Returning that
+Rust value constructs a Kagari object; it does not patch the original script object.
 
-Persistent borrowed returns, retained Opaque storage implementation, native
-collection migration, SDK/package renaming, live module installation and R1 remain
-separate work. No new purity system, registration permission matrix or empty
-extension framework is required.
+Rust move semantics still apply: passing an owned Player moves that Rust value.
+If the host wants to retain an original for comparison, it explicitly clones it
+before the call. Registration does not silently clone arbitrary Rust payloads.
 
-Reuse [unified library registration](architecture.md#unified-library-registration),
-[host interop](spec/host-interop.md), [typed paths](spec/typed-path-mutation.md) and
-[runtime ownership](runtime-ownership-and-host-api-design.md). Current specifications
-own execution semantics throughout this migration.
+## Scope and ownership
 
-## Current architecture and target ownership
+Unify standard-library, application native and existing host declarations/bindings
+under `NativeModule`, with one function registration and engine installation path.
+The public by-value API comprises type schemas, directional value converters and
+ordinary native function bindings. It does not require a passing-mode argument.
 
-Ordinary native modules already combine ModuleDecl records with checked Rust
-bindings and Engine installation. Host APIs separately publish HostInterface and
-register host types/functions/paths into runtime services. The duplicated authority
-is the defect; external objects, scoped leases and path commits still need their
-own focused runtime owners.
+The [interoperability plan](rust-interop-design.md#value-binding) owns general DTO
+schema/conversion support, derives, optional Serde and retained Opaque storage.
+The complete example below includes its proposed `KagariValue` derive to show the
+end-user experience. Implementing that derive is not silently added to HR01-HR03.
+HR01 must identify the concrete registration/conversion capabilities needed by
+this example and record the boundary to RI01/RI02/RI04. A manual adapter may prove
+the registration contract using existing conversion traits; it must not be
+presented as proof that the future derive is implemented.
 
-| Current owner | Migration responsibility |
-| --- | --- |
-| [ModuleBuilder](../crates/kagari-runtime/src/native/builder.rs), [NativeModule](../crates/kagari-runtime/src/native/module.rs) | Carry and validate the existing host declaration/binding capabilities under the shared module model. |
-| [HostInterface](../crates/kagari-types/src/host_interface/mod.rs) | Move required semantic facts to shared declarations and retire the parallel aggregate/format. |
-| [Engine builder](../crates/kagari-embed/src/engine/builder.rs) | Install one module catalog transactionally; expose dependencies through its declaration catalog. |
-| [Host registry](../crates/kagari-runtime/src/host/registry.rs) | Keep runtime-local root identities and schema/liveness checks; remove duplicated signature and registration authority. |
-| [Host borrows](../crates/kagari-runtime/src/host/borrows.rs), [resource scopes](../crates/kagari-runtime/src/host_scope.rs) | Preserve existing alias checking, roots, scope ownership and cleanup. |
-| [Typed callbacks](../crates/kagari-runtime/src/native/typed.rs), [argument conversion](../crates/kagari-runtime/src/native/conversion/arguments.rs) | Keep current owned conversions and integrate existing host callbacks through the common checked invocation boundary. New reference decoding is deferred. |
-| [NativeStorage](../crates/kagari-runtime/src/native/storage.rs) | Keep GC-owned payloads separate from externally owned Rust state. |
+The [reference design](#queued-ref-and-refmut-design) covers borrowed inputs,
+generated struct projections and scoped entry without activating implementation.
+Borrowed results, collection element projections and general relocation semantics
+remain separate extensions. SDK naming, collection migration, live module
+installation and R1 remain separate work.
 
-Portable semantic declarations belong in `kagari-types`; selected executable
-contracts belong in `kagari-contract`. Rust bindings, runtime-local identities,
-leases and storage guards belong in `kagari-runtime`. HIR imports the shared
-metadata; executable lowering and backends consume checked facts. The SDK owns
-installation orchestration. Generated source remains a tooling view, not a second
-signature authority or a dependency of source-free execution.
+Current contracts remain owned by [architecture](architecture.md#unified-library-registration),
+[value semantics](spec/value-semantics.md), [host interop](spec/host-interop.md) and
+[runtime ownership](runtime-ownership-and-host-api-design.md).
 
-Unification does not require a single giant registry. Keep internal host services
-where they own distinct lifecycle or access contracts. Existing host-context APIs
-may survive where necessary; retain no facade that merely forwards obsolete
-registration calls.
+## Complete example: Player by value
 
-## Registration API proposal
+The four blocks below form one example in order. They are Rust-like and Kagari
+pseudocode, not a currently compilable program. Module import paths for proposed
+APIs and enclosing Rust error-return boilerplate are omitted; all application types,
+functions, registration and execution steps are shown. No externally supplied
+field/path adapter or object lookup helper is assumed.
 
-### Module authoring
-
-Extend `ModuleBuilder` and `NativeModule` rather than introducing a HostModule.
-Use ordinary function/member declaration identities. Host representation and typed
-path facts extend their appropriate shared owners instead of embedding an intact
-HostInterface as a second authority.
-
-The following is API-shape pseudocode. Exact signatures and local binding factory
-requirements are an HR01 gate:
+### 1. Define the Rust data and functions
 
 ```text
-ModuleBuilder::new(module_identity, providers)
-ModuleBuilder::define_type(shared_host_type_declaration) -> TypeRef
-ModuleBuilder::define_function(shared_function_declaration) -> FunctionRef
-ModuleBuilder::define_path(shared_path_declaration) -> PathRef
-
-ModuleBuilder::bind_host_type(type_ref, rust_host_binding)
-ModuleBuilder::bind(function_ref, native_binding)
-ModuleBuilder::bind_host_path(path_ref, existing_path_adapter)
-ModuleBuilder::finish() -> NativeModule
-```
-
-All function bindings use `bind`, including ordinary typed functions and existing
-host callbacks. Proposed `NativeBinding::typed(callback)` and
-`NativeBinding::host(callback)` adapters select owned argument conversion or the
-existing checked host-context/value callback contract. They converge on the same
-declaration validation and installation path. Adapter constructors carry no second
-signature authority. Consolidate the current function-binding conveniences around
-this entrypoint during migration; do not add a separate host-function method.
-Type/storage and path binding remain distinct operations with their own contracts.
-
-The `define_type` entry above denotes extending the current type builder, not a
-commitment to replacing its existing signature. Host binding helpers attach
-implementations to shared declarations; they do not carry independent signatures.
-Reuse the existing callback/context and path read/validate/prepare-write protocols.
-Methods and trait implementations keep ordinary checked selection. Required host
-passing/access facts migrate intact even though new ergonomic Rust reference
-adapters are deferred.
-
-`engine_builder.declarations()` provides metadata for already installed modules,
-including dependencies referenced by the new module. Reading it does not attach
-objects or execute callbacks. A standalone declaration catalog remains usable
-without an engine. Registration must support existing mutually referencing host
-types without requiring a brittle single-type installation order.
-
-### Complete example: expose a Rust Player
-
-This example follows one host-owned struct from registration through execution.
-All domain state, lookup helpers and adapter callbacks are defined below. The
-blocks form one example in order; imports and final public module paths are omitted
-because the registration API is not implemented. All blocks are Rust-like or Kagari
-pseudocode, not a currently compilable sample. The existing runnable
-[atomic host path example](../crates/kagari-runtime/examples/atomic_host_path.rs)
-provides the current read/prepare/commit API on which this proposal builds.
-
-The intended script behavior is: receive a checked `Player` handle, read hp=100,
-set hp=75, and return 75. The host observes the same object updated to 75. Neither
-Rust reference decoding nor future `Opaque<T>` storage is used.
-
-#### 1. Define the application state and its object lookup
-
-```text
-use std::{
-    collections::HashMap,
-    sync::{Arc, atomic::{AtomicI32, Ordering}},
-};
-
+#[derive(Clone, KagariValue)]
 struct Player {
-    hp: AtomicI32,
+    hp: i32,
 }
 
-struct Players {
-    objects: HashMap<HostObjectId, Arc<Player>>,
+fn heal(mut player: Player, amount: i32) -> Player {
+    player.hp = player.hp.saturating_add(amount.max(0));
+    player
 }
 
-impl Players {
-    fn get(&self, id: HostObjectId) -> Result<Arc<Player>, HostError> {
-        self.objects.get(&id).cloned()
-            .ok_or_else(|| HostError::new("unknown player"))
-    }
+fn maximum(a: i32, b: i32) -> i32 {
+    a.max(b)
 }
-
-let player_id = HostObjectId(7);
-let player = Arc::new(Player { hp: AtomicI32::new(100) });
-let players = Arc::new(Players {
-    objects: HashMap::from([(player_id, Arc::clone(&player))]),
-});
 ```
 
-`Players` is application code, not a new Kagari registry. It owns Rust objects;
-Kagari's runtime registry separately validates script root ownership and schemas.
-The example uses an immutable object table and keeps the player alive throughout
-execution. Mutable/removable tables must supply their own safe liveness contract.
-Atomic storage makes the captured state safely shareable; the example performs no
-concurrent writes and does not claim atomicity across an entire script operation.
+`KagariValue` is the proposed DTO derive owned by the interoperability plan. It
+provides one named struct schema and checked `KagariType`, `IntoKagari` and
+`FromKagari` implementations. Exported fields become ordinary writable Kagari
+fields, so `hp` is generated as `pub var hp: i32`. The Rust `Clone` derive is used
+only to preserve the original host value in step 4; value binding does not
+generally require Clone.
 
-#### 2. Define the hp adapter and register the type and field
+Conceptually the registered script type is:
 
 ```text
-let read_players = Arc::clone(&players);
-let write_players = Arc::clone(&players);
+pub struct Player {
+    pub var hp: i32,
+}
+```
 
-let hp_adapter = HostPathAdapter::new()
-    .with_read(move |_call, path| {
-        let player = read_players.get(path.root.object_id())?;
-        Ok(Value::I32(player.hp.load(Ordering::SeqCst)))
-    })
-    .with_prepare_write(move |_call, path, record| {
-        let Value::I32(hp) = record.new_value else {
-            return Err(HostError::new("hp expects i32"));
-        };
-        if hp < 0 {
-            return Err(HostError::new("hp cannot be negative"));
-        }
-        let player = write_players.get(path.root.object_id())?;
-        Ok(PreparedHostPathWrite::new(move || {
-            player.hp.store(hp, Ordering::SeqCst);
-        }))
-    });
+This is generated from the schema; users do not write and register another copy.
+The exact rendering follows Kagari's type/member declaration syntax.
 
+### 2. Register the type and functions in one module
+
+```text
 let mut engine_builder = KagariEngine::builder();
 let mut module =
     ModuleBuilder::new("game::actors", engine_builder.declarations())?;
 
-let mut player_builder = module.host_type::<Player>("Player")?;
-player_builder.field("hp", Type::i32(), PathAccess::ReadWrite, hp_adapter)?;
-let player_type = player_builder.finish()?;
-```
+let player_type = module.register_type::<Player>()?;
 
-`HostPathAdapter`, `with_read`, `with_prepare_write` and `PreparedHostPathWrite`
-reuse existing runtime concepts. The adapter first validates the new scalar and
-resolves its host object. Preparation does not write the field. Its commit closure
-only stores the checked value; it cannot fail or reenter script. Runtime path
-execution keeps its existing borrow, root, dirty-ledger and commit checks.
-
-`host_type` and `field` are proposed conveniences over shared declaration/binding
-construction. They record the nominal Player identity, local Rust type mapping,
-a writable i32 member, its one-segment typed path and the attached adapter. This
-example uses schema epoch 0. They do not instantiate a Player, derive a Rust
-converter or expose unregistered fields. `finish` returns the declared type handle.
-
-For this ordinary field, the caller does not manually assemble a path declaration.
-The generated path facts are exactly:
-
-| Fact | Value |
-| --- | --- |
-| Root | The registered `game::actors::Player` declaration |
-| Segment | The registered `hp` member identity |
-| Result | `i32` |
-| Access | Read/write |
-| Schema epoch | 0 |
-| Implementation | The `hp_adapter` defined above |
-
-Explicit path authoring remains available for existing advanced nested/indexed
-paths. Field convenience construction must use the same declaration validation and
-adapter machinery, not a parallel field implementation.
-
-#### 3. Bind a function accepting Player, plus an ordinary native function
-
-```text
-let health = module.define_function(
-    FunctionDecl::new("health")
-        .host_parameter("player", &player_type, HostPassingStyle::SharedBorrow)
-        .returns(Type::i32()),
+let heal_function = module.define_function(
+    FunctionDecl::new("heal")
+        .parameter("player", player_type.clone())
+        .parameter("amount", Type::i32())
+        .returns(player_type.clone()),
+)?;
+module.bind(
+    heal_function,
+    |_context, (player, amount): (Player, i32)| Ok(heal(player, amount)),
 )?;
 
-let health_players = Arc::clone(&players);
-module.bind(health, NativeBinding::host(move |call, arguments| {
-    let [Value::HostRoot(slot)] = arguments else {
-        return Err(HostError::new("health expects a Player handle"));
-    };
-    let root = call.runtime().gc().host_root(*slot)
-        .ok_or_else(|| HostError::new("invalid Player handle"))?;
-    let player = health_players.get(root.object_id())?;
-    Ok(Value::I32(player.hp.load(Ordering::SeqCst)))
-}))?;
-
-let maximum = module.define_function(
+let maximum_function = module.define_function(
     FunctionDecl::new("maximum")
         .parameter("a", Type::i32())
         .parameter("b", Type::i32())
         .returns(Type::i32()),
 )?;
-module.bind(maximum, NativeBinding::typed(
-    |_context, (a, b): (i32, i32)| Ok(a.max(b))
-))?;
+module.bind(
+    maximum_function,
+    |_context, (a, b): (i32, i32)| Ok(maximum(a, b)),
+)?;
 
 engine_builder.install(module.finish()?)?;
 let engine = engine_builder.build()?;
 ```
 
-Both functions use `bind`. `NativeBinding::host` receives the existing checked
-host context and Value arguments; `NativeBinding::typed` performs owned argument
-conversion. Their constructors and the shared `bind` signature are proposed.
+`module.register_type::<Player>()` is a proposed schema-registration convenience returning
+an ordinary `Type` describing `game::actors::Player`. It validates the schema,
+registers its nominal identity and connects the Rust mapping to that declaration.
+It neither instantiates or copies a Player nor registers a persistent Rust object.
+Register the type once: the same nominal identity supports owned parameters and,
+when reference support is implemented, `Ref<Player>` and `RefMut<Player>` inputs.
+Passing behavior belongs to the function signature and the supplied argument,
+not to a separate type-registration mode. Schema support alone does not prove
+that a Rust representation supports safe field projection.
 
-`host_parameter` is a proposed builder spelling for existing host nominal-type and
-passing metadata. SharedBorrow tells invocation to hold the current shared host
-lease while calling the callback. It does not decode a Rust `&Player` argument or
-introduce a new script reference type. The host-call boundary validates the root's
-runtime owner, nominal Player type, schema and access before entering the callback.
-The callback then looks up the application object by the validated root's ID.
+`define_function` declares script signatures; `bind` attaches implementations.
+The signatures remain authoritative and are checked against adapter mappings.
+For ordinary closures, `bind` supplies the declaration context and builds the
+typed adapter automatically, using the existing owned conversion model for both
+scalar and struct arguments/results. A public function's normal Rust `Player`
+parameter means by value; there is no extra enum selecting that behavior.
 
-Script therefore passes a Player struct handle to `health`, not a numeric object ID.
-The handle's internal runtime representation is deliberately visible in this
-low-level adapter example because ergonomic Rust reference inputs are deferred.
+`engine_builder.declarations()` supplies the metadata catalog of modules already
+installed, so dependencies can be resolved and validated. It does not execute
+callbacks. A standalone catalog remains usable without constructing an engine.
+The stdlib and application modules use the same validation and installation path.
 
-#### 4. Compile the script and attach the particular player
+### 3. Script code uses ordinary objects
+
+```text
+use game::actors::{Player, heal, maximum};
+
+pub fn tick(player: Player) -> Player {
+    val alias = player;
+    player.hp = maximum(player.hp - 25, 0);
+    // player.hp and alias.hp are both 75 for the example input.
+
+    val healed = heal(player, 10);
+    // healed.hp is 85. player.hp and alias.hp remain 75.
+    healed
+}
+```
+
+The first assignment changes the Kagari object, so both script aliases observe
+it. `heal` then decodes that object into an owned Rust Player with hp=75, changes
+that independent Rust value to hp=85 and returns it. Return conversion constructs
+the separate Kagari object named `healed`. Ordinary value conversion does not
+retain a hidden link to either the original Rust input or the earlier script object.
+The subtraction is valid for the concrete input 100; other inputs retain Kagari's
+normal checked numeric behavior.
+
+### 4. Compile, execute and convert the result back to Rust
 
 ```text
 let source = r#"
-use game::actors::{Player, health, maximum};
+use game::actors::{Player, heal, maximum};
 
-pub fn tick(player: Player) -> i32 {
-    val before = health(player);
-    player.hp = maximum(before - 25, 0);
-    player.hp
+pub fn tick(player: Player) -> Player {
+    val alias = player;
+    player.hp = maximum(player.hp - 25, 0);
+    val healed = heal(player, 10);
+    healed
 }
 "#;
 
@@ -303,224 +216,527 @@ let context = ExecutionContext::default();
 let mut runtime = engine.runtime(context.clone());
 let loaded = runtime.load_program(&program, Default::default())?;
 
-let runtime_player_type = runtime.resolve_host_type(&player_type)?;
-let root = runtime.runtime_mut().register_host_root(
-    player_id, runtime_player_type, HostSchemaEpoch::new(0),
+let original = Player { hp: 100 };
+let result: Player = runtime.execute_typed(
+    &loaded, "tick", (original.clone(),), &context,
 )?;
-let argument = runtime.runtime().gc().alloc_host_root(root)?;
-let result = runtime.execute(&loaded, "tick", &[argument], &context)?;
 
-assert_eq!(result.return_value.value(runtime.runtime().gc()), Some(Value::I32(75)));
-assert_eq!(player.hp.load(Ordering::SeqCst), 75);
+assert_eq!(original.hp, 100);
+assert_eq!(result.hp, 85);
 ```
 
-`resolve_host_type` is a proposed checked lookup from the module's declaration
-handle to this runtime's installed type slot. It rejects missing/incompatible
-bindings; it does not register another copy of the type. The remaining execution
-sequence follows existing SDK operations; exact error conversions and signatures
-will be finalized in HR01. Handle allocation is immediately followed by execution,
-whose existing argument-rooting boundary retains it during the call. Longer-lived
-host storage of script values must use the existing explicit root mechanism.
+The outer Rust tuple is the argument list: `(original.clone(),)` supplies one Player
+argument. `execute_typed` and the source compile/load sequence reuse current SDK
+operations. Their ability to accept this specific Player depends on the proposed
+schema/conversion implementation, not on new host-root APIs.
 
-The registered root identifies Player 7 in this runtime. It does not transfer the
-Rust object into the script heap: the captured `Players` service owns that object.
-This example intentionally shares the same Players service if the module creates
-multiple runtimes; applications requiring separate state need runtime-local bindings.
+| Boundary or operation | Data produced or modified |
+| --- | --- |
+| Host calls tick | IntoKagari creates a script Player with hp=100 from the supplied owned Rust value. |
+| Script assigns player.hp | Ordinary script storage changes to hp=75; its script alias sees the update. |
+| Script calls native heal | FromKagari creates an independent Rust Player with hp=75. |
+| Rust heal returns | IntoKagari creates another script Player with hp=85. |
+| Script returns to host | FromKagari creates the Rust result with hp=85. |
+| Original host value | Remains hp=100 because the host explicitly supplied a clone. |
 
-#### 5. Follow one operation through the layers
+There are no per-field Rust callbacks in this flow. Generated converters access
+fields only while encoding/decoding at a language boundary. GC roots, nominal type
+checks, bounds and conversion failures remain enforced by the shared conversion
+and invocation services.
 
-1. `health(player)` resolves to the installed function declaration. Invocation
-   checks the Player root and acquires the declared shared lease. The callback
-   reads the Rust object's hp=100; the lease ends when the call completes.
-2. `maximum(100 - 25, 0)` uses the ordinary typed native adapter and returns 75.
-3. `player.hp = 75` resolves the statically declared hp path. The runtime acquires
-   the existing write access, roots values and invokes the adapter's preparation.
-   The adapter validates hp and returns the pending write. Runtime commit publishes
-   the update and dirty record according to the current mutation contract.
-4. The final `player.hp` read uses the same registered field adapter and returns 75.
-   The Rust assertion sees 75 because both accesses address the same Player object.
+## One function-binding entrypoint
 
-Assigning `player.hp = -1` instead makes preparation return an error before the
-store: that assignment does not change hp. Earlier completed operations remain
-visible. No whole-script rollback or automatic field borrowing is implied.
+`module.bind(function_ref, implementation)` accepts either an ordinary typed
+closure or an explicitly constructed low-level `NativeBinding`. Both paths attach
+to the same declaration and use the same checked registration/install machinery.
 
-### Struct parameters
+| Supplied implementation | Adaptation |
+| --- | --- |
+| Typed closure `Fn(&mut NativeContext, Args) -> NativeResult<Result>` | Build the owned conversion adapter using the referenced declaration's argument list and generic context. |
+| `NativeBinding::new(codecs, result_codec, callback)` | Use explicit low-level codecs and the CallContext/Value callback, retaining signature and boundary validation. |
+| `NativeBinding::primitive(selected_primitive)` | Install the explicitly selected fixed runtime implementation and validate its supported signature. |
 
-An owned Rust struct argument uses the ordinary typed conversion boundary. For
-example, assume an explicitly registered nominal `DamageRequest` with `amount`
-and `armor` fields and matching `KagariType`/`FromKagari` implementations. The
-following shows binding after that declaration and conversion setup; it does not
-add automatic DTO derives to this migration:
+The ordinary closure contract uses an outer argument tuple. Instance methods place
+the receiver first in that tuple, for example `(player, amount): (Player, i32)`.
+The method declaration still owns receiver identity, type and dispatch; treating
+its arguments uniformly does not turn it into a free function. The adapter must
+root and validate the complete argument pack before a converter can reenter.
 
-```text
-struct DamageRequest { amount: i32, armor: i32 }
+Use the declaration-aware path currently implemented by
+[ModuleBuilder::bind_typed](../crates/kagari-runtime/src/native/builder.rs) and
+the contextual adapter in [typed bindings](../crates/kagari-runtime/src/native/typed.rs).
+Do not implement automatic wrapping by unconditionally calling the standalone
+`NativeBinding::typed(catalog, callback)` constructor: that constructor resolves
+exact codecs from Rust types up front, while contextual mappings must be checked
+against each concrete generic application. Preserve declaration identity and
+callable requirements when consolidating preauthored-declaration bindings.
 
-fn calculate_damage(request: DamageRequest) -> i32 {
-    request.amount.saturating_sub(request.armor).max(0)
-}
+Resolve declaration membership, signature/codec compatibility and duplicate
+bindings at registration. Preserve per-application checks before argument
+conversion or callback effects, together with result conversion, ownership and
+root validation. An explicit low-level binding cannot bypass these boundaries.
 
-function = module.define_function(
-    FunctionDecl::new("calculate_damage")
-        .parameter("request", damage_request_type)
-        .returns(Type::i32())
-)
-module.bind(function, NativeBinding::typed(
-    |_context, (request,): (DamageRequest,)| Ok(calculate_damage(request))
-))
-```
+Primitive selection is explicit. An arbitrary callback cannot acquire primitive
+semantics by its name, apparent body or Rust argument types. Primitive and raw
+Value implementations remain available to the stdlib and advanced native authors;
+ordinary application examples use direct closures.
 
-This callback receives owned converted data; changes to that Rust value do not
-mutate the original script object. Automatic struct derives remain owned by the
-[interoperability plan](rust-interop-design.md#value-binding).
+The Rust adapter trait must distinguish the closure and prebuilt-binding cases
+without overlapping implementations or unreliable type inference. HR01 requires
+a compiling API proof for scalar/struct closures, receiver tuples, generic
+declarations and explicit raw/primitive bindings before freezing its signature.
+The exact trait spelling is an implementation choice, not a new user-selected
+passing mode. This is a consolidation of existing adapter responsibilities, not
+a claim that today's `bind` already accepts every proposed form.
 
-An existing externally owned host struct instead uses its declared host type and
-the host callback adapter. Script passes a checked host handle; the callback uses
-the existing runtime/context and application object lookup, not an implicit Rust
-struct copy or `&T` decoder. Both representations use the same function `bind`
-entrypoint while preserving their distinct conversion and ownership contracts.
+## Implemented foundations and proposed additions
 
-### Installation and runtime objects
+| Capability | Current evidence and required work |
+| --- | --- |
+| Module declarations and installation | [ModuleBuilder](../crates/kagari-runtime/src/native/builder.rs), [NativeModule](../crates/kagari-runtime/src/native/module.rs), [Engine builder](../crates/kagari-embed/src/engine/builder.rs) already exist. Merge the separate HostInterface authority here. |
+| Owned conversions | [KagariType / IntoKagari / FromKagari](../crates/kagari-runtime/src/native/conversion/mod.rs) and rooted argument conversion already exist; reuse them. Existence of these traits alone does not establish general automatic struct conversion. |
+| Ordinary struct metadata | [Shared declarations](../crates/kagari-types/src/declaration/mod.rs) already model Struct and fields. A native-storage builder is not proof of a complete DTO authoring API. |
+| Type authoring convenience | `module.register_type::<T>()` registers schema/mapping metadata without creating objects or selecting a passing mode; it is proposed integration with RI schemas. |
+| Function binding | The single `bind` entrypoint automatically adapts typed closures using their declaration context and accepts explicit low-level bindings; consolidate existing helpers through the checked invocation machinery. |
+| DTO derive | `KagariValue` is proposed RI work. Track its actual implementation separately from registration acceptance. |
+| SDK entry | [execute_typed](../crates/kagari-embed/src/runtime/typed.rs) exists and uses directional owned conversion. |
 
-`KagariEngineBuilder::install` / `install_all` remains the installation entrypoint.
-Validate identity, signature, host representation, declared access, path schemas,
-dependencies and binding completeness before publishing changes. A failed module
-or batch must leave the builder unchanged.
+Portable type/member facts belong in `kagari-types`, executable contracts in
+`kagari-contract`, converters/callbacks in `kagari-runtime`, and installation
+orchestration in the SDK. Source-free execution must not require rendering or
+parsing generated declarations. Methods, trait implementations and associated
+types continue to use checked shared identities and selection.
 
-Runtime preparation installs the module's local bindings through the common path.
-Application objects still attach to each runtime through existing root lifecycle
-operations. Type/function installation and object attachment remain separate;
-attaching an object must not require reinstalling a second type declaration.
+Callbacks are potentially effectful regardless of parameter types. Registration
+supplies conservative internal execution metadata. A by-value parameter does not
+prove purity: the callback may modify captured state or perform IO. Preserve
+argument evaluation order, cancellation, roots and already completed effects on
+later conversion failures.
 
-Shared module bindings cannot capture short-lived application borrows. If existing
-host callbacks require per-runtime state, define a checked local factory at their
-binding owner and migrate concrete consumers in HR02. Preserve current sharing,
-thread-transfer and active-scope constraints without introducing new reference APIs.
+## Existing HostInterface migration boundary
 
-### Invocation and effects
+Existing HostInterface mixes general declaration/registration responsibilities
+with contracts for live host roots, borrowed access and typed paths. Classify them
+before replacing APIs:
 
-Native callbacks are potentially effectful, including callbacks using shared Rust
-access or owning opaque handles. Interior mutation, captured state and IO cannot
-be inferred from parameter access modes. Shared registration supplies conservative
-internal call-effect metadata automatically. Preserve argument/receiver evaluation
-order, runtime checks, cancellation and completed side effects.
+- General nominal type/function/member facts and signature validation move to the
+  shared module and binding owners.
+- Ordinary by-value data uses Kagari-managed objects and directional converters.
+  Its fields are ordinary fields; do not attach host-path machinery to them.
+- Existing consumers that access live Rust objects cannot be silently converted
+  to snapshots. Inventory those consumers separately, including source-free
+  contracts and host safety tests. Keep their existing checked execution services
+  while migrating declaration/install ownership; do not present that lower-level
+  machinery as another public passing mode or as the completed future ref API.
 
-Existing checked path writes keep validation, reservation, infallible commit and
-dirty-ledger behavior. Ordinary host callbacks keep their current failure and
-notification contracts. Registration unification adds no blanket dirty reporting,
-transactional callback guarantee or new projection policy.
+HR01 must give each existing live-host consumer a concrete shared-contract
+migration destination. If removal depends on queued reference implementation,
+record that dependency and bound the current retirement scope explicitly before
+implementation. Do not promise complete legacy removal by deleting meaningful
+behavior/tests, keeping forwarding APIs indefinitely or reintroducing reference
+adapters into the by-value example.
+
+Existing root ownership, borrow/escape checks, path preparation/commit, schemas,
+cancellation and generation-pinned reentry/reload remain obligations wherever
+those mechanisms are still used. No old reference-access contract becomes an
+owned snapshot merely because its registration entrypoint changes.
 
 ### Retained Opaque integration
 
-The [Rust interoperability plan](rust-interop-design.md#opaque-ownership-and-access)
-owns future retained `Opaque<T>` storage and conversions. Those bindings must use
-the same module declarations and installation, while retaining their own ownership
-contract. Do not implement speculative opaque storage or reference adapters here.
+The [interoperability plan](rust-interop-design.md#opaque-ownership-and-access)
+owns retained `Opaque<T>`. It describes an explicit representation choice: an owned
+wrapper retains a Rust object rather than structurally copying its payload. That
+wrapper travels through the owning conversion boundary; it does not add a fourth
+passing mode and does not grant `&mut T` access to externally shared data.
 
-`Opaque<T>` is a Rust wrapper; script sees the registered nominal type. Cloned
-handles retain the same object. Its methods use shared access and host-owned safe
-interior mutation; runtime-local borrow checks cannot establish exclusivity against
-external Rust aliases. Returning an independently retained handle is distinct from
-returning a Rust reference borrowed from an input. Neither this migration nor a
-future borrowed-input adapter may silently convert the former into `&mut T`.
+This is distinct from ordinary Player-by-value conversion above. There is no
+fallback from failed struct conversion to an opaque handle. Opaque implementation,
+borrowed subobject projections and reference adapters remain separate queued work.
 
-## Migration invariants
+## Queued Ref and RefMut design
 
-- Preserve static types, member/trait selection, declared access and runtime/schema
-  ownership. Matching names or Rust type names alone do not prove identity.
-- Preserve root lifetimes, existing scope escape checks, alias conflicts and cleanup
-  on traps, cancellation, depth exhaustion and supported Rust unwinding.
-- Keep typed path operations' once-only evaluation, read-after-RHS semantics,
-  preparation/commit and dirty records. No new replacement/relocation behavior.
-- Retain checked source-free codecs and linking. Serialize portable declarations
-  and contracts, never Rust addresses, TypeId values, callbacks or live scopes.
-- Preserve pinned generations and synchronous reentry. Do not rebind an active call
-  to the newest module because its exported name matches.
-- Retain meaningful source-free, ownership, malformed-artifact and backend coverage.
-  Replace obsolete models directly; refresh disposable fixtures at a coherent
-  checkpoint without routine unpublished ABI/version bumps.
+This section records the target reference API; it does not expand HR01-HR03 into
+reference implementation. All reference syntax, type constructors and SDK helpers
+below are proposals. The current owned adapter cannot decode arbitrary Rust
+references through `FromKagari`; a lifetime-aware invocation adapter is required.
+
+### Handles, schemas and generated projections
+
+`Ref<T>` and `RefMut<T>` are script-visible, scope-bound location handles. They
+identify a runtime owner, host scope/epoch, root, ordered field identities, target
+type and shared or mutable access capability. They contain no script-dereferenceable
+Rust pointer. Field identities are resolved from installed declarations, not
+looked up by a user-written string switch on every access.
+
+Copying a handle copies the location capability, not the Rust payload or an active
+Rust reference. Multiple aliases of a `RefMut<T>` may therefore exist in script;
+each operation still acquires a checked loan before touching host storage.
+`RefMut<T>` may supply a shared input; `Ref<T>` cannot supply a mutable input.
+A shared view does not freeze aliases or prevent Rust interior mutability.
+
+For ordinary inline structs, extend the proposed `KagariValue` derive to generate
+local field projections alongside its existing schema/conversion responsibilities.
+`register_type::<T>()` installs those projections when supported, against the same
+nominal type/field identities. Users do not implement path lookup, getters,
+`stats_mut` helpers or per-field access flags for these ordinary structures.
+RI continues to own schema/derive machinery; this reference follow-up owns the
+projection safety contract and its runtime integration.
+
+Member access on a structured host view yields another view:
+`player.stats` is `RefMut<Stats>` under `RefMut<Player>`, or `Ref<Stats>` under
+`Ref<Player>`. Reading a scalar such as `player.stats.hp` ordinarily yields an
+owned `i32` through a short shared loan. In a reference-typed argument position,
+a checked host field place may instead produce the corresponding path argument.
+A previously copied scalar local does not become a host path. Frontend lowering
+must retain that distinction explicitly; backends consume the checked operation.
+Passing a view to an owned DTO parameter requires explicit snapshot conversion,
+outside the initial reference example; it must not silently change passing modes.
+
+### Complete example: disjoint Player fields
+
+These three blocks form one independent example. They are API-shape pseudocode;
+imports and enclosing Rust error-return boilerplate are omitted. Both shared and
+mutable functions use `module.bind`, with no handwritten projection callbacks.
+
+Define the Rust types and functions:
+
+```text
+#[derive(KagariValue)]
+struct Stats {
+    hp: i32,
+}
+
+#[derive(KagariValue)]
+struct Inventory {
+    gold: i32,
+}
+
+#[derive(KagariValue)]
+struct Player {
+    stats: Stats,
+    inventory: Inventory,
+}
+
+fn read_hp(stats: &Stats) -> i32 {
+    stats.hp
+}
+
+fn heal(stats: &mut Stats, inventory: &mut Inventory) -> i32 {
+    let spent = inventory.gold.clamp(0, 10);
+    inventory.gold -= spent;
+    stats.hp = stats.hp.saturating_add(spent);
+    stats.hp
+}
+```
+
+Register each type once and bind both functions:
+
+```text
+let mut engine_builder = KagariEngine::builder();
+let mut module =
+    ModuleBuilder::new("game::actors", engine_builder.declarations())?;
+
+let stats_type = module.register_type::<Stats>()?;
+let inventory_type = module.register_type::<Inventory>()?;
+let player_type = module.register_type::<Player>()?;
+
+let read_hp_function = module.define_function(
+    FunctionDecl::new("read_hp")
+        .parameter("stats", Type::ref_(stats_type.clone()))
+        .returns(Type::i32()),
+)?;
+module.bind(
+    read_hp_function,
+    |_context, (stats,): (&Stats,)| Ok(read_hp(stats)),
+)?;
+
+let heal_function = module.define_function(
+    FunctionDecl::new("heal")
+        .parameter("stats", Type::ref_mut(stats_type.clone()))
+        .parameter("inventory", Type::ref_mut(inventory_type.clone()))
+        .returns(Type::i32()),
+)?;
+module.bind(
+    heal_function,
+    |_context, (stats, inventory): (&mut Stats, &mut Inventory)| {
+        Ok(heal(stats, inventory))
+    },
+)?;
+
+engine_builder.install(module.finish()?)?;
+let engine = engine_builder.build()?;
+```
+
+The proposed `Type::ref_` and `Type::ref_mut` constructors describe signatures;
+they do not borrow an object during registration. Registering Player references
+the already registered Stats/Inventory declarations. A second passing mode never
+creates another nominal Player definition.
+
+Compile the script and lend a host object for synchronous execution:
+
+```text
+let source = r#"
+use game::actors::{Player, heal, read_hp};
+
+pub fn tick(player: RefMut<Player>) -> i32 {
+    val stats = player.stats;
+    val inventory = player.inventory;
+    heal(stats, inventory);
+    read_hp(stats)
+}
+
+pub fn inspect(player: Ref<Player>) -> i32 {
+    read_hp(player.stats)
+}
+"#;
+
+let file = engine.set_source("mem://player-refs", source.into(), SourceLayer::Base)?;
+let checked = engine.compile_snapshot(engine.source_snapshot(), file, &Default::default())?;
+let artifact = engine.emit_bytecode(&checked, Default::default())?;
+let program = PreparedProgram::from_artifact(
+    artifact, &Default::default(), &Default::default(),
+)?;
+
+let context = ExecutionContext::default();
+let mut runtime = engine.runtime(context.clone());
+let loaded = runtime.load_program(&program, Default::default())?;
+let mut player = Player {
+    stats: Stats { hp: 60 },
+    inventory: Inventory { gold: 30 },
+};
+
+let hp: i32 = runtime.with_host_scope(|scope| {
+    let argument = scope.borrow_mut(&player_type, &mut player)?;
+    runtime.execute_scoped(&loaded, "tick", (argument,), &context)
+})?;
+
+assert_eq!(hp, 70);
+assert_eq!(player.stats.hp, 70);
+assert_eq!(player.inventory.gold, 20);
+
+let observed: i32 = runtime.with_host_scope(|scope| {
+    let argument = scope.borrow(&player_type, &player)?;
+    runtime.execute_scoped(&loaded, "inspect", (argument,), &context)
+})?;
+assert_eq!(observed, 70);
+```
+
+`with_host_scope`, `borrow`, `borrow_mut` and `execute_scoped` are proposed safe
+interfaces, not wrappers that already exist. Their Rust signatures must keep the
+host borrow valid until the registered capability is revoked, prevent root access
+or movement that violates the borrow, and reject escaping scope tokens/results.
+The sketch requires a compiling lifetime proof before the exact signatures freeze.
+Script parameters use the proposed prelude types `Ref` and `RefMut`.
+
+| Step in tick | Runtime behavior |
+| --- | --- |
+| Enter the host scope | Lend the original Player; preserve its address and lifetime. No DTO copy. |
+| Evaluate the two field expressions | Produce `(root, [stats])` and `(root, [inventory])` views. No live Rust field references yet. |
+| Invoke heal | Acquire both disjoint mutable loans, project the fields, and pass short-lived `&mut Stats` / `&mut Inventory`. |
+| Return from heal | Release both loans; the host fields now contain hp=70 and gold=20. The script views remain usable in their scope. |
+| Invoke read_hp | Temporarily acquire a shared loan on `[stats]`; return the owned integer 70. |
+| Leave the host scope | Invalidate its handles and unregister storage before the Rust host resumes access to Player. |
+
+### Path conflicts and reference construction
+
+For the initial supported representation, paths contain only generated direct or
+nested inline struct fields. Paths on the same root overlap when equal or when
+one is a prefix of the other; diverging structural fields are disjoint. The empty
+path denotes the whole root. Distinct root IDs prove independence only because
+root registration itself must preserve Rust borrowing and alias identity; creating
+another ID is never a way to evade conflicts.
+
+| Simultaneous requests on one Player | Result |
+| --- | --- |
+| `&mut player.stats`, `&mut player.inventory` | Allowed: disjoint fields. |
+| `&player.stats`, `&mut player.inventory` | Allowed: disjoint fields. |
+| `&player.stats`, `&player.stats` | Allowed: shared overlap. |
+| `&mut player.stats`, `&mut player.stats` | Reject before native callback entry. |
+| `&player.stats`, `&mut player.stats.hp` | Reject: ancestor/descendant overlap. |
+| `&mut player`, `&player.inventory` | Reject: whole root overlaps every field. |
+
+Evaluate arguments left to right, once. Prepare/root the entire argument pack
+and finish any conversions that can reenter before constructing Rust references.
+Validate scope, runtime owner, schema/generation, target type and access, then
+acquire all required loans as one batch, checking both sibling arguments and outer
+active calls. On failure, release partial acquisitions without entering the
+callback. Completed argument-evaluation/conversion effects are not rolled back.
+Projection failure also releases the batch before callback entry.
+
+The current [borrow table](../crates/kagari-runtime/src/host/borrows.rs) counts loans
+by whole object. Supporting this proposal requires path-aware loan records and a
+shared overlap checker for native calls and host field operations. Merely relaxing
+the root count would permit aliasing. The host's scope-long lending of Player is a
+storage/lifetime reservation; it must not count as an active whole-Player native
+loan that conflicts with every field request.
+
+Generated projection code must compute field pointers directly from the valid
+root pointer, without first creating `&mut Player` or another borrowed ancestor.
+Only after validation and batch acquisition may it materialize references to the
+selected fields. Creating two whole-Player mutable references and then projecting
+their fields is unsound even if the final paths are disjoint. Keep the unsafe
+projection/reference construction in a small audited runtime/derive boundary;
+user code stays safe. Raw projections still require valid provenance, in-bounds
+storage, initialized aligned targets and a live owner.
+
+Rust's [borrow-splitting model](https://doc.rust-lang.org/nomicon/borrow-splitting.html)
+supports disjoint struct fields; its [raw field-address documentation](https://doc.rust-lang.org/stable/std/ptr/macro.addr_of_mut.html)
+explains projection without an intermediate reference and the remaining validity
+requirements. These support the implementation technique, not proof of Kagari's
+scope, alias or reentry implementation.
+
+Portable declarations/artifacts carry field identities and contracts, never Rust
+offsets, addresses or function pointers. Runtime installation links them to local
+generated projectors for the exact schema. Execution pins those bindings across
+reload; a new declaration cannot reinterpret an active root's layout.
+
+### Lifetime, reentry and mutation rules
+
+Actual Rust references live only inside one synchronous native invocation. An
+invocation adapter must be universally callable over its borrow lifetime, with
+outputs independent of that lifetime. Do not implement general `FromKagari for &T`
+or extend references to `'static`. Typed closure inference, mixed owned/borrowed
+arguments and the higher-ranked adapter need a compile prototype.
+
+Path handles may be forwarded through synchronous script calls within their
+origin scope. Initially they cannot be returned, stored in GC objects/containers,
+captured by closures, retained by a native callback or held across suspension.
+Frontend checks and runtime validation, including source-free execution, enforce
+this boundary. Scope invalidation and loan release use deterministic guards on
+normal return, errors, traps, cancellation, depth exhaustion and Rust unwinding
+where supported; GC collection is not the release mechanism.
+
+During synchronous reentry, outer native loans stay active. Nested operations may
+borrow a disjoint sibling but must reject an overlapping incompatible access.
+No mutable borrow of the bookkeeping table or whole-root Rust reference may span
+the callback. Shared-root scopes never upgrade to mutable access. Shared inputs
+may still change interior state, so callbacks retain conservative execution
+metadata regardless of their signature.
+
+An active field loan blocks incompatible writes or replacement of that field and
+its ancestors. An idle view retains a location, not a cached field address: after
+an allowed replacement, its next operation resolves the current field at that
+path. Root movement/removal is prohibited throughout its lending scope. Native
+`&mut` callbacks directly change host state; callback failure does not roll back
+completed writes. Existing validated/prepared script path assignments keep their
+commit semantics. If dirty-path reporting applies, native mutable calls must
+conservatively report each supplied mutable path as potentially modified once
+callback execution starts, including failure; exact internal writes cannot be
+inferred from `&mut T`.
+
+The first projection implementation covers ordinary inline structs only. Packed
+fields, unions, variant-dependent fields, custom dereference/index operations,
+aliased pointer targets and collection elements require separate storage/alias
+proofs. Different field names or map keys alone cannot establish disjointness.
+Unsupported reference operations must diagnose the missing capability; an owned
+converter or a custom serialized schema is not evidence of a valid projector.
+Retained Opaque objects and GC-owned collection wrappers keep their separate
+storage contracts; registration unification does not grant access to their payloads
+as arbitrary Rust references.
+
+### Follow-up activation and validation
+
+Keep this follow-up under SA21 and the existing roadmap, after bounded registration
+unification. Before implementation, freeze the safe scope signatures and adapter
+compile proof, projection capability/derive boundary, checked frontend operations
+and source-free contract changes. Add its finite implementation phases here when
+activated; do not silently add them to HR01-HR03 or claim the example works today.
+
+Validation must cover disjoint mutable fields in one call and nested reentry;
+shared overlaps; rejection of duplicate, ancestor and whole-root conflicting
+loans; complete-pack validation before callback effects; readonly capability;
+foreign/stale handles and pinned reload; deterministic cleanup; replacement with
+idle versus active views; and rejection of escaping references/handles. Include
+compile-fail checks for host root reaccess/movement and escaping borrowed outputs,
+plus focused Miri coverage of generated projection/loan lifetimes when implemented.
+Use existing host boundary test owners; keep source-free evidence distinct.
+
+Borrowing removes DTO reconstruction for this example, but still costs checked
+path resolution and loan bookkeeping. No speedup is claimed. Measure frequent
+small native calls separately from conversion/storage work before introducing
+caches or routing existing stdlib primitives through this adapter.
 
 ## Implementation stages
 
-### HR01: Map existing contracts and freeze registration APIs
+### HR01: Map contracts and establish the bounded migration
 
-Inventory current declaration consumers, SDK entrypoints, host callback state,
-macros, codecs, backend imports and runtime preparation. Map each existing fact
-and binding to its shared owner, including type batches and methods/traits.
-Freeze host binding helpers, the field convenience builder, declaration-to-runtime
-type lookup and any necessary runtime-local factory contracts. Reconcile every
-proposed operation in the complete example with these existing owners.
-Record the consumer/removal map here before changing implementation.
+Inventory ordinary declarations, existing host-root/path consumers, converters,
+source/tooling imports, codecs, runtime preparation and backend dependencies.
+Record their owners and removal destinations here. Freeze the one-`bind` API and
+by-value registration/conversion contract. Prove closure/prebuilt-binding trait
+coherence and type inference, receiver-first tuples, and declaration-aware generic
+validation with a compiling prototype. Identify the exact RI schema/derive
+capabilities required to make the complete example runnable and their owners.
 
-Gate: every current host capability has a migration destination; API examples can
-be implemented without new Rust reference decoding, script wrapper types or
-changed host execution semantics.
+Gate: general registration work is separated from queued reference implementation;
+existing live-host behavior has an explicit migration disposition. State which
+by-value proof can use existing/manual converters and which user-facing conveniences
+remain RI dependencies. Do not mark the complete example implemented by assumption.
 
-### HR02: Migrate registration and consumers end to end
+### HR02: Unify declarations, bindings and consumers
 
-Extend shared declarations and module validation; migrate source/tooling import,
-SDK installation, runtime preparation, executable codecs/linking and affected
-backends together for each coherent slice. Ordinary and existing host functions
-must share declaration authority and checked invocation preparation.
+Migrate shared declarations, module validation, source/tooling import, runtime
+installation and source-free linking in coherent, buildable slices. Both stdlib
+and application bindings use the same function entrypoint and checked preparation.
+Use one concrete owned-struct conversion case to establish the by-value contract;
+reuse RI-owned schema/conversion capabilities when available and existing checked
+manual adapters otherwise. Do not build a competing DTO or serialization system.
 
-Keep intermediate builds working. Migrate producers and consumers together where
-an API change cannot safely be split. Remove superseded entrypoints as their
-consumers migrate. Any temporary bridge needs a specific HR03 removal entry here;
-do not create new dual signature authorities or bypass validation to compile.
+Preserve separately inventoried live-host execution contracts during their
+registration migration. Remove obsolete entrypoints as their consumers migrate.
+Any temporary bridge needs a bounded removal owner/checkpoint; never introduce
+unvalidated conversions or a second signature authority to make a slice compile.
 
-Gate: a module containing ordinary natives and existing host type/method/path
-bindings works through source compilation and source-free loading. Rejected
-installation is atomic; malformed/mismatched contracts fail before execution.
-Selected tests demonstrate existing path, borrow, reentry and reload behavior.
+Gate: shared registration and atomic rejection work through source and source-free
+consumers. The selected by-value case proves independent boundary values, ordinary
+script aliases and unchanged original host data. Deferred reference APIs are not
+part of the public acceptance example.
 
-### HR03: Complete legacy removal and focused integration
+### HR03: Close integration and retire obsolete registration
 
-Remove remaining HostInterface aggregation/serialization, obsolete registration
-APIs, duplicate records and migration bridges. Migrate examples and macro consumers;
-batch affected artifact refreshes. Retain focused host identity/path/borrow services.
+Complete the HR01 retirement map, including legacy interface aggregation/format
+and migrated registration APIs. Preserve existing host execution services where
+required by their consumers. Update specifications and examples with implemented
+contracts. Report remaining RI capabilities and deferred reference work explicitly.
 
-Update architecture, host/embedding/path specifications and API docs with the final
-registration contract. Resolve carried errors. Mark only registration unification
-complete in SA21; borrowing/projection follow-up remains deferred there. Remove this
-plan after implementation completion and move outstanding work to its proper owner.
-
-Gate: no consumer needs the old registration path; focused local acceptance passes,
-and remaining exhaustive CI scope is reported separately.
+Gate: all work in the bounded registration scope and its selected checks pass;
+legacy-removal dependencies are accounted for rather than hidden. Mark only the
+completed SA21 scope resolved. Move remaining work to its existing roadmap/review
+owner and remove this execution plan when its implementation is complete.
 
 ## Validation and acceptance
 
-Select affected tests within existing owners for each slice; do not run every
-listed target at every checkpoint or duplicate the workspace suite locally.
+Reuse existing test owners and add only uncovered contract cases:
 
-| Scope | Existing test owners |
+| Contract | Focused evidence |
 | --- | --- |
-| Declaration/binding validation and atomic installation | Runtime `native_registration`, `host_registration`; SDK `registration_sources`. |
-| Host methods, associated types and interface dispatch | SDK `host_interfaces`. |
-| Source-free loading, path/schema/access rejection | SDK `offline_nominal` path cases; runtime `offline_host`. |
-| Existing host identity, borrow and cleanup guarantees | Selected runtime `host_borrows`, `host_scopes`, `host_objects` and VM `native_boundary` host cases. |
-| Integration | Small affected pinned-reload regression selection; representative actual-native host case if backend contracts change. |
+| Binding/type agreement and atomic install | Runtime `native_registration`, `host_registration`; SDK `registration_sources`. |
+| Unified bind adaptation | Focused API compile coverage for direct scalar/owned-struct closures, method receiver tuples and explicit raw/primitive bindings; retain generic per-application mismatch checks before converters or callback effects at existing owners. |
+| Owned conversion | Runtime `native_conversion` and selected SDK typed-call cases: nominal mismatch, nested conversion failure/roots, independent Rust values, script alias behavior and explicit return conversion. |
+| Shared type/member/trait selection | SDK `host_interfaces` and directly affected declaration tests. |
+| Source-free contracts | Selected runtime `offline_host` and SDK `offline_nominal` cases; keep host-root cases distinct from by-value DTO cases. |
+| Preserved live-host consumers | Selected runtime `host_borrows`, `host_scopes`, `host_objects` and VM host-boundary cases for the actual migrated paths. |
+| Pinned execution | Small affected reload/reentry regression set; actual-native case only when the backend contract changes. |
 
-Use package/target/test-name filters and `--no-fail-fast` for multiple selected
-targets. Include `cargo check -p kagari-embed --no-default-features --lib` when
-validating the migrated source-free dependency boundary. Interpreter fallback is
-not actual-native evidence. New tests are justified by uncovered contracts, not
-changed private structures or migration-specific API spellings.
-
-Implementation checkpoints include import/ownership/visibility/effective-LOC
-review, `uv run --locked scripts/check_structure.py`, formatting,
-`git diff --check`, affected tests and scoped Clippy. Full workspace tests/Clippy
-and exhaustive feature/backend matrices belong to CI. Record selected commands,
-rationale, failures and unrun CI scope below. This plan makes no performance claim.
-Documentation-only edits require content/link/diff checks, not Cargo validation.
+At implementation checkpoints select package/target/test-name filters, affected
+Clippy, structure/format/diff checks and, where dependency boundaries change,
+`cargo check -p kagari-embed --no-default-features --lib`. Use `--no-fail-fast` for
+multiple selected test targets. Full workspace and exhaustive backend/feature
+matrices belong to CI. Do not equate a manual conversion test with derive coverage.
+Record actual commands, rationale, failures and unrun CI scope in the ledger.
+Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 ## Progress ledger
 
-- [ ] HR01: existing contract mapping and registration API frozen.
-- [ ] HR02: shared registration and existing consumers migrated.
-- [ ] HR03: legacy removal and focused integration complete.
+- [ ] HR01: migration map, by-value contract and RI dependencies frozen.
+- [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
+- [ ] HR03: bounded retirement and focused integration complete.
 
-Scope checkpoint: registration unification is the next task. New `&T`/`&mut T`
-adapters and field-view extensions are deferred; existing safety checks remain
-part of migration acceptance. No implementation or Cargo validation is claimed.
-No intermediate build errors have been introduced by this documentation task.
-Implementation commits use Conventional Commits and a phase trailer such as
+Design checkpoint: `register_type::<T>()` registers shared type/schema metadata;
+ordinary struct by-value conversion uses Kagari object storage. The queued
+Ref/RefMut proposal uses scoped path handles, generated structural projections and
+batch-checked disjoint loans. Both complete examples are end-user targets with
+explicit implementation dependencies. Reference implementation remains outside
+HR01-HR03; no code changes, Cargo validation or runtime behavior changes are claimed.
+Implementation commits use Conventional Commits and phase trailers such as
 `Plan-Phase: HR02`.

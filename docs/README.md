@@ -39,7 +39,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Unified host registration and API proposal](host-registration-plan.md):
   SA21 / HR01-HR03 are unstarted; merge the existing host interface into
-  NativeModule. New Rust reference adapters and field-view behavior are deferred.
+  NativeModule, with complete by-value and Ref/RefMut API examples. The queued
+  reference design covers generated paths and disjoint field borrowing;
+  its implementation remains deferred, and DTO derives remain RI work.
 - [Rust value/opaque interoperability](rust-interop-design.md).
 - [Host API unification](host-api-refactor.md).
 - [Packages, dependency resolution and toolchain](package-design.md), including

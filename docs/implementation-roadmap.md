@@ -80,7 +80,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Unified host registration](host-registration-plan.md) | SA21 / HR01-HR03 are scoped and unstarted. Merge existing HostInterface declarations/bindings into NativeModule while preserving host execution semantics. New Rust reference adapters and field-view behavior are deferred. |
+| [Unified host registration](host-registration-plan.md) | SA21 / HR01-HR03 are proposed and unstarted. Unify HostInterface declarations/bindings under NativeModule; ordinary by-value structs use Kagari objects. HR01 bounds legacy live-host migration and records RI conversion/derive dependencies. The queued Ref/RefMut design covers generated paths and disjoint field loans; reference implementation remains outside HR01-HR03. |
 | [Rust interoperability](rust-interop-design.md) | DTO derives, optional schema-backed Serde and retained host-owned opaque objects; reuse existing conversion/root contracts. |
 | [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
 | [Packages and toolchain](package-design.md) | Manifests, exact dependency graphs and source/module identities; confirmed [SDK/CLI naming and queued execution modes](package-design.md#toolchain-cli-and-execution-modes). Source kinds and selection/default policies still need decisions. The two `0.0.0-reserved` placeholders are published; SDK renaming, tooling implementation and functional releases remain queued. |
@@ -157,7 +157,7 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access): existing host registration unification | Follow [HR01-HR03](host-registration-plan.md): merge HostInterface into NativeModule, preserve existing host/path/borrow contracts and remove the duplicate registration path. Defer new Rust reference adapters and field-view behavior. |
+| 1 | [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access): existing host registration unification | Follow [HR01-HR03](host-registration-plan.md): unify declaration/registration ownership and ordinary by-value binding. Inventory existing live-host consumers separately and bound retirement without replacing them with snapshots. The reference design is recorded in the same plan; its implementation remains queued. The full value example identifies its RI dependencies. |
 | 2 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
 | 3 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
 | 4 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
@@ -187,10 +187,11 @@ Important ordering constraints and limits:
   NativeStorage/access API contract before NC/SA21 changes to it. Do not require
   the full SA21 migration or persistent borrowed returns for NC implementation,
   or silently absorb host registration unification into NC scope.
-- SA21 typed Rust `&T`/`&mut T` inputs and new field projections are deferred.
-  Their design must address disjoint mutable fields before activation; keep existing
-  borrow/path checks during registration migration. Persistent borrowed returns
-  remain a separate optional lifecycle extension.
+- SA21 typed Rust `&T`/`&mut T` inputs and generated field projections have a
+  [queued design](host-registration-plan.md#queued-ref-and-refmut-design) for scoped
+  handles and disjoint mutable fields. Implementation follows registration
+  unification and requires scope/adapter lifetime proofs; keep existing borrow/path
+  checks during migration. Persistent borrowed returns remain a separate extension.
 - [Focused validation policy](../AGENTS.md#verification-and-tooling) applies
   throughout: reuse already implemented preparation. Coordinate any further
   preparation changes with the existing [test preparation task](test-preparation-plan.md),
