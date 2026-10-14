@@ -39,6 +39,7 @@ impl InstancePlanner<'_> {
             span,
         )?;
         Ok(SharedCall {
+            receiver_access: None,
             instance,
             implementation: CallableImplementation::Script,
             arguments: arguments.clone(),

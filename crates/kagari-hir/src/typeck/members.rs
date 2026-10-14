@@ -24,6 +24,15 @@ pub(crate) fn inherent_substitution(
     receiver: &TypeId,
     cancel: &CancellationToken,
 ) -> Option<TypeSubstitution> {
+    let receiver = if let TypeId::Reference { target, access } = receiver {
+        let required = method.receiver_access?;
+        if !access.permits(required) {
+            return None;
+        }
+        target.as_ref()
+    } else {
+        receiver
+    };
     let mut substitution = TypeSubstitution::default();
     inference::infer(
         &method.owner,

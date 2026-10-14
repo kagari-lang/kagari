@@ -101,7 +101,12 @@ pub fn verify_native_call(
             reason: "native call arity mismatch",
         });
     }
-    for (actual, expected) in args.iter().zip(&import.signature.params) {
+    for (index, (actual, expected)) in args.iter().zip(&import.signature.params).enumerate() {
+        if index == 0 && *actual == ValueType::HostHandle && import.receiver_access.is_some() {
+            // Semantic flow verification must additionally prove the same target
+            // and sufficient view access. This is storage adaptation, not a cast.
+            continue;
+        }
         expect_type(
             *actual,
             semantic_representation(expected),

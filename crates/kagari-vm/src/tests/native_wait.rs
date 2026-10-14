@@ -266,6 +266,7 @@ impl Fixture {
             native_imports: native_declarations
                 .iter()
                 .map(|entry| NativeImport {
+                    receiver_access: entry.function.method_policy.receiver_access,
                     instance: ConcreteFunctionIdentity {
                         declaration: entry.declaration,
                         arguments: vec![],

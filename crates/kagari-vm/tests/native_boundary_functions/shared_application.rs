@@ -56,6 +56,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     let shared = root.native_imports[template].clone();
     assert!(application.callables.is_empty());
     let contract = SharedCall {
+        receiver_access: shared.receiver_access,
         instance: shared.instance,
         implementation: CallableImplementation::Native(shared.binding),
         arguments: application.instance.arguments,

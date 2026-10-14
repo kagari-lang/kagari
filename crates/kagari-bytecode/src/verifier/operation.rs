@@ -843,6 +843,7 @@ pub(super) fn verify_call(
                 .ok_or_else(invalid)?;
             let entry = shared::entry(owner, *target).ok_or_else(invalid)?;
             if entry.identity != &contract.instance
+                || entry.receiver_access != contract.receiver_access
                 || entry.implementation != contract.implementation
                 || !contract.structurally_valid(
                     function
@@ -859,7 +860,14 @@ pub(super) fn verify_call(
             {
                 return Err(invalid());
             }
-            for (arg, ty) in args.iter().zip(&contract.signature.params) {
+            for (index, (arg, ty)) in args.iter().zip(&contract.signature.params).enumerate() {
+                if index == 0
+                    && contract.receiver_access.is_some()
+                    && register_ty(function, *arg)? == ValueType::HostHandle
+                {
+                    // Access-flow checks the exact target and capability.
+                    continue;
+                }
                 expect_register_ty(
                     function,
                     *arg,

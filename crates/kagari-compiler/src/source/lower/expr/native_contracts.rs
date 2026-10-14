@@ -109,6 +109,10 @@ impl FunctionLowerer<'_, '_> {
             span,
         )?;
         let mut import = NativeImport {
+            receiver_access: self
+                .planner
+                .registered_native_declaration(&declaration)
+                .and_then(|registered| registered.function.method_policy.receiver_access),
             result_adapter: None,
             generic: None,
             callables: vec![],
@@ -252,6 +256,10 @@ impl FunctionLowerer<'_, '_> {
             .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
         self.emit_native_application(
             NativeImport {
+                receiver_access: self
+                    .planner
+                    .registered_native_declaration(declaration)
+                    .and_then(|registered| registered.function.method_policy.receiver_access),
                 result_adapter: None,
                 generic: None,
                 callables: vec![],
@@ -341,6 +349,7 @@ impl FunctionLowerer<'_, '_> {
         let result = instantiate(&signature.return_type);
         self.emit_native_application(
             NativeImport {
+                receiver_access: signature.policy.receiver_access,
                 result_adapter: None,
                 generic: None,
                 callables: vec![],

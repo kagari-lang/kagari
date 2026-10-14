@@ -54,12 +54,13 @@ impl InstancePlanner<'_> {
             .zip(arguments.iter().cloned())
             .collect();
         let operations = self.bound_operations(&function.bounds, &substitution, span)?;
-        let (instance, implementation) =
+        let (instance, implementation, receiver_access) =
             if self.prepare_native_target(declaration, &canonical, span)? {
                 let import = self.native_target_import(declaration, &canonical, span)?;
                 (
                     import.instance,
                     CallableImplementation::Native(import.binding),
+                    import.receiver_access,
                 )
             } else {
                 if self.module_identity(*declaration)
@@ -73,9 +74,11 @@ impl InstancePlanner<'_> {
                         arguments: vec![],
                     },
                     CallableImplementation::Script,
+                    None,
                 )
             };
         Ok(SharedCall {
+            receiver_access,
             instance,
             implementation,
             signature,

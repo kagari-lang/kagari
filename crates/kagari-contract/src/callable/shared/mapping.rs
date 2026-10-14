@@ -16,6 +16,7 @@ impl RemapDefinitions for SharedCall {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(SharedCall {
+            receiver_access: self.receiver_access,
             instance: self.instance.remap_definitions(mapper)?,
             implementation: self.implementation.remap_definitions(mapper)?,
             arguments: map_sequence(&self.arguments, |value| (value).remap_definitions(mapper))?,

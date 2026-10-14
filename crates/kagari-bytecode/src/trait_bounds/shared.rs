@@ -12,10 +12,12 @@ use kagari_contract::{
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
+    reference::ReferenceAccess,
     ty::substitution::TypeTransformError,
 };
 
 pub(crate) struct SharedEntry<'a> {
+    pub receiver_access: Option<ReferenceAccess>,
     pub identity: &'a ConcreteFunctionIdentity,
     pub body: &'a GenericBody,
     pub signature: Signature,
@@ -28,6 +30,7 @@ pub(crate) fn entry(module: &BytecodeModule, target: CallableTarget) -> Option<S
             let function = module.functions.get(target.index())?;
             let semantic = &function.metadata.semantic;
             SharedEntry {
+                receiver_access: None,
                 identity: function.identity.as_ref()?,
                 body: semantic.generic.as_ref()?,
                 signature: Signature {
@@ -45,6 +48,7 @@ pub(crate) fn entry(module: &BytecodeModule, target: CallableTarget) -> Option<S
                 return None;
             }
             SharedEntry {
+                receiver_access: import.receiver_access,
                 identity: &import.instance,
                 body: import.generic.as_ref()?,
                 signature: import.signature.clone(),

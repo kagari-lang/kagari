@@ -36,7 +36,7 @@ impl<'a> BodyChecker<'a> {
             return expected.cloned().unwrap_or(source);
         }
         if expected.is_some_and(|target| source.can_weaken_to(target)) {
-            let view = source.read_only_view().expect("checked collection view");
+            let view = source.read_only_view().expect("checked readonly view");
             self.type_table.insert_expr(expr_id, view.clone());
             env.exprs.insert(expr_id, view.clone());
             return view;
@@ -297,7 +297,16 @@ impl<'a> BodyChecker<'a> {
         let mut all_args = Vec::with_capacity(arg_tys.len() + 1);
         all_args.push((receiver, receiver_ty));
         all_args.extend(arg_tys);
-        self.check_function_arguments(&function, &substitution, callee, &all_args, 1);
+        if matches!(all_args[0].1, TypeId::Reference { .. }) {
+            // Selection already checked the native member's target/capability.
+            // Keep its logical nominal call signature; only this argument check
+            // uses the admitted storage view, which executable facts revalidate.
+            let mut viewed = function.clone();
+            viewed.params[0].ty = all_args[0].1.clone();
+            self.check_function_arguments(&viewed, &substitution, callee, &all_args, 1);
+        } else {
+            self.check_function_arguments(&function, &substitution, callee, &all_args, 1);
+        }
         Some(self.record_callable_application(call_expr, &function, &substitution))
     }
 

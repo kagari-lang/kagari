@@ -17,8 +17,14 @@ fn scoped_reference_targets_forward_without_copy_or_capability_upgrade() {
             inspect(local)
         }
         fn forward_mut(value: RefMut<Player>) -> i32 { heal(value) }
+        fn read_mut(value: RefMut<Player>) -> i32 { inspect(value) }
+        fn narrowed(value: RefMut<Player>) -> i32 {
+            val shared: Ref<Player> = value;
+            inspect(shared)
+        }
         fn generic<T>(value: Ref<T>) -> i32 { 3 }
         fn apply(value: Ref<Player>) -> i32 { generic(value) }
+        fn apply_mut(value: RefMut<Player>) -> i32 { generic(value) }
     "#,
         ),
         catalog::shared().unwrap(),

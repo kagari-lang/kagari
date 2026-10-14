@@ -16,6 +16,7 @@ impl RemapDefinitions for NativeImport {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeImport {
+            receiver_access: self.receiver_access,
             result_adapter: self
                 .result_adapter
                 .as_ref()

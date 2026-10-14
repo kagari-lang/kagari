@@ -9,6 +9,7 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
         pub struct Player { pub var hp: i32 }
         pub fn inspect(value: Ref<Player>) -> i32 { 42 }
         pub fn forward(value: Ref<Player>) -> i32 { inspect(value) }
+        pub fn read_mut(value: RefMut<Player>) -> i32 { inspect(value) }
         pub fn tuple(value: Ref<Player>) -> (i32, i32) { inspect(value); (1, 2) }
     "#,
         None,

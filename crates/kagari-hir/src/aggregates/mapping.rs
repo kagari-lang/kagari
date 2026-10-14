@@ -59,6 +59,7 @@ impl RemapDefinitions for InherentMethodSignature {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InherentMethodSignature {
+            receiver_access: self.receiver_access,
             id: self.id.clone(),
             declaration: mapper.reference(&self.declaration)?,
             site: self.site.remap_definitions(mapper)?,

@@ -23,6 +23,7 @@ use kagari_types::{
         signature::GenericBoundRecord,
     },
     host_interface::wire::declarations::WireHostFunctionDeclaration,
+    reference::ReferenceAccess,
     ty::wire::WireType,
 };
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,7 @@ use serde::{Deserialize, Serialize};
 /// File-local NativeImport facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub struct NativeImportRecord {
+    receiver_access: Option<ReferenceAccess>,
     result_adapter: Option<NativeResultAdapterRecord>,
     generic: Option<GenericBodyRecord>,
     instance: ConcreteFunctionIdentityRecord,
@@ -52,6 +54,7 @@ impl NativeImportRecord {
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(Self {
+            receiver_access: value.receiver_access,
             result_adapter: value
                 .result_adapter
                 .as_ref()
@@ -96,6 +99,7 @@ impl NativeImportRecord {
     ) -> Result<NativeImport, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeImport {
+            receiver_access: self.receiver_access,
             result_adapter: self
                 .result_adapter
                 .map(|value| value.decode(decoding, cancel))

@@ -379,9 +379,13 @@ impl TypeId {
         }
     }
 
-    /// Only the outer collection access is weakened. Type arguments stay invariant.
+    /// Weaken outer storage/view access while retaining invariant target arguments.
     pub fn read_only_view(&self) -> Option<Self> {
         Some(match self {
+            Self::Reference { target, .. } => Self::Reference {
+                target: target.clone(),
+                access: ReferenceAccess::Shared,
+            },
             Self::Set(item, _) => Self::Set(item.clone(), ReadOnly),
             Self::Map { key, value, .. } => Self::Map {
                 key: key.clone(),
@@ -392,8 +396,23 @@ impl TypeId {
         })
     }
 
-    /// Checks mutable-to-readonly outer collection weakening without conflicting element/key/value types.
+    /// Check outer capability weakening without changing the target type.
     pub fn can_weaken_to(&self, target: &Self) -> bool {
+        if let (
+            Self::Reference {
+                access: ReferenceAccess::Mutable,
+                ..
+            },
+            Self::Reference {
+                access: ReferenceAccess::Shared,
+                ..
+            },
+        ) = (self, target)
+        {
+            return self
+                .read_only_view()
+                .is_some_and(|view| !view.conflicts_with(target));
+        }
         self.collection_access() == Some(Mutable)
             && target.collection_access() == Some(ReadOnly)
             && self

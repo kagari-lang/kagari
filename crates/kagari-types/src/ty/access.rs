@@ -1,10 +1,10 @@
-//! Concrete host Map/Set access and value-copy checks over semantic types.
+//! Outer storage/view capabilities and value-copy checks over semantic types.
 use crate::ty::{
     NominalTy, Ty,
     substitution::{MAX_TYPE_NODES, TypeSubstitution},
 };
 
-use crate::collection::CollectionAccess;
+use crate::{collection::CollectionAccess, reference::ReferenceAccess};
 use kagari_common::cancellation::CancellationToken;
 use std::collections::HashSet;
 
@@ -20,6 +20,10 @@ impl Ty {
     /// Ordinary trait relationships are independent of this concrete-family rule.
     pub fn read_only_view(&self) -> Option<Self> {
         Some(match self {
+            Self::Reference { target, .. } => Self::Reference {
+                target: target.clone(),
+                access: ReferenceAccess::Shared,
+            },
             Self::Set(item, _) => Self::Set(item.clone(), CollectionAccess::ReadOnly),
             Self::Map { key, value, .. } => Self::Map {
                 key: key.clone(),
@@ -31,6 +35,19 @@ impl Ty {
     }
 
     pub fn can_weaken_to(&self, target: &Self) -> bool {
+        if let (
+            Self::Reference {
+                target: source,
+                access: ReferenceAccess::Mutable,
+            },
+            Self::Reference {
+                target,
+                access: ReferenceAccess::Shared,
+            },
+        ) = (self, target)
+        {
+            return source == target;
+        }
         if self.collection_access() != Some(CollectionAccess::Mutable)
             || target.collection_access() != Some(CollectionAccess::ReadOnly)
         {

@@ -314,6 +314,7 @@ impl Fixture {
             dependencies: vec![ModuleRef::new(1)],
             constants: vec![ConstantOperand::I32(13)],
             native_imports: vec![NativeImport {
+                receiver_access: request[0].function.method_policy.receiver_access,
                 instance: ConcreteFunctionIdentity {
                     declaration: request[0].declaration,
                     arguments: vec![],

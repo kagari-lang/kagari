@@ -1009,6 +1009,23 @@ HR/RF contracts and cross-plan integration obligations are fulfilled.
 
 ### RF02 implementation decision: scoped semantic types
 
+Native and shared call applications now carry the receiver access copied from the
+original callable declaration. Their logical signature and entry identity remain
+nominal: `Player.inspect` still takes Player and selects the same binding. A caller
+may supply Ref<Player> or RefMut<Player> only when the installed declaration
+requires a permitted loan. MIR and source-free bytecode independently check the
+actual view target/capability before admitting its HostHandle transport; unknown
+host facts, other targets and capability upgrades do not satisfy this adaptation.
+Application linking checks the copied access against the original native
+declaration, including generic shared bodies. No Rust offsets or pointer facts are
+added to portable calls. Runtime scope/storage admission remains a separate gate.
+
+Outer RefMut-to-Ref weakening now uses the existing checked view coercion and
+access-flow owners. It preserves the exact target and never changes nested type
+arguments or supplies mutable capability to a shared view. Methods without explicit
+receiver access remain unavailable through host views; Rust trait implementations
+still require an explicit Kagari impl. Field-place operations remain RF02/RF04 work.
+
 Reference target/access facts use Ty::Reference and its HIR counterpart, with the
 existing bounded identity, substitution, wire and application validators. Ref and
 RefMut are ordinary NativeTypeConstructor declarations in core::host, exported by
@@ -1059,6 +1076,34 @@ Record actual commands, rationale, failures and unrun CI scope in the ledger.
 Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 ## Progress ledger
+
+### RF02 checkpoint: view member admission and call facts
+
+HIR member selection uses the target of a view only for an explicitly loan-capable
+native member. Applied calls keep their original nominal signature and common
+binding. NativeImport/SharedCall wire, remapping, constructor and linking owners
+carry/check the declaration's receiver access. Physical validators admit HostHandle
+transport only for that fact; MIR semantic registers and bytecode flow facts must
+independently establish its exact target/capability. Native backend support is not
+inferred from these records. Runtime access still rejects unavailable scope/storage.
+
+Selected checks passed: HIR forwarding with RefMut-to-Ref, narrowed local and generic
+inference; source-free reference target/storage/suspension corruptions; Opaque method
+execution with additional accepted view bodies after KBC round trip; generic native
+impl/local binders with a view call in a shared generic body; existing source-free
+closed shared application retention/release. A selected member test rejected
+shared-to-mutable calls, view access to an owned callback and inferred Rust trait
+exposure. Its artifact mutations rejected copied access corruption and a consistent
+shared parameter/ABI rewrite attempting the registered mutable call. Initial Clippy
+reported one collapsible conditional; it was repaired. Scoped contract/HIR/compiler/
+VM lib/native-boundary Clippy, structure, formatting and diff checks passed.
+
+RF02 remains open for field-place facts and execution admission; RF03-RF05 own
+external lending, projections and common callback transport. Changed development
+wire records invalidate old caches; affected tracked fixtures will be regenerated
+once at the combined adapter/field-contract checkpoint. No format identifier bump,
+compatibility reader or unsafe pointer is introduced. Projector Miri and exhaustive
+workspace/feature/backend/platform acceptance retain their RF/CI owners.
 
 ### RI03/RF02 checkpoint: common borrowed receiver binding
 

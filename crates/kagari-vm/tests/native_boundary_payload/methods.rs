@@ -1,5 +1,8 @@
 use super::PlayerState;
 use crate::{compile_program, native_boundary_functions::fixture};
+use kagari_bytecode::program::verify_program;
+use kagari_contract::types::PublicItem;
+use kagari_hir::analyze_source;
 use kagari_runtime::native::{
     binding::NativeResult,
     builder::ModuleBuilder,
@@ -12,8 +15,10 @@ use kagari_runtime::native::{
     types::{FunctionRef, Type, TypeRef},
     value_handle::ScriptValue,
 };
+use kagari_source::source::SourceFile;
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType};
+use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType, ty::Ty};
+use std::sync::Arc;
 
 trait HostDescribe {
     fn describe(&self) -> String;
@@ -36,6 +41,11 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
         .native_storage(NativeStorage::data::<PlayerState>())
         .unwrap();
     let player = declaration.finish().unwrap();
+    let mut other = module.define_type("Other").unwrap();
+    other
+        .native_storage(NativeStorage::data::<PlayerState>())
+        .unwrap();
+    other.finish().unwrap();
     let mut contract = module.define_trait("Describe").unwrap();
     contract
         .define_method(MethodDecl::instance("describe").returns(Type::scalar(BuiltinType::String)))
@@ -154,7 +164,83 @@ const SOURCE: &str = r#"
     struct ScriptPlayer {}
     impl Describe for ScriptPlayer { fn describe(self) -> String { "script" } }
     pub fn ordinary() -> String { ScriptPlayer {}.describe() }
+    pub fn scoped_inspect(player: Ref<Player>) -> String { player.inspect() }
+    pub fn scoped_damage(player: RefMut<Player>) -> i32 { player.damage(1) }
+    pub fn scoped_read_mut(player: RefMut<Player>) -> String { player.inspect() }
 "#;
+
+#[test]
+fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
+    let (module, _, _) = registration();
+    let mut providers = kagari_stdlib::catalog::shared().unwrap();
+    providers.push(Arc::new(module.to_declaration()));
+    for source in [
+        "fn reject(value: Ref<Player>) -> i32 { value.damage(1) }",
+        "fn reject(value: RefMut<Player>) -> i32 { value.echo::<i32>(1) }",
+        "fn need<T: Describe>(value: T) -> String { value.describe() } fn reject(value: Other) -> String { need(value) }",
+    ] {
+        let analysis = analyze_source(
+            &SourceFile::new(
+                "reject.kgr",
+                format!("use example::methods::{{Player, Other, Describe}}; {source}"),
+            ),
+            providers.clone(),
+        )
+        .unwrap();
+        assert!(!analysis.diagnostics().is_empty(), "{source}");
+    }
+
+    let program = compile_program(SOURCE, Some(&module));
+    let root = program.records().root.index();
+    let mut forged = program.records().clone();
+    let inspect = forged.modules[root]
+        .native_imports
+        .iter_mut()
+        .find(|import| {
+            program
+                .definitions()
+                .resolve(import.instance.declaration)
+                .unwrap()
+                .last()
+                .is_some_and(|part| part.name == "inspect")
+        })
+        .unwrap();
+    inspect.receiver_access = Some(ReferenceAccess::Mutable);
+    assert!(verify_program(&forged, program.definitions()).is_err());
+
+    let mut forged = program.records().clone();
+    let module = &mut forged.modules[root];
+    let damage = module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "scoped_damage")
+        .unwrap();
+    for ty in damage
+        .metadata
+        .semantic
+        .params
+        .values_mut()
+        .chain(damage.metadata.semantic.locals.values_mut())
+        .chain(damage.metadata.semantic.registers.values_mut())
+    {
+        if let Ty::Reference { access, .. } = ty {
+            *access = ReferenceAccess::Shared;
+        }
+    }
+    let abi = module
+        .public_items
+        .iter_mut()
+        .find_map(|item| match item {
+            PublicItem::Function(abi) if abi.name.ends_with("scoped_damage") => Some(abi),
+            _ => None,
+        })
+        .unwrap();
+    let Ty::Reference { access, .. } = &mut abi.params[0].ty else {
+        panic!("view parameter")
+    };
+    *access = ReferenceAccess::Shared;
+    assert!(verify_program(&forged, program.definitions()).is_err());
+}
 
 #[test]
 fn native_inherent_members_support_prepared_calls_and_method_parameters() {
@@ -280,6 +366,15 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
             // A second group has a different impl identity; authored receiver parameters
             // must be substituted without overwriting the method's own binders.
             implementation.inherent_impl(|methods| {
+                let state = methods.define_method(
+                    MethodDecl::instance("state")
+                        .receiver_access(ReferenceAccess::Shared)
+                        .returns(Type::i32()),
+                )?;
+                methods.bind(
+                    state,
+                    |_: &mut LoanContext<'_>, (state,): (&PlayerState,)| Ok(state.hp),
+                )?;
                 let exchange = methods.define_method(
                     MethodDecl::instance("exchange")
                         .parameter("value", element.ty())
@@ -317,6 +412,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
         use example::generic_methods::Holder;
         pub fn make() -> Holder<i32> { Holder::new::<i32>() }
         pub fn other() -> Holder<String> { Holder::new::<String>() }
+        pub fn scoped<T>(holder: Ref<Holder<T>>) -> i32 { holder.state() }
         pub fn evidence() -> String {
             val holder = make();
             val previous = holder.exchange(12);

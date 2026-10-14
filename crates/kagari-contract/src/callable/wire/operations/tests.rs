@@ -52,6 +52,7 @@ fn flat_operation_records_reject_invalid_tree_shapes_and_depth() {
         arguments: vec![],
     };
     let call = SharedCall {
+        receiver_access: None,
         instance: ConcreteFunctionIdentity {
             declaration: function,
             arguments: vec![],

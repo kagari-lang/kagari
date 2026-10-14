@@ -74,7 +74,7 @@ pub(crate) fn infer(
                     target: actual,
                     access: aa,
                 },
-            ) if ea == aa => {
+            ) if aa.permits(*ea) => {
                 pending.push((expected, actual));
             }
             (TypeId::NativeObject(expected), TypeId::NativeObject(actual))

@@ -1,4 +1,5 @@
 //! Access-flow validation runs after physical operand and layout validation.
+use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::numeric::NumericSignature;
 use kagari_contract::representation::builtin_representation;
@@ -12,6 +13,7 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
+    callable::receiver::accepts_view,
     operations::IterOp,
     standard::RuntimePrimitive as S,
     types::{PublicItem, inherent::executable_signature_matches},
@@ -19,6 +21,7 @@ use kagari_contract::{
 use kagari_types::{
     collection::CollectionAccess as Access,
     language::binding,
+    reference::ReferenceAccess,
     scalar::BuiltinType as B,
     ty::{NominalTy, Ty, access},
 };
@@ -52,6 +55,22 @@ fn flows(source: &Fact, target: &Ty) -> bool {
     match &source.ty {
         Some(source) => source == target || source.can_weaken_to(target),
         None => !target.contains_stored_reference(),
+    }
+}
+
+fn call_argument_flows(
+    source: &Fact,
+    target: &Ty,
+    receiver_access: Option<ReferenceAccess>,
+    physical: ValueType,
+) -> bool {
+    if receiver_access.is_some() && physical == ValueType::HostHandle {
+        source
+            .ty
+            .as_ref()
+            .is_some_and(|actual| accepts_view(receiver_access, target, actual))
+    } else {
+        flows(source, target)
     }
 }
 
@@ -766,8 +785,15 @@ pub(super) fn verify(
                             }
                         }
                         CallTarget::Shared { contract, .. } => {
-                            for (value, ty) in facts.iter().zip(&contract.signature.params) {
-                                if !flows(value, ty) {
+                            for (index, (value, ty)) in
+                                facts.iter().zip(&contract.signature.params).enumerate()
+                            {
+                                if !call_argument_flows(
+                                    value,
+                                    ty,
+                                    contract.receiver_access.filter(|_| index == 0),
+                                    function.metadata.registers[args[index].index()],
+                                ) {
                                     return Err(invalid());
                                 }
                             }
@@ -848,8 +874,15 @@ pub(super) fn verify(
                         }
                         CallTarget::Native(target) => {
                             let target = &module.native_imports[target.index()];
-                            for (value, parameter) in facts.iter().zip(&target.signature.params) {
-                                if !flows(value, parameter) {
+                            for (index, (value, parameter)) in
+                                facts.iter().zip(&target.signature.params).enumerate()
+                            {
+                                if !call_argument_flows(
+                                    value,
+                                    parameter,
+                                    target.receiver_access.filter(|_| index == 0),
+                                    function.metadata.registers[args[index].index()],
+                                ) {
                                     return Err(invalid());
                                 }
                             }

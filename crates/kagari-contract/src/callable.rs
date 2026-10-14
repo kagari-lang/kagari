@@ -3,6 +3,7 @@ pub mod adapter;
 pub mod construction;
 pub mod generic;
 pub mod interface;
+pub mod receiver;
 pub mod shared;
 pub mod witness;
 

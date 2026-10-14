@@ -121,6 +121,7 @@ impl InstancePlanner<'_> {
             )
             .map_err(|_| invalid())?;
         let import = NativeImport {
+            receiver_access: declared.function.method_policy.receiver_access,
             result_adapter: None,
             generic: (!parameters.is_empty()).then(|| GenericBody {
                 parameters,

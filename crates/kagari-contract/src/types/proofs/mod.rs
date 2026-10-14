@@ -106,6 +106,11 @@ impl<'a> ProofCatalog<'a> {
         self.contracts.get(declaration).copied()
     }
 
+    /// Resolve checked native declaration facts for a shared entry application.
+    pub fn native_declaration(&self, declaration: DefinitionId) -> Option<&'a NativeDeclaration> {
+        self.native_declarations.get(&declaration).copied()
+    }
+
     /// Check linked contracts in an immutable, already registered identity scope.
     ///
     /// Registration must collect implicit method, Host implementation and language

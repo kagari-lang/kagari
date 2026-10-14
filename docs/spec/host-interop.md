@@ -431,6 +431,14 @@ after application. Collection, Future and Task storage does not grant this paylo
 reference contract. Ordinary DTO values cannot implicitly become a Ref/RefMut.
 
 Direct view parameters and locals may be forwarded with their checked capability.
+An outer RefMut<T> may supply Ref<T> while retaining the same target; nested type
+arguments remain invariant. Explicitly loan-capable native inherent methods use
+the same registered member through Opaque, Ref and RefMut. Ordinary owned members
+do not acquire view support automatically. Call applications retain their logical
+nominal signature and carry checked required access for the actual storage view.
+MIR/source-free flow validates the target and capability; linking validates access
+against the original member declaration. This does not imply a Kagari trait impl
+for any view type or provide Rust access without an installed scope adapter.
 Views cannot be returned, captured, placed in owning fields/containers or retained
 across suspension; shared capability cannot upgrade to mutable capability. A
 function signature accepting a view is distinct from a function value capturing

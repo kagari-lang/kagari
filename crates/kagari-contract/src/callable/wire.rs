@@ -21,6 +21,7 @@ use kagari_types::{
         native::{NativeCallableRequirementRecord, SignatureRecord},
         signature::{GenericBoundRecord, GenericParamRecord},
     },
+    reference::ReferenceAccess,
     ty::wire::WireType,
 };
 use serde::{Deserialize, Serialize};
@@ -140,6 +141,7 @@ pub struct SharedCallRecord {
 
 #[derive(Serialize, Deserialize)]
 struct SharedCallEntryRecord {
+    receiver_access: Option<ReferenceAccess>,
     instance: ConcreteFunctionIdentityRecord,
     implementation: CallableImplementationRecord,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -192,6 +194,7 @@ impl SharedCallEntryRecord {
         check_cancel(cancel)?;
         Ok(Self {
             instance: ConcreteFunctionIdentityRecord::encode(&value.instance, encoding, cancel)?,
+            receiver_access: value.receiver_access,
             implementation: CallableImplementationRecord::encode(
                 &value.implementation,
                 encoding,
@@ -216,6 +219,7 @@ impl SharedCallEntryRecord {
     ) -> Result<SharedCall, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SharedCall {
+            receiver_access: self.receiver_access,
             instance: self.instance.decode(decoding, cancel)?,
             implementation: self.implementation.decode(decoding, cancel)?,
             arguments: self

@@ -3,6 +3,7 @@ use crate::native_import::callables::normalize_requirement;
 use crate::{
     callable::{
         generic::GenericBody,
+        receiver::access_valid,
         witness::{OperationWitness, required_operations},
     },
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
@@ -11,6 +12,7 @@ use kagari_common::{cancellation::CancellationToken, identity::table::Definition
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::verify::types_in_scope,
+    reference::ReferenceAccess,
     ty::{
         GenericBound, GenericParam, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -19,6 +21,8 @@ use kagari_types::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedCall {
+    /// Native declaration loan fact; script shared bodies never acquire it.
+    pub receiver_access: Option<ReferenceAccess>,
     pub instance: ConcreteFunctionIdentity,
     pub implementation: CallableImplementation,
     pub arguments: Vec<Ty>,
@@ -33,7 +37,17 @@ impl SharedCall {
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {
-        definitions.resolve(self.instance.declaration).is_ok()
+        access_valid(self.receiver_access, &self.signature.params)
+            && !self.signature.result.contains_stored_reference()
+            && self.signature.result.reference_position_valid()
+            && self
+                .signature
+                .params
+                .iter()
+                .all(Ty::reference_position_valid)
+            && (self.receiver_access.is_none()
+                || matches!(self.implementation, CallableImplementation::Native(_)))
+            && definitions.resolve(self.instance.declaration).is_ok()
             && self.instance.arguments.len() <= 4096
             && self.instance.arguments.iter().all(Ty::within_wire_limits)
             && !self.arguments.is_empty()
@@ -72,6 +86,17 @@ impl SharedCall {
         if !self.structurally_valid(parameters, cancel, definitions)
             || !body.valid(&self.instance, cancel, definitions)
             || body.parameters.len() != self.arguments.len()
+        {
+            return Ok(false);
+        }
+        if let CallableImplementation::Native(binding) = self.implementation
+            && catalog
+                .native_declaration(self.instance.declaration)
+                .is_none_or(|declaration| {
+                    declaration.function.implementation != CallableImplementation::Native(binding)
+                        || declaration.function.method_policy.receiver_access
+                            != self.receiver_access
+                })
         {
             return Ok(false);
         }

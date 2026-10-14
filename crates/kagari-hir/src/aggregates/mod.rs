@@ -23,6 +23,7 @@ use crate::{
 };
 use kagari_types::{
     language::{Protocol, role::LangRole},
+    reference::ReferenceAccess,
     visibility::Visibility,
 };
 use std::{
@@ -60,6 +61,8 @@ pub struct FieldSignature {
 /// A canonical inherent method, its receiver pattern and typed callable contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InherentMethodSignature {
+    /// Explicit native member's required Rust loan, independent of storage.
+    pub receiver_access: Option<ReferenceAccess>,
     /// Qualified source declaration address of the method function.
     pub id: SourceDeclRef,
     /// Canonical method definition identity.
@@ -425,6 +428,10 @@ impl AggregateCatalog {
                 self.inherent_methods.insert(
                     *declaration,
                     Arc::new(InherentMethodSignature {
+                        receiver_access: lowered
+                            .method_policies
+                            .get(&method.function)
+                            .and_then(|policy| policy.receiver_access),
                         id: SourceDeclRef {
                             unit: SourceUnit::of(lowered),
                             item: SourceItem::Function(method.function),

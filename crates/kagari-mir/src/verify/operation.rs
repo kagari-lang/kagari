@@ -7,6 +7,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
+    callable::receiver::accepts_view,
     contracts,
     contracts::{ContractError, RuntimeHelperKind},
     numeric::NumericSignature,
@@ -292,7 +293,21 @@ pub(super) fn verify(
                         found: args.len(),
                     }));
                 }
-                for (arg, param) in args.iter().zip(&call.signature.params) {
+                for (index, (arg, param)) in args.iter().zip(&call.signature.params).enumerate() {
+                    if index == 0
+                        && arg.ty == ValueType::HostHandle
+                        && call.receiver_access.is_some()
+                    {
+                        if !function
+                            .semantic
+                            .registers
+                            .get(&arg.temp.index())
+                            .is_some_and(|actual| accepts_view(call.receiver_access, param, actual))
+                        {
+                            return Err(context.error(Error::UnsupportedCall));
+                        }
+                        continue;
+                    }
                     context.expect(
                         arg.ty,
                         semantic_representation(param),
@@ -397,13 +412,29 @@ pub(super) fn verify(
                 &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
             )
             .map_err(contract)?,
-            CallTarget::Native(import) => contracts::verify_native_call(
-                dst.map(|v| v.ty),
-                import,
-                &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
-                context.definitions,
-            )
-            .map_err(contract)?,
+            CallTarget::Native(import) => {
+                if let Some(receiver) = args.first()
+                    && receiver.ty == ValueType::HostHandle
+                    && import.receiver_access.is_some()
+                    && !function
+                        .semantic
+                        .registers
+                        .get(&receiver.temp.index())
+                        .zip(import.signature.params.first())
+                        .is_some_and(|(actual, target)| {
+                            accepts_view(import.receiver_access, target, actual)
+                        })
+                {
+                    return Err(context.error(Error::UnsupportedCall));
+                }
+                contracts::verify_native_call(
+                    dst.map(|v| v.ty),
+                    import,
+                    &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
+                    context.definitions,
+                )
+                .map_err(contract)?;
+            }
 
             CallTarget::Value(_) | CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
                 return Err(context.error(Error::UnsupportedCall));
