@@ -1,3 +1,4 @@
+mod scoped;
 use super::PlayerState;
 use crate::{compile_program, native_boundary_functions::fixture};
 use kagari_bytecode::program::verify_program;
@@ -167,6 +168,10 @@ const SOURCE: &str = r#"
     pub fn scoped_inspect(player: Ref<Player>) -> String { player.inspect() }
     pub fn scoped_damage(player: RefMut<Player>) -> i32 { player.damage(1) }
     pub fn scoped_read_mut(player: RefMut<Player>) -> String { player.inspect() }
+    pub fn scoped_recurse(player: RefMut<Player>) -> i32 {
+        player.damage(1);
+        scoped_recurse(player)
+    }
 "#;
 
 #[test]
@@ -407,12 +412,13 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
         })
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use example::generic_methods::Holder;
         pub fn make() -> Holder<i32> { Holder::new::<i32>() }
         pub fn other() -> Holder<String> { Holder::new::<String>() }
         pub fn scoped<T>(holder: Ref<Holder<T>>) -> i32 { holder.state() }
+        pub fn external(holder: Ref<Holder<i32>>) -> i32 { scoped(holder) }
         pub fn evidence() -> String {
             val holder = make();
             val previous = holder.exchange(12);
@@ -456,6 +462,22 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
             .bind_method::<(i32, String), String>(&ty, "choose")
             .is_err()
     );
+    drop(cx);
+    drop(conversion);
+    let external = PlayerState {
+        hp: 17,
+        position: [0.0; 3],
+    };
+    vm.runtime_mut()
+        .with_host_scope(|scope| {
+            let view = scope.borrow(&ty, &external)?;
+            assert_eq!(
+                kagari_vm::vm::Vm::execute_scoped(scope, &owner, "external", &[view.value()])?,
+                kagari_runtime::value::Value::I32(17)
+            );
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]

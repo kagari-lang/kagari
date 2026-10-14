@@ -8,10 +8,13 @@ use crate::{
         binding::{NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari},
-        payload::Opaque,
         storage::NativePayload,
-        typed::NativeContext,
+        typed::{
+            NativeContext,
+            loan_arguments::{LoanArguments, LoanReceiver},
+        },
     },
+    value::Value,
 };
 use kagari_types::{declaration::FnDecl, reference::ReferenceAccess, ty::Ty};
 use std::marker::PhantomData;
@@ -78,8 +81,30 @@ pub(super) fn check_receiver_storage(
     cx: &NativeContext<'_>,
     access: Option<ReferenceAccess>,
     types: &[TypeArgument],
+    values: &[Value],
 ) -> NativeResult<()> {
     if access == Some(ReferenceAccess::Mutable) {
+        if values
+            .first()
+            .is_some_and(|value| matches!(value, Value::Ephemeral(_)))
+        {
+            // External storage is owned by the host, so the runtime-owned data
+            // edit flag does not govern it. Its installed Rust mapping, target,
+            // scope and mutable capability are checked before converters below.
+            let view = cx.runtime().scoped_view(&values[0])?;
+            if !cx.runtime().host_borrows.scoped_matches(
+                cx.runtime(),
+                view,
+                &types[0],
+                ReferenceAccess::Mutable,
+                cx.conversion.owner(),
+            ) {
+                return Err(RuntimeError::module_validation(
+                    "mutable external receiver capability",
+                ));
+            }
+            return Ok(());
+        }
         let Some(Ty::NativeObject(nominal)) = types.first().map(TypeArgument::ty) else {
             return Err(RuntimeError::module_validation(
                 "unsupported mutable receiver storage",
@@ -112,12 +137,16 @@ macro_rules! receiver_adapters {
         {
             fn prepare(self, declaration: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
                 check_receiver(declaration, ReferenceAccess::Shared, 1 + $count)?;
-                let mut binding = NativeBinding::contextual_method(
+                let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
-                    move |cx: &mut NativeContext<'_>, receiver: Opaque<T>, arguments: ($($argument,)*)| {
+                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), false>| {
                         let ($($value,)*) = arguments;
                         let mut loan = LoanContext { runtime: cx.runtime() };
-                        receiver.read(cx, |payload| self(&mut loan, (payload, $($value,)*)))
+                        match receiver {
+                            LoanReceiver::Opaque(receiver) => receiver.read(cx, |payload| self(&mut loan, (payload, $($value,)*))),
+                            LoanReceiver::External(view) => cx.runtime().host_borrows.read_scoped(cx.runtime(), view,
+                                |payload| self(&mut loan, (payload, $($value,)*))),
+                        }
                     },
                 );
                 binding.receiver_access = Some(ReferenceAccess::Shared);
@@ -135,12 +164,16 @@ macro_rules! receiver_adapters {
         {
             fn prepare(self, declaration: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
                 check_receiver(declaration, ReferenceAccess::Mutable, 1 + $count)?;
-                let mut binding = NativeBinding::contextual_method(
+                let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
-                    move |cx: &mut NativeContext<'_>, receiver: Opaque<T>, arguments: ($($argument,)*)| {
+                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), true>| {
                         let ($($value,)*) = arguments;
                         let mut loan = LoanContext { runtime: cx.runtime() };
-                        receiver.edit_checked(cx, |payload| self(&mut loan, (payload, $($value,)*)))
+                        match receiver {
+                            LoanReceiver::Opaque(receiver) => receiver.edit_checked(cx, |payload| self(&mut loan, (payload, $($value,)*))),
+                            LoanReceiver::External(view) => cx.runtime().host_borrows.edit_scoped(cx.runtime(), view,
+                                |payload| self(&mut loan, (payload, $($value,)*))),
+                        }
                     },
                 );
                 binding.receiver_access = Some(ReferenceAccess::Mutable);

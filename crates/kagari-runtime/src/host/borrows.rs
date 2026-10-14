@@ -10,6 +10,34 @@ use crate::{
     value::Value,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum BorrowObjectKey {
+    Installed(HostObjectId),
+    External(HostObjectId),
+}
+
+impl FrameBorrowRecord {
+    fn object_key(self) -> BorrowObjectKey {
+        if self.type_id.is_some() {
+            BorrowObjectKey::Installed(self.object_id)
+        } else {
+            BorrowObjectKey::External(self.object_id)
+        }
+    }
+
+    fn from_token(token: FrameHostBorrowToken) -> Self {
+        Self {
+            object_id: token.object_id,
+            borrow_kind: token.borrow_kind,
+            type_id: Some(token.type_id),
+        }
+    }
+
+    fn matches(self, token: FrameHostBorrowToken) -> bool {
+        self == Self::from_token(token)
+    }
+}
+
 impl HostBorrowTable {
     pub fn enter_frame(&self) -> Result<HostCallGuard<'_>, RuntimeError> {
         self.enter_frame_in(None)
@@ -44,6 +72,7 @@ impl HostBorrowTable {
             ActiveBorrowFrame {
                 epoch,
                 borrows: Vec::new(),
+                roots: Vec::new(),
             },
         );
         Ok(HostCallGuard {
@@ -114,6 +143,34 @@ impl HostBorrowTable {
         borrow_kind: HostBorrowKind,
         type_id: TypeId,
     ) -> Result<FrameHostBorrowToken, RuntimeError> {
+        self.borrow_record(
+            frame,
+            FrameBorrowRecord {
+                object_id,
+                borrow_kind,
+                type_id: Some(type_id),
+            },
+        )?;
+        Ok(FrameHostBorrowToken::new(
+            self.owner,
+            frame.frame_id,
+            object_id,
+            borrow_kind,
+            type_id,
+            frame.epoch,
+        ))
+    }
+
+    pub(super) fn borrow_record(
+        &self,
+        frame: &HostCallGuard<'_>,
+        record: FrameBorrowRecord,
+    ) -> Result<(), RuntimeError> {
+        let FrameBorrowRecord {
+            object_id,
+            borrow_kind,
+            ..
+        } = record;
         let HostCallGuard {
             frame_id,
             epoch,
@@ -148,7 +205,7 @@ impl HostBorrowTable {
             .object_borrows
             .try_reserve(1)
             .map_err(|_| capacity_error(resources))?;
-        let object_state = state.object_borrows.entry(object_id).or_default();
+        let object_state = state.object_borrows.entry(record.object_key()).or_default();
         match borrow_kind {
             HostBorrowKind::Shared if object_state.unique_count > 0 => {
                 return Err(RuntimeError::host_borrow_conflict(format!(
@@ -175,15 +232,13 @@ impl HostBorrowTable {
             }
         }
 
-        let token =
-            FrameHostBorrowToken::new(self.owner, frame_id, object_id, borrow_kind, type_id, epoch);
         state
             .active_frames
             .get_mut(&frame_id)
             .expect("checked active host borrow frame before recording token")
             .borrows
-            .push(FrameBorrowRecord::from_token(token));
-        Ok(token)
+            .push(record);
+        Ok(())
     }
 
     pub(super) fn leave_frame(
@@ -203,7 +258,7 @@ impl HostBorrowTable {
 
         for record in frame.borrows {
             let mut remove_object = false;
-            if let Some(object_state) = state.object_borrows.get_mut(&record.object_id) {
+            if let Some(object_state) = state.object_borrows.get_mut(&record.object_key()) {
                 match record.borrow_kind {
                     HostBorrowKind::Shared => {
                         object_state.shared_count =
@@ -225,7 +280,7 @@ impl HostBorrowTable {
                 invariant(resources, "host object borrow disappeared during cleanup");
             }
             if remove_object {
-                state.object_borrows.remove(&record.object_id);
+                state.object_borrows.remove(&record.object_key());
             }
         }
     }

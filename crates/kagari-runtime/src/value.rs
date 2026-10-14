@@ -1,6 +1,6 @@
 use crate::{
     gc::{GcHeap, HeapObjectId},
-    host::{FrameHostBorrowToken, HostRegistryId},
+    host::{FrameHostBorrowToken, HostRegistryId, scoped::ScopedHostView},
     module::EnumVariantRef,
 };
 use kagari_abi::representation::ValueType;
@@ -84,6 +84,7 @@ pub enum EphemeralValue {
     HostRef(FrameHostBorrowToken),
     HostMut(FrameHostBorrowToken),
     Runtime(EphemeralValueId),
+    HostView(ScopedHostView),
 }
 
 /// Prepared, immutable key. The original value is retained and traced by the heap.

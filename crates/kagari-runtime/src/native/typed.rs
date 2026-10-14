@@ -1,4 +1,5 @@
 //! Concrete Rust callbacks share the checked conversion boundary with host access.
+mod loan_arguments;
 pub mod loans;
 mod receiver;
 use crate::{
@@ -152,7 +153,12 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
         values.push(call.argument(slot)?);
     }
     A::check_types(&context.conversion, types)?;
-    loans::check_receiver_storage(&context, call.function.binding.receiver_access, types)?;
+    loans::check_receiver_storage(
+        &context,
+        call.function.binding.receiver_access,
+        types,
+        &values,
+    )?;
     // Keep the complete pack through result conversion as well as decoding and
     // payload access. A loan ends before the result's first allocation/safepoint.
     let roots = context

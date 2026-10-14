@@ -256,6 +256,7 @@ fn contains_nominal_layout(ty: &Ty) -> bool {
                 pending.extend(ty.associated_types.values());
             }
             Ty::Array(ty) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
+            Ty::Reference { target, .. } => pending.push(target),
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             _ => {}
         }
@@ -403,6 +404,14 @@ impl Runtime {
         let Some(view) = view.normalized() else {
             return false;
         };
+        if let Ty::Reference { access, .. } = view.ty {
+            return self.scoped_view(value).ok().is_some_and(|actual| {
+                view.reference_target().is_some_and(|target| {
+                    self.host_borrows
+                        .scoped_matches_view(actual, target, *access)
+                })
+            });
+        }
         if let (Value::Tuple(id), Ty::Tuple(types)) = (value, view.ty) {
             let Some(values) = self.gc.tuple(*id) else {
                 return false;

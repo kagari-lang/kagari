@@ -7,6 +7,7 @@ use crate::{
     value::{EphemeralValue, Value},
 };
 use std::cell::RefCell;
+pub mod scoped;
 
 /// Scoped leases into runtime-owned borrow and root tables.
 /// The guard unregisters its identity and releases leases before leaving the session.
@@ -112,6 +113,9 @@ impl<'a> HostResourceScope<'a> {
                         .runtime
                         .validate_host_borrow(token, HostBorrowKind::Unique)?,
                     EphemeralValue::Runtime(_) => {}
+                    EphemeralValue::HostView(view) => {
+                        self.runtime.host_borrows.validate_scoped(view)?
+                    }
                 },
                 _ => {}
             }

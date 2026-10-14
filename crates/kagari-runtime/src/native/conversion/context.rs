@@ -307,7 +307,11 @@ impl<'runtime> ConversionContext<'runtime> {
         convert(&mut frame)
     }
 
-    pub(crate) fn check_value(&self, expected: &TypeArgument, value: &Value) -> NativeResult<()> {
+    /// Validate a raw boundary value against its checked type and supplying
+    /// generation. External references additionally require a live scope and
+    /// sufficient access capability; this never dereferences their Rust storage.
+    pub fn check_value(&self, expected: &TypeArgument, value: &Value) -> NativeResult<()> {
+        expected.validate(self.runtime)?;
         if !expected.matches(self.runtime, value, self.owner) {
             return Err(RuntimeError::module_validation(
                 "converted value differs from its declaration",

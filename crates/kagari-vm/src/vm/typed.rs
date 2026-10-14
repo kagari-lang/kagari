@@ -1,21 +1,67 @@
 //! Typed entry conversion uses checked semantic facts from the installed product.
 use crate::{
     error::VmError,
-    executor::{Executor, native::invoke_script},
+    executor::{
+        Executor,
+        native::{invoke_script, native_error},
+    },
     vm::Vm,
 };
 use kagari_runtime::{
     error::RuntimeError,
+    host_scope::scoped::HostScope,
     module::{LoadedModule, entry::ProgramEntry},
     native::{
+        binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
         function_handle::PinnedFunction,
         typed::NativeContext,
     },
+    value::Value,
 };
 use std::slice;
 
 impl Vm {
+    /// Execute a closed public entry using a branded external host scope. This
+    /// uses the interpreter's ordinary checked entry, session and trap cleanup.
+    pub fn execute_scoped<'entry>(
+        scope: &HostScope<'_, '_>,
+        module: &LoadedModule,
+        entry: impl Into<ProgramEntry<'entry>>,
+        arguments: &[Value],
+    ) -> NativeResult<Value> {
+        let entry = entry.into();
+        let (owner, function) = entry
+            .resolve(module)
+            .ok_or_else(|| RuntimeError::module_validation("missing scoped entry"))?;
+        scope.execute(arguments, |runtime, arguments| {
+            runtime.validate_loaded_module(&owner)?;
+            let body = &owner.bytecode.functions[function.index()];
+            let semantic = &body.metadata.semantic;
+            if semantic.generic.is_some() || arguments.len() != usize::from(body.parameter_count) {
+                return Err(RuntimeError::module_validation(
+                    "scoped entry requires a closed signature and exact argument count",
+                ));
+            }
+            let parameters = (0..arguments.len())
+                .map(|index| {
+                    semantic.params.get(&index).cloned().ok_or_else(|| {
+                        RuntimeError::module_validation("missing scoped parameter type")
+                    })
+                })
+                .collect::<NativeResult<Vec<_>>>()?;
+            let parameters = runtime.resolve_type_arguments(&owner, &parameters)?;
+            let conversion = ConversionContext::new(runtime, &owner)?;
+            for (expected, value) in parameters.iter().zip(arguments) {
+                conversion.check_value(expected, value)?;
+            }
+            let _session = runtime.begin_execution(&owner, runtime.execution_options())?;
+            Executor::new(runtime, &owner, function, arguments)
+                .and_then(|mut executor| executor.run())
+                .map_err(native_error)
+        })
+    }
+
     /// Access and call typed handles with the interpreter's synchronous service.
     pub fn context<'a>(&'a self, owner: &'a LoadedModule) -> Result<NativeContext<'a>, VmError> {
         NativeContext::with_invoker(&self.runtime, owner, invoke_script).map_err(VmError::from)

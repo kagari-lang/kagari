@@ -1,10 +1,12 @@
 mod borrows;
 mod registry;
+pub mod scoped;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     gc::GcHeap,
+    host::borrows::BorrowObjectKey,
     host_scope::HostResourceScope,
     metadata::{AbiFingerprint, FieldMetadataId, TypeId},
     numeric,
@@ -721,27 +723,14 @@ impl FrameHostBorrowToken {
 struct FrameBorrowRecord {
     object_id: HostObjectId,
     borrow_kind: HostBorrowKind,
-    type_id: TypeId,
-}
-
-impl FrameBorrowRecord {
-    fn from_token(token: FrameHostBorrowToken) -> Self {
-        Self {
-            object_id: token.object_id,
-            borrow_kind: token.borrow_kind,
-            type_id: token.type_id,
-        }
-    }
-
-    fn matches(self, token: FrameHostBorrowToken) -> bool {
-        self == Self::from_token(token)
-    }
+    type_id: Option<TypeId>,
 }
 
 #[derive(Debug)]
 struct ActiveBorrowFrame {
     epoch: BorrowEpoch,
     borrows: Vec<FrameBorrowRecord>,
+    roots: Vec<scoped::ScopedRoot>,
 }
 
 #[derive(Debug, Default)]
@@ -761,7 +750,7 @@ struct HostBorrowState {
     next_frame_id: u64,
     next_epoch: u64,
     active_frames: HashMap<HostFrameId, ActiveBorrowFrame>,
-    object_borrows: HashMap<HostObjectId, ObjectBorrowState>,
+    object_borrows: HashMap<BorrowObjectKey, ObjectBorrowState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

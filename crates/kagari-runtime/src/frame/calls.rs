@@ -170,7 +170,18 @@ impl ExecutionStack<'_> {
                         environment
                             .as_ref()
                             .map(|environment| environment.types.as_ref()),
-                    )
+                    ) || (index == 0
+                        && contract.receiver_access.is_some_and(|access| {
+                            runtime.matches_scoped_receiver(
+                                value,
+                                &contract.signature.params[index],
+                                &owner,
+                                environment
+                                    .as_ref()
+                                    .map(|environment| environment.types.as_ref()),
+                                access,
+                            )
+                        }))
                 })?
             {
                 return Err(RuntimeError::module_validation("invalid shared call entry"));

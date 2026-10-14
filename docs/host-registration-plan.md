@@ -1077,6 +1077,68 @@ Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 ## Progress ledger
 
+### RF03 checkpoint: branded external roots and whole-object methods
+
+`Runtime::with_host_scope` now owns a fresh invariant brand, exclusive runtime
+reservation and the existing HostResourceScope guard. Its borrow/borrow_mut APIs
+use installed NativeType<T> descriptors and retain the original Rust loan until
+scope exit. HostBorrowTable's active frames hold the scoped Rust address, exact
+Rust type, applied target, retained program and access. Ephemeral GC headers carry
+only inert owner/frame/epoch/object/access identities. The existing object counts
+and frame cleanup own active loans; installed and external identity domains avoid
+collisions with user-assigned legacy root numbers. No additional callable registry
+or execution engine is introduced.
+
+The lifetime-aware receiver adapter now decodes an Opaque root or scoped capability
+under one checked argument pack, completes owned conversions before lending, and
+uses the same callback/result boundary. External storage does not use the Opaque
+data-edit flag; exact installed Rust mapping and exclusive host reservation still
+apply. Whole-object read/edit helpers enforce nested conflicts and release on
+error/unwind. The VM scoped entry validates closed concrete parameters, uses its
+ordinary interpreter/session and rejects ephemeral results. Field place facts,
+ordinary Struct lending, multi-loan packs and SDK context/backends remain RF02/RI04/
+RF04/RF05 integration work; the RF03 checklist remains open for that integration
+gate. The current NativePayload bound on external lending is an intermediate
+dependency on NativeType's checked descriptor, not a requirement that host-owned
+DTOs become GC payloads. RI04/RF04 must supply the checked ordinary Struct/Rust
+mapping descriptor and lift that external bound at the common loan owner; RF05
+is its removal checkpoint. No duplicate nominal declaration is permitted to work
+around this gap.
+
+Selected local evidence: VM external methods after KBC round trip with GC threshold
+one; RefMut-to-shared method use; shared-to-mutable, stale and foreign rejection;
+nested shared/exclusive conflicts; retained completed writes and loan/scope unwind
+cleanup. The existing generic native impl fixture now executes view forwarding
+through both script and native shared bodies. It initially failed because bounded
+compiler instantiation did not descend into Reference; adding that existing type
+owner's child traversal and checked shared receiver admission resolved it. Initial
+string inspection needed dereferencing its GC Ref guard. All five other selected
+payload-method cases passed; the repaired generic case passed separately. Final
+scope cleanup case passed after its additional unwind coverage. Production scope
+escape/root reaccess/runtime transfer/thread transfer/loan escape doctests passed.
+Its final selection also passes real synchronous shared reentry, rejects mutable
+reentry into an active root loan, preserves completed writes across recursive depth
+exhaustion, releases execution state after cancellation and permits a healthy call
+afterward. The depth assertion initially used the wrong error variant spelling;
+corrected to ResourceLimitExceeded. Scoped runtime/VM Clippy and structure/format/
+diff checks passed. Borrow record/key
+logic moved to host/borrows.rs when the host facade exceeded its LOC limit; no
+exception was added. Scoped example Clippy passed; supported-runner Miri is tracked below.
+
+`cargo run -p kagari --example scoped_host` passed, printing
+`owned hp=70, borrowed hp=70`. The example registers heal/inspect once and executes
+them through Opaque, RefMut and shared script access to that mutable view. It uses
+the current interpreter API directly; SDK convenience and explicit context routing
+remain RF05-owned.
+
+Focused Miri command started on aarch64-apple-darwin with
+nightly-2026-07-27 (rustc 1.99.0-nightly dc3f85158), installed Miri, default workspace
+profile/parallelism and default interpreter flags:
+`cargo +nightly-2026-07-27 miri test -p kagari-vm --test native_boundary external_scopes_use_registered_payload_methods -- --nocapture`.
+The selected test is still running; no passing Miri result is claimed. This covers
+the real whole-object pointer/loan boundary. Generated field projector Miri and
+exhaustive workspace/feature/backend/platform acceptance remain RF04/RF06/CI-owned.
+
 ### RF02 checkpoint: view member admission and call facts
 
 HIR member selection uses the target of a view only for an explicitly loan-capable

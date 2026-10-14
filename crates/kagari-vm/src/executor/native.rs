@@ -39,7 +39,7 @@ pub(crate) fn invoke_script(
     Executor { runtime, stack }.run().map_err(native_error)
 }
 
-fn native_error(error: VmError) -> RuntimeError {
+pub(crate) fn native_error(error: VmError) -> RuntimeError {
     match error {
         VmError::Traced { error, trace } => native_error(*error).with_trace(trace),
         VmError::RuntimeError(error) => error,

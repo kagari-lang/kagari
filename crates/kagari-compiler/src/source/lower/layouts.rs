@@ -303,9 +303,11 @@ pub(super) fn collect(
                 pending.extend(params.into_iter().map(|ty| (ty, span)));
                 pending.push_back((*result, span));
             }
-            TypeId::Array(ty) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
-                pending.push_back((*ty, span))
-            }
+            TypeId::Array(ty)
+            | TypeId::Set(ty, _)
+            | TypeId::Iter(ty)
+            | TypeId::Range(ty, _)
+            | TypeId::Reference { target: ty, .. } => pending.push_back((*ty, span)),
             TypeId::Map { key, value, .. } => {
                 pending.push_back((*key, span));
                 pending.push_back((*value, span));

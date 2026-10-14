@@ -67,6 +67,21 @@ impl<'a> TypeView<'a> {
         })
     }
 
+    pub(crate) fn reference_target(self) -> Option<Self> {
+        let view = self.normalized()?;
+        let Ty::Reference { target, .. } = view.ty else {
+            return None;
+        };
+        Some(Self {
+            ty: target,
+            prepared: view.prepared.and_then(|ty| match ty {
+                Ty::Reference { target, .. } => Some(target.as_ref()),
+                _ => None,
+            }),
+            ..view
+        })
+    }
+
     fn child(self, ty: &'a Ty) -> Self {
         // An arbitrary lexical child has no parallel closed operand. Inherit
         // evidence only when the source itself is the checked closed tree.
@@ -386,6 +401,7 @@ fn children_match<'a>(
         }
         (Ty::Tuple(a), Ty::Tuple(b)) => a.iter().zip(b).all(|(a, b)| test(a, b)),
         (Ty::Array(a), Ty::Array(b))
+        | (Ty::Reference { target: a, .. }, Ty::Reference { target: b, .. })
         | (Ty::Set(a, _), Ty::Set(b, _))
         | (Ty::Iter(a), Ty::Iter(b))
         | (Ty::Range(a, _), Ty::Range(b, _)) => test(a, b),

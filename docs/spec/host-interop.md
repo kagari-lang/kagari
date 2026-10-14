@@ -446,6 +446,29 @@ one. Source-free verification checks targets, positions, flows and suspension
 independently. A valid schema/signature alone does not grant runtime Rust access:
 installed scope, target, owner/generation and loan capabilities are also required.
 
+The runtime entry `Runtime::with_host_scope` reserves the runtime exclusively and
+supplies a fresh invariant `HostScope`. `scope.borrow(&native_type, &host_value)`
+and `borrow_mut` lend external storage without copying or taking ownership. The
+current whole-object adapter uses an installed `NativeType<T>` descriptor; ordinary
+struct descriptors and field projections are completed by the combined RF/RI work.
+The original host loan lasts until scope exit even if its branded view is dropped.
+Scope/view values cannot transfer between threads. Execution stays within the scope;
+the interpreter's `Vm::execute_scoped` uses the ordinary checked public entry and
+validates its concrete parameter types before execution.
+
+External addresses live in the existing host borrow frame owner. GC view headers
+contain only owner/frame/epoch/object/access identities, never an address. Rust
+payload type and nominal target checks precede access. Compatible shared loans may
+nest; any overlapping loan involving a writer fails. Reservation and an active
+native loan are distinct: lending a mutable root does not block its later methods.
+The same loan-capable binding decodes owned arguments first, selects runtime-owned
+or external storage, lends the receiver, and releases that loan before converting
+the owned result. External edits do not need the runtime-owned data edit flag,
+because their memory/accounting belongs to the host. Opaque edits retain that flag.
+Errors and supported Rust unwind release loans while preserving completed writes.
+Scope exit removes all external root records and revokes every old view identity;
+retaining a naked script Value does not extend its Rust lifetime or permit access.
+
 Borrowed host values are the important case for low-copy interop.
 
 Model:
