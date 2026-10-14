@@ -126,7 +126,14 @@ impl CraneliftBackendError {
 
 fn host_isa(infer_native: bool) -> Result<Arc<dyn TargetIsa>, CraneliftBackendError> {
     let mut flags = settings::builder();
-    for (name, value) in [("use_colocated_libcalls", "false"), ("is_pic", "true")] {
+    // JITModule permits PIC only on x86_64. This factory selects the build host;
+    // the current Windows x86_64 AOT subset also retains its required PIC setting.
+    let pic = if cfg!(target_arch = "x86_64") {
+        "true"
+    } else {
+        "false"
+    };
+    for (name, value) in [("use_colocated_libcalls", "false"), ("is_pic", pic)] {
         flags
             .set(name, value)
             .map_err(|error| CraneliftBackendError {

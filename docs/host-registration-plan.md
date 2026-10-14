@@ -1091,6 +1091,16 @@ No unsafe projection exists in this slice; projector Miri remains RF04/RF06-owne
 RF02 and RI03 remain open for reference receivers, place/execution contracts and
 the shared borrowed adapters; HR02's live-host migration still depends on them.
 
+### RF02 integration follow-up: host ISA configuration
+
+Host ISA construction now enables PIC only on x86_64, as required by the installed
+Cranelift JIT. The existing Windows x86_64 AOT subset keeps its PIC setting. The
+previously failing unsupported-input test (including reference input rejection)
+and the selected cross-thread finalized-code/runtime execution and release test
+both passed on aarch64-apple-darwin. Scoped Cranelift lib Clippy, structure,
+formatting and diff checks passed. This resolves the carried local configuration
+failure; exhaustive platform/backend coverage remains CI-owned.
+
 ### HR01/RF01 inventory and API proof (2026-10-15)
 
 Baseline `c54001c5` had a clean workspace. Inventory confirms that storage,
