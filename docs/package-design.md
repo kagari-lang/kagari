@@ -1,6 +1,6 @@
 # Package and Dependency Design
 
-Status: proposal for later implementation. Kagari needs a package boundary for
+Status: active implementation, PK00-PK04 authorized on 2026-10-14. Kagari needs a package boundary for
 source organization, imports, dependencies and reproducible builds, without making
 package distribution or filesystem access part of VM execution. This design uses
 Cargo-style dependency declarations and separates package resolution from runtime
@@ -11,10 +11,10 @@ The user approved adopting the Rust/Cargo rules explicitly listed below as the
 baseline. Source distribution with joint compilation, one root module per package
 with multiple callable exports, workspace management, and the toolchain/Rust
 distribution names are confirmed design decisions. Kagari-specific differences and
-remaining implementation contracts are identified separately. Manifest filenames,
-initial acquisition sources and the per-Program version restriction remain the
-recommendations listed under review choices. These are design contracts, not
-implemented features; recording them does not activate code changes or publication.
+implementation contracts are recorded below. The initial delivery uses `Kagari.toml`,
+`Kagari.lock`, `src/lib.kgr`, local paths and explicitly supplied host packages. Each
+Program admits one selection per logical family. The progress ledger distinguishes
+implemented inputs from pending compiler/runtime integration; publication is not authorized.
 
 ## Current foundation
 
@@ -198,7 +198,7 @@ these detailed mode policies and their implementation sequence remain queued.
 
 ## Manifest and dependency declarations
 
-Proposed filenames are `Kagari.toml` and `Kagari.lock`. The shape borrows Cargo's
+The manifest and lock filenames are `Kagari.toml` and `Kagari.lock`. The shape borrows Cargo's
 package metadata and dependency tables; exact compatibility with Cargo files is not
 promised. Cargo supports registry/version, path and Git dependencies, including
 dependency renaming. These inform the declaration model, not VM loading behavior.
@@ -235,10 +235,13 @@ an exact revision before building. For implemented source kinds, follow document
 Cargo-style version requirement semantics rather than inventing a similar-looking
 but different range language. Unsupported source kinds must fail clearly.
 
-Recommended first delivery: path dependencies and host-supplied resolved packages,
+Initial delivery: path dependencies and host-supplied resolved packages,
 with a lock/graph contract capable of carrying future Git/registry selections.
 Remote fetching, registry publication and a full multi-version solver can follow.
-This staging is a review choice, not a claim that Cargo only supports these features.
+This staging does not imply that Cargo only supports these features. A host dependency
+uses `{ package = "service-api", host = "approved/service", version = "2" }`; the key
+must occur in the caller-supplied immutable input collection. Version constraints
+validate supplied inputs; they do not initiate remote lookup.
 
 ## Workspaces
 
@@ -324,7 +327,7 @@ remain outside that Program's semantic environment.
 
 Exact selected-package nodes and dependency edges preserve distinct revisions when
 present in the graph. Extract each selected root's closure before applying the
-proposed single-revision-per-family restriction. The workspace-wide graph may hold
+single-revision-per-family restriction. The workspace-wide graph may hold
 several revisions used by disjoint Program closures; this does not enable multiple
 revisions within one Program or implement a remote version solver. See
 [Cargo resolution](https://doc.rust-lang.org/cargo/reference/resolver.html) for the
@@ -367,7 +370,7 @@ Deployment publishes the exact resolved graph and build fingerprints, not just a
 manifest with version ranges. Hashes establish integrity/cache identity, not trust
 or authorization to install Native implementations.
 
-Proposed first-version restriction: select one revision of each canonical package
+Initial restriction: select one revision of each canonical package
 family per Program graph and reject conflicting requirements with a dependency
 chain diagnostic. Supporting simultaneous versions is a later resolver/type-identity
 extension. This restriction does not forbid old and new runtime generations from
@@ -552,9 +555,8 @@ confirmed. Implement their stated rules rather than reopening Rust/Cargo default
 Multiple executable targets and independent package binary distribution/linking
 remain outside scope.
 
-Remaining recommendations to settle at PK00 are manifest filenames/default root
-path, initial path/virtual acquisition support and the single-revision-per-family
-restriction within each Program. Ordinary package dependency cycles are rejected;
+The initial filenames, default root, local/host acquisition subset and
+single-selection-per-family Program restriction are frozen below. Ordinary package dependency cycles are rejected;
 existing legal module cycles within a package remain supported. Adding `pub(crate)`
 is part of the adopted visibility subset.
 
@@ -572,7 +574,7 @@ members through the existing SDK/compiler/runtime boundaries. REPL, formatting,
 optional lint commands, SDK/package renaming and functional publication retain their
 separate queued scope; do not pull them into PK03 through generic "CLI integration".
 
-- [ ] PK00: Freeze the Kagari-specific contracts above and remaining initial subset
+- [x] PK00: Freeze the Kagari-specific contracts above and remaining initial subset
   choices. Map existing nonempty-root, global-alias and import-closure consumers;
   select focused tests and artifact changes. Exit with concrete input/export models,
   migration owners and acceptance examples, not just a manifest sketch.
@@ -593,6 +595,96 @@ separate queued scope; do not pull them into PK03 through generic "CLI integrati
 - [ ] PK04: Update specifications/examples and close the selected package/workspace
   acceptance cases. Leave the full feature/backend matrix to CI. Do not mark
   unexecuted CI acceptance complete; remote providers remain separate scope.
+
+## PK00 frozen contracts and migration owners
+
+The user selected a source namespace declared at the project root, also supplyable
+by a host. A standalone root uses `package.namespace`; a workspace root uses
+`workspace.namespace`. Supplying both host and manifest values requires equality.
+Member packages inherit the root namespace and do not establish new namespaces.
+An external independent acquisition root supplies its own namespace. There is no
+fallback to cwd, an absolute checkout path, random process ID or display name.
+
+`PackageFamily { namespace, directory, name }` owns portable identity. `directory`
+is normalized relative to that namespace's acquisition root. A domain-separated
+BLAKE3 hash of length-delimited fields becomes `PackageId("source-package:<hex>")`.
+Moving the whole root preserves identity; moving a package within it changes its
+family. Installed provider identity collisions are rejected during handoff; choosing
+a source namespace never installs native APIs or confers provider privileges.
+
+`PackageSelection { family, version, revision }` is the graph node identity.
+`revision` distinguishes mutable local input from a host-promised immutable revision.
+Local source bytes have a separate content fingerprint, so ordinary source edits
+invalidate compilation without rewriting `Kagari.lock`. Host revisions must identify
+exact supplied content; reusing a revision with different content is an error.
+
+`kagari-package` owns acquisition, strict TOML, workspace discovery, graph/lock
+resolution and immutable source capture. It depends on common/source/syntax and
+never on executable runtimes. The whole-workspace graph records exact selections
+and importer-local alias edges. A selected Program input contains one root, its
+complete dependency closure, declared module trees and source/graph fingerprints.
+An immutable source-owned package environment carries only the normalized families,
+direct aliases and module membership to HIR; HIR does not read manifests or disks.
+Each selected Program gets its own environment, never a union of incompatible roots.
+
+The source root becomes `ModuleIdentity { package, path: [] }`. Module discovery
+follows `mod` declarations, supports `foo.kgr` and `foo/mod.kgr`, and rejects both
+existing for the same declaration. Inline `mod foo { mod bar; }` searches beneath
+`foo/`. Files not declared in the module tree are not compiled. A package closure
+includes every declared dependency and every declared module, including uncalled
+bodies and implementation-only dependencies. Membership adds no import privilege.
+Module cycles retain existing semantics; package dependency cycles are rejected.
+
+Program exports are checked public paths relative to the root package, mapped to
+a canonical declaration and a concrete `(module, function)` executable target.
+For example, `pub use crate::internal::calculate as damage;` records `damage` as
+the callable path and keeps `calculate` as the target declaration. Public child
+paths are traversable; private paths and re-export ambiguity are rejected by HIR.
+Initially export non-generic public functions, including ones without script callers.
+Generic exports require ordinary non-generic script wrappers; no runtime generic
+instantiation is introduced. CLI `main` is a separately recorded private entry
+capability, not a general private-function lookup exception.
+
+Bytecode construction, codec and source-free verification retain and bound the
+export map, validate target slots/canonical identities/concrete call contracts,
+and reject duplicate paths or mismatched targets before publication. Runtime and
+SDK lookup consume verified export evidence rather than scanning private names.
+Reload compares the public-path contract and retains the existing pinned generations.
+No format/ABI version bump is needed for these unpublished development changes.
+
+| Migration boundary | Current consumer and required change | Focused evidence |
+| --- | --- | --- |
+| Source identities | `kagari-source/src/source_database.rs` rejects empty module paths; single-file roots currently share the synthetic `source` family | Empty-root binding, distinct standalone identities and retained source snapshots |
+| Import environments | `kagari-hir/src/imports/{catalog,builder,resolve}.rs` owns global aliases, `crate` truncation and implicit native edges | Importer-specific alias changes, `crate/self/super`, missing direct dependencies and provider isolation |
+| Analysis scope | HIR analysis/declaration/signature queries, `aggregates` and `program.rs` currently follow module import closures | Unused body errors, implementation-only dependencies, unrelated-member isolation and trait conflicts |
+| Visibility | Syntax visibility/parser and `kagari-types/src/visibility.rs` | `pub(crate)` and root/private/re-export access |
+| Executable identity | `kagari-contract/src/{layout,native_import}.rs` reject empty roots; compiler ABI and Program lowering enumerate local functions | Root types, canonical re-export targets and uncalled public exports |
+| Product and execution | Bytecode Program construction/codec/verification, VM function lookup, runtime function handles and SDK typed calls | Source-free exported calls, malformed export rejection, typed signatures and pinned reload |
+| Tooling and invalidation | SDK source sessions/snapshots and CLI selection | Disk/virtual equivalence, workspace selection, dependency-only/alias-only changes and affected-root reporting |
+
+## Implementation ledger
+
+- 2026-10-14: PK00 complete. Reviewed current source/import/analysis/lowering,
+  executable validation, SDK/CLI and existing snapshot/reload tests. Froze the
+  contracts above after the user's namespace decision. Activated only PK00-PK04;
+  SDK renaming, remote acquisition, broader tooling and publication remain queued.
+- PK01 in progress: added the compilation-only `kagari-package` crate with strict
+  bounded manifest parsing, explicit dependency inheritance/path bases, virtual
+  sources, bounded filesystem reads and declared inline/external module discovery.
+  Six input contract tests passed, including disk/virtual equivalence and portable
+  family identity. Scoped all-targets Clippy, formatting, full structural scan and
+  diff checks passed. The structural scan identified a TOML helper import; fixed
+  it with an explicit module-scope import and reran the scan. Workspace discovery/selection
+  remains next; compiler/runtime behavior is not yet changed. Filesystem reads reject
+  canonical symlink escapes and assume host-controlled concurrent mutations; they
+  are not an OS sandbox. Platform symlink fixtures remain in PK01 acceptance.
+- Intermediate compile diagnostic: initial module-discovery code treated optional
+  syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
+  the input-test build passed. No carried build failure from this diagnostic.
+- Validation scope: package input tests cover normalization and module acquisition
+  without VM startup. Later PK03 selects the existing source snapshot and dependency
+  execution/reload owners plus distinct export/source-free cases. Whole-workspace
+  Cargo suites, full feature/backend/platform coverage and CI acceptance are unrun.
 
 ## Acceptance and verification
 

@@ -1,0 +1,11 @@
+//! Compile-time package inputs, manifest normalization and source discovery.
+//!
+//! This crate acquires source descriptions; it never installs or executes code.
+//! Runtime consumers receive checked executable products from the compiler.
+
+pub mod error;
+pub mod filesystem;
+pub mod identity;
+pub mod manifest;
+pub mod modules;
+pub mod path;

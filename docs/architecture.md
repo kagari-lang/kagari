@@ -30,6 +30,7 @@ For source-level data structures and ID lookup, start with the
 | kagari-types | Semantic types, declarations, symbolic defaults, generic checks, numeric/collection/range semantics and offline host schemas |
 | kagari-source | Source documents/revisions, diagnostics, literal grammar, line indices and navigation provenance |
 | kagari-syntax | Lexer, parser, CST and AST views |
+| kagari-package | Compilation-only manifest normalization, portable package identities and virtual/filesystem module discovery; graph and compiler integration are in progress |
 | kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
 | kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
 | kagari-contract | Executable envelopes, checked call/layout/operation contracts, physical lowering and linked verification |

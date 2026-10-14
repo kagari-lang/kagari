@@ -22,6 +22,18 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
+## Source packages and workspaces
+
+[PK00-PK04](package-design.md) are active following the 2026-10-14 implementation
+request. PK00 freezes portable identities, acquisition/analysis input ownership,
+empty roots and host-callable export contracts. PK01 is implementing strict local
+and virtual inputs; workspace discovery, shared locking and staged compiler/SDK/CLI
+integration follow in the same plan. Source distribution and joint compilation,
+one root with multiple exports, and one whole-workspace lock graph are confirmed.
+Each selected Program retains its own exact closure. Independent package binaries,
+multiple executable targets, SDK renaming, broader tooling and publication remain
+outside this initial delivery. The plan owns progress and focused acceptance.
+
 ## Library-owned native collections
 
 [NC01-NC06](native-collections-plan.md) are queued and unstarted.
@@ -83,7 +95,6 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | [Unified host registration](host-registration-plan.md) | SA21 / HR01-HR03 are proposed and unstarted. Unify HostInterface declarations/bindings under NativeModule; ordinary by-value structs use Kagari objects. HR01 bounds legacy live-host migration and records RI conversion/derive dependencies. The queued Ref/RefMut design covers generated paths and disjoint field loans; reference implementation remains outside HR01-HR03. |
 | [Rust interoperability](rust-interop-design.md) | DTO derives, optional schema-backed Serde and retained host-owned opaque objects; reuse existing conversion/root contracts. |
 | [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
-| [Packages and toolchain](package-design.md) | Adopt the listed [Rust/Cargo baseline](package-design.md#adopted-rustcargo-baseline), one-root/multiple-export packages, source distribution and joint compilation. Workspaces share one resolved lock graph; each Program takes its own closure. PK00 owns Kagari identity/input/export contracts; PK01-PK04 own normalization, resolution, staged integration and focused acceptance. Independent package binaries, multiple executable targets, broader tooling and functional releases remain outside this initial scope. Confirmed SDK/CLI naming and the two published `0.0.0-reserved` placeholders remain documented in the plan. |
 | [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 

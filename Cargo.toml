@@ -9,6 +9,7 @@ members = [
     "crates/kagari-cli",
     "crates/kagari-common",
     "crates/kagari-source",
+    "crates/kagari-package",
     "crates/kagari-embed",
     "crates/kagari-hir",
     "crates/kagari-mir",
@@ -34,6 +35,7 @@ kagari-types = { path = "crates/kagari-types" }
 kagari-stdlib = { path = "crates/kagari-stdlib" }
 kagari-common = { path = "crates/kagari-common" }
 kagari-source = { path = "crates/kagari-source" }
+kagari-package = { path = "crates/kagari-package" }
 kagari-embed = { path = "crates/kagari-embed", default-features = false }
 kagari-hir = { path = "crates/kagari-hir" }
 kagari-mir = { path = "crates/kagari-mir" }
