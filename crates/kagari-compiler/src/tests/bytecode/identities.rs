@@ -282,6 +282,7 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
             ..Default::default()
         };
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(1),
             modules: vec![declaration_owner, importer],
         }

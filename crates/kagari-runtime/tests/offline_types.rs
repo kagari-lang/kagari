@@ -320,6 +320,7 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
         functions: vec![],
     };
     let program = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             host_interface: interface.clone(),

@@ -226,8 +226,8 @@ fn codec_rejects_impossible_module_counts_before_element_decoding() {
 #[test]
 fn native_preparation_requires_canonical_semantics_not_independent_valid_payloads() {
     let context = DefinitionContext::new().unwrap();
-    let original = program("fn main() -> i32 { 42 }");
-    let other = program("fn main() -> i32 { 43 }");
+    let original = program("pub fn main() -> i32 { 42 }");
+    let other = program("pub fn main() -> i32 { 43 }");
     let wire = encode_program(&original, &Default::default()).unwrap();
     let bytecode = VerifiedBytecodeProgram::new(
         lower_program_to_bytecode(&original)
@@ -257,6 +257,24 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
     let changed_origin = VerifiedBytecodeProgram::new(changed_origin, &context).unwrap();
     assert!(matches!(
         verify_native_input(&wire, &changed_origin, &Default::default()),
+        Err(NativeInputError::Mismatch)
+    ));
+    let mut changed_exports = common::adopt_bytecode(&context, bytecode.to_unverified());
+    let root = changed_exports.modules[changed_exports.root.index()]
+        .identity
+        .clone();
+    let names = &mut changed_exports
+        .exports
+        .namespaces
+        .get_mut(&root)
+        .unwrap()
+        .functions;
+    let declaration = names.remove("main").unwrap();
+    names.insert("renamed".into(), declaration);
+    let changed_exports = VerifiedBytecodeProgram::new(changed_exports, &context).unwrap();
+    // Identical bodies and declarations do not permit a different public-path contract.
+    assert!(matches!(
+        verify_native_input(&wire, &changed_exports, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
     let mut forged = common::adopt_bytecode(&context, bytecode.to_unverified());

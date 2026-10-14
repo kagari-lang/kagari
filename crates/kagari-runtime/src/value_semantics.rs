@@ -324,6 +324,7 @@ mod tests {
         };
         let program = |extra_variant: bool| {
             let program = BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule {
                     identity: identity.clone(),

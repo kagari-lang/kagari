@@ -26,6 +26,7 @@ fn program(ty: ValueType, mutable: bool) -> DefinitionMetadata<BytecodeProgram> 
     DefinitionMetadata::checked(
         DefinitionContext::new().unwrap().snapshot(),
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::Unit, ValueType::HeapObject, ty],

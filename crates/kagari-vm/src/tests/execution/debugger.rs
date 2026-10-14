@@ -228,6 +228,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
             DefinitionMetadata::checked(
                 DefinitionContext::new().unwrap().snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![verified_module(vec![main], vec![ConstantOperand::I32(1)])],
                 },

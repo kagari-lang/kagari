@@ -91,6 +91,7 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -162,6 +163,7 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls() {
         DefinitionMetadata::checked(
             context.snapshot(),
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![module],
             },
@@ -235,6 +237,7 @@ fn native_declarations_require_exact_installation_without_calls() {
         DefinitionMetadata::checked(
             context.snapshot(),
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule {
                     identity: declaration.identity.clone(),
@@ -330,6 +333,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: reference(index),
                     modules: order
                         .iter()
@@ -423,6 +427,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let private = DefinitionMetadata::checked(
         context.snapshot(),
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 identity: format_module.identity.clone(),

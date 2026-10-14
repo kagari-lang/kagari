@@ -52,6 +52,7 @@ fn program(context: &DefinitionContext) -> BytecodeProgram {
         effects: metadata.effects,
     };
     BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             identity: owner.identity,

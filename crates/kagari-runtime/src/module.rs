@@ -4,6 +4,7 @@ pub(crate) mod constants;
 mod descriptor_index;
 pub(crate) mod descriptors;
 pub mod execution;
+mod exports;
 pub(crate) mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
@@ -37,10 +38,16 @@ use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     instruction::{EnumId, PathId, StructId},
     module::BytecodeModule,
-    program::{BytecodeProgram, ModuleRef, identity, verified::VerifiedBytecodeProgram},
+    program::{
+        BytecodeProgram, ModuleRef, exports::ExportTarget, identity,
+        verified::VerifiedBytecodeProgram,
+    },
 };
 
-use kagari_contract::layout::{EnumLayout, EnumVariantLayout, StructLayout};
+use kagari_contract::{
+    exports::ProgramExports,
+    layout::{EnumLayout, EnumVariantLayout, StructLayout},
+};
 
 use kagari_common::{
     cancellation::CancellationToken,
@@ -126,6 +133,8 @@ pub struct LoadedModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
+    exports: Arc<ProgramExports>,
+    export_targets: Arc<HashMap<DefinitionId, ExportTarget>>,
     root: ModuleRef,
     modules: Arc<[Arc<BytecodeModule>]>,
     definitions: DefinitionTable,
@@ -198,6 +207,8 @@ impl VerifiedProgram {
         Self {
             execution: execution.into(),
             root: program.program().root,
+            exports: Arc::new(program.program().exports.clone()),
+            export_targets: Arc::new(program.export_targets().clone()),
             version: modules.clone(),
             version_definitions: definitions.clone(),
             definitions,
@@ -244,13 +255,27 @@ impl VerifiedProgram {
                 )
                 .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         }
-        let modules = if ids.is_empty() {
-            self.modules.clone()
+        self.exports
+            .visit_definition_ids(
+                &mut |id| {
+                    ids.insert(*id);
+                    Ok(())
+                },
+                &cancel,
+            )
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        let (modules, exports, export_targets) = if ids.is_empty() {
+            (
+                self.modules.clone(),
+                self.exports.clone(),
+                self.export_targets.clone(),
+            )
         } else {
             let remap = context
                 .import(&self.definitions, ids)
                 .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-            self.modules
+            let modules = self
+                .modules
                 .iter()
                 .map(|module| {
                     module
@@ -261,7 +286,21 @@ impl VerifiedProgram {
                         .map(Arc::new)
                 })
                 .collect::<Result<_, _>>()
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+            let exports = self
+                .exports
+                .remap_definitions(&mut DefinitionMapper::new(
+                    &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
+                    &cancel,
+                ))
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+            let export_targets = self
+                .export_targets
+                .iter()
+                .map(|(id, target)| remap.map(*id).map(|id| (id, *target)))
+                .collect::<Result<_, _>>()
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+            (modules, Arc::new(exports), Arc::new(export_targets))
         };
         let definitions = identity::collect(
             &modules.iter().map(Arc::as_ref).collect::<Vec<_>>(),
@@ -270,6 +309,8 @@ impl VerifiedProgram {
         .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         Ok(Self {
             root: self.root,
+            exports,
+            export_targets,
             modules,
             definitions,
             execution: self.execution.clone(),

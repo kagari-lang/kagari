@@ -28,6 +28,7 @@ fn corrupted_collection_root_quarantines_the_runtime() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -66,6 +67,7 @@ fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -145,6 +147,7 @@ fn load_rejects_missing_function_terminator_before_publication() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module],
                 },
@@ -166,6 +169,7 @@ fn artifact_with_loader_fingerprints(context: &DefinitionContext) -> KbcArtifact
     root.dependencies = vec![ModuleRef::new(0)];
     KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(1),
             modules: vec![dependency, root],
         },
@@ -196,6 +200,7 @@ fn reload_publishes_valid_candidate_after_validation() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
@@ -212,6 +217,7 @@ fn reload_publishes_valid_candidate_after_validation() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
@@ -240,6 +246,7 @@ fn reload_rejects_public_abi_changes_before_publication() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
@@ -257,6 +264,7 @@ fn reload_rejects_public_abi_changes_before_publication() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::String)],
                 },
@@ -289,6 +297,7 @@ fn reload_rejects_stale_active_epoch_before_publication() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
@@ -304,6 +313,7 @@ fn reload_rejects_stale_active_epoch_before_publication() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
@@ -322,6 +332,7 @@ fn reload_rejects_stale_active_epoch_before_publication() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
@@ -567,6 +578,7 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
     let context = DefinitionContext::new().unwrap();
     let dependency_v1 = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module_with_public_function_and_constant(
                 BuiltinType::I32,
@@ -579,6 +591,7 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
     .unwrap();
     let dependency_v2 = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module_with_public_function_and_constant(
                 BuiltinType::I32,
@@ -610,6 +623,7 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },
@@ -680,6 +694,7 @@ fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_st
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function_and_constant(
                         BuiltinType::I32,
@@ -715,6 +730,7 @@ fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_st
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function_and_constant(
                         BuiltinType::I32,
@@ -769,6 +785,7 @@ fn failed_reload_does_not_invalidate_interpreter_caches() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_public_function(BuiltinType::I32)],
                 },

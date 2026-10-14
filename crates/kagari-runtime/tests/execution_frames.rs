@@ -59,6 +59,7 @@ fn loaded_with_instructions(
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule {
                         types: vec![ValueType::Unit, ValueType::HeapObject],
@@ -321,6 +322,7 @@ fn ending_a_suspended_session_does_not_count_candidate_frames_as_leaks() {
             DefinitionMetadata::checked(
                 definitions,
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module],
                 },
@@ -393,6 +395,7 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
             DefinitionMetadata::checked(
                 definitions,
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module],
                 },

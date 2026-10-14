@@ -12,7 +12,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_types::callable::CallableImplementation;
+use kagari_types::{callable::CallableImplementation, declaration::NativeDeclaration};
 use std::collections::{BTreeMap, HashSet};
 
 pub const MAX_EXPORT_RECORDS: usize = 65_536;
@@ -181,4 +181,25 @@ fn free_function(
         return Err(DefinitionMappingError::InvalidContract);
     }
     Ok(path)
+}
+
+/// Check the semantic contract of the separate root entry's script body.
+/// The graph validator checks its canonical root `main` identity; the executable
+/// owner checks its physical parameter count. Native declarations never grant this entry.
+pub fn entry_function_matches(
+    id: DefinitionId,
+    items: &[PublicItem],
+    native: &[NativeDeclaration],
+    semantic: &SemanticSlots,
+    definitions: &DefinitionTable,
+) -> bool {
+    let Ok(path) = free_function(id, definitions) else {
+        return false;
+    };
+    semantic.generic.is_none()
+        && semantic.params.is_empty()
+        && !native.iter().any(|record| record.declaration == id)
+        && (!items.iter().any(
+            |item| matches!(item, PublicItem::Function(record) if record.name == path.path[0].name),
+        ) || public_function_matches(id, &path.module, items, semantic, definitions))
 }

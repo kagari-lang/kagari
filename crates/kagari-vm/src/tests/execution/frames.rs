@@ -82,6 +82,7 @@ fn rejects_unverified_bytecode_before_publication() {
             DefinitionMetadata::checked(
                 DefinitionContext::new().unwrap().snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![bytecode],
                 },
@@ -147,6 +148,7 @@ fn rejects_unsupported_bytecode_before_publication() {
                 DefinitionMetadata::checked(
                     DefinitionContext::new().unwrap().snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![bytecode],
                     },
@@ -189,6 +191,7 @@ fn unsupported_dynamic_invocation_is_rejected() {
             DefinitionMetadata::checked(
                 DefinitionContext::new().unwrap().snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![dynamic_call],
                 },
@@ -307,6 +310,7 @@ fn unreachable_instruction_is_a_script_trap() {
             DefinitionMetadata::checked(
                 DefinitionContext::new().unwrap().snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![verified_module(
                         vec![test_function(
@@ -444,6 +448,7 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
             DefinitionMetadata::checked(
                 DefinitionContext::new().unwrap().snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module_with_mutable_slot(7)],
                 },
@@ -502,6 +507,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
             DefinitionMetadata::checked(
                 DefinitionContext::new().unwrap().snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![reloadable_value_module(1)],
                 },
@@ -521,6 +527,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
             DefinitionMetadata::checked(
                 DefinitionContext::new().unwrap().snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![reloadable_value_module(2)],
                 },

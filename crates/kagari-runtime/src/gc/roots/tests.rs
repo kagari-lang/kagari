@@ -134,6 +134,7 @@ fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
         DefinitionMetadata::checked(
             DefinitionContext::new().unwrap().snapshot(),
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
@@ -181,6 +182,7 @@ fn rejected_metadata_replacement_keeps_the_original_program_reachable() {
         DefinitionMetadata::checked(
             DefinitionContext::new().unwrap().snapshot(),
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },

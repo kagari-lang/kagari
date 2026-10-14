@@ -1105,6 +1105,7 @@ pub(crate) fn lower_program_for_comparison(
         .collect::<Result<Vec<_>, _>>()?;
     let mut bytecode = BytecodeProgram {
         root: indices[program.root()],
+        exports: program.exports().clone(),
         modules,
     };
     views::populate(&mut bytecode.modules, program.definitions())?;

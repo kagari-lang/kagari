@@ -227,6 +227,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![Default::default()],
                 },

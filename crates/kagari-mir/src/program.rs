@@ -26,12 +26,11 @@ use kagari_common::{
 };
 use kagari_contract::{
     contracts,
-    exports::{ProgramExports, public_function_matches},
+    exports::{ProgramExports, entry_function_matches, public_function_matches},
     host, types as abi,
     types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_types::{
-    callable::CallableImplementation,
     host_interface::HostInterface,
     language::Protocol,
     ty::{Ty, inheritance, substitution::TypeTransformError},
@@ -639,18 +638,13 @@ pub fn verify_program(
             let function = &owner.functions[binding.function.index()];
             if entry {
                 function.params.is_empty()
-                    && function.semantic.generic.is_none()
-                    && !owner
-                        .abi
-                        .native_declarations
-                        .iter()
-                        .any(|record| record.declaration == id)
-                    && !owner.abi.public_items.iter().any(|item| {
-                        matches!(item,
-                            PublicItem::Function(record) if record.name == "main"
-                                && record.implementation != CallableImplementation::Script
-                        )
-                    })
+                    && entry_function_matches(
+                        id,
+                        &owner.abi.public_items,
+                        &owner.abi.native_declarations,
+                        &function.semantic,
+                        &definitions,
+                    )
             } else {
                 public_function_matches(
                     id,

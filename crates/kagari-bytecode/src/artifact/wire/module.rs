@@ -18,6 +18,7 @@ use kagari_common::{
     },
 };
 use kagari_contract::{
+    exports::wire::ProgramExportsRecord,
     layout::wire::{EnumLayoutRecord, StructLayoutRecord},
     native_import::wire::NativeImportRecord,
     types::wire::{PublicItemRecord, module::TraitContractRecord},
@@ -33,6 +34,7 @@ pub(in crate::artifact) struct BytecodeProgramRecord {
     root: ModuleRef,
     #[serde(deserialize_with = "kagari_contract::decode_limits::modules")]
     modules: Vec<BytecodeModuleRecord>,
+    exports: ProgramExportsRecord,
 }
 
 impl BytecodeProgramRecord {
@@ -46,6 +48,7 @@ impl BytecodeProgramRecord {
         check_cancel(cancel)?;
         Ok(Self {
             root: value.root,
+            exports: ProgramExportsRecord::encode(&value.exports, encoding, cancel)?,
             modules: value
                 .modules
                 .iter()
@@ -64,6 +67,7 @@ impl BytecodeProgramRecord {
         check_cancel(cancel)?;
         Ok(BytecodeProgram {
             root: self.root,
+            exports: self.exports.decode(decoding, cancel)?,
             modules: self
                 .modules
                 .into_iter()

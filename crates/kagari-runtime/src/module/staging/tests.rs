@@ -13,6 +13,7 @@ fn program() -> DefinitionMetadata<BytecodeProgram> {
     DefinitionMetadata::checked(
         DefinitionContext::new().unwrap().snapshot(),
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },

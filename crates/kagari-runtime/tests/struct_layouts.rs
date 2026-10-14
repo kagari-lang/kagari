@@ -49,6 +49,7 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![foreign],
                 },
@@ -167,6 +168,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
             DefinitionMetadata::checked(
                 definitions,
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![bytecode],
                 },
@@ -276,6 +278,7 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![bytecode],
                 },

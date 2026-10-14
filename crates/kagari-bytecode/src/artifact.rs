@@ -4,10 +4,10 @@ use crate::{
     module::{BytecodeDebugMetadata, BytecodeModule, RootSlotLayout},
     native_input::PortableMir,
     program::{
-        BytecodeProgram, identity, verified::VerifiedBytecodeProgram, verify_program,
-        verify_with_suspensions,
+        BytecodeProgram, identity,
+        verified::{ProgramVerification, VerifiedBytecodeProgram},
+        verify_graph, verify_program,
     },
-    suspension::ProgramSuspensions,
     verifier::BytecodeVerificationError,
 };
 use bincode::{DefaultOptions, ErrorKind, Options};
@@ -162,11 +162,11 @@ impl KbcArtifact {
         requirements: &ArtifactCompatibility,
         context: &DefinitionContext,
     ) -> Result<VerifiedArtifact, ArtifactValidationError> {
-        let suspensions = self.validate_with_suspensions(requirements, context)?;
+        let verification = self.validate_execution(requirements, context)?;
         Ok(VerifiedArtifact {
             bytecode: VerifiedBytecodeProgram::from_verified(
                 self.program,
-                suspensions,
+                verification,
                 context.snapshot(),
             )?,
             portable_mir: self.portable_mir,
@@ -263,22 +263,21 @@ impl KbcArtifact {
         requirements: &ArtifactCompatibility,
         context: &DefinitionContext,
     ) -> Result<(), ArtifactValidationError> {
-        self.validate_with_suspensions(requirements, context)
-            .map(|_| ())
+        self.validate_execution(requirements, context).map(|_| ())
     }
 
-    fn validate_with_suspensions(
+    fn validate_execution(
         &self,
         requirements: &ArtifactCompatibility,
         context: &DefinitionContext,
-    ) -> Result<ProgramSuspensions, ArtifactValidationError> {
+    ) -> Result<ProgramVerification, ArtifactValidationError> {
         self.validate_resource_limits(&context.snapshot())?;
         self.validate_header(requirements)?;
         let definitions =
             identity::collect(&self.program.modules.iter().collect::<Vec<_>>(), context)
                 .map_err(ArtifactValidationError::Bytecode)?;
-        let suspensions = verify_with_suspensions(&self.program, &definitions)
-            .map_err(ArtifactValidationError::Bytecode)?;
+        let verification =
+            verify_graph(&self.program, &definitions).map_err(ArtifactValidationError::Bytecode)?;
         if self.header.content_hash != self.compute_content_hash(&definitions)? {
             return Err(ArtifactValidationError::ContentHashMismatch);
         }
@@ -374,7 +373,7 @@ impl KbcArtifact {
         {
             return Err(ArtifactValidationError::TableMismatch);
         }
-        Ok(suspensions)
+        Ok(verification)
     }
 
     pub fn to_bytes(&self, definitions: &DefinitionTable) -> Result<Vec<u8>, ArtifactCodecError> {

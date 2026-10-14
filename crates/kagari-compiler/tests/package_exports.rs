@@ -1,10 +1,15 @@
-//! Public-path evidence survives source-free MIR decoding and identity adoption.
+//! Public-path evidence survives source-free MIR/KBC decoding and identity adoption.
 
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    program::{identity, verify_program as verify_bytecode},
+    verifier::BytecodeVerificationError,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId},
 };
-use kagari_compiler::source::program::lower_program_to_mir;
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{exports::ExportNamespace, types::PublicItem};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
@@ -12,7 +17,6 @@ use kagari_mir::{
     program::{ProgramErrorKind, VerifiedMirProgram, records::MirProgram, verify_program},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn compiled() -> VerifiedMirProgram {
@@ -22,7 +26,7 @@ fn compiled() -> VerifiedMirProgram {
             "exports.kgr",
             r#"
         mod hidden {
-            pub fn calculate(value: i32) -> i32 { value + 1 }
+            pub fn calculate(value: i32) -> i32 { value }
             fn secret() -> i32 { 2 }
             pub fn main() -> i32 { 3 }
         }
@@ -39,7 +43,6 @@ fn compiled() -> VerifiedMirProgram {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(catalog::shared().unwrap());
     let checked = analysis
         .snapshot(source.snapshot(), &Default::default())
         .unwrap()
@@ -116,7 +119,44 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
             .function(root, &format!("{}damage", "again::".repeat(64))),
         None
     );
-    verify_program(editable, &context, &Default::default()).unwrap();
+    let mir = verify_program(editable, &context, &Default::default()).unwrap();
+    let bytecode = lower_program_to_bytecode(&mir).unwrap().into_records();
+    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let fresh = DefinitionContext::new().unwrap();
+    let artifact = KbcArtifact::from_bytes(&bytes)
+        .unwrap()
+        .import_into(&fresh, &Default::default())
+        .unwrap()
+        .into_records();
+    assert_eq!(bytes, artifact.to_bytes(&fresh.snapshot()).unwrap());
+    let verified = artifact
+        .into_verified(&Default::default(), &fresh)
+        .unwrap()
+        .into_bytecode();
+    let program = verified.program();
+    let root = &program.modules[program.root.index()].identity;
+    for (path, name) in [
+        ("damage", "calculate"),
+        ("again::damage", "calculate"),
+        ("api", "api"),
+        ("api::tick", "tick"),
+        ("wrapper", "wrapper"),
+    ] {
+        let id = program.exports.function(root, path).unwrap();
+        let target = verified.export_targets()[&id];
+        let body = &program.modules[target.module.index()].functions[target.function.index()];
+        assert_eq!(body.name, name);
+        assert_eq!(body.identity.as_ref().unwrap().declaration, id);
+        assert!(body.identity.as_ref().unwrap().arguments.is_empty());
+    }
+    assert!(program.exports.function(root, "main").is_none());
+    let entry = verified.export_targets()[&program.exports.entry.unwrap()];
+    assert_eq!(entry.module, program.root);
+    assert_eq!(
+        program.modules[entry.module.index()].functions[entry.function.index()].name,
+        "main"
+    );
 }
 
 #[test]
@@ -124,6 +164,13 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
     let program = compiled();
     let bytes = encode_program(&program, &Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
+    let bytecode = lower_program_to_bytecode(&program)
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    identity::collect(&bytecode.modules.iter().collect::<Vec<_>>(), &context).unwrap();
+    verify_bytecode(&bytecode, &context.snapshot()).unwrap();
     let raw = decode_program(&bytes, &Default::default())
         .unwrap()
         .into_unverified()
@@ -203,6 +250,44 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                 item.return_type = Ty::Builtin(BuiltinType::Bool);
             }
             _ => unreachable!(),
+        }
+        let mut forged_bytecode = bytecode.clone();
+        forged_bytecode.exports = forged.exports.clone();
+        if corruption == 6 {
+            let module = forged_bytecode
+                .modules
+                .iter_mut()
+                .find(|module| module.identity.path == ["hidden"])
+                .unwrap();
+            let item = module
+                .public_items
+                .iter_mut()
+                .find_map(|item| match item {
+                    PublicItem::Function(function) if function.name == "calculate" => {
+                        Some(function)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            item.return_type = Ty::Builtin(BuiltinType::Bool);
+        }
+        let error = verify_bytecode(&forged_bytecode, &context.snapshot()).unwrap_err();
+        if corruption == 6 {
+            // Bytecode's existing semantic-flow verifier detects the signature
+            // mismatch before the final export binding check.
+            assert!(matches!(
+                error,
+                BytecodeVerificationError::InvalidOperation {
+                    reason: "invalid collection access flow",
+                    ..
+                }
+            ));
+        } else {
+            assert_eq!(
+                error,
+                BytecodeVerificationError::InvalidProgramExports,
+                "bytecode corruption {corruption}"
+            );
         }
         assert!(
             matches!(

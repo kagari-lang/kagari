@@ -26,6 +26,10 @@ bincode.workspace = true
 name = "source_programs"
 required-features = ["source"]
 
+[[test]]
+name = "package_exports"
+required-features = ["source"]
+
 [[example]]
 name = "applied_traits"
 required-features = ["source"]

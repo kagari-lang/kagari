@@ -33,6 +33,7 @@ fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule {
                         module_slots: vec![BytecodeModuleSlot {
@@ -432,6 +433,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
             DefinitionMetadata::checked(
                 definitions,
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module],
                 },
@@ -475,6 +477,7 @@ fn candidate_module_state_access_is_limited_to_its_program() {
             DefinitionMetadata::checked(
                 definitions,
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![module],
                 },
@@ -539,6 +542,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
                 DefinitionMetadata::checked(
                     definitions,
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![module],
                     },
@@ -617,6 +621,7 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
                 DefinitionMetadata::checked(
                     definitions,
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![module],
                     },

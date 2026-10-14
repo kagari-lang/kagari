@@ -460,6 +460,7 @@ fn program_rejects_conflicting_host_types_before_linking() {
 
     let base = HostTypeDeclaration::new(&context, "demo.Counter").unwrap();
     let program = |other: HostTypeDeclaration| BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(1),
         modules: vec![
             BytecodeModule {

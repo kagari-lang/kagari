@@ -42,6 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         DefinitionMetadata::checked(
             definitions,
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule {
                     host_interface: expected,
@@ -70,6 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         DefinitionMetadata::checked(
             definitions,
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![module],
             },

@@ -183,6 +183,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     let program = scoped(
         &context,
         &BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 host_interface: HostInterface {

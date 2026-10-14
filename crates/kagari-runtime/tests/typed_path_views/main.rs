@@ -40,6 +40,7 @@ fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },

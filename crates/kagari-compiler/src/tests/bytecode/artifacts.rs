@@ -358,6 +358,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
 
     let path_artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::HostHandle, ValueType::I32],

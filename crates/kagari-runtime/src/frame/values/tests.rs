@@ -30,6 +30,7 @@ fn module() -> (Runtime, LoadedModule) {
             DefinitionMetadata::checked(
                 runtime.host().definitions(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },

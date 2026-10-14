@@ -113,6 +113,7 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },

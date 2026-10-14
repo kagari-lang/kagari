@@ -41,6 +41,7 @@ pub fn module_program(
     DefinitionMetadata::checked(
         definitions,
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![module],
         },

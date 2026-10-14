@@ -75,6 +75,7 @@ fn program() -> DefinitionMetadata<BytecodeProgram> {
         ..Default::default()
     };
     let program = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             types: vec![ValueType::Unit],

@@ -140,6 +140,7 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },
@@ -215,6 +216,7 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -361,6 +363,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -423,6 +426,7 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -510,6 +514,7 @@ fn host_callbacks_observe_replayable_root_inputs() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -591,6 +596,7 @@ fn host_trace_keeps_invocation_order_across_reentry() {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },

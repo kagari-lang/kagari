@@ -30,6 +30,7 @@ fn slot_values(store: &ModuleStore) -> Vec<Value> {
 fn invalid_code_cannot_become_a_shared_verified_program() {
     let context = DefinitionContext::new().unwrap();
     let invalid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(1),
         modules: vec![BytecodeModule::default()],
     };
@@ -46,6 +47,7 @@ fn invalid_code_cannot_become_a_shared_verified_program() {
 fn shared_verification_rejects_in_memory_resource_exhaustion() {
     let context = DefinitionContext::new().unwrap();
     let oversized = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default(); 1_025],
     };
@@ -68,6 +70,7 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         DefinitionMetadata::checked(
             context.snapshot(),
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![BytecodeModule {
                     constants: vec![
@@ -168,6 +171,7 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
             DefinitionMetadata::checked(
                 definitions,
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![replacement],
                 },
@@ -226,6 +230,7 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
                     DefinitionMetadata::checked(
                         context.snapshot(),
                         BytecodeProgram {
+                            exports: Default::default(),
                             root: ModuleRef::new(1),
                             modules: vec![dependency, root],
                         },
@@ -305,6 +310,7 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },
@@ -344,6 +350,7 @@ fn assigns_stable_module_ids_across_epochs() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },
@@ -367,6 +374,7 @@ fn assigns_stable_module_ids_across_epochs() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },
@@ -390,6 +398,7 @@ fn assigns_stable_module_ids_across_epochs() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },
@@ -426,6 +435,7 @@ fn snapshot_during_mutable_instance_borrow_does_not_panic() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },
@@ -459,6 +469,7 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },
@@ -482,6 +493,7 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
                 DefinitionMetadata::checked(
                     context.snapshot(),
                     BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()],
                     },

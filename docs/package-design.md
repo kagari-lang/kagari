@@ -805,7 +805,34 @@ No format/ABI version bump is needed for these unpublished development changes.
   passes. Scoped contract/MIR/compiler library Clippy, the 1143-file structural scan,
   formatting and diff checks pass. These are focused tests, not full backend
   acceptance; bytecode/runtime export consumption and exhaustive CI remain pending.
-- Next: PK03 bytecode export persistence and public host-callable paths, followed by
+- PK03 bytecode export checkpoint: Program facts and canonical artifact bytes now
+  retain the shared export graph. Source-free verification checks public/entry
+  contracts and binds canonical declarations to exact module/function slots. The
+  immutable bytecode seal retains these bindings together with suspension evidence.
+  Runtime normalization remaps graph/binding IDs together while keeping the original
+  Program version; loaded public lookup stays rooted at the Program even through
+  member handles. Hand-authored raw fixtures explicitly expose no paths unless
+  they supply export facts; source compilation carries its checked graph.
+- Export validation uses a minimal source fixture without unrelated stdlib bodies.
+  The compiler tests cover MIR/KBC roundtrips, ID adoption, aliases/cycles and seven
+  malformed-graph/signature cases. The first bytecode fixture incorrectly replaced
+  whole ABI records and lacked its normal identity-collection setup; restrict edits
+  to the intended bytecode fields and prepare identities through their owner. The
+  existing bytecode semantic-flow checker catches signature mismatch before export
+  binding, so that case asserts its precise earlier error. Other malformed graphs
+  retain `InvalidProgramExports` assertions. Both compiler export tests pass.
+  Runtime import/rooted-lookup and retained-generation coverage also passes; compare
+  the old/new constant-pool values rather than expecting their slot instructions to
+  differ. VM execution routes and public-path reload compatibility remain pending.
+- Bytecode checkpoint validation: the native-preparation owner rejects independently
+  valid bytecode whose public alias differs from its portable MIR, in addition to
+  its existing body/origin mismatch cases. The artifact module-count preflight test
+  passes. Contract/MIR/bytecode/compiler/runtime library Clippy and the 1146-file
+  structural scan pass; formatting and diff checks pass. The initial compile error
+  imported `FunctionRef` through a private bytecode import; use its contract owner.
+  No carried compile/test failure; exhaustive backend/features/platform CI is unrun.
+- Next: PK03 VM/SDK public host-callable paths and explicit CLI entry invocation,
+  public-path reload contracts, followed by
   SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
   but SDK and CLI do not yet expose it. Native-provider inputs must contribute their
   own contract fingerprint at compiler handoff. No carried compile/test failure at

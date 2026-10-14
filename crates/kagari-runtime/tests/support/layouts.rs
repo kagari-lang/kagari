@@ -46,6 +46,7 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: Ty, data: Valu
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule {
                         identity,
@@ -128,6 +129,7 @@ pub fn layout(runtime: &mut Runtime, name: &str, fields: &[(&str, Ty, bool)]) ->
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule {
                         structures: vec![StructLayout {
@@ -155,6 +157,7 @@ pub fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -197,6 +200,7 @@ pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> LoadedModule {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule {
                         identity,
@@ -233,6 +237,7 @@ pub fn sequence_owner(runtime: &mut Runtime) -> LoadedModule {
             DefinitionMetadata::checked(
                 context.snapshot(),
                 BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule {
                         identity: declaration.identity.clone(),

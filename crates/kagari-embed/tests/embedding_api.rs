@@ -167,6 +167,7 @@ fn host_path_artifact(
     };
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 native_imports: if instructions.iter().any(|instruction| {

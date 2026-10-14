@@ -51,7 +51,13 @@ discarded for editing or identities are imported into another context. Its porta
 codec retains bounded namespace records and file-local definition references.
 Source-free verification checks reachable graph edges, public concrete script
 leaves and their semantic signatures, and the separate zero-argument root entry.
-Bytecode export persistence and runtime lookup remain under the active package plan.
+Bytecode carries the same graph through canonical encoding and identity traversal.
+Its verifier binds retained declarations to exact module/function slots and keeps
+those bindings with suspension evidence. Runtime import remaps graph and binding IDs
+together without rescanning names, preserving the supplying Program version.
+`LoadedModule::exported_function` resolves only Program-root public paths even on a
+child handle; `entry_function` separately retains the root entry. VM/SDK named-call
+migration and reload comparison of public-path contracts remain in the active plan.
 
 ## Workspace Shape
 

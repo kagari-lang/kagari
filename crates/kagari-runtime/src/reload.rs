@@ -261,6 +261,7 @@ mod epoch_tests {
     #[test]
     fn reload_preflight_rejects_oversized_in_memory_programs() {
         let oversized = BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default(); 1_025],
         };

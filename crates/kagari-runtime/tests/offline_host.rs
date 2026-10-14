@@ -72,6 +72,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
                 scoped(
                     &context,
                     &BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![bytecode.clone()]
                     }
@@ -91,6 +92,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
             scoped(
                 &context,
                 &BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![bytecode.clone()],
                 },
@@ -113,6 +115,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
                 scoped(
                     &context,
                     &BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![mismatch.clone()]
                     }
@@ -124,6 +127,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let program = scoped(
         &context,
         &BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![mismatch],
         },
@@ -180,6 +184,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
             scoped(
                 &context,
                 &BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -192,6 +197,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
             scoped(
                 &context,
                 &BytecodeProgram {
+                    exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
@@ -210,6 +216,7 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
                 scoped(
                     &context,
                     &BytecodeProgram {
+                        exports: Default::default(),
                         root: ModuleRef::new(0),
                         modules: vec![BytecodeModule::default()]
                     }

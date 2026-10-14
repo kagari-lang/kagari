@@ -17,6 +17,7 @@ impl RemapDefinitions for BytecodeProgram {
         mapper.check()?;
         Ok(BytecodeProgram {
             root: self.root,
+            exports: self.exports.remap_definitions(mapper)?,
             modules: map_sequence(&self.modules, |value| (value).remap_definitions(mapper))?,
         })
     }
@@ -32,6 +33,6 @@ impl DefinitionReferences for BytecodeProgram {
         for value0 in &self.modules {
             (value0).visit_definition_ids(visit, cancel)?;
         }
-        Ok(())
+        self.exports.visit_definition_ids(visit, cancel)
     }
 }

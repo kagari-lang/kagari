@@ -44,6 +44,8 @@ mod operation;
 pub enum BytecodeVerificationError {
     #[error("invalid executable module graph")]
     InvalidProgramGraph,
+    #[error("invalid public export graph or callable target")]
+    InvalidProgramExports,
     #[error("invalid struct layouts")]
     InvalidStructLayout,
     #[error("invalid enum layouts")]
@@ -158,6 +160,7 @@ pub enum BytecodeVerificationError {
 impl BytecodeVerificationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidProgramExports => "KG_BYTECODE_INVALID_PROGRAM_EXPORTS",
             Self::InvalidProgramGraph => "KG_BYTECODE_INVALID_PROGRAM_GRAPH",
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
             Self::InvalidEnumLayout => "KG_BYTECODE_INVALID_ENUM_LAYOUT",

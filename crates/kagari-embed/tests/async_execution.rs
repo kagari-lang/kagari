@@ -306,6 +306,7 @@ impl Fixture {
         };
         let artifact = KbcArtifact::from_program(
             BytecodeProgram {
+                exports: Default::default(),
                 root: ModuleRef::new(0),
                 modules: vec![application, foundation],
             },

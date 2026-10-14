@@ -2,7 +2,8 @@ use crate::{
     artifact::{ArtifactFingerprint, DependencyFingerprint},
     instruction::{BytecodeInstruction, CallTarget},
     module::BytecodeModule,
-    suspension::{FlowBudget, ProgramSuspensions},
+    program::verified::ProgramVerification,
+    suspension::FlowBudget,
     trait_bounds, verifier,
     verifier::BytecodeVerificationError,
 };
@@ -10,6 +11,7 @@ use kagari_common::identity::{
     DefinitionKind, mapping::DefinitionMappingError, table::DefinitionTable,
 };
 use kagari_contract::{
+    exports::ProgramExports,
     host, layout,
     types::{InterfaceBridge, PublicItem, verify},
 };
@@ -25,6 +27,7 @@ use std::{
 };
 
 mod construction;
+pub mod exports;
 pub mod identity;
 pub mod verified;
 
@@ -48,6 +51,7 @@ impl ModuleRef {
 pub struct BytecodeProgram {
     pub root: ModuleRef,
     pub modules: Vec<BytecodeModule>,
+    pub exports: ProgramExports,
 }
 
 /// Check a complete executable graph against its retained identity prefix.
@@ -58,13 +62,13 @@ pub fn verify_program(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
-    verify_with_suspensions(program, definitions).map(|_| ())
+    verify_graph(program, definitions).map(|_| ())
 }
 
-pub(crate) fn verify_with_suspensions(
+pub(crate) fn verify_graph(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
-) -> Result<ProgramSuspensions, BytecodeVerificationError> {
+) -> Result<ProgramVerification, BytecodeVerificationError> {
     identity::validate(&program.modules.iter().collect::<Vec<_>>(), definitions)?;
     let mut flow_budget = FlowBudget::default();
     let mut suspensions = Vec::with_capacity(program.modules.len());
@@ -338,7 +342,11 @@ pub(crate) fn verify_with_suspensions(
         return Err(invalid());
     }
     construction::verify(program, definitions)?;
-    Ok(suspensions)
+    let exports = exports::verify(program, definitions)?;
+    Ok(ProgramVerification {
+        suspensions,
+        exports,
+    })
 }
 
 impl BytecodeProgram {

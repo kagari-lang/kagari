@@ -37,6 +37,7 @@ fn typed_path_operands_preflight_before_decoding_registers() {
     };
     let mut artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -68,6 +69,7 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
     let context = DefinitionContext::new().unwrap();
 
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -131,6 +133,7 @@ fn oversized_memory_identity_paths_reject_before_fingerprinting() {
     let context = DefinitionContext::new().unwrap();
 
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -176,6 +179,7 @@ fn oversized_memory_identity_paths_reject_before_fingerprinting() {
 fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
     let context = DefinitionContext::new().unwrap();
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -233,6 +237,7 @@ fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
 fn detached_debug_frame_layout_is_bounded_before_fingerprinting() {
     let context = DefinitionContext::new().unwrap();
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -284,6 +289,7 @@ fn decoder_rejects_forged_header_identity_path_length() {
     let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -337,6 +343,7 @@ fn decoder_rejects_huge_module_count_before_reading_module_data() {
     let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -357,6 +364,7 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
     let context = DefinitionContext::new().unwrap();
 
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -394,6 +402,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
     let context = DefinitionContext::new().unwrap();
 
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -514,6 +523,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
 fn module_count_limit_rejects_memory_and_encoded_artifacts_before_verification() {
     let context = DefinitionContext::new().unwrap();
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -556,6 +566,7 @@ fn declared_section_counts_are_bounded_independently_of_payload_size() {
     let context = DefinitionContext::new().unwrap();
     let mut artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -584,6 +595,7 @@ fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
     let context = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -623,6 +635,7 @@ fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {
     let context = DefinitionContext::new().unwrap();
 
     let valid = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -671,6 +684,7 @@ fn bytecode_cannot_claim_a_different_identity_from_its_header() {
     let context = DefinitionContext::new().unwrap();
     let mut artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -692,6 +706,7 @@ fn legacy_language_semantics_cannot_be_opted_into() {
     let context = DefinitionContext::new().unwrap();
     let mut artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -733,6 +748,7 @@ fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
     let context = DefinitionContext::new().unwrap();
     let mut artifact = KbcArtifact::from_program(
         BytecodeProgram {
+            exports: Default::default(),
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
@@ -766,6 +782,7 @@ fn recomputed_checksum_cannot_hide_dependency_or_verification_metadata_changes()
     let context = DefinitionContext::new().unwrap();
 
     let program = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(1),
         modules: vec![
             BytecodeModule {
@@ -811,6 +828,7 @@ fn recomputed_checksum_cannot_hide_dependency_or_verification_metadata_changes()
 fn portable_mir_is_opaque_but_integrity_and_manifest_bound() {
     let context = DefinitionContext::new().unwrap();
     let program = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
@@ -889,6 +907,7 @@ fn portable_mir_bounds_apply_before_decoding_and_to_combined_envelope_size() {
             .contains("portable MIR byte limit exceeded")
     );
     let program = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };

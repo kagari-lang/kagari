@@ -551,6 +551,7 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     consumer.identity = ModuleIdentity::single_file("interface-consumer.kgr");
     consumer.dependencies = vec![ModuleRef::new(0)];
     let program = BytecodeProgram {
+        exports: Default::default(),
         root: ModuleRef::new(1),
         modules: vec![dependency, consumer],
     };
