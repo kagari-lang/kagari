@@ -1507,6 +1507,61 @@ unpublished format/ABI identifier bump; disposable KBC fixtures join the already
 pending RF06 regeneration batch. Full workspace/feature/backend/platform validation
 remains CI-owned and unrun locally. HR02 and the combined goal remain open.
 
+### HR02/RF05 checkpoint: external policy at ordinary native entry
+
+FunctionDecl now authors the passing/effect policy beside its shared signature.
+The inferred HostCallContext callback adapter binds that declaration through
+ModuleBuilder::bind, exact policy proof, NativeModule installation and ordinary
+NativeImport dispatch. Raw/owned callbacks cannot bind a policy-bearing signature;
+a HostCallContext callback cannot bind an unclassified signature. Function ABI
+lowering preserves that shared policy through source-free execution.
+
+The adapter reuses HostResourceScope, temporary roots, the existing borrow table,
+candidate authority and execution session. It checks candidate arguments/effects,
+starts recording, validates rooted argument types, acquires access, enters the
+callback, validates result/type, polls cancellation, rejects borrow escape and
+checks heap validity. Callback errors keep their provenance; cleanup on errors and
+unwind uses the existing scope. Recorded symbols now identify the canonical module
+and declaration path (including nonzero occurrence); a separately registered
+legacy string label does not become a new execution lookup system. Recording is
+optional and does not change unclassified scalar/flat callbacks.
+
+Focused evidence: runtime/compiler library checks and
+`cargo test -p kagari-vm --test native_boundary host_policy_uses_native_entry_with_rooted_inputs_and_execution_session -- --nocapture`
+passed. The source-free, GC-threshold-one case checks declaration/binding policy
+mismatch, retained String inputs, deterministic time, success/error call traces,
+immutable configuration versus denied candidate services, cancellation precedence,
+and unwind cleanup followed by healthy execution. Initial test compilation
+reported an unsupported zero-argument unit callback spelling and undereferenced
+GC String guard; these were corrected. Its
+first error assertion omitted the existing `host call failed:` prefix and was
+corrected without changing production error semantics. No carried local failure.
+
+`cargo run -p kagari --example host_reentry` passed after migrating its callback
+from register_host_function to one explicit native declaration/bind/install. The
+example reenters the current pinned script root, keeps a scratch Array rooted,
+retains the callback result through collection, observes two script frames and
+releases it after host retention ends. The shared-capability forwarding regression
+and warmed scalar/contiguous-i32 allocation selection passed. The latter measured
+zero allocations/reallocations/deallocations/bytes for 100,000 scalar calls and
+1,000 calls at each bulk length 0/16/16,384. Environment: rustc 1.98.1, Apple M1 Max,
+aarch64-apple-darwin, workspace test profile inheriting dev opt-level 1, default
+features/parallelism/target and already built warmed execution windows; compilation
+and setup excluded. No speed claim or zero-allocation claim for host scopes/DTOs.
+Runtime/compiler library, VM native-boundary and SDK host_reentry example Clippy
+passed; structure (1233 Rust
+files, zero violations), formatting and diff passed.
+
+The policy-bearing function admission gate is removed because its production
+adapter exists. Host TypeDef installation is still gated: live root/type/field/
+path metadata and consumers migrate next; the legacy function/type registration
+entrypoints remain until that finite migration and HR03 retirement. General heap
+admission has not been widened to accept ephemeral external borrow tokens.
+No new unsafe projection or lifetime model was introduced; prior focused Miri
+remains evidence for unaffected loan/projector owners. Exhaustive workspace,
+feature/backend/platform acceptance and pending fixture regeneration remain CI/RF06
+owned. HR02/RF05 and the combined goal remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

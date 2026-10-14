@@ -23,7 +23,7 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     callable::Signature,
-    declaration::{FnDecl, TypeDefKind, native::NativeStorageLayout},
+    declaration::{FnDecl, TypeDefKind, host::HostCallPolicy, native::NativeStorageLayout},
     reference::ReferenceAccess,
     ty::Ty,
 };
@@ -142,6 +142,7 @@ impl Codec {
 /// ```
 #[derive(Clone)]
 pub struct NativeBinding {
+    pub(crate) host_policy: Option<HostCallPolicy>,
     pub(crate) arguments: Box<[Codec]>,
     pub(crate) result: Codec,
     pub(crate) entry: BindingEntry,
@@ -178,6 +179,7 @@ impl NativeBinding {
         + 'static,
     ) -> Self {
         Self {
+            host_policy: None,
             arguments: arguments.into(),
             result,
             entry: BindingEntry::Callback(Arc::new(entry)),
@@ -187,10 +189,12 @@ impl NativeBinding {
         }
     }
 
-    pub(crate) fn check_receiver_access(&self, declaration: &FnDecl) -> NativeResult<()> {
-        if self.receiver_access != declaration.method_policy.receiver_access {
+    pub(crate) fn check_policies(&self, declaration: &FnDecl) -> NativeResult<()> {
+        if self.receiver_access != declaration.method_policy.receiver_access
+            || self.host_policy != declaration.host_policy
+        {
             return Err(RuntimeError::metadata_conflict(
-                "binding differs from declared receiver access",
+                "binding differs from declared native access policy",
             ));
         }
         Ok(())

@@ -5,7 +5,10 @@ use crate::{
     session::ExecutionPhase,
     value::Value,
 };
-use kagari_types::host_interface::HostPassingStyle;
+use kagari_types::{
+    declaration::host::HostCallPolicy,
+    host_interface::{HostFunctionEffects, HostPassingStyle},
+};
 
 impl Runtime {
     pub(super) fn is_candidate_initialization(&self) -> bool {
@@ -41,14 +44,32 @@ impl Runtime {
             )));
         };
         let metadata = function.declaration();
+        self.validate_external_call_effects(
+            &metadata.effects,
+            metadata.params.iter().map(|parameter| parameter.passing),
+        )
+    }
+
+    pub(crate) fn validate_native_host_policy(
+        &self,
+        policy: &HostCallPolicy,
+    ) -> Result<(), RuntimeError> {
+        self.resources().poll_execution()?;
+        self.validate_external_call_effects(&policy.effects, policy.passing.iter().copied())
+    }
+
+    fn validate_external_call_effects(
+        &self,
+        effects: &HostFunctionEffects,
+        passing: impl Iterator<Item = HostPassingStyle>,
+    ) -> Result<(), RuntimeError> {
         if self.is_candidate_initialization()
-            && (metadata.effects.may_call_host_services
-                || metadata.effects.may_mutate_host_state
-                || metadata.effects.may_suspend
-                || metadata
-                    .params
-                    .iter()
-                    .any(|parameter| parameter.passing != HostPassingStyle::Owned))
+            && (effects.may_call_host_services
+                || effects.may_mutate_host_state
+                || effects.may_suspend
+                || passing
+                    .into_iter()
+                    .any(|style| style != HostPassingStyle::Owned))
         {
             return Err(RuntimeError::execution_phase_violation(
                 "external host effects during candidate initialization",

@@ -4,16 +4,25 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     frame::ExecutionFrame,
-    host::{HostError, HostFunction},
+    host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_types::{host_interface::standard_log, scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    declaration::host::HostCallPolicy,
+    host_interface::{HostFunctionEffects, HostPassingStyle},
+    scalar::BuiltinType,
+    ty::Ty,
+};
 use kagari_vm::reentry::reenter;
-use std::sync::{Arc, Mutex};
-use std::{cell::Cell, slice};
+use std::{
+    cell::Cell,
+    slice,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Debug, Default)]
 struct StackDepth(Cell<usize>);
@@ -31,53 +40,66 @@ impl ExecutionObserver for StackDepth {
 }
 
 fn main() {
-    let engine = KagariEngine::default();
-    let context = ExecutionContext::default();
-
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "reentry.kgr",
-                "fn main() -> i32 { print(\"make\"); 42 } fn make() -> [i32] { [7, 8] }",
-            ),
-            Default::default(),
+    let mut builder = KagariEngine::builder().unwrap();
+    let mut module = ModuleBuilder::new("example::reentry", builder.declarations()).unwrap();
+    let notify = module
+        .define_function(
+            FunctionDecl::new("notify")
+                .parameter("message", Type::scalar(BuiltinType::String))
+                .host_policy(HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        may_call_host_services: true,
+                        may_trap: true,
+                        ..Default::default()
+                    },
+                }),
         )
         .unwrap();
-    // Resolve the entry against this artifact before registering the callback.
-    let make = artifact.records().program.modules[artifact.records().program.root.index()]
-        .functions
-        .iter()
-        .find(|f| f.name == "make")
-        .unwrap()
-        .id;
     let retained = Arc::new(Mutex::new(None));
     let output = retained.clone();
-    let mut runtime = engine.runtime(context.clone());
-    runtime
-        .register_host_function(HostFunction::new(
-            standard_log().unwrap(),
-            move |call, _| {
-                let scratch = Value::Array(
-                    call.runtime()
-                        .alloc_array(
-                            &call.runtime().execution_root().unwrap(),
-                            Ty::Builtin(BuiltinType::I32),
-                            vec![Value::I32(3)],
-                        )
-                        .unwrap(),
-                );
-                call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
-                let root = call.runtime().execution_root().unwrap();
-                let value = reenter(call, &root, make, &[]).map_err(|error| {
-                    HostError::new(format!("script callback failed: {error:?}"))
-                })?;
-                call.runtime().collect_garbage().unwrap();
-                assert!(call.runtime().gc().validate_value(&scratch));
-                *output.lock().unwrap() = Some(value);
-                Ok(Value::Unit)
-            },
-        ))
+    module
+        .bind(notify, move |call: &HostCallContext<'_>, _: &[Value]| {
+            let scratch = Value::Array(
+                call.runtime()
+                    .alloc_array(
+                        &call.runtime().execution_root().unwrap(),
+                        Ty::Builtin(BuiltinType::I32),
+                        vec![Value::I32(3)],
+                    )
+                    .unwrap(),
+            );
+            call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
+            let root = call.runtime().execution_root().unwrap();
+            // Resolve only in the current pinned program, never through source
+            // analysis or a newer globally published generation.
+            let make = root
+                .bytecode
+                .functions
+                .iter()
+                .find(|function| function.name == "make")
+                .ok_or_else(|| HostError::new("missing pinned make entry"))?
+                .id;
+            let value = reenter(call, &root, make, &[])
+                .map_err(|error| HostError::new(format!("script callback failed: {error:?}")))?;
+            call.runtime().collect_garbage().unwrap();
+            assert!(call.runtime().gc().validate_value(&scratch));
+            *output.lock().unwrap() = Some(value);
+            Ok(Value::Unit)
+        })
         .unwrap();
+    builder.install(module.finish().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
+    let context = ExecutionContext::default();
+    let artifact = engine.compile_to_artifact(
+        SourceFile::new(
+            "reentry.kgr",
+            "use example::reentry::notify; fn main() -> i32 { notify(\"make\"); 42 } fn make() -> [i32] { [7, 8] }",
+        ),
+        Default::default(),
+    ).unwrap();
+    let mut runtime = engine.runtime(context.clone());
     let program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

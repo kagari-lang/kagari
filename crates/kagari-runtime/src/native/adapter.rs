@@ -28,6 +28,10 @@ pub struct OwnedMethod<S, A>(PhantomData<(S, A)>);
 #[doc(hidden)]
 pub struct Explicit;
 
+/// Inference marker for checked external-ID callbacks using existing host scopes.
+#[doc(hidden)]
+pub struct Host;
+
 /// Inference marker for an existing cold producer with owned arguments/results.
 #[doc(hidden)]
 pub struct Async<A>(PhantomData<A>);

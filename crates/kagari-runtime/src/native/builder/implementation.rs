@@ -444,7 +444,7 @@ impl MethodsBuilder {
             method.method_policy.receiver_access = Some(*access);
         }
         let binding = entry.prepare(&method, &self.catalog)?;
-        binding.check_receiver_access(&method)?;
+        binding.check_policies(&method)?;
         let receiver = method
             .params
             .first()

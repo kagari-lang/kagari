@@ -56,6 +56,7 @@ impl NativeBinding {
             ),
         };
         Self {
+            host_policy: None,
             arguments: arguments.into_boxed_slice(),
             result,
             entry: BindingEntry::Primitive(primitive),

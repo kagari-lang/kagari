@@ -741,7 +741,18 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
         .iter()
         .find(|typed| typed.id == function.id)?;
     Some(FnDecl {
-        host_policy: None,
+        host_policy: module
+            .declarations
+            .target(ResolvedName::Function(function.id))
+            .and_then(|target| match target.id {
+                DeclarationId::Definition(id) => module
+                    .lowered
+                    .registered_native_declarations()
+                    .iter()
+                    .find(|declaration| declaration.declaration == id)
+                    .and_then(|declaration| declaration.function.host_policy.clone()),
+                _ => None,
+            }),
         method_policy: module
             .declarations
             .target(ResolvedName::Function(function.id))

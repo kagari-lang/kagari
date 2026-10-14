@@ -1,4 +1,5 @@
 mod dto;
+mod host_adapter;
 mod scoped_capabilities;
 mod scoped_pairs;
 mod scoped_struct;

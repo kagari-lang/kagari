@@ -16,7 +16,10 @@ use kagari_common::{
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    declaration::{FnDecl, NativeDeclaration, Param, requirement::NativeCallableRequirement},
+    declaration::{
+        FnDecl, NativeDeclaration, Param, host::HostCallPolicy,
+        requirement::NativeCallableRequirement,
+    },
     reference::ReferenceAccess,
     ty::{Constraint, GenericBound, GenericParam, Ty},
 };
@@ -38,6 +41,7 @@ pub(crate) fn normalize_bounds(
 /// Input parameter handles retain their own scopes until the enclosing builder adopts them.
 #[derive(Debug, Clone)]
 pub struct FunctionDecl {
+    pub(crate) host_policy: Option<HostCallPolicy>,
     pub(crate) documentation: Option<String>,
     pub(crate) name: String,
     pub(crate) params: Vec<(String, Type)>,
@@ -47,6 +51,7 @@ pub struct FunctionDecl {
 impl FunctionDecl {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
+            host_policy: None,
             documentation: None,
             name: name.into(),
             params: vec![],
@@ -56,6 +61,13 @@ impl FunctionDecl {
 
     pub fn documentation(mut self, text: impl Into<String>) -> Self {
         self.documentation = Some(text.into());
+        self
+    }
+
+    /// Declare external-ID passing styles and effects beside the ordinary signature.
+    /// Only a checked HostCallContext adapter may bind this policy.
+    pub fn host_policy(mut self, policy: HostCallPolicy) -> Self {
+        self.host_policy = Some(policy);
         self
     }
 
@@ -75,7 +87,7 @@ impl FunctionDecl {
         context: &DefinitionContext,
     ) -> NativeResult<FnDecl> {
         Ok(FnDecl {
-            host_policy: None,
+            host_policy: self.host_policy,
             name: self.name,
             params: self
                 .params

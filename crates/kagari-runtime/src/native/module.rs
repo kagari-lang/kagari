@@ -44,7 +44,7 @@ impl NativeModule {
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
         // Portable policy can be authored and checked independently. Until the
-        // external-ID adapter is migrated, do not advertise executable admission.
+        // external type installation is migrated, keep its execution admission closed.
         if declaration
             .types
             .iter()
@@ -66,15 +66,6 @@ impl NativeModule {
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let mut owned = DeclarationCatalog::declared([&declaration], context)?;
-        if owned
-            .declarations
-            .values()
-            .any(|declaration| declaration.function.host_policy.is_some())
-        {
-            return Err(RuntimeError::metadata_conflict(
-                "external-ID native adapter is not installed",
-            ));
-        }
         owned.copy_rust_types(providers)?;
         let mut entries = BTreeMap::new();
         for declaration in owned.declarations.values() {
