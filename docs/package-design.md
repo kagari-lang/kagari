@@ -9,9 +9,10 @@ hot reload and state replacement.
 
 The user approved following Rust's dependency model as a direction. Manifest names,
 the initial feature subset and version restrictions below are recommendations to
-review, not implemented features or final language specifications. The toolchain
-and Rust distribution names below are confirmed design decisions. Recording them
-does not activate implementation, crate renaming or publication.
+review, not implemented features or final language specifications. Source package
+distribution with joint compilation of the resolved dependency closure, and the
+toolchain and Rust distribution names below, are confirmed design decisions.
+Recording them does not activate implementation, crate renaming or publication.
 
 ## Current foundation
 
@@ -317,11 +318,23 @@ Single-file embedding synthesizes a host-owned package identity and does not req
 a manifest on disk. The default facade should not expose every resolver record.
 An advanced resolved-source-graph input permits virtual sources and offline builds.
 
-Compilation selects the root and complete reachable source closure, validates the
-resolved graph and produces a Program with exact package/module provenance. Package
-artifacts or caches can be implementation details; the first release need not
-promise independently linkable per-package binaries. Cache keys include dependency
-and host-contract fingerprints, not just source paths or package version strings.
+Confirmed initial model: script packages are distributed as source and compiled
+together with their resolved dependencies. Compilation selects the root and complete
+reachable source closure, validates the resolved graph and produces a Program with
+exact package/module provenance. Package boundaries continue to govern namespaces,
+visibility and declared dependencies during joint compilation.
+
+The initial scope excludes independently compiled per-package binary libraries and
+a cross-package binary linker. Generic specialization uses the source closure in
+the existing compilation pipeline; it does not require a separately distributed
+library template format. The resulting complete Program can still be serialized
+and loaded without source under the existing artifact validation contracts.
+
+Internal compilation caches may reuse checked or generated products, but are not a
+package distribution format or a public binary-linking contract. Cache keys include
+dependency and host-contract fingerprints, not just source paths or package version
+strings. Joint compilation does not require recompiling unchanged inputs on every
+build. This decision does not select a local or remote source acquisition mechanism.
 
 Edits may occur anywhere in a loaded dependency graph. Determine all affected
 installed roots through reverse dependencies. First implementation may rebuild
@@ -337,7 +350,10 @@ installations retain their existing pinned selection, not a globally mutated pac
 
 ## Review choices and implementation sequence
 
-Before implementation, confirm the following recommendations:
+Source distribution and joint compilation are confirmed as described in
+[the compilation handoff](#compilation-and-update-handoff). Independent package
+binary distribution/linking is outside the initial scope. Before implementation,
+confirm the remaining recommendations:
 
 1. `Kagari.toml`/`Kagari.lock`, one root target and `src/lib.kgr` by default.
 2. Path and virtual/resolved host packages first; remote distribution later.
